@@ -997,6 +997,179 @@ void main() {
     },
   );
 
+  _testPlayerWidget(
+    'video menus keep the Video tab visible and apply selections',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const MainScreen(),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byIcon(Icons.settings_outlined).first);
+      await _pumpRouteTransition(tester);
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.video_library_outlined).first);
+      await _pumpRouteTransition(tester);
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+            platform: _TestVideoPlayerPlatform(),
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      for (var frame = 0; session.loadStreamCount == 0 && frame < 40; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(session.loadStreamCount, 1);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      final tabs = tester.widget<PageView>(
+        find.byKey(const ValueKey('main-tab-pages')),
+      );
+      final settingsScreen = find.byKey(
+        const PageStorageKey('settings_screen'),
+      );
+      expect(tabs.controller!.page, closeTo(appVideoTabIndex, .01));
+      expect(settingsScreen.hitTestable(), findsNothing);
+
+      Future<void> choose(Finder button, Finder option) async {
+        await tester.tap(button);
+        for (var frame = 0; frame < 30; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(tabs.controller!.page, closeTo(appVideoTabIndex, .01));
+        expect(settingsScreen.hitTestable(), findsNothing);
+        expect(option.hitTestable(), findsOneWidget);
+        await tester.tap(option);
+        await _pumpRouteTransition(tester);
+        await tester.pump();
+      }
+
+      await choose(find.byTooltip(l10n.playbackSpeed), find.text('2.0X'));
+      expect(session.snapshot.value.rate, 2);
+
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await _pumpRouteTransition(tester);
+      expect(navigation.navigationVisible, isFalse);
+      tester.view.physicalSize = const Size(844, 390);
+      await _pumpRouteTransition(tester);
+      await tester.pump();
+      session.emitSnapshot(
+        subtitleTracks: const [
+          VideoPlaybackTrack(id: 'auto', label: 'Automatic'),
+          VideoPlaybackTrack(id: 'subtitle-en', label: 'English'),
+        ],
+      );
+      await tester.pump();
+
+      await choose(
+        find.byTooltip(l10n.videoPlayerAspectRatio),
+        find.text(l10n.videoPlayerFitCover),
+      );
+      expect(
+        (await SharedPreferences.getInstance()).getInt('video_player_v1_fit'),
+        VideoPlayerFit.cover.index,
+      );
+      await tester.tap(find.byTooltip(l10n.playbackSpeed));
+      await _pumpRouteTransition(tester);
+      await tester.binding.handlePopRoute();
+      await _pumpRouteTransition(tester);
+      await tester.pump();
+      expect(navigation.navigationVisible, isFalse);
+      expect(tabs.controller!.page, closeTo(appVideoTabIndex, .01));
+      await choose(find.byTooltip(l10n.playbackSpeed), find.text('1.5X'));
+      expect(session.snapshot.value.rate, 1.5);
+      await choose(
+        find.byKey(const ValueKey('video-subtitle-menu')),
+        find.text('${l10n.videoPlayerSubtitleTrack}: English'),
+      );
+      expect(session.selectedSubtitleTrack, 'subtitle-en');
+      await choose(find.byTooltip(l10n.videoQuality), find.text('720p'));
+      expect(session.lastStreamUrl, 'https://cdn.example/video-720.m3u8');
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final size in [const Size(320, 640), const Size(1200, 800)]) {
+    _testPlayerWidget('video detail title and actions stay ordered at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _videoDetailsLauncher(sessionFactory: () => _FakePlaybackSession()),
+          theme: ThemeData(appBarTheme: const AppBarTheme(centerTitle: true)),
+        ),
+      );
+      await tester.tap(find.text('Open video'));
+      await tester.pumpAndSettle();
+
+      final appBar = find.byType(AppBar);
+      final title = find.descendant(
+        of: appBar,
+        matching: find.text('Fixture video'),
+      );
+      expect(
+        find.descendant(of: appBar, matching: find.byType(BackButton)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(title).dx,
+        closeTo(kToolbarHeight + NavigationToolbar.kMiddleSpacing, 0.1),
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      final actions = <Finder>[
+        for (final label in [
+          l10n.download,
+          l10n.videoFavorites,
+          l10n.videoAddToPlaylist,
+          l10n.videoOpenSource,
+        ])
+          find.descendant(of: appBar, matching: find.byTooltip(label)),
+      ];
+      for (var index = 1; index < actions.length; index++) {
+        expect(
+          tester.getCenter(actions[index - 1]).dx,
+          lessThan(tester.getCenter(actions[index]).dx),
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   _testPlayerWidget('portrait detail tags scroll above shared navigation', (
     tester,
   ) async {
@@ -4328,6 +4501,88 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     },
   );
+
+  for (final view in [
+    (fullscreen: false, width: 400.0, height: 800.0),
+    (fullscreen: false, width: 400.0, height: 225.0),
+    (fullscreen: true, width: 1000.0, height: 600.0),
+  ]) {
+    _testPlayerWidget('long-press speed feedback matches seek feedback '
+        '(fullscreen=${view.fullscreen}, size=${view.width}×${view.height})', (
+      tester,
+    ) async {
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        width: view.width,
+        height: view.height,
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+      if (view.fullscreen) {
+        await tester.tap(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final surfaceRect = tester.getRect(surface);
+      await tester.tapAt(Offset(surfaceRect.center.dx, surfaceRect.top + 10));
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+
+      Finder background(Finder label) =>
+          find.ancestor(of: label, matching: find.byType(DecoratedBox)).first;
+      final seekLabel = find.text('-10s');
+      final seekRect = tester.getRect(background(seekLabel));
+      final seekTextHeight = tester.getSize(seekLabel).height;
+      final seekFontSize =
+          tester.widget<Text>(seekLabel).style?.fontSize ??
+          DefaultTextStyle.of(tester.element(seekLabel)).style.fontSize;
+
+      final longPress = await tester.startGesture(
+        Offset(
+          surfaceRect.center.dx,
+          surfaceRect.top + surfaceRect.height * .25,
+        ),
+        kind: PointerDeviceKind.touch,
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 120));
+      final speedLabel = find.text(l10n.videoPlayerLongPressSpeed);
+      final speedRect = tester.getRect(background(speedLabel));
+      final speedTextHeight = tester.getSize(speedLabel).height;
+      final speedFontSize =
+          tester.widget<Text>(speedLabel).style?.fontSize ??
+          DefaultTextStyle.of(tester.element(speedLabel)).style.fontSize;
+      expect(
+        (speedRect.top - surfaceRect.top) /
+            (surfaceRect.height - speedRect.height),
+        closeTo(
+          (seekRect.top - surfaceRect.top) /
+              (surfaceRect.height - seekRect.height),
+          0.001,
+        ),
+      );
+      expect(
+        speedRect.height - speedTextHeight,
+        closeTo(seekRect.height - seekTextHeight, 0.1),
+      );
+      expect(speedFontSize, seekFontSize);
+      if (view.fullscreen || view.width > view.height) {
+        expect(
+          speedRect.top,
+          greaterThan(tester.getBottomLeft(find.text('Fixture video')).dy),
+        );
+      }
+      await longPress.up();
+      await tester.pump();
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
+    });
+  }
 
   _testPlayerWidget(
     'long press restores the selected rate after cancel and background',

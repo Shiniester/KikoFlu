@@ -64,6 +64,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   late final AnimationController _conditionsReveal;
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
+  final _filterPanelKey = GlobalKey<SearchFilterPanelState>();
   final _conditionsScrollController = ScrollController(); // 用于搜索条件横向滚动
   final List<SearchCondition> _searchConditions = [];
   final SearchScopeSession _scopeSession = SearchScopeSession();
@@ -468,6 +469,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     SortDirection? sortDirection,
     int? subtitleFilter,
   }) async {
+    if (manual) _filterPanelKey.currentState?.collapse();
     final nextSortOption = sortOption ?? _activeSortOption;
     final nextSortDirection = sortDirection ?? _activeSortDirection;
     final nextSubtitleFilter = subtitleFilter ?? _activeSubtitleFilter;
@@ -965,6 +967,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 ? S.of(context).search
                 : S.of(context).searchInScope(_searchScopeLabel(context)),
             style: UiTextStyles.pageTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           leading: widget.showBackButton
               ? IconButton(
@@ -989,12 +993,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           builder: (context, constraints) => Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: _buildSearchInput(),
-              ),
-              Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: SearchFilterPanel(
+                  key: _filterPanelKey,
+                  headerBuilder: (context, filterButton) => Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 4),
+                    child: Row(
+                      children: [
+                        Expanded(child: _buildSearchInput()),
+                        filterButton,
+                        IconButton.filled(
+                          key: const ValueKey('audio-search-submit'),
+                          tooltip: S.of(context).search,
+                          onPressed: () => _performSearch(manual: true),
+                          icon: const Icon(Icons.search),
+                        ),
+                      ],
+                    ),
+                  ),
                   selected: _buildSearchConditionsSection(theme),
                   filters: ConstrainedBox(
                     constraints: BoxConstraints(
@@ -1009,22 +1025,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                         theme,
                         isJapaneseGlobalSearch: isJapaneseGlobalSearch,
                       ),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    key: const ValueKey('audio-search-submit'),
-                    onPressed: () => _performSearch(manual: true),
-                    icon: const Icon(Icons.search),
-                    label: Text(S.of(context).search),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      shape: const StadiumBorder(),
                     ),
                   ),
                 ),
@@ -1394,29 +1394,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           alignment: Alignment.topCenter,
           child: FadeTransition(
             opacity: _conditionsReveal,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(S.of(context).filter, style: theme.textTheme.titleSmall),
-                const SizedBox(height: 6),
-                SizedBox(
-                  height: 40,
-                  child: ListView.builder(
-                    controller: _conditionsScrollController,
-                    scrollDirection: Axis.horizontal,
-                    itemCount: selectedChips.length,
-                    itemBuilder: (context, index) {
-                      return Padding(
-                        padding: EdgeInsets.only(
-                          right: index == selectedChips.length - 1 ? 0 : 6,
-                        ),
-                        child: selectedChips[index],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
+            child: SizedBox(
+              height: MediaQuery.textScalerOf(context).scale(40),
+              child: ListView.builder(
+                controller: _conditionsScrollController,
+                scrollDirection: Axis.horizontal,
+                itemCount: selectedChips.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      right: index == selectedChips.length - 1 ? 0 : 6,
+                    ),
+                    child: selectedChips[index],
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -1580,74 +1572,94 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ),
         const SizedBox(height: 12),
       ],
-      Row(
-        children: [
-          Expanded(
-            child: FloatingToolbarSurface(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: DropdownButtonFormField<AgeRating>(
-                initialValue: _ageRating,
-                decoration: _filterInputDecoration(
-                  theme,
-                  labelText: S.of(context).ageRatingLabel,
-                  prefixIcon: const Icon(Icons.shield),
-                ),
-                items: AgeRating.values
-                    .where(
-                      (rating) =>
-                          supportsAdvancedFilters || rating != AgeRating.r15,
-                    )
-                    .map((rating) {
-                      return DropdownMenuItem(
-                        value: rating,
-                        child: Text(
-                          rating.localizedLabel(context),
-                          style: filterValueStyle,
-                        ),
-                      );
-                    })
-                    .toList(),
-                style: filterValueStyle,
-                menuMaxHeight: 300,
-                onChanged: (value) => _handleFilterChange(
-                  () => _ageRating = value ?? AgeRating.all,
-                ),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final ageRatingFilter = FloatingToolbarSurface(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: DropdownButtonFormField<AgeRating>(
+              initialValue: _ageRating,
+              isExpanded: true,
+              decoration: _filterInputDecoration(
+                theme,
+                labelText: S.of(context).ageRatingLabel,
+                prefixIcon: const Icon(Icons.shield),
               ),
-            ),
-          ),
-          if (supportsAdvancedFilters) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: FloatingToolbarSurface(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: DropdownButtonFormField<SalesRange>(
-                  initialValue: _salesRange,
-                  decoration: _filterInputDecoration(
-                    theme,
-                    labelText: S.of(context).salesLabel,
-                    prefixIcon: const Icon(Icons.trending_up),
-                  ),
-                  items: SalesRange.values.map((range) {
+              items: AgeRating.values
+                  .where(
+                    (rating) =>
+                        supportsAdvancedFilters || rating != AgeRating.r15,
+                  )
+                  .map((rating) {
                     return DropdownMenuItem(
-                      value: range,
+                      value: rating,
                       child: Text(
-                        range == SalesRange.all
-                            ? S.of(context).salesRangeAll
-                            : range.label,
+                        rating.localizedLabel(context),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: filterValueStyle,
                       ),
                     );
-                  }).toList(),
-                  style: filterValueStyle,
-                  menuMaxHeight: 300,
-                  onChanged: (value) => _handleFilterChange(
-                    () => _salesRange = value ?? SalesRange.all,
-                  ),
-                ),
+                  })
+                  .toList(),
+              style: filterValueStyle,
+              menuMaxHeight: 300,
+              onChanged: (value) => _handleFilterChange(
+                () => _ageRating = value ?? AgeRating.all,
               ),
             ),
-          ],
-        ],
+          );
+          final salesRangeFilter = FloatingToolbarSurface(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: DropdownButtonFormField<SalesRange>(
+              initialValue: _salesRange,
+              isExpanded: true,
+              decoration: _filterInputDecoration(
+                theme,
+                labelText: S.of(context).salesLabel,
+                prefixIcon: const Icon(Icons.trending_up),
+              ),
+              items: SalesRange.values.map((range) {
+                return DropdownMenuItem(
+                  value: range,
+                  child: Text(
+                    range == SalesRange.all
+                        ? S.of(context).salesRangeAll
+                        : range.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: filterValueStyle,
+                  ),
+                );
+              }).toList(),
+              style: filterValueStyle,
+              menuMaxHeight: 300,
+              onChanged: (value) => _handleFilterChange(
+                () => _salesRange = value ?? SalesRange.all,
+              ),
+            ),
+          );
+          if (constraints.maxWidth < 600) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ageRatingFilter,
+                if (supportsAdvancedFilters) ...[
+                  const SizedBox(height: 12),
+                  salesRangeFilter,
+                ],
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: ageRatingFilter),
+              if (supportsAdvancedFilters) ...[
+                const SizedBox(width: 12),
+                Expanded(child: salesRangeFilter),
+              ],
+            ],
+          );
+        },
       ),
       const SizedBox(height: 12),
     ];

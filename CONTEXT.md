@@ -165,8 +165,9 @@ measure for a chosen period. It is separate from Related Recommendations.
 _Avoid_: Recommended works
 
 **Works Sort (作品排序)**:
-The field and direction that determine the order of a works feed.
-Age Rating Filter independently determines which works appear in the feed.
+The field and direction that determine the order of an Audio Source's works feed.
+Each Audio Source has a separate Works Sort. Age Rating Filter independently
+determines which works appear in the feed.
 
 **Age Rating Filter (年龄分级筛选)**:
 A restriction of a works feed to the selected Audio Source's age classification.
@@ -244,12 +245,15 @@ candidates to add variety while keeping the same detail visit stable.
 _Avoid_: Random recommendation, refresh result
 
 **Work Resource Tabs (作品资源标签)**:
-The Resources, Audio, Images and Related Recommendations views within a Work
-Details Screen. Related Recommendations is the rightmost tab of online details
-when enabled; Images is present only when the work has resource images. Audio
+The Resources, Audio, Images, Videos, and Related Recommendations views within a
+Work Details Screen. Related Recommendations is the rightmost tab of online
+details when enabled; Images and Videos are present only when the work has
+resource images or videos, respectively. Videos follows Images and precedes
+Related Recommendations. Audio
 contains preferred audio files and their best matching work subtitles, with
 locally generated subtitles available through the same per-audio preview action; Images
-contains the work's resource images, separate from its cover.
+contains the work's resource images, separate from its cover. Videos contains the
+work's resource videos.
 For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapters
 in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
@@ -257,6 +261,10 @@ visit; an unvisited tab starts at the resource section's top.
 Swiping before the tab bar pins preserves its position on screen.
 Pages slide out and in at their own browsing positions throughout the transition.
 _Avoid_: App Tab Bar, Works Home Tab
+
+**Work Resource Video (作品资源视频)**:
+A video file supplied among an audio work's resources, separate from videos
+cataloged by a Video Source.
 
 **Work Image Viewing (作品图片查看)**:
 Viewing a work's resource images or cover with shared reader controls and settings.

@@ -177,8 +177,9 @@ Map<String, dynamic> _pagedResponse(
 Future<ProviderContainer> _createContainer(
   _DeferredApi api, {
   Map<String, Object> preferences = const {},
+  bool resetPreferences = true,
 }) async {
-  SharedPreferences.setMockInitialValues(preferences);
+  if (resetPreferences) SharedPreferences.setMockInitialValues(preferences);
   await StorageService.initCritical(
     preferences: await SharedPreferences.getInstance(),
   );
@@ -632,6 +633,104 @@ void main() {
       expect(container.read(worksProvider).works.map((work) => work.id), [
         -1726738,
       ]);
+    },
+  );
+
+  test(
+    'works sorting is restored per source after provider recreation',
+    () async {
+      final api = _DeferredApi();
+      final container = await _createContainer(api);
+      final notifier = container.read(worksProvider.notifier);
+
+      final initialLoad = notifier.loadWorks(targetPage: 1, supersede: true);
+      final defaultAsmrRequest = api.requests.last;
+      expect(defaultAsmrRequest.source, AudioSource.asmrOne);
+      expect(defaultAsmrRequest.order, SortOrder.release.value);
+      expect(defaultAsmrRequest.sort, SortDirection.desc.value);
+      await _completeRequest(container, defaultAsmrRequest, _response(1));
+      await initialLoad;
+
+      notifier.applyWorksSort(
+        SortOrder.createDate,
+        SortDirection.asc,
+        AgeRating.general,
+      );
+      final sortedAsmrRequest = api.requests.last;
+      expect(sortedAsmrRequest.keyword, r'$age:general$');
+      expect(sortedAsmrRequest.order, SortOrder.createDate.value);
+      expect(sortedAsmrRequest.sort, SortDirection.asc.value);
+      await _completeRequest(container, sortedAsmrRequest, _response(2));
+
+      await container
+          .read(audioSourceProvider.notifier)
+          .select(AudioSource.jpAsmr);
+      final defaultJapaneseRequest = api.requests.last;
+      expect(
+        defaultJapaneseRequest.japaneseAsmrSort,
+        JapaneseAsmrSortOption.date,
+      );
+      expect(defaultJapaneseRequest.japaneseAsmrDirection, SortDirection.desc);
+      await _completeRequest(container, defaultJapaneseRequest, _response(-1));
+
+      notifier.applyJapaneseAsmrSort(
+        JapaneseAsmrSortOption.title,
+        SortDirection.asc,
+        AgeRating.adult,
+      );
+      final sortedJapaneseRequest = api.requests.last;
+      expect(
+        sortedJapaneseRequest.japaneseAsmrSort,
+        JapaneseAsmrSortOption.title,
+      );
+      expect(sortedJapaneseRequest.japaneseAsmrDirection, SortDirection.asc);
+      expect(sortedJapaneseRequest.japaneseAsmrAgeRating, AgeRating.adult);
+      await _completeRequest(container, sortedJapaneseRequest, _response(-2));
+
+      await container
+          .read(audioSourceProvider.notifier)
+          .select(AudioSource.asmrOne);
+      final switchedAsmrRequest = api.requests.last;
+      expect(switchedAsmrRequest.keyword, r'$age:general$');
+      expect(switchedAsmrRequest.order, SortOrder.createDate.value);
+      expect(switchedAsmrRequest.sort, SortDirection.asc.value);
+      await _completeRequest(container, switchedAsmrRequest, _response(3));
+
+      final restartedContainer = await _createContainer(
+        api,
+        resetPreferences: false,
+      );
+      final restartedNotifier = restartedContainer.read(worksProvider.notifier);
+      final firstLoadAfterRestart = restartedNotifier.loadWorks(
+        targetPage: 1,
+        supersede: true,
+      );
+      final firstRequestAfterRestart = api.requests.last;
+      expect(firstRequestAfterRestart.source, AudioSource.asmrOne);
+      expect(firstRequestAfterRestart.order, SortOrder.createDate.value);
+      expect(firstRequestAfterRestart.sort, SortDirection.asc.value);
+      await _completeRequest(
+        restartedContainer,
+        firstRequestAfterRestart,
+        _response(4),
+      );
+      await firstLoadAfterRestart;
+
+      await restartedContainer
+          .read(audioSourceProvider.notifier)
+          .select(AudioSource.jpAsmr);
+      final restoredJapaneseRequest = api.requests.last;
+      expect(restoredJapaneseRequest.source, AudioSource.jpAsmr);
+      expect(
+        restoredJapaneseRequest.japaneseAsmrSort,
+        JapaneseAsmrSortOption.title,
+      );
+      expect(restoredJapaneseRequest.japaneseAsmrDirection, SortDirection.asc);
+      await _completeRequest(
+        restartedContainer,
+        restoredJapaneseRequest,
+        _response(-4),
+      );
     },
   );
 }

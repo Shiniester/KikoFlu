@@ -570,6 +570,8 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.localPath,
     this.initialPosition = Duration.zero,
     this.initialVolume = 100,
+    this.appTabIndex = appVideoTabIndex,
+    this.allowAutomaticFullscreen = true,
     this.sessionFactory,
     this.platform,
     this.onStreamChanged,
@@ -587,6 +589,8 @@ class VideoPlaybackPanel extends StatefulWidget {
   final String? localPath;
   final Duration initialPosition;
   final double initialVolume;
+  final int appTabIndex;
+  final bool allowAutomaticFullscreen;
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform? platform;
   final ValueChanged<VideoStream>? onStreamChanged;
@@ -682,7 +686,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   bool _disposed = false;
   bool _sourceLoaded = false;
   bool? _appTabWasVisible;
-  bool? _appTabWasVideoSelected;
+  bool? _appTabWasSelected;
   int _pauseGeneration = 0;
   int _loadGeneration = 0;
   String? _error;
@@ -919,26 +923,32 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _syncAppTabVisibility();
+    if (widget.appTabIndex == appVideoTabIndex) {
+      _syncAppTabVisibility();
+    }
     final route = ModalRoute.of(context);
-    if (identical(route, _route)) return;
-    _route?.secondaryAnimation?.removeListener(_onRouteTransition);
-    _route = route;
-    _route?.secondaryAnimation?.addListener(_onRouteTransition);
-    if (route != null) {
-      final panel = WeakReference(this);
-      unawaited(
-        route.popped.then<void>((_) {
-          final state = panel.target;
-          if (state == null ||
-              !state.mounted ||
-              !identical(state._route, route)) {
-            return;
-          }
-          state._stopTemporaryRate();
-          unawaited(state._pauseAndSave());
-        }),
-      );
+    if (!identical(route, _route)) {
+      _route?.secondaryAnimation?.removeListener(_onRouteTransition);
+      _route = route;
+      _route?.secondaryAnimation?.addListener(_onRouteTransition);
+      if (route != null) {
+        final panel = WeakReference(this);
+        unawaited(
+          route.popped.then<void>((_) {
+            final state = panel.target;
+            if (state == null ||
+                !state.mounted ||
+                !identical(state._route, route)) {
+              return;
+            }
+            state._stopTemporaryRate();
+            unawaited(state._pauseAndSave());
+          }),
+        );
+      }
+    }
+    if (widget.appTabIndex != appVideoTabIndex) {
+      _syncAppTabVisibility();
     }
   }
 
@@ -1119,7 +1129,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _controlsVisible = true;
       });
       _onSnapshotChanged();
-      if (autoPlayStarted && _settings.autoFullscreen && !_fullscreen) {
+      if (autoPlayStarted &&
+          widget.allowAutomaticFullscreen &&
+          _settings.autoFullscreen &&
+          !_fullscreen) {
         unawaited(_enterFullscreen());
       }
       _scheduleControlsHide();
@@ -1138,30 +1151,48 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   bool get _isAppTabVisible {
     final navigation = AppNavigationScope.maybeOf(context);
-    return navigation == null ||
-        (navigation.selectedIndex == appVideoTabIndex &&
-            (!navigation.rootRouteCoversTabs || _pictureInPictureRouteOpen));
+    if (navigation == null) return true;
+    if (widget.appTabIndex == appVideoTabIndex) {
+      return navigation.selectedIndex == appVideoTabIndex &&
+          (!navigation.rootRouteCoversTabs || _pictureInPictureRouteOpen);
+    }
+
+    if (navigation.selectedIndex != widget.appTabIndex) return false;
+    if (_pictureInPictureRouteOpen || _settingsRouteOpen) return true;
+    final route = _route;
+    if (navigation.rootRouteCoversTabs) {
+      return route != null &&
+          identical(route.navigator, navigation.navigator) &&
+          route.isCurrent;
+    }
+    return !_routeCovered;
   }
 
   void _syncAppTabVisibility() {
-    final videoTabSelected = _isVideoTabSelected;
-    final wasVideoTabSelected = _appTabWasVideoSelected;
+    final tabSelected = _isVideoTabSelected;
+    final wasTabSelected = _appTabWasSelected;
     final visible = _isAppTabVisible;
     final wasVisible = _appTabWasVisible;
-    _appTabWasVideoSelected = videoTabSelected;
+    _appTabWasSelected = tabSelected;
     _appTabWasVisible = visible;
-    if (wasVideoTabSelected == true && !videoTabSelected) {
+    if (wasTabSelected == true && !tabSelected) {
       _stopTemporaryRate();
       unawaited(_pauseAndSave(force: true));
     } else if (wasVisible == true && !visible) {
       _stopTemporaryRate();
       unawaited(_pauseAndSave());
+    } else if (wasTabSelected == false &&
+        tabSelected &&
+        visible &&
+        _route?.isCurrent == true &&
+        !_routeCovered) {
+      unawaited(_reactivateAfterRoute());
     }
   }
 
   bool get _isVideoTabSelected {
     final navigation = AppNavigationScope.maybeOf(context);
-    return navigation == null || navigation.selectedIndex == appVideoTabIndex;
+    return navigation == null || navigation.selectedIndex == widget.appTabIndex;
   }
 
   Future<void> _invoke(Future<void> Function() action) async {
@@ -1606,7 +1637,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       unawaited(
         _invoke(() async {
           await _session.play();
-          if (_settings.autoFullscreen && !_fullscreen) {
+          if (widget.allowAutomaticFullscreen &&
+              _settings.autoFullscreen &&
+              !_fullscreen) {
             unawaited(_enterFullscreen(nativeFullscreen: false));
           }
         }),
@@ -2863,67 +2896,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                     ),
                                   ),
                                 ),
-                            Align(
-                              alignment: Alignment.topCenter,
-                              child: SafeArea(
-                                top: fullscreen,
-                                left: false,
-                                right: false,
-                                bottom: false,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(top: 12),
-                                  child: IgnorePointer(
-                                    child: AnimatedOpacity(
-                                      opacity: temporaryRateDisplay == null
-                                          ? 0
-                                          : 1,
-                                      duration: feedbackDuration,
-                                      child: temporaryRateDisplay == null
-                                          ? const SizedBox.shrink()
-                                          : DecoratedBox(
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withValues(
-                                                  alpha: .68,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                              ),
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 8,
-                                                    ),
-                                                child: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Text(
-                                                      S
-                                                          .of(context)
-                                                          .videoPlayerLongPressSpeed,
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 6),
-                                                    Text(
-                                                      '$temporaryRateDisplay×',
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
                             if (controlsVisible &&
                                 !_controlsLocked &&
                                 !pipMode &&
@@ -2980,33 +2952,68 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   ),
                                 ),
                               ),
-                            if (gestureLabel != null)
-                              Align(
-                                alignment: const Alignment(0, -.4),
-                                child: IgnorePointer(
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: .68,
-                                      ),
-                                      borderRadius: BorderRadius.circular(28),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 20,
-                                        vertical: 12,
-                                      ),
-                                      child: Text(
-                                        gestureLabel,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 18,
+                            Align(
+                              alignment: const Alignment(0, -.4),
+                              child: IgnorePointer(
+                                child: AnimatedOpacity(
+                                  opacity:
+                                      gestureLabel != null ||
+                                          temporaryRateDisplay != null
+                                      ? 1
+                                      : 0,
+                                  duration: temporaryRateDisplay != null
+                                      ? feedbackDuration
+                                      : Duration.zero,
+                                  child:
+                                      gestureLabel == null &&
+                                          temporaryRateDisplay == null
+                                      ? const SizedBox.shrink()
+                                      : DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: .68,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              28,
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 12,
+                                            ),
+                                            child: DefaultTextStyle.merge(
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 18,
+                                              ),
+                                              child: gestureLabel != null
+                                                  ? Text(gestureLabel)
+                                                  : Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Flexible(
+                                                          child: Text(
+                                                            S
+                                                                .of(context)
+                                                                .videoPlayerLongPressSpeed,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 6,
+                                                        ),
+                                                        Text(
+                                                          '$temporaryRateDisplay×',
+                                                        ),
+                                                      ],
+                                                    ),
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                  ),
                                 ),
                               ),
+                            ),
                             if (!hasError && !_controlsLocked)
                               Positioned(
                                 left: 0,
@@ -3740,9 +3747,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                 ),
               ],
             );
+            // Root menus cannot scroll the tab pager when revealing a selection.
             final quickControls = <Widget>[
               if (fullscreen || !compact)
                 PopupMenuButton<VideoPlayerFit>(
+                  useRootNavigator: true,
                   tooltip: s.videoPlayerAspectRatio,
                   padding: EdgeInsets.zero,
                   initialValue: _settings.fit,
@@ -3769,6 +3778,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               if (snapshot.subtitleTracks.isNotEmpty)
                 PopupMenuButton<String>(
                   key: const ValueKey('video-subtitle-menu'),
+                  useRootNavigator: true,
                   tooltip: s.videoPlayerSubtitleTrack,
                   padding: EdgeInsets.zero,
                   initialValue: _selectedSubtitleTrackId,
@@ -3804,6 +3814,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   ),
                 ),
               PopupMenuButton<double>(
+                useRootNavigator: true,
                 tooltip: s.playbackSpeed,
                 padding: EdgeInsets.zero,
                 initialValue: snapshot.rate,
@@ -3830,6 +3841,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               ),
               if (widget.streams.length > 1 && (fullscreen || !compact))
                 PopupMenuButton<int>(
+                  useRootNavigator: true,
                   tooltip: s.videoQuality,
                   padding: EdgeInsets.zero,
                   initialValue: _streamIndex,

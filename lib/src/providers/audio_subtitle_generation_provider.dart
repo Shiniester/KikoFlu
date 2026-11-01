@@ -313,11 +313,12 @@ class AudioSubtitleActions {
     final loader = ref.read(playbackLyricFileTreeLoaderProvider);
     var files = fileList.matches(track) ? fileList.files : <dynamic>[];
     if (files.isEmpty &&
-        canLoadPlayerWorkFileTree(
-          track: track,
-          isLoggedIn: auth.isLoggedIn,
-          host: auth.host,
-        )) {
+        ((track.workId ?? 0) < 0 ||
+            canLoadPlayerWorkFileTree(
+              track: track,
+              isLoggedIn: auth.isLoggedIn,
+              host: auth.host,
+            ))) {
       try {
         files = await loader(track);
       } catch (_) {

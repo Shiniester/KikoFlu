@@ -206,7 +206,15 @@ class AudioSubtitleGenerationService {
       return (status: AudioSubtitleGenerationStatus.skipped, path: null);
     }
     final extension = p.extension(request.track.title).toLowerCase();
-    if (!const {'.mp3', '.wav', '.flac'}.contains(extension)) {
+    if (!const {
+      '.mp3',
+      '.wav',
+      '.flac',
+      '.aac',
+      '.m4a',
+      '.ogg',
+      '.opus',
+    }.contains(extension)) {
       return (status: AudioSubtitleGenerationStatus.unsupported, path: null);
     }
     onProgress(AudioSubtitleGenerationStatus.downloadingAudio, 0);

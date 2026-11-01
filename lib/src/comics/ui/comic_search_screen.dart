@@ -58,6 +58,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   List<ComicSource> _displaySources = [];
   String _displayQuery = '';
   String? _sort;
+  final _filterPanelKey = GlobalKey<SearchFilterPanelState>();
   final _results = <String, List<Comic>>{};
   final _errors = <String, Object>{};
   final _pending = <String>{};
@@ -194,6 +195,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   }
 
   void _submitSearch() {
+    _filterPanelKey.currentState?.collapse();
     _userSearchSubmitted = true;
     _historySessionActive = true;
     if (_showHistory) setState(() => _showHistory = false);
@@ -765,11 +767,36 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       null => null,
       _ => s.libraryDownloads,
     };
+    Widget searchField() => Expanded(
+      child: TextField(
+        key: const ValueKey('comic-search-input'),
+        controller: _query,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _submitSearch(),
+        onChanged: (_) => setState(() {}),
+        decoration: searchInputDecoration(
+          hintText: s.search,
+          suffixIcon: IconButton(
+            tooltip: s.clear,
+            onPressed: _clearSearch,
+            icon: const Icon(Icons.clear),
+          ),
+        ),
+      ),
+    );
+    Widget searchButton() => IconButton(
+      key: const ValueKey('comic-search-submit'),
+      tooltip: s.search,
+      onPressed: _submitSearch,
+      icon: const Icon(Icons.search),
+    );
     final screen = Scaffold(
       appBar: AppBar(
         title: Text(
           widget.category?.title ??
               (scopeLabel == null ? s.search : s.searchInScope(scopeLabel)),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         actions: [
           if (_submitted && widget.category == null)
@@ -783,82 +810,71 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       ),
       body: Column(
         children: [
-          if (widget.category == null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('comic-search-input'),
-                      controller: _query,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => _submitSearch(),
-                      onChanged: (_) => setState(() {}),
-                      decoration: searchInputDecoration(
-                        hintText: s.search,
-                        suffixIcon: IconButton(
-                          tooltip: s.clear,
-                          onPressed: _clearSearch,
-                          icon: const Icon(Icons.clear),
-                        ),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    key: const ValueKey('comic-search-submit'),
-                    tooltip: s.search,
-                    onPressed: _submitSearch,
-                    icon: const Icon(Icons.search),
-                  ),
-                ],
-              ),
-            ),
-          if (widget.libraryTab == null && widget.category == null)
+          if (widget.category == null && widget.libraryTab == null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SearchFilterPanel(
-                selected: Wrap(
-                  spacing: 8,
-                  children: [
-                    SearchConditionChip(
-                      label: [
-                        s.comicSearchSingle,
-                        s.comicSearchGrouped,
-                        s.comicSearchMerged,
-                      ][_mode.index],
-                      avatar: const Icon(Icons.search, size: 16),
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.secondaryContainer,
-                    ),
-                    if (_mode == ComicSearchMode.single && selected != null)
+                key: _filterPanelKey,
+                headerBuilder: (context, filterButton) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [searchField(), filterButton, searchButton()],
+                  ),
+                ),
+                selected: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final colorScheme = Theme.of(context).colorScheme;
+                    final conditions = [
                       SearchConditionChip(
-                        label: selected.name,
-                        avatar: const Icon(Icons.source_outlined, size: 16),
+                        label: [
+                          s.comicSearchSingle,
+                          s.comicSearchGrouped,
+                          s.comicSearchMerged,
+                        ][_mode.index],
+                        avatar: const Icon(Icons.search, size: 16),
                         maxLines: 1,
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.secondaryContainer,
+                        backgroundColor: colorScheme.secondaryContainer,
                       ),
-                    if (_mode != ComicSearchMode.single && _targets.isNotEmpty)
-                      SearchConditionChip(
-                        label: _targets.map((source) => source.name).join(', '),
-                        avatar: const Icon(Icons.source_outlined, size: 16),
-                        maxLines: 1,
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.secondaryContainer,
+                      if (_mode == ComicSearchMode.single && selected != null)
+                        SearchConditionChip(
+                          label: selected.name,
+                          avatar: const Icon(Icons.source_outlined, size: 16),
+                          maxLines: 1,
+                          backgroundColor: colorScheme.secondaryContainer,
+                        ),
+                      if (_mode != ComicSearchMode.single &&
+                          _targets.isNotEmpty)
+                        SearchConditionChip(
+                          label: _targets
+                              .map((source) => source.name)
+                              .join(', '),
+                          avatar: const Icon(Icons.source_outlined, size: 16),
+                          maxLines: 1,
+                          backgroundColor: colorScheme.secondaryContainer,
+                        ),
+                      if (_sort != null)
+                        SearchConditionChip(
+                          label: _sortLabel(_sort!),
+                          avatar: const Icon(Icons.sort, size: 16),
+                          maxLines: 1,
+                          backgroundColor: colorScheme.secondaryContainer,
+                        ),
+                    ];
+                    return SizedBox(
+                      height: MediaQuery.textScalerOf(context).scale(40),
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: conditions.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth,
+                          ),
+                          child: conditions[index],
+                        ),
                       ),
-                    if (_sort != null)
-                      SearchConditionChip(
-                        label: _sortLabel(_sort!),
-                        avatar: const Icon(Icons.sort, size: 16),
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.secondaryContainer,
-                      ),
-                  ],
+                    );
+                  },
                 ),
                 filters: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -970,6 +986,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                   ],
                 ),
               ),
+            ),
+          if (widget.category == null && widget.libraryTab != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(children: [searchField(), searchButton()]),
             ),
           if (_pending.isNotEmpty || _pageLoading) ...[
             if (_hasVisibleResults)

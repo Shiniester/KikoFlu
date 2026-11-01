@@ -106,6 +106,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
 
   final TextEditingController _query = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final _filterPanelKey = GlobalKey<SearchFilterPanelState>();
   final List<VideoLink> _filters = [];
   VideoSearchResults? _results;
   String _resultsQuery = '';
@@ -280,6 +281,11 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     }
   }
 
+  void _submitSearch(String value) {
+    _filterPanelKey.currentState?.collapse();
+    unawaited(_runSearch(value));
+  }
+
   Map<String, Object?> _historyPayload(String query, List<VideoLink> filters) =>
       {
         'keyword': query,
@@ -351,7 +357,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _searchAfterFilterChange();
   }
 
-  Widget _filterControls(S s) {
+  Widget _filterControls(S s, {required double maxFilterHeight}) {
     final loadFilters = widget.loadFilters;
     if (loadFilters == null) return const SizedBox.shrink();
     final colorScheme = Theme.of(context).colorScheme;
@@ -361,12 +367,15 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             padding: const EdgeInsets.only(bottom: 4),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 0,
-                  children: [
-                    for (final filter in _filters)
-                      ConstrainedBox(
+                return SizedBox(
+                  height: MediaQuery.textScalerOf(context).scale(40),
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _filters.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final filter = _filters[index];
+                      return ConstrainedBox(
                         constraints: BoxConstraints(
                           maxWidth: constraints.maxWidth,
                         ),
@@ -390,8 +399,9 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                      );
+                    },
+                  ),
                 );
               },
             ),
@@ -399,26 +409,69 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: SearchFilterPanel(
-        key: const ValueKey('video-search-filter-panel'),
+        key: _filterPanelKey,
+        headerBuilder: (context, filterButton) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: _buildSearchInputRow(s, filterButton: filterButton),
+        ),
         selected: selected,
-        filters: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            for (final kind in VideoSearchFilterKind.values)
-              OutlinedButton.icon(
-                key: ValueKey('video-filter-${kind.name}'),
-                onPressed: () => _openFilterPicker(kind),
-                icon: Icon(_filterIcon(kind), size: 18),
-                label: Text(
-                  _filterTitle(kind, s),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
+        filters: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxFilterHeight),
+          child: SingleChildScrollView(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final kind in VideoSearchFilterKind.values)
+                  OutlinedButton.icon(
+                    key: ValueKey('video-filter-${kind.name}'),
+                    onPressed: () => _openFilterPicker(kind),
+                    icon: Icon(_filterIcon(kind), size: 18),
+                    label: Text(
+                      _filterTitle(kind, s),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSearchInputRow(S s, {Widget? filterButton}) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const ValueKey('video-search-input'),
+            controller: _query,
+            autofocus: widget.initialQuery == null,
+            textInputAction: TextInputAction.search,
+            onSubmitted: _submitSearch,
+            onChanged: (_) => setState(() {}),
+            decoration: searchInputDecoration(
+              hintText: s.videoSearchHint,
+              suffixIcon: IconButton(
+                tooltip: s.clear,
+                onPressed: _query.text.isEmpty && _filters.isEmpty
+                    ? null
+                    : _clearInput,
+                icon: const Icon(Icons.clear),
+              ),
+            ),
+          ),
+        ),
+        if (filterButton != null) filterButton,
+        IconButton(
+          key: const ValueKey('video-search-submit'),
+          tooltip: s.search,
+          onPressed: () => _submitSearch(_query.text),
+          icon: const Icon(Icons.search),
+        ),
+      ],
     );
   }
 
@@ -741,7 +794,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final layout = ref.watch(videoBrowseLayoutProvider);
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           if (_results != null || _loading)
             IconButton(
@@ -766,42 +819,23 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                 maxHeight: constraints.maxHeight * .6,
               ),
               child: SingleChildScrollView(
+                key: const ValueKey('video-search-top-controls'),
                 child: Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              key: const ValueKey('video-search-input'),
-                              controller: _query,
-                              autofocus: widget.initialQuery == null,
-                              textInputAction: TextInputAction.search,
-                              onSubmitted: _runSearch,
-                              onChanged: (_) => setState(() {}),
-                              decoration: searchInputDecoration(
-                                hintText: s.videoSearchHint,
-                                suffixIcon: IconButton(
-                                  tooltip: s.clear,
-                                  onPressed:
-                                      _query.text.isEmpty && _filters.isEmpty
-                                      ? null
-                                      : _clearInput,
-                                  icon: const Icon(Icons.clear),
-                                ),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: s.search,
-                            onPressed: () => unawaited(_runSearch(_query.text)),
-                            icon: const Icon(Icons.search),
-                          ),
-                        ],
+                    if (widget.loadFilters == null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                        child: _buildSearchInputRow(s),
+                      )
+                    else
+                      _filterControls(
+                        s,
+                        maxFilterHeight:
+                            constraints.maxHeight *
+                            (MediaQuery.viewInsetsOf(context).bottom > 0
+                                ? .15
+                                : .34),
                       ),
-                    ),
-                    _filterControls(s),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.all(12),

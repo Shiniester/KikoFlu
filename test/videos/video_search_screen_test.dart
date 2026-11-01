@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
+import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +44,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-filter-toggle')), findsNothing);
 
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
@@ -1010,6 +1013,10 @@ void main() {
   testWidgets('global search combines a keyword with selected filters', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     final submitted = <({String query, List<String> filterUrls})>[];
     const result = VideoItem(
@@ -1033,6 +1040,7 @@ void main() {
           browsePage: (url) async =>
               VideoCatalogPage(title: 'Results', url: url),
         ),
+        textScale: 1.3,
       ),
     );
     await tester.pumpAndSettle();
@@ -1061,6 +1069,7 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.search));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('video-filter-genre')), findsNothing);
 
     expect(submitted, hasLength(1));
     expect(submitted.last.query, 'live keyword');
@@ -1071,6 +1080,7 @@ void main() {
     expect(find.text('Filtered result'), findsOneWidget);
 
     await _chooseFilter(tester, VideoSearchFilterKind.studio, 'Studio filter');
+    expect(find.byKey(const ValueKey('video-filter-genre')), findsOneWidget);
     expect(submitted, hasLength(2));
     expect(submitted.last.query, 'live keyword');
     expect(submitted.last.filterUrls, [
@@ -1079,16 +1089,37 @@ void main() {
       _filterUrl(VideoSearchFilterKind.studio),
     ]);
 
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(
-          ValueKey(
-            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.studio)}',
-          ),
-        ),
-        matching: find.byIcon(Icons.close),
+    final selectedFiltersRow = find.descendant(
+      of: find.byType(SearchFilterPanel),
+      matching: find.byType(ListView),
+    );
+    expect(selectedFiltersRow, findsOneWidget);
+    final studioFilter = find.byKey(
+      ValueKey(
+        'selected-video-filter-${_filterUrl(VideoSearchFilterKind.studio)}',
       ),
     );
+    final removeStudio = find.descendant(
+      of: studioFilter,
+      matching: find.byIcon(Icons.close),
+    );
+    for (
+      var attempt = 0;
+      attempt < 3 && removeStudio.hitTestable().evaluate().isEmpty;
+      attempt++
+    ) {
+      final rowBounds = tester.getRect(selectedFiltersRow);
+      await tester.dragFrom(
+        Offset(rowBounds.right - 8, rowBounds.center.dy),
+        Offset(-rowBounds.width * .75, 0),
+        kind: PointerDeviceKind.mouse,
+        buttons: kPrimaryButton,
+      );
+      await tester.pumpAndSettle();
+    }
+    expect(studioFilter.hitTestable(), findsOneWidget);
+    expect(removeStudio.hitTestable(), findsOneWidget);
+    await tester.tap(removeStudio);
     await tester.pumpAndSettle();
     expect(submitted, hasLength(3));
     expect(submitted.last.query, 'live keyword');
@@ -1226,6 +1257,70 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Updated result 0'), findsOneWidget);
   });
+
+  testWidgets(
+    'video search retry stays reachable with expanded filters and keyboard in landscape',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      var attempts = 0;
+      const result = VideoItem(
+        id: 'recovered',
+        title: 'Recovered result',
+        pageUrl: 'https://missav.ai/recovered',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Video search',
+            initialQuery: 'actor',
+            search: (_, _, _) async {
+              attempts++;
+              if (attempts == 2) throw StateError('temporary failure');
+              return const VideoSearchResults.collection([result]);
+            },
+            loadFilters: (kind, _) async => _filterPage(kind),
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+          ),
+          textScale: 1.3,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(attempts, 1);
+
+      await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
+      expect(attempts, 2);
+      expect(find.byKey(const ValueKey('video-filter-genre')), findsOneWidget);
+
+      tester.view.physicalSize = const Size(800, 360);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsOneWidget);
+      final retry = find.text(l10n.retry);
+      await tester.scrollUntilVisible(
+        retry,
+        40,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('video-search-top-controls')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+
+      expect(attempts, 3);
+      expect(find.text('Recovered result'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('filter picker retries a failed directory load', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -1482,24 +1577,12 @@ Future<void> _expandFilterPanel(WidgetTester tester) async {
   if (find.byKey(const ValueKey('video-filter-genre')).evaluate().isNotEmpty) {
     return;
   }
-  final l10n = await S.delegate.load(const Locale('en'));
-  await tester.tap(
-    find.descendant(
-      of: find.byKey(const ValueKey('video-search-filter-panel')),
-      matching: find.text(l10n.filter),
-    ),
-  );
+  await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
   await tester.pump();
 }
 
 Future<void> _toggleFilterPanel(WidgetTester tester) async {
-  final l10n = await S.delegate.load(const Locale('en'));
-  await tester.tap(
-    find.descendant(
-      of: find.byKey(const ValueKey('video-search-filter-panel')),
-      matching: find.text(l10n.filter),
-    ),
-  );
+  await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
   await tester.pump();
 }
 

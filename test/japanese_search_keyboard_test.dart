@@ -18,7 +18,6 @@ import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 
 class _JapaneseSourceNotifier extends AudioSourceNotifier {
   _JapaneseSourceNotifier() {
@@ -144,10 +143,7 @@ Future<void> _pumpSearchScreen(
 
 Future<void> _expandFiltersAndSelectTag(WidgetTester tester) async {
   final l10n = await S.delegate.load(const Locale('zh'));
-  final expandButton = find.descendant(
-    of: find.byType(SearchFilterPanel),
-    matching: find.byType(TextButton),
-  );
+  final expandButton = find.byKey(const ValueKey('search-filter-toggle'));
   await tester.tap(expandButton);
   await tester.pumpAndSettle();
   await tester.tap(find.text(l10n.searchTypeTag));
@@ -199,6 +195,8 @@ void main() {
       api.searchCalls.single.conditions.single.sourcePath,
       '/tag/%e8%80%b3%e3%81%8b%e3%81%8d/',
     );
+    expect(find.byIcon(Icons.expand_less), findsNothing);
+    expect(find.byIcon(Icons.tune), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

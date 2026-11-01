@@ -313,6 +313,11 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
+      - name: Test audio decoder
+        env:
+          LIBMPV_LIBRARY_PATH: libmpv.so
+        run: flutter test --no-pub test/mpv_audio_decoder_test.dart
+
       - name: Build Linux Release
         run: flutter build linux --release
 
@@ -351,6 +356,11 @@ jobs:
 
       - name: Get Dependencies
         run: flutter pub get
+
+      - name: Test audio decoder
+        env:
+          LIBMPV_LIBRARY_PATH: libmpv.so
+        run: flutter test --no-pub test/mpv_audio_decoder_test.dart
 
       - name: Build Linux ARM64 Release
         env:

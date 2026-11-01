@@ -17,7 +17,6 @@ import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -81,6 +80,7 @@ Future<void> _pumpSearch(
   WidgetTester tester,
   _AudioSearchApi api, {
   SearchScreen screen = const SearchScreen(),
+  double textScale = 1,
 }) async {
   final preferences = await SharedPreferences.getInstance();
   await StorageService.initCritical(preferences: preferences);
@@ -96,6 +96,12 @@ Future<void> _pumpSearch(
         locale: const Locale('en'),
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: screen,
       ),
     ),
@@ -231,10 +237,11 @@ void main() {
       final api = _AudioSearchApi();
       await _pumpSearch(tester, api);
       final l10n = await S.delegate.load(const Locale('en'));
-      final filterButton = find.descendant(
-        of: find.byType(SearchFilterPanel),
-        matching: find.byType(TextButton),
-      );
+      final filterButton = find.byKey(const ValueKey('search-filter-toggle'));
+
+      await tester.enterText(find.byType(TextField).first, 'age filter');
+      await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+      await tester.pumpAndSettle();
 
       await tester.tap(filterButton);
       await tester.pumpAndSettle();
@@ -245,8 +252,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l10n.ageRatingGeneral).last);
       await tester.pumpAndSettle();
+      expect(ageRating, findsOneWidget);
 
-      await tester.tap(filterButton);
+      await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
       await tester.pumpAndSettle();
       expect(
         find.text('${l10n.ageRatingLabel}: ${l10n.ageRatingGeneral}'),
@@ -256,6 +264,32 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final width in [320.0, 840.0]) {
+    testWidgets(
+      'audio search header fits at $width with keyboard and large text',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        addTearDown(tester.view.reset);
+
+        await _pumpSearch(tester, _AudioSearchApi(), textScale: 1.6);
+        await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('audio-search-submit')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('search-filter-toggle')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('history restores sorting and stays isolated by audio source', (
     tester,

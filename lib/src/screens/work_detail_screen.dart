@@ -916,6 +916,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
+          centerTitle: false,
           systemOverlayStyle: systemOverlayStyle,
           // 作品编号作为标题,支持长按复制
           title: GestureDetector(

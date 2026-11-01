@@ -5,12 +5,21 @@ import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.da
 import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
 
-Widget _app(Widget child) => MaterialApp(
+Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
   locale: const Locale('en'),
   localizationsDelegates: S.localizationsDelegates,
   supportedLocales: S.supportedLocales,
+  builder: (context, child) => MediaQuery(
+    data: MediaQuery.of(
+      context,
+    ).copyWith(textScaler: TextScaler.linear(textScale)),
+    child: child!,
+  ),
   home: Scaffold(body: SingleChildScrollView(child: child)),
 );
+
+Widget _header(BuildContext context, Widget filterButton) =>
+    Row(children: [const Spacer(), filterButton]);
 
 void main() {
   testWidgets('selected filters remain visible when controls collapse', (
@@ -19,6 +28,7 @@ void main() {
     await tester.pumpWidget(
       _app(
         const SearchFilterPanel(
+          headerBuilder: _header,
           selected: Text('Selected condition'),
           filters: Text('Filter options'),
         ),
@@ -27,16 +37,16 @@ void main() {
 
     expect(find.text('Selected condition'), findsOneWidget);
     expect(find.text('Filter options'), findsNothing);
-    await tester.tap(find.text('Filter'));
+    await tester.tap(find.byTooltip('Filter'));
     await tester.pump();
     expect(find.text('Filter options'), findsOneWidget);
-    await tester.tap(find.text('Filter'));
+    await tester.tap(find.byTooltip('Filter'));
     await tester.pump();
     expect(find.text('Filter options'), findsNothing);
     expect(find.text('Selected condition'), findsOneWidget);
   });
 
-  for (final width in [320.0, 1024.0]) {
+  for (final width in [320.0, 840.0]) {
     testWidgets('filter panel fits a $width logical-pixel window', (
       tester,
     ) async {
@@ -47,6 +57,7 @@ void main() {
       await tester.pumpWidget(
         _app(
           SearchFilterPanel(
+            headerBuilder: _header,
             selected: const Wrap(children: [Chip(label: Text('Selected'))]),
             filters: Wrap(
               spacing: 8,
@@ -56,9 +67,10 @@ void main() {
               ],
             ),
           ),
+          textScale: 1.6,
         ),
       );
-      await tester.tap(find.text('Filter'));
+      await tester.tap(find.byTooltip('Filter'));
       await tester.pump();
       expect(tester.takeException(), isNull);
     });

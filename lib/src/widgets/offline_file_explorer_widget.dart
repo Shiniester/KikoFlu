@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/work.dart';
+import '../models/download_task.dart';
 import '../services/download_path_service.dart';
 import '../services/download_service.dart';
 import '../services/log_service.dart';
@@ -15,7 +16,6 @@ import '../services/audio_playback_plan_builder.dart';
 import '../services/file_preview_resolver.dart';
 import '../services/file_size_resolver.dart';
 import '../services/audio_file_url_resolver.dart';
-import '../services/video_file_opener.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/file_name_translation_service.dart';
@@ -24,6 +24,7 @@ import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../providers/audio_provider.dart';
 import '../providers/audio_subtitle_generation_provider.dart';
+import '../providers/download_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
@@ -37,12 +38,13 @@ import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
+import 'app_bottom_dock_transition.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
-import 'video_open_failure_dialog.dart';
 import 'responsive_dialog.dart';
 import '../../l10n/app_localizations.dart';
+import '../videos/ui/work_video_playback_screen.dart';
 
 final _log = LogService.instance;
 
@@ -111,7 +113,6 @@ class _OfflineFileExplorerWidgetState
     resolveCachedAudioPath: (_) async => null,
   );
 
-  final VideoFileOpener _videoFileOpener = VideoFileOpener();
   final SubtitleMatchLoader _subtitleMatchLoader = const SubtitleMatchLoader();
   final FileExplorerTapResolver _tapResolver = const FileExplorerTapResolver(
     videoBeforeAudio: false,
@@ -658,7 +659,7 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  Future<void> _playVideoWithSystemPlayer(dynamic videoFile) async {
+  Future<void> _playVideo(dynamic videoFile, String parentPath) async {
     final l10n = S.of(context);
 
     final targetResult = await _previewResolver.resolveOfflineVideoTarget(
@@ -673,10 +674,42 @@ class _OfflineFileExplorerWidgetState
     switch (targetResult.status) {
       case PreviewVideoTargetStatus.ready:
         final target = targetResult.requireTarget;
-        final result = await _videoFileOpener.open(target.source);
-        if (!mounted) return;
-
-        _handleLocalVideoOpenResult(result, fallbackPath: target.localPath);
+        final title = FileTreeUtils.titleOf(
+          videoFile,
+          defaultValue: l10n.unknown,
+        );
+        final downloadTask = ref
+            .read(downloadServiceProvider)
+            .taskById(
+              DownloadTask.createId(
+                workId: widget.work.id,
+                hash: FileTreeUtils.property(videoFile, 'hash')?.toString(),
+                fileName: FileTreeUtils.localRelativePathOf(
+                  videoFile,
+                  parentPath,
+                ),
+              ),
+            );
+        final sourceIdentity = workVideoSourceIdentity(
+          workId: widget.work.id,
+          localPath: target.localPath,
+          downloadUrl: downloadTask?.status == DownloadStatus.completed
+              ? downloadTask?.downloadUrl
+              : null,
+        );
+        await pushBottomDockRoute(
+          context,
+          builder: (_) => WorkVideoPlaybackScreen(
+            videoId: workVideoPlaybackId(
+              sourceIdentity: sourceIdentity,
+              workId: widget.work.id,
+              fileIdentity: FileTreeUtils.itemPath(parentPath, videoFile),
+            ),
+            fileName: title,
+            folderPath: parentPath,
+            localPath: target.localPath,
+          ),
+        );
         return;
       case PreviewVideoTargetStatus.missingId:
         SnackBarUtil.showError(context, l10n.cannotPlayVideoMissingId);
@@ -688,36 +721,6 @@ class _OfflineFileExplorerWidgetState
         SnackBarUtil.showError(context, l10n.videoFileNotExist);
         return;
       case PreviewVideoTargetStatus.missingParams:
-        return;
-    }
-  }
-
-  void _handleLocalVideoOpenResult(
-    VideoOpenResult result, {
-    required String? fallbackPath,
-  }) {
-    final l10n = S.of(context);
-
-    switch (result.type) {
-      case VideoOpenResultType.success:
-        return;
-      case VideoOpenResultType.localOpenFailed:
-        showDialog(
-          context: context,
-          builder: (context) => VideoOpenFailureDialog.local(
-            errorMessage: result.message ?? '',
-            filePath: result.path ?? fallbackPath ?? '',
-          ),
-        );
-        return;
-      case VideoOpenResultType.localOpenError:
-        SnackBarUtil.showError(
-          context,
-          l10n.openVideoFileError(result.message ?? ''),
-        );
-        return;
-      case VideoOpenResultType.remoteCannotLaunch:
-      case VideoOpenResultType.remoteOpenError:
         return;
     }
   }
@@ -753,6 +756,7 @@ class _OfflineFileExplorerWidgetState
     }
     return WorkResourceTabs(
       workId: widget.work.id,
+      videoBeforeAudio: false,
       fileTree: _localFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
@@ -764,6 +768,7 @@ class _OfflineFileExplorerWidgetState
       metadataBuilder: _buildFileMetadata,
       audioTrailingBuilder: _buildFileActions,
       onAudioLongPress: _showAudioActionMenu,
+      onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       onImageTap: _previewImageFile,
@@ -885,7 +890,7 @@ class _OfflineFileExplorerWidgetState
         _playAudioFile(file, parentPath);
         return;
       case FileExplorerTapAction.video:
-        _playVideoWithSystemPlayer(file);
+        unawaited(_playVideo(file, parentPath));
         return;
       case FileExplorerTapAction.image:
         _previewImageFile(file);

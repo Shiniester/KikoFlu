@@ -405,6 +405,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
         appBar: ScrollableAppBar(
+          centerTitle: false,
           systemOverlayStyle: transparentSystemBarsForBrightness(
             Theme.of(context).brightness,
           ),

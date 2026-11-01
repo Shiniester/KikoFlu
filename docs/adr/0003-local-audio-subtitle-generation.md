@@ -20,6 +20,11 @@ preserves the existing iOS 13 baseline and Linux ARM64 release target. The
 trade-off is maintaining one shared decoder C ABI and its
 build integration for the existing platform architectures.
 
+The format expansion retains miniaudio and falls back to the libmpv already used
+by media_kit when miniaudio cannot open an audio file. A separate libmpv instance
+passes mono PCM through a bounded local pipe for AAC, M4A, Ogg, and Opus. On
+Linux, the system libmpv must include PCM output and the corresponding decoders.
+
 The product scope, task lifecycle and acceptance checks are defined in
 [Local audio subtitle generation](../development/local-audio-subtitles.md).
 

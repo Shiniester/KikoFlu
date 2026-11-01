@@ -363,6 +363,7 @@ class _OfflineWorkDetailScreenState
         child: Scaffold(
           floatingActionButton: const DownloadFab(),
           appBar: ScrollableAppBar(
+            centerTitle: false,
             systemOverlayStyle: systemOverlayStyle,
             actions: [
               IconButton(

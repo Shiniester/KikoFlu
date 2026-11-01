@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/widgets/library_content_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
@@ -4833,6 +4834,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('comic-search-submit')));
       await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.tune), findsOneWidget);
       expect(find.widgetWithText(ListTile, 'Fixture'), findsOneWidget);
       expect(find.widgetWithText(ListTile, 'Other'), findsOneWidget);
       expect(find.text('fixture error'), findsOneWidget);
@@ -4889,6 +4891,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
       await pumpFrames(tester, frames: 2);
+      expect(find.byIcon(Icons.expand_less), findsOneWidget);
 
       expect(find.text(s.searchUpdating), findsOneWidget);
       expect(find.byType(ComicGrid), findsOneWidget);
@@ -4986,6 +4989,7 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     addTearDown(tester.view.reset);
     final first = _NamedSource(
       'first',
@@ -5001,6 +5005,7 @@ void main() {
       _Library(),
       first,
       other: second,
+      textScale: 1.4,
     );
 
     await tester.tap(find.byIcon(Icons.tune));
@@ -5013,7 +5018,24 @@ void main() {
 
     final label = '${first.name}, ${second.name}';
     final labelFinder = find.text(label);
-    expect(labelFinder, findsOneWidget);
+    final selectedConditionsRow = find.descendant(
+      of: find.byType(SearchFilterPanel),
+      matching: find.byType(ListView),
+    );
+    expect(selectedConditionsRow, findsOneWidget);
+    for (
+      var attempt = 0;
+      attempt < 3 && labelFinder.hitTestable().evaluate().isEmpty;
+      attempt++
+    ) {
+      final rowBounds = tester.getRect(selectedConditionsRow);
+      await tester.dragFrom(
+        Offset(rowBounds.right - 8, rowBounds.center.dy),
+        Offset(-rowBounds.width * .75, 0),
+      );
+      await tester.pumpAndSettle();
+    }
+    expect(labelFinder.hitTestable(), findsOneWidget);
     final chipLabel = tester.widget<Text>(labelFinder);
     expect(chipLabel.maxLines, 1);
     expect(chipLabel.overflow, TextOverflow.ellipsis);
@@ -5174,6 +5196,7 @@ void main() {
         source,
         downloads: downloads,
       );
+      expect(find.byKey(const ValueKey('search-filter-toggle')), findsNothing);
       final history = container.read(unifiedSearchHistoryProvider.notifier);
       await history.load();
 
@@ -7001,8 +7024,14 @@ void main() {
         const ComicDetailScreen(comic: _comic),
         library,
         _Source(),
+        theme: ThemeData(appBarTheme: const AppBarTheme(centerTitle: true)),
       );
       final appBar = find.byType(AppBar);
+      final appBarTitle = find.descendant(
+        of: appBar,
+        matching: find.text('Fixture book'),
+      );
+      expect(tester.getTopLeft(appBarTitle).dx, closeTo(16, 0.1));
       expect(
         find.descendant(of: appBar, matching: find.byTooltip('Download')),
         findsOneWidget,

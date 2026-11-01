@@ -8,6 +8,8 @@ import 'package:local_audio_decoder/local_audio_decoder.dart';
 import 'package:path/path.dart' as p;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+import 'mpv_audio_decoder.dart';
+
 const int _sampleRate = 16000;
 const int _readFrames = _sampleRate * 10;
 const int _vadWindowSize = 512;
@@ -235,6 +237,7 @@ Future<void> _transcribeInWorker(
   controlPort.listen((_) => cancellationRequested = true);
 
   LocalAudioDecoder? decoder;
+  MpvAudioDecoder? mpvDecoder;
   sherpa.OfflineRecognizer? recognizer;
   sherpa.VoiceActivityDetector? vad;
   late Map<String, Object?> outcome;
@@ -245,11 +248,11 @@ Future<void> _transcribeInWorker(
     await Future<void>.delayed(Duration.zero);
     _throwIfCancelled(() => cancellationRequested);
 
-    final audioDecoder = LocalAudioDecoder.open(
-      audioPath,
-      sampleRate: _sampleRate,
-    );
-    decoder = audioDecoder;
+    try {
+      decoder = LocalAudioDecoder.open(audioPath, sampleRate: _sampleRate);
+    } on AudioDecoderException {
+      mpvDecoder = MpvAudioDecoder.open(audioPath);
+    }
     sherpa.initBindings();
     String modelPath(String fileName) => p.join(modelDirectory, fileName);
     final offlineRecognizer = sherpa.OfflineRecognizer(
@@ -288,7 +291,13 @@ Future<void> _transcribeInWorker(
     while (true) {
       await Future<void>.delayed(Duration.zero);
       _throwIfCancelled(() => cancellationRequested);
-      final samples = audioDecoder.read(_readFrames);
+      final samples = decoder != null
+          ? decoder.read(_readFrames)
+          : await mpvDecoder!.read(
+              _readFrames,
+              checkCancelled: () =>
+                  _throwIfCancelled(() => cancellationRequested),
+            );
       if (samples.isEmpty) break;
 
       for (final window in vadWindowBuffer.add(samples)) {
@@ -306,12 +315,13 @@ Future<void> _transcribeInWorker(
         cues: cues,
         parentPort: parentPort,
         isCancelled: () => cancellationRequested,
-        audioEndSample: audioDecoder.totalFrames,
+        audioEndSample: processedFrames,
       );
+      final totalFrames = decoder?.totalFrames ?? mpvDecoder!.totalFrames;
       _sendProgress(
         parentPort,
-        audioDecoder.totalFrames > 0
-            ? 0.9 * processedFrames / audioDecoder.totalFrames
+        totalFrames > 0
+            ? 0.9 * (processedFrames / totalFrames).clamp(0.0, 1.0)
             : 0,
       );
     }
@@ -327,7 +337,7 @@ Future<void> _transcribeInWorker(
       cues: cues,
       parentPort: parentPort,
       isCancelled: () => cancellationRequested,
-      audioEndSample: audioDecoder.totalFrames,
+      audioEndSample: processedFrames,
     );
     await Future<void>.delayed(Duration.zero);
     _throwIfCancelled(() => cancellationRequested);
@@ -348,6 +358,7 @@ Future<void> _transcribeInWorker(
   } finally {
     try {
       decoder?.close();
+      await mpvDecoder?.close();
     } finally {
       try {
         vad?.free();

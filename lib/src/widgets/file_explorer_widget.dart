@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../models/work.dart';
 import '../models/download_task_change.dart';
+import '../models/download_task.dart';
 import '../providers/auth_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/audio_provider.dart';
@@ -24,11 +25,12 @@ import '../services/audio_playback_plan_builder.dart';
 import '../services/file_preview_resolver.dart';
 import '../services/downloaded_file_state_scanner.dart';
 import '../services/audio_file_url_resolver.dart';
-import '../services/video_file_opener.dart';
 import '../services/file_name_translation_service.dart';
 import '../services/file_name_translation_controller.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/player_audio_variant_classifier.dart';
+import '../services/storage_service.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/file_icon_utils.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/l10n_extensions.dart';
@@ -37,6 +39,7 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'app_bottom_dock_transition.dart';
 import 'app_navigation_scope.dart';
 import 'audio_subtitle_generation_sheet.dart';
 import 'lyric_translation_confirmation.dart';
@@ -46,8 +49,9 @@ import 'work_detail/recommendation_section.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
-import 'video_open_failure_dialog.dart';
 import 'responsive_dialog.dart';
+import '../videos/ui/work_video_playback_screen.dart';
+import '../videos/video_models.dart';
 
 final _log = LogService.instance;
 
@@ -153,7 +157,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     );
   }
 
-  final VideoFileOpener _videoFileOpener = VideoFileOpener();
   final SubtitleMatchLoader _subtitleMatchLoader = const SubtitleMatchLoader();
   final FileExplorerTapResolver _tapResolver = const FileExplorerTapResolver(
     videoBeforeAudio: true,
@@ -902,8 +905,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     }
   }
 
-  // 使用系统播放器播放视频文件
-  Future<void> _playVideoWithSystemPlayer(dynamic videoFile) async {
+  Future<void> _playVideo(dynamic videoFile, String parentPath) async {
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
@@ -923,14 +925,63 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       case PreviewVideoTargetStatus.ready:
         final target = targetResult.requireTarget;
         final localPath = target.localPath;
+        final title = FileTreeUtils.titleOf(
+          videoFile,
+          defaultValue: S.of(context).unknown,
+        );
         if (localPath != null) {
           _log.captureOutput('[FileExplorer] 使用本地视频文件: $localPath');
         }
-
-        final result = await _videoFileOpener.open(target.source);
-        if (!mounted) return;
-
-        _handleVideoOpenResult(result);
+        final downloadTask = localPath == null
+            ? null
+            : ref
+                  .read(downloadServiceProvider)
+                  .taskById(
+                    DownloadTask.createId(
+                      workId: _work.id,
+                      hash: FileTreeUtils.property(
+                        videoFile,
+                        'hash',
+                      )?.toString(),
+                      fileName: FileTreeUtils.localRelativePathOf(
+                        videoFile,
+                        parentPath,
+                      ),
+                    ),
+                  );
+        final sourceIdentity = workVideoSourceIdentity(
+          workId: _work.id,
+          host: host,
+          localPath: localPath,
+          downloadUrl: downloadTask?.status == DownloadStatus.completed
+              ? downloadTask?.downloadUrl
+              : null,
+        );
+        await pushBottomDockRoute(
+          context,
+          builder: (_) => WorkVideoPlaybackScreen(
+            videoId: workVideoPlaybackId(
+              sourceIdentity: sourceIdentity,
+              workId: _work.id,
+              fileIdentity: FileTreeUtils.itemPath(parentPath, videoFile),
+            ),
+            fileName: title,
+            folderPath: parentPath,
+            streams: localPath == null
+                ? [
+                    VideoStream(
+                      label: title,
+                      url: target.source,
+                      headers: sourceAwareMediaHeaders(
+                        _work.id,
+                        accountHeaders: StorageService.serverCookieHeaders,
+                      ),
+                    ),
+                  ]
+                : const [],
+            localPath: localPath,
+          ),
+        );
         return;
       case PreviewVideoTargetStatus.missingId:
         SnackBarUtil.showError(context, S.of(context).cannotPlayVideoMissingId);
@@ -943,45 +994,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         return;
       case PreviewVideoTargetStatus.missingPath:
       case PreviewVideoTargetStatus.missingFile:
-        return;
-    }
-  }
-
-  void _handleVideoOpenResult(VideoOpenResult result) {
-    switch (result.type) {
-      case VideoOpenResultType.success:
-        return;
-      case VideoOpenResultType.localOpenFailed:
-        showDialog(
-          context: context,
-          builder: (context) => VideoOpenFailureDialog.local(
-            errorMessage: result.message ?? '',
-            filePath: result.path ?? '',
-          ),
-        );
-        return;
-      case VideoOpenResultType.localOpenError:
-        SnackBarUtil.showError(
-          context,
-          S.of(context).openVideoFileError(result.message ?? ''),
-        );
-        return;
-      case VideoOpenResultType.remoteCannotLaunch:
-        final uri = result.uri;
-        if (uri == null) return;
-        showDialog(
-          context: context,
-          builder: (context) => VideoOpenFailureDialog.remote(
-            videoUrl: uri.toString(),
-            onOpenInBrowser: () => _videoFileOpener.openInBrowser(uri),
-          ),
-        );
-        return;
-      case VideoOpenResultType.remoteOpenError:
-        SnackBarUtil.showError(
-          context,
-          S.of(context).playVideoError(result.message ?? ''),
-        );
         return;
     }
   }
@@ -1037,6 +1049,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
           : null,
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
+      onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       onAudioLongPress: (file, title, path, files, variants) =>
           _showFileActionMenu(
             file,
@@ -1090,7 +1103,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     return FileTreeActions(
       entry: entry,
       onPlayAudio: (item, parentPath) => _playAudioFile(item, parentPath),
-      onPlayVideo: (item, _) => _playVideoWithSystemPlayer(item),
+      onPlayVideo: (item, parentPath) =>
+          unawaited(_playVideo(item, parentPath)),
       onLoadSubtitle: (item, _) => _loadLyricManually(item),
       onPreviewImage: (item, _) => _previewImageFile(item),
       onPreviewText: (item, _) => _previewTextFile(item),
@@ -1186,7 +1200,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   void _handleFileTap(dynamic file, String title, String parentPath) {
     switch (_tapResolver.resolve(file)) {
       case FileExplorerTapAction.video:
-        _playVideoWithSystemPlayer(file);
+        unawaited(_playVideo(file, parentPath));
         return;
       case FileExplorerTapAction.audio:
         _playAudioFile(file, parentPath);

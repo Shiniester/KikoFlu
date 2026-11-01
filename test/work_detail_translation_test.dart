@@ -442,6 +442,19 @@ void main() {
                 ),
               ),
             );
+            final appBarTitle = find.descendant(
+              of: find.byType(AppBar),
+              matching: find.text(work.displayId),
+            );
+            addTearDown(tester.view.reset);
+            for (final size in [const Size(320, 640), const Size(1000, 600)]) {
+              tester.view.physicalSize = size;
+              tester.view.devicePixelRatio = 1;
+              await tester.pump();
+              expect(tester.getTopLeft(appBarTitle).dx, closeTo(16, 0.1));
+            }
+            tester.view.reset();
+            await tester.pump();
             await _pumpUntil(
               tester,
               () => online

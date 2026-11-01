@@ -38,6 +38,7 @@ import 'work_detail/work_cover_frame.dart';
 
 typedef ResourceAudioAction =
     void Function(dynamic file, String parentPath, List<dynamic> audioFiles);
+typedef ResourceVideoAction = void Function(dynamic file, String parentPath);
 typedef ResourceAudioLongPress =
     void Function(
       dynamic file,
@@ -49,7 +50,7 @@ typedef ResourceAudioLongPress =
 
 const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
 
-enum WorkResourceTab { resources, audio, images, recommendations }
+enum WorkResourceTab { resources, audio, images, videos, recommendations }
 
 class WorkResourceTabs extends ConsumerStatefulWidget {
   const WorkResourceTabs({
@@ -61,7 +62,9 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     required this.resourceTitle,
     this.recommendationBuilder,
     this.initialTab = WorkResourceTab.audio,
+    this.videoBeforeAudio = true,
     required this.onPlayAudio,
+    this.onPlayVideo,
     required this.onFileTap,
     required this.resolveImage,
     required this.onImageTap,
@@ -82,7 +85,9 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final String resourceTitle;
   final WidgetBuilder? recommendationBuilder;
   final WorkResourceTab initialTab;
+  final bool videoBeforeAudio;
   final ResourceAudioAction onPlayAudio;
+  final ResourceVideoAction? onPlayVideo;
   final FileTreeItemTap onFileTap;
   final Future<PreviewFileItem?> Function(dynamic) resolveImage;
   final ValueChanged<dynamic> onImageTap;
@@ -109,6 +114,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   AudioFormatPreference? _preference;
   Locale? _subtitleTargetLocale;
   List<dynamic> _images = const [];
+  List<FileTreeVideoFile> _videos = const [];
   List<PlayerAudioVariant> _audio = const [];
   List<dynamic> _queue = const [];
   List<PlayerSubtitleCandidate?> _subtitles = const [];
@@ -159,6 +165,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _loadGeneratedSubtitles();
     });
     _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
+    _videos = FileTreeUtils.videoFilesRecursive(
+      widget.fileTree,
+      videoBeforeAudio: widget.videoBeforeAudio,
+    );
     _pageKinds = _buildPageKinds();
     _tabKinds = _visibleTabKinds(
       widget.recommendationBuilder != null &&
@@ -178,7 +188,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pagePosition = AnimationController(
       vsync: this,
       lowerBound: 0,
-      upperBound: 3,
+      upperBound: 4,
       value: _selected.toDouble(),
     )..addListener(_handlePagePositionChanged);
   }
@@ -250,6 +260,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         active: false,
       );
       _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
+      _videos = FileTreeUtils.videoFilesRecursive(
+        widget.fileTree,
+        videoBeforeAudio: widget.videoBeforeAudio,
+      );
       _imagePage = 1;
       _imageTargets.clear();
       _resolvedImageTargets.clear();
@@ -407,6 +421,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               key: const ValueKey('work-resource-images-tab'),
               text: s.workResourceImages,
             ),
+            WorkResourceTab.videos => Tab(
+              key: const ValueKey('work-resource-videos-tab'),
+              text: s.navVideos,
+            ),
             WorkResourceTab.recommendations => Tab(
               key: const ValueKey('work-resource-recommendations-tab'),
               child: Text(
@@ -532,6 +550,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     WorkResourceTab.resources,
     WorkResourceTab.audio,
     if (_images.isNotEmpty) WorkResourceTab.images,
+    if (_videos.isNotEmpty) WorkResourceTab.videos,
     if (widget.recommendationBuilder != null) WorkResourceTab.recommendations,
   ];
 
@@ -598,6 +617,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     WorkResourceTab.resources => widget.resourceSliver,
     WorkResourceTab.audio => _audioList(context),
     WorkResourceTab.images => _imageGrid(context),
+    WorkResourceTab.videos => _videoList(context),
     WorkResourceTab.recommendations =>
       _recommendationVisited
           ? widget.recommendationBuilder!(context)
@@ -722,6 +742,11 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       ),
       WorkResourceTab.images =>
         _currentImagePage.map(FileTreeUtils.titleOf).toSet().toList(),
+      WorkResourceTab.videos =>
+        _videos
+            .map((video) => FileTreeUtils.titleOf(video.file))
+            .toSet()
+            .toList(),
       WorkResourceTab.audio =>
         _audio.map((variant) => variant.title).toSet().toList(),
       WorkResourceTab.recommendations => const [],
@@ -748,6 +773,31 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         children: null,
         level: 0,
       );
+
+  Widget _videoList(BuildContext context) => SliverList.builder(
+    itemCount: _videos.length,
+    itemBuilder: (context, index) {
+      final video = _videos[index];
+      final title = FileTreeUtils.titleOf(video.file);
+      final entry = _entry(video.file, video.parentPath, title);
+      final color = FileIconUtils.getFileIconColorByName(title);
+      return ListTile(
+        key: ValueKey('work-video-${entry.itemPath}'),
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.video_library, color: color),
+        title: Text(entry.displayTitle, style: const TextStyle(fontSize: 14)),
+        subtitle: Text(
+          video.parentPath.isEmpty
+              ? S.of(context).rootDirectory
+              : video.parentPath,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12),
+        ),
+        onTap: () => widget.onPlayVideo?.call(video.file, video.parentPath),
+      );
+    },
+  );
 
   Widget _audioList(BuildContext context) {
     if (_audio.isEmpty) {

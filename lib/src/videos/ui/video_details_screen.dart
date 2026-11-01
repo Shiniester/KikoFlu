@@ -731,12 +731,25 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         appBar: _fullscreen
             ? null
             : AppBar(
+                centerTitle: false,
                 title: Text(
                   details?.video.title ?? widget.video.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 actions: [
+                  if (!_isOffline)
+                    IconButton(
+                      tooltip: s.download,
+                      onPressed: _loading || _selectedStream == null
+                          ? null
+                          : _download,
+                      icon: Icon(
+                        currentTask?.status == VideoDownloadStatus.completed
+                            ? Icons.download_done
+                            : Icons.download_outlined,
+                      ),
+                    ),
                   if (!_isOffline)
                     IconButton(
                       tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
@@ -758,18 +771,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                           ? null
                           : _showPlaylists,
                       icon: const Icon(Icons.playlist_add),
-                    ),
-                  if (!_isOffline)
-                    IconButton(
-                      tooltip: s.download,
-                      onPressed: _loading || _selectedStream == null
-                          ? null
-                          : _download,
-                      icon: Icon(
-                        currentTask?.status == VideoDownloadStatus.completed
-                            ? Icons.download_done
-                            : Icons.download_outlined,
-                      ),
                     ),
                   IconButton(
                     tooltip: s.videoOpenSource,
