@@ -4428,6 +4428,17 @@ class SEn extends S {
   String get videoSearchHint => 'Search videos';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint =>
+      'Matches are limited to loaded directory pages.';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch =>
+      'Select a directory suggestion first.';
+
+  @override
+  String get videoSearchBrowseAllDirectory => 'Browse the full directory.';
+
+  @override
   String get videoSourceAccount => 'MissAV account';
 
   @override

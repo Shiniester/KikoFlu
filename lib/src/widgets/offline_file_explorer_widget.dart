@@ -29,6 +29,7 @@ import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/snackbar_util.dart';
+import '../utils/string_utils.dart';
 import 'app_navigation_scope.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
@@ -660,8 +661,45 @@ class _OfflineFileExplorerWidgetState
   }
 
   Future<void> _playVideo(dynamic videoFile, String parentPath) async {
-    final l10n = S.of(context);
+    WorkVideoPlaybackSource? source;
+    try {
+      source = await _resolveVideoPlaybackSource(
+        context,
+        videoFile,
+        parentPath,
+      );
+    } on WorkVideoPlaybackResolutionError catch (error) {
+      if (mounted) SnackBarUtil.showError(context, error.message);
+      return;
+    }
+    if (!mounted || source == null) return;
+    final resolvedSource = source;
+    final siblingVideos = FileTreeUtils.videoFilesInDirectory(
+      _localFiles,
+      parentPath,
+      videoBeforeAudio: false,
+    );
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => WorkVideoPlaybackScreen(
+        videoId: resolvedSource.videoId,
+        fileIdentity: resolvedSource.fileIdentity,
+        fileName: resolvedSource.fileName,
+        folderPath: resolvedSource.folderPath,
+        localPath: resolvedSource.localPath,
+        siblingVideos: siblingVideos,
+        resolveSibling: (context, video) =>
+            _resolveVideoPlaybackSource(context, video.file, video.parentPath),
+      ),
+    );
+  }
 
+  Future<WorkVideoPlaybackSource?> _resolveVideoPlaybackSource(
+    BuildContext targetContext,
+    dynamic videoFile,
+    String parentPath,
+  ) async {
+    final l10n = S.of(targetContext);
     final targetResult = await _previewResolver.resolveOfflineVideoTarget(
       file: videoFile,
       fileTree: _localFiles,
@@ -669,7 +707,7 @@ class _OfflineFileExplorerWidgetState
       workDirPath: _workDirPath,
     );
 
-    if (!mounted) return;
+    if (!mounted || !targetContext.mounted) return null;
 
     switch (targetResult.status) {
       case PreviewVideoTargetStatus.ready:
@@ -697,31 +735,26 @@ class _OfflineFileExplorerWidgetState
               ? downloadTask?.downloadUrl
               : null,
         );
-        await pushBottomDockRoute(
-          context,
-          builder: (_) => WorkVideoPlaybackScreen(
-            videoId: workVideoPlaybackId(
-              sourceIdentity: sourceIdentity,
-              workId: widget.work.id,
-              fileIdentity: FileTreeUtils.itemPath(parentPath, videoFile),
-            ),
-            fileName: title,
-            folderPath: parentPath,
-            localPath: target.localPath,
+        final fileIdentity = FileTreeUtils.itemPath(parentPath, videoFile);
+        return WorkVideoPlaybackSource(
+          videoId: workVideoPlaybackId(
+            sourceIdentity: sourceIdentity,
+            workId: widget.work.id,
+            fileIdentity: fileIdentity,
           ),
+          fileIdentity: fileIdentity,
+          fileName: title,
+          folderPath: parentPath,
+          localPath: target.localPath,
         );
-        return;
       case PreviewVideoTargetStatus.missingId:
-        SnackBarUtil.showError(context, l10n.cannotPlayVideoMissingId);
-        return;
+        throw WorkVideoPlaybackResolutionError(l10n.cannotPlayVideoMissingId);
       case PreviewVideoTargetStatus.missingPath:
-        SnackBarUtil.showError(context, l10n.cannotFindFilePath);
-        return;
+        throw WorkVideoPlaybackResolutionError(l10n.cannotFindFilePath);
       case PreviewVideoTargetStatus.missingFile:
-        SnackBarUtil.showError(context, l10n.videoFileNotExist);
-        return;
+        throw WorkVideoPlaybackResolutionError(l10n.videoFileNotExist);
       case PreviewVideoTargetStatus.missingParams:
-        return;
+        return null;
     }
   }
 
@@ -744,6 +777,9 @@ class _OfflineFileExplorerWidgetState
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioMetadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildAudioDuration,
+      videoBeforeAudio: false,
       trailingBuilder: _buildFileActions,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       showHeader: false,
@@ -766,6 +802,8 @@ class _OfflineFileExplorerWidgetState
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioMetadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildAudioDuration,
       audioTrailingBuilder: _buildFileActions,
       onAudioLongPress: _showAudioActionMenu,
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
@@ -799,15 +837,22 @@ class _OfflineFileExplorerWidgetState
         final fileSize = snapshot.hasData
             ? FileSizeResolver.formatBytes(snapshot.data)
             : '';
-        if (fileSize.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
+        if (fileSize.isEmpty) return const SizedBox.shrink();
         return Text(
           fileSize,
           style: TextStyle(fontSize: 11, color: Colors.grey[600]),
         );
       },
+    );
+  }
+
+  Widget? _buildAudioDuration(BuildContext context, FileTreeEntry entry) {
+    final duration = FileTreeUtils.property(entry.item, 'duration');
+    final durationText = formatDurationSeconds(duration, padHours: false);
+    if (durationText.isEmpty) return null;
+    return Text(
+      durationText,
+      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
     );
   }
 

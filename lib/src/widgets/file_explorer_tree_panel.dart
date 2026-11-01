@@ -22,7 +22,10 @@ class FileExplorerTreePanel extends StatelessWidget {
     this.progressMessage,
     this.displayNameFor,
     this.metadataBuilder,
+    this.audioMetadataBuilder,
+    this.audioDurationBuilder,
     this.trailingBuilder,
+    this.videoBeforeAudio = true,
     this.downloadedFiles = const {},
     this.audioWithLibrarySubtitles = const {},
     this.showDownloadedBadge = false,
@@ -45,7 +48,10 @@ class FileExplorerTreePanel extends StatelessWidget {
   final FileTreeItemLongPress? onFileLongPress;
   final FileTreeDisplayNameBuilder? displayNameFor;
   final FileTreeMetadataBuilder? metadataBuilder;
+  final FileTreeMetadataBuilder? audioMetadataBuilder;
+  final FileTreeMetadataBuilder? audioDurationBuilder;
   final FileTreeTrailingBuilder? trailingBuilder;
+  final bool videoBeforeAudio;
   final Map<String, bool> downloadedFiles;
   final Set<String> audioWithLibrarySubtitles;
   final bool showDownloadedBadge;
@@ -89,7 +95,10 @@ class FileExplorerTreePanel extends StatelessWidget {
           onFileLongPress: onFileLongPress,
           displayNameFor: displayNameFor,
           metadataBuilder: metadataBuilder,
+          audioMetadataBuilder: audioMetadataBuilder,
+          audioDurationBuilder: audioDurationBuilder,
           trailingBuilder: trailingBuilder,
+          videoBeforeAudio: videoBeforeAudio,
           downloadedFiles: downloadedFiles,
           audioWithLibrarySubtitles: audioWithLibrarySubtitles,
           showDownloadedBadge: showDownloadedBadge,

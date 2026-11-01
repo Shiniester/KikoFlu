@@ -32,16 +32,40 @@ void main() {
     expect(tapCount, 1);
   });
 
-  testWidgets('renders selected progress label and icon', (tester) async {
-    await tester.pumpWidget(
-      _testApp(
-        const WorkProgressActionButton(progress: 'listening'),
-      ),
-    );
+  for (final state in [
+    (value: 'marked', label: 'Marked', icon: Icons.bookmark),
+    (value: 'listening', label: 'Listening', icon: Icons.headphones),
+    (value: 'listened', label: 'Listened', icon: Icons.check_circle),
+    (value: 'replay', label: 'Replay', icon: Icons.replay),
+    (value: 'postponed', label: 'Postponed', icon: Icons.schedule),
+  ]) {
+    testWidgets('shows the ${state.value} icon without a visible label', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      var tapCount = 0;
+      await tester.pumpWidget(
+        _testApp(
+          WorkProgressActionButton(
+            progress: state.value,
+            onPressed: () => tapCount++,
+          ),
+        ),
+      );
 
-    expect(find.text('Listening'), findsOneWidget);
-    expect(find.byIcon(Icons.headphones), findsOneWidget);
-  });
+      expect(find.text(state.label), findsNothing);
+      expect(find.byTooltip(state.label), findsOneWidget);
+      expect(tester.getSemantics(find.byType(IconButton)).tooltip, state.label);
+      semantics.dispose();
+      final icon = tester.widget<Icon>(find.byIcon(state.icon));
+      expect(
+        icon.color,
+        Theme.of(tester.element(find.byIcon(state.icon))).colorScheme.primary,
+      );
+      await tester.tap(find.byIcon(state.icon));
+      expect(tapCount, 1);
+    });
+  }
 
   testWidgets('renders loading state instead of action', (tester) async {
     await tester.pumpWidget(

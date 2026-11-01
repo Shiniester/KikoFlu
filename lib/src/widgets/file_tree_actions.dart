@@ -10,7 +10,6 @@ class FileTreeActions extends StatelessWidget {
   const FileTreeActions({
     super.key,
     required this.entry,
-    this.onPlayAudio,
     this.onPlayVideo,
     this.onLoadSubtitle,
     this.onPreviewImage,
@@ -23,7 +22,6 @@ class FileTreeActions extends StatelessWidget {
   });
 
   final FileTreeEntry entry;
-  final FileTreeActionHandler? onPlayAudio;
   final FileTreeActionHandler? onPlayVideo;
   final FileTreeActionHandler? onLoadSubtitle;
   final FileTreeActionHandler? onPreviewImage;
@@ -74,22 +72,10 @@ class FileTreeActions extends StatelessWidget {
 
     if (actions.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: actions,
-    );
+    return Row(mainAxisSize: MainAxisSize.min, children: actions);
   }
 
   Widget? _buildPlaybackAction(dynamic item) {
-    if (FileIconUtils.isAudioFile(item) && onPlayAudio != null) {
-      return IconButton(
-        onPressed: () => onPlayAudio?.call(item, entry.parentPath),
-        icon: const Icon(Icons.play_arrow),
-        color: Colors.green,
-        iconSize: 20,
-      );
-    }
-
     if (FileIconUtils.isVideoFile(item) && onPlayVideo != null) {
       return IconButton(
         onPressed: () => onPlayVideo?.call(item, entry.parentPath),

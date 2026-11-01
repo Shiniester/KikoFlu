@@ -160,6 +160,33 @@ void main() {
     );
   });
 
+  testWidgets('first tap shows loaded suggestions for an empty input', (
+    tester,
+  ) async {
+    final api = _CatalogApi();
+    await _pumpSearchScreen(
+      tester,
+      api: api,
+      sourceNotifier: _JapaneseSourceNotifier(),
+    );
+    await _expandFiltersAndSelectTag(tester);
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('耳かき (5)'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.text('耳かき (5)'), findsNothing);
+
+    await tester.tap(find.byType(TextField).first);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('耳かき (5)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('JP-ASMR keyboard submit selects the highlighted catalog item', (
     tester,
   ) async {

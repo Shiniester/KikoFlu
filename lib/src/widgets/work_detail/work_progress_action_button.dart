@@ -42,6 +42,19 @@ class WorkProgressActionButton extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final activeColor =
         progress != null ? colorScheme.primary : colorScheme.onSurface;
+    final icon = Icon(
+      ReviewProgressDialog.getProgressIcon(progress),
+      size: 22,
+      color: activeColor,
+    );
+
+    if (progress != null) {
+      return IconButton(
+        onPressed: onPressed,
+        tooltip: ReviewProgressDialog.getProgressLabel(progress, context),
+        icon: icon,
+      );
+    }
 
     return TextButton(
       onPressed: onPressed,
@@ -60,11 +73,7 @@ class WorkProgressActionButton extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
-          Icon(
-            ReviewProgressDialog.getProgressIcon(progress),
-            size: 22,
-            color: activeColor,
-          ),
+          icon,
         ],
       ),
     );

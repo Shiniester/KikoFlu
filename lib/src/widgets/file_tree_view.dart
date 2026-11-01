@@ -51,7 +51,10 @@ class FileTreeView extends StatefulWidget {
     this.onFileLongPress,
     this.displayNameFor,
     this.metadataBuilder,
+    this.audioMetadataBuilder,
+    this.audioDurationBuilder,
     this.trailingBuilder,
+    this.videoBeforeAudio = true,
     this.downloadedFiles = const {},
     this.audioWithLibrarySubtitles = const {},
     this.showDownloadedBadge = false,
@@ -65,7 +68,10 @@ class FileTreeView extends StatefulWidget {
   final FileTreeItemLongPress? onFileLongPress;
   final FileTreeDisplayNameBuilder? displayNameFor;
   final FileTreeMetadataBuilder? metadataBuilder;
+  final FileTreeMetadataBuilder? audioMetadataBuilder;
+  final FileTreeMetadataBuilder? audioDurationBuilder;
   final FileTreeTrailingBuilder? trailingBuilder;
+  final bool videoBeforeAudio;
   final Map<String, bool> downloadedFiles;
   final Set<String> audioWithLibrarySubtitles;
   final bool showDownloadedBadge;
@@ -136,10 +142,27 @@ class _FileTreeViewState extends State<FileTreeView> {
           children: FileTreeUtils.childrenOf(item),
           level: node.level,
         );
+        final isAudio =
+            !entry.isFolder &&
+            FileTreeUtils.isAudio(item) &&
+            !FileTreeUtils.isVideo(
+              item,
+              videoBeforeAudio: widget.videoBeforeAudio,
+            );
+        final metadata = isAudio
+            ? widget.audioMetadataBuilder?.call(context, entry) ??
+                  (widget.audioDurationBuilder == null
+                      ? widget.metadataBuilder?.call(context, entry)
+                      : null)
+            : widget.metadataBuilder?.call(context, entry);
+        final trailing = widget.trailingBuilder?.call(context, entry);
+        final audioDuration = isAudio
+            ? widget.audioDurationBuilder?.call(context, entry)
+            : null;
         return _FileTreeRow(
           entry: entry,
-          metadata: widget.metadataBuilder?.call(context, entry),
-          trailing: widget.trailingBuilder?.call(context, entry),
+          metadata: metadata,
+          trailing: _audioTrailing(trailing, audioDuration),
           downloaded: _isDownloaded(entry),
           showDownloadedBadge: widget.showDownloadedBadge,
           fadeDownloadedItems: widget.fadeDownloadedItems,
@@ -151,6 +174,14 @@ class _FileTreeViewState extends State<FileTreeView> {
           onFileLongPress: widget.onFileLongPress,
         );
       },
+    );
+  }
+
+  Widget? _audioTrailing(Widget? actions, Widget? duration) {
+    if (duration == null) return actions;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [if (actions != null) actions, duration],
     );
   }
 

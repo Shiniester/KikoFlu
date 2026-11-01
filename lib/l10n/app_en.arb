@@ -1874,6 +1874,18 @@
     "description": "Combined heading for linked studios, labels, and series on video details"
   },
   "videoSearchHint": "Search videos",
+  "videoSearchLoadedDirectoryPagesHint": "Matches are limited to loaded directory pages.",
+  "@videoSearchLoadedDirectoryPagesHint": {
+    "description": "Explains that video directory suggestions only match pages already loaded."
+  },
+  "videoSearchSelectFilterBeforeSearch": "Select a directory suggestion first.",
+  "@videoSearchSelectFilterBeforeSearch": {
+    "description": "Shown when a video directory query has not been selected as a filter."
+  },
+  "videoSearchBrowseAllDirectory": "Browse the full directory.",
+  "@videoSearchBrowseAllDirectory": {
+    "description": "Opens the paginated video filter directory."
+  },
   "videoSourceAccount": "MissAV account",
   "videoCatalog": "Browse videos",
   "videoContent": "Content",

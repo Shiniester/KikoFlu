@@ -101,6 +101,13 @@ Future<void> _pumpUntilContent(WidgetTester tester, String expected) async {
   }
 }
 
+String? _displayedPreviewText(WidgetTester tester) {
+  final contentFinder = find.byKey(const ValueKey('text-preview-content'));
+  if (contentFinder.evaluate().isEmpty) return null;
+  final content = tester.widget<SelectableText>(contentFinder);
+  return content.data ?? content.textSpan?.toPlainText();
+}
+
 Future<void> _pumpUntil(WidgetTester tester, bool Function() ready) async {
   for (var attempt = 0; attempt < 40 && !ready(); attempt++) {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
@@ -547,6 +554,63 @@ void main() {
     expect(content.data, source);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
+
+  testWidgets(
+    'search markers follow the displayed text when translation toggles',
+    (tester) async {
+      const source = 'needle original\nsecond needle';
+      const translated = 'needle translated';
+      final tempDir = await _createPreviewRoot(autoSaveTranslated: false);
+      final subtitle = File('${tempDir.path}/track01.srt')
+        ..writeAsStringSync(source);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() => tempDir.delete(recursive: true));
+      });
+
+      await tester.pumpWidget(
+        _testPreviewApp(
+          subtitle.path,
+          title: 'track01.srt',
+          autoTranslate: false,
+          translateContentForTesting: (_) async => translated,
+        ),
+      );
+      await _pumpUntilContent(tester, source);
+
+      await tester.tap(
+        find.byKey(const ValueKey('text-preview-search-action')),
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('text-preview-search-field')),
+        'needle',
+      );
+      await tester.pump();
+      expect(find.text('1/2'), findsOneWidget);
+      expect(_displayedPreviewText(tester), source);
+
+      await tester.tap(find.byType(TranslationToolbarButton));
+      await _pumpUntil(
+        tester,
+        () => _displayedPreviewText(tester) == translated,
+      );
+      expect(find.text('1/1'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('text-preview-search-marker-rail')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byType(TranslationToolbarButton));
+      await _pumpUntil(tester, () => _displayedPreviewText(tester) == source);
+      expect(find.text('1/2'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('text-preview-search-marker-rail')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('first manual translation uses the edited original subtitle', (
     tester,

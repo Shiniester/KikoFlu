@@ -395,6 +395,16 @@ class FileTreeUtils {
     return videoFiles;
   }
 
+  static List<FileTreeVideoFile> videoFilesInDirectory(
+    List<dynamic> rootItems,
+    String parentPath, {
+    bool videoBeforeAudio = true,
+  }) => [
+    for (final file in findFolderChildren(rootItems, parentPath))
+      if (!isFolder(file) && isVideo(file, videoBeforeAudio: videoBeforeAudio))
+        (file: file, parentPath: parentPath),
+  ];
+
   static String? relativePathForHash(
     List<dynamic> rootItems,
     dynamic targetHash,

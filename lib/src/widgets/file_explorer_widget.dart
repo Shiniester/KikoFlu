@@ -906,6 +906,44 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _playVideo(dynamic videoFile, String parentPath) async {
+    WorkVideoPlaybackSource? source;
+    try {
+      source = await _resolveVideoPlaybackSource(
+        context,
+        videoFile,
+        parentPath,
+      );
+    } on WorkVideoPlaybackResolutionError catch (error) {
+      if (mounted) SnackBarUtil.showError(context, error.message);
+      return;
+    }
+    if (!mounted || source == null) return;
+    final resolvedSource = source;
+    final siblingVideos = FileTreeUtils.videoFilesInDirectory(
+      _rootFiles,
+      parentPath,
+    );
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => WorkVideoPlaybackScreen(
+        videoId: resolvedSource.videoId,
+        fileIdentity: resolvedSource.fileIdentity,
+        fileName: resolvedSource.fileName,
+        folderPath: resolvedSource.folderPath,
+        streams: resolvedSource.streams,
+        localPath: resolvedSource.localPath,
+        siblingVideos: siblingVideos,
+        resolveSibling: (context, video) =>
+            _resolveVideoPlaybackSource(context, video.file, video.parentPath),
+      ),
+    );
+  }
+
+  Future<WorkVideoPlaybackSource?> _resolveVideoPlaybackSource(
+    BuildContext targetContext,
+    dynamic videoFile,
+    String parentPath,
+  ) async {
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
@@ -919,7 +957,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fileRelativePaths: _fileRelativePaths,
     );
 
-    if (!mounted) return;
+    if (!mounted || !targetContext.mounted) return null;
 
     switch (targetResult.status) {
       case PreviewVideoTargetStatus.ready:
@@ -927,7 +965,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         final localPath = target.localPath;
         final title = FileTreeUtils.titleOf(
           videoFile,
-          defaultValue: S.of(context).unknown,
+          defaultValue: S.of(targetContext).unknown,
         );
         if (localPath != null) {
           _log.captureOutput('[FileExplorer] 使用本地视频文件: $localPath');
@@ -957,44 +995,41 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               ? downloadTask?.downloadUrl
               : null,
         );
-        await pushBottomDockRoute(
-          context,
-          builder: (_) => WorkVideoPlaybackScreen(
-            videoId: workVideoPlaybackId(
-              sourceIdentity: sourceIdentity,
-              workId: _work.id,
-              fileIdentity: FileTreeUtils.itemPath(parentPath, videoFile),
-            ),
-            fileName: title,
-            folderPath: parentPath,
-            streams: localPath == null
-                ? [
-                    VideoStream(
-                      label: title,
-                      url: target.source,
-                      headers: sourceAwareMediaHeaders(
-                        _work.id,
-                        accountHeaders: StorageService.serverCookieHeaders,
-                      ),
-                    ),
-                  ]
-                : const [],
-            localPath: localPath,
+        final fileIdentity = FileTreeUtils.itemPath(parentPath, videoFile);
+        return WorkVideoPlaybackSource(
+          videoId: workVideoPlaybackId(
+            sourceIdentity: sourceIdentity,
+            workId: _work.id,
+            fileIdentity: fileIdentity,
           ),
+          fileIdentity: fileIdentity,
+          fileName: title,
+          folderPath: parentPath,
+          streams: localPath == null
+              ? [
+                  VideoStream(
+                    label: title,
+                    url: target.source,
+                    headers: sourceAwareMediaHeaders(
+                      _work.id,
+                      accountHeaders: StorageService.serverCookieHeaders,
+                    ),
+                  ),
+                ]
+              : const [],
+          localPath: localPath,
         );
-        return;
       case PreviewVideoTargetStatus.missingId:
-        SnackBarUtil.showError(context, S.of(context).cannotPlayVideoMissingId);
-        return;
-      case PreviewVideoTargetStatus.missingParams:
-        SnackBarUtil.showError(
-          context,
-          S.of(context).cannotPlayVideoMissingParams,
+        throw WorkVideoPlaybackResolutionError(
+          S.of(targetContext).cannotPlayVideoMissingId,
         );
-        return;
+      case PreviewVideoTargetStatus.missingParams:
+        throw WorkVideoPlaybackResolutionError(
+          S.of(targetContext).cannotPlayVideoMissingParams,
+        );
       case PreviewVideoTargetStatus.missingPath:
       case PreviewVideoTargetStatus.missingFile:
-        return;
+        return null;
     }
   }
 
@@ -1019,6 +1054,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       onFileLongPress: _showFileActionMenu,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildFileMetadata,
       trailingBuilder: _buildFileActions,
       downloadedFiles: _downloadedFiles,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
@@ -1061,6 +1097,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildFileMetadata,
       downloadedFiles: _downloadedFiles,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
@@ -1102,7 +1139,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   Widget? _buildFileActions(BuildContext context, FileTreeEntry entry) {
     return FileTreeActions(
       entry: entry,
-      onPlayAudio: (item, parentPath) => _playAudioFile(item, parentPath),
       onPlayVideo: (item, parentPath) =>
           unawaited(_playVideo(item, parentPath)),
       onLoadSubtitle: (item, _) => _loadLyricManually(item),

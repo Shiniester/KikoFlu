@@ -1142,6 +1142,11 @@ void main() {
         of: appBar,
         matching: find.text('Fixture video'),
       );
+      final titleStyle = DefaultTextStyle.of(
+        tester.element(title),
+      ).style.merge(tester.widget<Text>(title).style);
+      expect(titleStyle.fontSize, 18);
+      expect(titleStyle.fontWeight, FontWeight.bold);
       expect(
         find.descendant(of: appBar, matching: find.byType(BackButton)),
         findsOneWidget,
@@ -1154,8 +1159,8 @@ void main() {
       final actions = <Finder>[
         for (final label in [
           l10n.download,
-          l10n.videoFavorites,
           l10n.videoAddToPlaylist,
+          l10n.videoFavorites,
           l10n.videoOpenSource,
         ])
           find.descendant(of: appBar, matching: find.byTooltip(label)),
@@ -5333,6 +5338,11 @@ void main() {
 
     expect(client.detailsCalls, 2);
     expect(find.byIcon(Icons.bookmark), findsOneWidget);
+    final icon = tester.widget<Icon>(find.byIcon(Icons.bookmark));
+    expect(
+      icon.color,
+      Theme.of(tester.element(find.byIcon(Icons.bookmark))).colorScheme.primary,
+    );
   });
 
   _testPlayerWidget('actor favorites wait for account confirmation', (

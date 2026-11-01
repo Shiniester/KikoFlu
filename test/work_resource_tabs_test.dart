@@ -15,10 +15,13 @@ import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:kikoeru_flutter/src/utils/string_utils.dart';
 import 'package:kikoeru_flutter/src/widgets/cached_image_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:kikoeru_flutter/src/widgets/file_tree_view.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 
 List<dynamic> _files({bool images = false}) => [
@@ -105,6 +108,8 @@ Future<void> _pumpResources(
   WidgetBuilder? recommendationBuilder,
   Widget? introSliver,
   Widget? resourceSliver,
+  FileTreeMetadataBuilder? audioMetadataBuilder,
+  FileTreeMetadataBuilder? audioDurationBuilder,
   String? progressMessage,
   Locale locale = const Locale('en'),
   WorkResourceTab initialTab = WorkResourceTab.audio,
@@ -153,6 +158,8 @@ Future<void> _pumpResources(
                   initialTab: initialTab,
                   videoBeforeAudio: videoBeforeAudio,
                   onPlayAudio: onPlay ?? (_, __, ___) {},
+                  audioMetadataBuilder: audioMetadataBuilder,
+                  audioDurationBuilder: audioDurationBuilder,
                   onPlayVideo: onPlayVideo,
                   onFileTap: onFileTap ?? (_, __, ___) {},
                   onImageTap: onImageTap ?? (_) {},
@@ -2252,6 +2259,7 @@ void main() {
       expect(find.text('track01.lrc'), findsNothing);
       expect(find.text('track01.srt'), findsNothing);
       expect(find.byIcon(Icons.subtitles_outlined), findsNothing);
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.text('notes.txt'), findsNothing);
       expect(find.text('whole resource tree'), findsNothing);
       expect(
@@ -2360,16 +2368,14 @@ void main() {
       expect(resourceTab.left, 16);
       expect(resourceTab.width, closeTo((width - 32) / 2, 1));
       expect(find.text('Resources'), findsOneWidget);
-      final play = find.descendant(
-        of: audio,
-        matching: find.byIcon(Icons.play_arrow),
+      expect(
+        find.descendant(of: audio, matching: find.byIcon(Icons.play_arrow)),
+        findsNothing,
       );
       final eye = find.descendant(
         of: audio,
         matching: find.byIcon(Icons.visibility),
       );
-      expect(tester.widget<Icon>(play).color, Colors.green);
-      expect(tester.getRect(eye).left, greaterThan(tester.getRect(play).left));
       expect(
         tester
             .widget<IconButton>(
@@ -2382,6 +2388,79 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
+  });
+
+  testWidgets('audio duration follows subtitle preview and stays optional', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'audio',
+        'title': 'voice.wav',
+        'hash': 'voice',
+        'duration': 3661,
+      },
+      {'type': 'audio', 'title': 'unknown.wav', 'hash': 'unknown'},
+      {'type': 'text', 'title': 'voice.lrc', 'hash': 'voice-subtitle'},
+    ]);
+    addTearDown(tree.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      audioMetadataBuilder: (_, entry) =>
+          Text('12 KB', key: ValueKey('audio-size-${entry.itemPath}')),
+      audioDurationBuilder: (_, entry) {
+        final value = formatDurationSeconds(
+          FileTreeUtils.property(entry.item, 'duration'),
+          padHours: false,
+        );
+        return value.isEmpty
+            ? null
+            : Text(value, key: ValueKey('audio-duration-${entry.itemPath}'));
+      },
+    );
+    await tester.pumpAndSettle();
+
+    final tile = find.byKey(const ValueKey('work-audio-voice.wav'));
+    expect(
+      find.byKey(const ValueKey('audio-duration-voice.wav')),
+      findsOneWidget,
+    );
+    expect(find.text('1:01:01'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('work-audio-subtitle-voice.wav')),
+      findsOneWidget,
+    );
+    final trailing = tester.widget<ListTile>(tile).trailing! as Row;
+    expect(trailing.children.map((child) => child.runtimeType), [
+      Text,
+      IconButton,
+      Text,
+    ]);
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('work-audio-subtitle-voice.wav')))
+          .right,
+      lessThanOrEqualTo(tester.getRect(find.text('1:01:01')).left),
+    );
+
+    tree.value = [
+      {'type': 'audio', 'title': 'unknown.wav', 'hash': 'unknown'},
+    ];
+    await tester.pumpAndSettle();
+    final missingDuration =
+        tester
+                .widget<ListTile>(
+                  find.byKey(const ValueKey('work-audio-unknown.wav')),
+                )
+                .trailing!
+            as Row;
+    expect(missingDuration.children.map((child) => child.runtimeType), [Text]);
+    expect(
+      find.byKey(const ValueKey('audio-duration-unknown.wav')),
+      findsNothing,
+    );
   });
 
   testWidgets('empty audio tab stays available', (tester) async {
@@ -2397,6 +2476,49 @@ void main() {
     );
     expect(find.text('No playable audio files found'), findsOneWidget);
   });
+
+  test(
+    'same-directory video selection preserves tree order and classification',
+    () {
+      final tree = [
+        {'type': 'video', 'title': 'first.mp4'},
+        {
+          'type': 'folder',
+          'title': 'Disc 1',
+          'children': [
+            {'type': 'video', 'title': 'inside.mkv'},
+            {'type': 'audio', 'title': 'audio.mp4'},
+            {'type': 'video', 'title': 'misclassified.mp3'},
+            {'type': 'video', 'title': 'last.webm'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'folder.mp4',
+          'children': [
+            {'type': 'video', 'title': 'not-direct.mp4'},
+          ],
+        },
+        {'type': 'video', 'title': 'second.avi'},
+      ];
+
+      expect(
+        FileTreeUtils.videoFilesInDirectory(
+          tree,
+          '',
+        ).map((video) => FileTreeUtils.itemPath(video.parentPath, video.file)),
+        ['first.mp4', 'second.avi'],
+      );
+      expect(
+        FileTreeUtils.videoFilesInDirectory(
+          tree,
+          'Disc 1',
+          videoBeforeAudio: false,
+        ).map((video) => FileTreeUtils.itemPath(video.parentPath, video.file)),
+        ['Disc 1/inside.mkv', 'Disc 1/last.webm'],
+      );
+    },
+  );
 
   testWidgets(
     'images use all resource images and fall back to audio after refresh',

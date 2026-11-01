@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../providers/unified_search_history_provider.dart';
@@ -10,8 +13,8 @@ import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/responsive_dialog.dart';
-import '../../widgets/search_filter_panel.dart';
 import '../../widgets/search_condition_chip.dart';
+import '../../widgets/search_filter_panel.dart';
 import '../../widgets/search_history_section.dart';
 import '../../widgets/search_input_decoration.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
@@ -49,6 +52,23 @@ typedef VideoSearchAccessVerifier =
       BuildContext context,
       MissavVerificationRequiredException error,
     );
+
+enum _VideoSearchInputType { keyword, genre, actor, studio, series }
+
+class _VideoSearchSuggestion {
+  const _VideoSearchSuggestion.keyword(String value)
+    : keyword = value,
+      filter = null;
+
+  const _VideoSearchSuggestion.filter(VideoLink value)
+    : keyword = null,
+      filter = value;
+
+  final String? keyword;
+  final VideoLink? filter;
+
+  String get label => keyword ?? filter!.label;
+}
 
 class VideoSearchResults {
   VideoSearchResults.catalog(VideoCatalogPage page)
@@ -98,6 +118,8 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
+  static const _browseDirectorySuggestionIndex = -2;
+
   static const _legacyVideoHistoryContext = UnifiedSearchHistoryContext(
     contentType: 'video',
     entryScope: 'source-directory',
@@ -105,12 +127,29 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   );
 
   final TextEditingController _query = TextEditingController();
+  final TextEditingController _filterQuery = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
+  final OverlayPortalController _suggestionsOverlay = OverlayPortalController();
+  final _suggestionScrollController = ItemScrollController();
+  final _suggestionPositions = ItemPositionsListener.create();
   final ScrollController _scrollController = ScrollController();
   final _filterPanelKey = GlobalKey<SearchFilterPanelState>();
+  final _searchInputAnchorKey = GlobalKey();
+  final _filterTypeBarKey = GlobalKey();
+  final _selectedFiltersAnchorKey = GlobalKey();
   final List<VideoLink> _filters = [];
+  final Map<VideoSearchFilterKind, Map<String, VideoCatalogPage>>
+  _loadedFilterPages = {};
+  final Map<(VideoSearchFilterKind, String, int), Future<VideoCatalogPage>>
+  _filterPageRequests = {};
+  final Map<(VideoSearchFilterKind, String), Object> _filterPageErrors = {};
+  final Set<(VideoSearchFilterKind, String)> _verifyingFilterPages = {};
   VideoSearchResults? _results;
   String _resultsQuery = '';
+  _VideoSearchInputType _inputType = _VideoSearchInputType.keyword;
+  int _highlightedSuggestionIndex = -1;
   int _localPage = 1;
+  int _filterScopeRevision = 0;
   Object? _error;
   MissavVerificationRequiredException? _verificationError;
   bool _loading = false;
@@ -143,6 +182,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   @override
   void initState() {
     super.initState();
+    _inputFocus.addListener(_onInputFocusChanged);
     _accountIdentity = _readAccountIdentity(widget.accountClient);
     widget.accountClient?.addListener(_onAccountClientChanged);
     final initialQuery = widget.initialQuery?.trim();
@@ -157,11 +197,25 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   @override
   void didUpdateWidget(covariant VideoSearchScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    var filterScopeChanged = false;
+    if (oldWidget.loadFilters != widget.loadFilters ||
+        oldWidget.historyContext.contentType !=
+            widget.historyContext.contentType ||
+        oldWidget.historyContext.entryScope !=
+            widget.historyContext.entryScope ||
+        oldWidget.historyContext.source != widget.historyContext.source) {
+      _clearLoadedFilterPages();
+      filterScopeChanged = true;
+    }
     if (oldWidget.accountClient != widget.accountClient) {
       oldWidget.accountClient?.removeListener(_onAccountClientChanged);
       widget.accountClient?.addListener(_onAccountClientChanged);
       _accountIdentity = _readAccountIdentity(widget.accountClient);
       _invalidateAccountResults();
+      filterScopeChanged = true;
+    }
+    if (filterScopeChanged) {
+      _loadFocusedFilterPageAfterFrame();
     }
   }
 
@@ -185,6 +239,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
           ? const MissavAuthenticationException()
           : null,
     );
+    _loadFocusedFilterPageAfterFrame();
     if (authenticationRequired && mounted) {
       _retryAction = retryAction;
     }
@@ -192,6 +247,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
 
   void _invalidateAccountResults({Object? error}) {
     _request++;
+    _clearLoadedFilterPages();
     _retryAction = null;
     if (!mounted) return;
     setState(() {
@@ -209,11 +265,176 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   @override
   void dispose() {
     _request++;
+    _filterScopeRevision++;
     widget.accountClient?.removeListener(_onAccountClientChanged);
     _query.dispose();
+    _filterQuery.dispose();
+    _inputFocus
+      ..removeListener(_onInputFocusChanged)
+      ..dispose();
     _scrollController.dispose();
     super.dispose();
   }
+
+  void _onInputFocusChanged() {
+    if (!mounted) return;
+    _highlightedSuggestionIndex = -1;
+    if (_inputFocus.hasFocus) {
+      final kind = _filterKind(_inputType);
+      if (kind != null) _ensureFirstFilterPageLoaded(kind);
+    } else {
+      _suggestionsOverlay.hide();
+    }
+    setState(() {});
+  }
+
+  void _clearLoadedFilterPages() {
+    _filterScopeRevision++;
+    _loadedFilterPages.clear();
+    _filterPageErrors.clear();
+    _verifyingFilterPages.clear();
+  }
+
+  void _loadFocusedFilterPageAfterFrame() {
+    if (!_inputFocus.hasFocus) return;
+    final kind = _filterKind(_inputType);
+    if (kind == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _inputFocus.hasFocus && _filterKind(_inputType) == kind) {
+        _ensureFirstFilterPageLoaded(kind);
+      }
+    });
+  }
+
+  void _ensureFirstFilterPageLoaded(VideoSearchFilterKind kind) {
+    final pageKey = (kind, '');
+    if (widget.loadFilters == null ||
+        _cachedFilterPage(kind, null) != null ||
+        _isFilterPageLoading(kind, null) ||
+        _filterPageErrors.containsKey(pageKey)) {
+      return;
+    }
+    unawaited(_loadFilterPageQuietly(kind, null));
+    setState(() {});
+  }
+
+  Future<VideoCatalogPage> _loadFilterPage(
+    VideoSearchFilterKind kind,
+    String? pageUrl,
+  ) {
+    final cached = _cachedFilterPage(kind, pageUrl);
+    if (cached != null) return Future.value(cached);
+
+    final loader = widget.loadFilters;
+    if (loader == null) {
+      return Future.error(StateError('Video filters are unavailable'));
+    }
+
+    final scopeRevision = _filterScopeRevision;
+    final requestKey = (kind, pageUrl ?? '', scopeRevision);
+    final currentRequest = _filterPageRequests[requestKey];
+    if (currentRequest != null) return currentRequest;
+
+    final pageKey = (kind, pageUrl ?? '');
+    _filterPageErrors.remove(pageKey);
+    late final Future<VideoCatalogPage> request;
+    request = Future<VideoCatalogPage>.sync(() => loader(kind, pageUrl))
+        .then(
+          (page) {
+            if (mounted && scopeRevision == _filterScopeRevision) {
+              _cacheFilterPage(kind, pageUrl, page, scopeRevision);
+              _filterPageErrors.remove(pageKey);
+            }
+            return page;
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (mounted && scopeRevision == _filterScopeRevision) {
+              _filterPageErrors[pageKey] = error;
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          },
+        )
+        .whenComplete(() {
+          if (identical(_filterPageRequests[requestKey], request)) {
+            _filterPageRequests.remove(requestKey);
+            if (mounted && scopeRevision == _filterScopeRevision) {
+              setState(() {});
+            }
+          }
+        });
+    _filterPageRequests[requestKey] = request;
+    return request;
+  }
+
+  bool _isFilterPageLoading(VideoSearchFilterKind kind, String? pageUrl) =>
+      _filterPageRequests.containsKey((
+        kind,
+        pageUrl ?? '',
+        _filterScopeRevision,
+      ));
+
+  Future<void> _loadFilterPageQuietly(
+    VideoSearchFilterKind kind,
+    String? pageUrl,
+  ) async {
+    try {
+      await _loadFilterPage(kind, pageUrl);
+    } catch (_) {}
+  }
+
+  void _retryFilterPageLoad(VideoSearchFilterKind kind, String? pageUrl) {
+    final pageKey = (kind, pageUrl ?? '');
+    setState(() => _filterPageErrors.remove(pageKey));
+    unawaited(_loadFilterPageQuietly(kind, pageUrl));
+    setState(() {});
+  }
+
+  Future<void> _verifyAndRetryFilterPage(
+    VideoSearchFilterKind kind,
+    String? pageUrl,
+  ) async {
+    final pageKey = (kind, pageUrl ?? '');
+    final verification = _filterPageErrors[pageKey];
+    final verifyAccess = widget.verifyAccess;
+    if (verification is! MissavVerificationRequiredException ||
+        verifyAccess == null ||
+        _verifyingFilterPages.contains(pageKey)) {
+      return;
+    }
+
+    final scopeRevision = _filterScopeRevision;
+    setState(() => _verifyingFilterPages.add(pageKey));
+    var verified = false;
+    try {
+      verified = await verifyAccess(context, verification);
+    } catch (_) {
+      verified = false;
+    }
+    if (!mounted ||
+        scopeRevision != _filterScopeRevision ||
+        _filterPageErrors[pageKey] != verification) {
+      return;
+    }
+    setState(() => _verifyingFilterPages.remove(pageKey));
+    if (verified) _retryFilterPageLoad(kind, pageUrl);
+  }
+
+  void _cacheFilterPage(
+    VideoSearchFilterKind kind,
+    String? requestedUrl,
+    VideoCatalogPage page,
+    int scopeRevision,
+  ) {
+    if (!mounted || scopeRevision != _filterScopeRevision) return;
+    final pages = _loadedFilterPages.putIfAbsent(kind, () => {});
+    pages[requestedUrl ?? ''] = page;
+    pages[page.url] = page;
+  }
+
+  VideoCatalogPage? _cachedFilterPage(
+    VideoSearchFilterKind kind,
+    String? pageUrl,
+  ) => _loadedFilterPages[kind]?[pageUrl ?? ''];
 
   Future<void> _runSearch(
     String value, {
@@ -282,8 +503,19 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   }
 
   void _submitSearch(String value) {
+    if (_inputType != _VideoSearchInputType.keyword &&
+        value.trim().isNotEmpty) {
+      SnackBarUtil.showFromSnackBar(
+        context,
+        SnackBar(
+          content: Text(S.of(context).videoSearchSelectFilterBeforeSearch),
+        ),
+      );
+      return;
+    }
     _filterPanelKey.currentState?.collapse();
-    unawaited(_runSearch(value));
+    _inputFocus.unfocus();
+    unawaited(_runSearch(_query.text));
   }
 
   Map<String, Object?> _historyPayload(String query, List<VideoLink> filters) =>
@@ -303,7 +535,10 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _request++;
     _retryAction = null;
     _query.clear();
+    _filterQuery.clear();
     _filters.clear();
+    _highlightedSuggestionIndex = -1;
+    _inputFocus.unfocus();
     setState(() {
       _results = null;
       _resultsQuery = '';
@@ -324,31 +559,75 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     VideoSearchFilterKind.series => s.videoFilterSeries,
   };
 
-  IconData _filterIcon(VideoSearchFilterKind kind) => switch (kind) {
-    VideoSearchFilterKind.genre => Icons.category_outlined,
-    VideoSearchFilterKind.actor => Icons.person_outline,
-    VideoSearchFilterKind.studio => Icons.business_outlined,
-    VideoSearchFilterKind.series => Icons.video_collection_outlined,
+  VideoSearchFilterKind? _filterKind(_VideoSearchInputType type) =>
+      switch (type) {
+        _VideoSearchInputType.keyword => null,
+        _VideoSearchInputType.genre => VideoSearchFilterKind.genre,
+        _VideoSearchInputType.actor => VideoSearchFilterKind.actor,
+        _VideoSearchInputType.studio => VideoSearchFilterKind.studio,
+        _VideoSearchInputType.series => VideoSearchFilterKind.series,
+      };
+
+  String _inputTypeTitle(_VideoSearchInputType type, S s) => switch (type) {
+    _VideoSearchInputType.keyword => s.searchTypeKeyword,
+    _VideoSearchInputType.genre => s.videoFilterGenre,
+    _VideoSearchInputType.actor => s.videoFilterActor,
+    _VideoSearchInputType.studio => s.videoFilterStudio,
+    _VideoSearchInputType.series => s.videoFilterSeries,
+  };
+
+  IconData _inputTypeIcon(_VideoSearchInputType type) => switch (type) {
+    _VideoSearchInputType.keyword => Icons.search,
+    _VideoSearchInputType.genre => Icons.category_outlined,
+    _VideoSearchInputType.actor => Icons.person_outline,
+    _VideoSearchInputType.studio => Icons.business_outlined,
+    _VideoSearchInputType.series => Icons.video_collection_outlined,
   };
 
   Future<void> _openFilterPicker(VideoSearchFilterKind kind) async {
-    final loadFilters = widget.loadFilters;
-    if (loadFilters == null) return;
+    if (widget.loadFilters == null) return;
+    _highlightedSuggestionIndex = -1;
+    _inputFocus.unfocus();
+    final scopeRevision = _filterScopeRevision;
     final selected = await showResponsiveBottomSheet<VideoLink>(
       context: context,
       builder: (_) => _VideoSearchFilterPicker(
         title: _filterTitle(kind, S.of(context)),
         kind: kind,
-        loadFilters: loadFilters,
+        loadFilters: _loadFilterPage,
         verifyAccess: widget.verifyAccess,
+        initialPage: _cachedFilterPage(kind, null),
+        cachedPage: (pageUrl) => scopeRevision == _filterScopeRevision
+            ? _cachedFilterPage(kind, pageUrl)
+            : null,
+        onPageLoaded: (pageUrl, page) =>
+            _cacheFilterPage(kind, pageUrl, page, scopeRevision),
       ),
     );
-    if (!mounted ||
-        selected == null ||
-        _filters.any((filter) => filter.url == selected.url)) {
+    if (!mounted || scopeRevision != _filterScopeRevision) {
       return;
     }
-    setState(() => _filters.add(selected));
+    if (selected != null) {
+      final wasSelected = _filters.any((filter) => filter.url == selected.url);
+      setState(() {
+        _highlightedSuggestionIndex = -1;
+        _filterQuery.clear();
+        if (!wasSelected) _filters.add(selected);
+      });
+      if (!wasSelected) _searchAfterFilterChange();
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _selectFilter(VideoLink filter) {
+    if (_filters.any((item) => item.url == filter.url)) return;
+    setState(() {
+      _highlightedSuggestionIndex = -1;
+      _filters.add(filter);
+      _filterQuery.clear();
+    });
+    _inputFocus.unfocus();
     _searchAfterFilterChange();
   }
 
@@ -357,19 +636,22 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _searchAfterFilterChange();
   }
 
-  Widget _filterControls(S s, {required double maxFilterHeight}) {
+  Widget _filterControls(S s, UnifiedSearchHistoryState history) {
     final loadFilters = widget.loadFilters;
     if (loadFilters == null) return const SizedBox.shrink();
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.viewInsetsOf(context).bottom > 0;
     final selected = _filters.isEmpty
         ? null
         : Padding(
+            key: _selectedFiltersAnchorKey,
             padding: const EdgeInsets.only(bottom: 4),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SizedBox(
                   height: MediaQuery.textScalerOf(context).scale(40),
                   child: ListView.separated(
+                    key: const ValueKey('video-search-selected-filters'),
                     scrollDirection: Axis.horizontal,
                     itemCount: _filters.length,
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -407,33 +689,34 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             ),
           );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: EdgeInsets.fromLTRB(12, 0, 12, compact ? 0 : 8),
       child: SearchFilterPanel(
         key: _filterPanelKey,
         headerBuilder: (context, filterButton) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: _buildSearchInputRow(s, filterButton: filterButton),
+          padding: EdgeInsets.symmetric(
+            vertical: MediaQuery.viewInsetsOf(context).bottom > 0 ? 0 : 8,
+          ),
+          child: _buildSearchInputRow(s, history, filterButton: filterButton),
         ),
         selected: selected,
-        filters: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxFilterHeight),
-          child: SingleChildScrollView(
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                for (final kind in VideoSearchFilterKind.values)
-                  OutlinedButton.icon(
-                    key: ValueKey('video-filter-${kind.name}'),
-                    onPressed: () => _openFilterPicker(kind),
-                    icon: Icon(_filterIcon(kind), size: 18),
-                    label: Text(
-                      _filterTitle(kind, s),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
+        filters: SizedBox(
+          key: _filterTypeBarKey,
+          height: 48,
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              dragDevices: {
+                ...ScrollConfiguration.of(context).dragDevices,
+                PointerDeviceKind.mouse,
+              },
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: _VideoSearchInputType.values
+                    .map((type) => _buildSearchTypeButton(type, s))
+                    .toList(growable: false),
+              ),
             ),
           ),
         ),
@@ -441,25 +724,591 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     );
   }
 
-  Widget _buildSearchInputRow(S s, {Widget? filterButton}) {
+  Widget _buildSearchTypeButton(_VideoSearchInputType type, S s) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final isSelected = _inputType == type;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Semantics(
+        selected: isSelected,
+        button: true,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: () {
+              if (_inputType != type) {
+                setState(() {
+                  _inputType = type;
+                  _filterQuery.clear();
+                  _highlightedSuggestionIndex = -1;
+                });
+              }
+              _inputFocus.requestFocus();
+              _suggestionsOverlay.show();
+              final kind = _filterKind(type);
+              if (kind != null) _ensureFirstFilterPageLoaded(kind);
+              _adaptFilterPanelForAutocomplete();
+            },
+            child: AnimatedContainer(
+              key: ValueKey('video-search-type-${type.name}'),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? colors.primaryContainer
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isSelected) ...[
+                    Icon(_inputTypeIcon(type), size: 18, color: colors.primary),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    _inputTypeTitle(type, s),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: isSelected
+                          ? colors.primary
+                          : colors.onSurfaceVariant,
+                      fontWeight: isSelected ? FontWeight.w700 : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _adaptFilterPanelForAutocomplete() {
+    if (MediaQuery.viewInsetsOf(context).bottom == 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final typeBarContext = _filterTypeBarKey.currentContext;
+      if (!mounted ||
+          _filterPanelKey.currentState?.isExpanded != true ||
+          typeBarContext == null) {
+        return;
+      }
+      await Scrollable.ensureVisible(
+        typeBarContext,
+        alignment: 1,
+        duration: Duration.zero,
+      );
+      if (!mounted ||
+          _filterPanelKey.currentState?.isExpanded != true ||
+          !typeBarContext.mounted) {
+        return;
+      }
+      final typeBarObject = typeBarContext.findRenderObject();
+      if (typeBarObject is! RenderBox || !typeBarObject.hasSize) return;
+      final mediaQuery = MediaQuery.of(context);
+      final visibleBottom =
+          mediaQuery.size.height -
+          mediaQuery.viewInsets.bottom -
+          mediaQuery.padding.bottom;
+      final typeBarBottom =
+          typeBarObject.localToGlobal(Offset(0, typeBarObject.size.height)).dy +
+          8;
+      if (visibleBottom - typeBarBottom >= 48) return;
+
+      _filterPanelKey.currentState?.collapse();
+      final inputContext = _searchInputAnchorKey.currentContext;
+      if (inputContext != null && inputContext.mounted) {
+        await Scrollable.ensureVisible(
+          inputContext,
+          alignment: 0,
+          duration: Duration.zero,
+        );
+      }
+    });
+  }
+
+  List<_VideoSearchSuggestion> _autocompleteOptions(
+    UnifiedSearchHistoryState history,
+  ) {
+    final filterKind = _filterKind(_inputType);
+    final query =
+        (_inputType == _VideoSearchInputType.keyword
+                ? _query.text
+                : _filterQuery.text)
+            .trim()
+            .toLowerCase();
+    if (filterKind == null) {
+      return [
+        for (final entry in _historyEntries(history))
+          if (entry.payload['keyword'] case final String keyword
+              when keyword.isNotEmpty &&
+                  (query.isEmpty || keyword.toLowerCase().contains(query)))
+            _VideoSearchSuggestion.keyword(keyword),
+      ];
+    }
+
+    final kind = filterKind;
+    final links = <String, VideoLink>{};
+    for (final page
+        in _loadedFilterPages[kind]?.values ?? const <VideoCatalogPage>[]) {
+      for (final link in page.links) {
+        if (!_filters.any((filter) => filter.url == link.url) &&
+            (query.isEmpty || link.label.toLowerCase().contains(query))) {
+          links[link.url] = link;
+        }
+      }
+    }
+    return [
+      for (final link in links.values) _VideoSearchSuggestion.filter(link),
+    ];
+  }
+
+  Widget _buildAutocompleteOverlay(
+    S s,
+    UnifiedSearchHistoryState history,
+    OverlayChildLayoutInfo info,
+  ) {
+    if (!_inputFocus.hasFocus) return const SizedBox.shrink();
+    final filterKind = _filterKind(_inputType);
+    final options = _autocompleteOptions(history);
+    final historyEntries = _historyEntries(history);
+    final targetRect = MatrixUtils.transformRect(
+      info.childPaintTransform,
+      Offset.zero & info.childSize,
+    );
+    var dropdownAnchorBottom = targetRect.bottom;
+    final anchorObject = _searchInputAnchorKey.currentContext
+        ?.findRenderObject();
+    final typeBarContext = _filterPanelKey.currentState?.isExpanded == true
+        ? _filterTypeBarKey.currentContext
+        : null;
+    final lowerControlContext =
+        typeBarContext ??
+        (_filters.isNotEmpty ? _selectedFiltersAnchorKey.currentContext : null);
+    final lowerControlObject = lowerControlContext?.findRenderObject();
+    if (anchorObject is RenderBox &&
+        lowerControlObject is RenderBox &&
+        anchorObject.hasSize &&
+        lowerControlObject.hasSize) {
+      final anchorBottom = anchorObject.localToGlobal(
+        Offset(0, anchorObject.size.height),
+      );
+      final controlsBottom = lowerControlObject.localToGlobal(
+        Offset(0, lowerControlObject.size.height),
+      );
+      dropdownAnchorBottom += controlsBottom.dy - anchorBottom.dy + 8;
+    }
+    final mediaQuery = MediaQuery.of(context);
+    final usableTop = mediaQuery.padding.top;
+    final usableBottom =
+        info.overlaySize.height -
+        mediaQuery.viewInsets.bottom -
+        mediaQuery.padding.bottom;
+    final spaceBelow = (usableBottom - dropdownAnchorBottom - 4)
+        .clamp(0.0, 240.0)
+        .toDouble();
+    final spaceAbove = (targetRect.top - usableTop - 4)
+        .clamp(0.0, 240.0)
+        .toDouble();
+    final opensAbove = spaceBelow < 96 && spaceAbove > spaceBelow;
+    final maxHeight = opensAbove ? spaceAbove : spaceBelow;
+    final top = opensAbove
+        ? targetRect.top - maxHeight - 4
+        : dropdownAnchorBottom + 4;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final pageKey = filterKind == null ? null : (filterKind, '');
+    final pageError = pageKey == null ? null : _filterPageErrors[pageKey];
+    final isLoadingFilterPage =
+        filterKind != null && _isFilterPageLoading(filterKind, null);
+    final itemHeaderCount = filterKind == null ? 0 : 1;
+    final itemContentCount = options.isEmpty ? 1 : options.length;
+    final itemFooterCount = filterKind == null ? 0 : 1;
+
+    Widget emptyState() {
+      if (filterKind != null && isLoadingFilterPage) {
+        return Padding(
+          key: const ValueKey('video-search-directory-loading'),
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+              Text(s.loading),
+            ],
+          ),
+        );
+      }
+      if (filterKind != null && pageError != null) {
+        return Padding(
+          key: const ValueKey('video-search-directory-error'),
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            pageError is MissavVerificationRequiredException
+                ? s.videoVerificationRequired
+                : s.videoLoadFailed,
+          ),
+        );
+      }
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: history.isLoading && filterKind == null
+            ? const LinearProgressIndicator()
+            : Text(
+                filterKind == null && historyEntries.isEmpty
+                    ? s.noSearchHistory
+                    : s.noResults,
+              ),
+      );
+    }
+
+    Widget filterSuggestion(int index) {
+      final option = options[index];
+      final selected = index == _highlightedSuggestionIndex;
+      return MouseRegion(
+        onEnter: (_) {
+          if (_highlightedSuggestionIndex != index) {
+            setState(() => _highlightedSuggestionIndex = index);
+          }
+        },
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: option.label,
+          child: Material(
+            color: selected
+                ? colorScheme.secondaryContainer
+                : Colors.transparent,
+            child: InkWell(
+              key: ValueKey(
+                option.keyword == null
+                    ? 'video-search-filter-suggestion-${option.filter!.url}'
+                    : 'video-search-keyword-suggestion-${option.keyword}',
+              ),
+              canRequestFocus: false,
+              onTap: () => _selectAutocompleteOption(option),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      option.filter == null
+                          ? Icons.history
+                          : _iconForLink(option.filter!),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Tooltip(
+                        message: option.label,
+                        child: Text(
+                          option.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget footer() {
+      if (filterKind == null) return const SizedBox.shrink();
+      final pageKey = (filterKind, '');
+      final verifying = _verifyingFilterPages.contains(pageKey);
+      final browseAllHighlighted =
+          _highlightedSuggestionIndex == _browseDirectorySuggestionIndex;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+        child: Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            if (pageError != null)
+              TextButton(
+                key: const ValueKey('video-search-directory-retry'),
+                onPressed: isLoadingFilterPage
+                    ? null
+                    : () => _retryFilterPageLoad(filterKind, null),
+                child: Text(s.retry),
+              ),
+            if (pageError is MissavVerificationRequiredException &&
+                widget.verifyAccess != null)
+              TextButton.icon(
+                key: const ValueKey('video-search-directory-verify'),
+                onPressed: verifying
+                    ? null
+                    : () => _verifyAndRetryFilterPage(filterKind, null),
+                icon: verifying
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.verified_user_outlined),
+                label: Text(s.videoVerifyAccess),
+              ),
+            Tooltip(
+              message: s.videoSearchBrowseAllDirectory,
+              child: Semantics(
+                selected: browseAllHighlighted,
+                child: TextButton.icon(
+                  key: const ValueKey('video-search-browse-all'),
+                  style: browseAllHighlighted
+                      ? TextButton.styleFrom(
+                          backgroundColor: colorScheme.secondaryContainer,
+                          foregroundColor: colorScheme.onSecondaryContainer,
+                        )
+                      : null,
+                  onPressed: () => _openFilterPicker(filterKind),
+                  icon: const Icon(Icons.open_in_new),
+                  label: Text(
+                    s.videoSearchBrowseAllDirectory,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Positioned(
+      left: targetRect.left,
+      top: top,
+      width: targetRect.width,
+      child: TextFieldTapRegion(
+        child: Material(
+          key: const ValueKey('video-search-suggestions'),
+          elevation: 6,
+          color: colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  ...ScrollConfiguration.of(context).dragDevices,
+                  PointerDeviceKind.mouse,
+                },
+              ),
+              child: ScrollablePositionedList.builder(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: itemHeaderCount + itemContentCount + itemFooterCount,
+                itemScrollController: _suggestionScrollController,
+                itemPositionsListener: _suggestionPositions,
+                itemBuilder: (context, index) {
+                  if (filterKind != null && index == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                      child: Text(
+                        s.videoSearchLoadedDirectoryPagesHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    );
+                  }
+                  final contentIndex = index - itemHeaderCount;
+                  if (contentIndex < itemContentCount) {
+                    return options.isEmpty
+                        ? emptyState()
+                        : filterSuggestion(contentIndex);
+                  }
+                  return footer();
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _scrollHighlightedSuggestionIntoView() {
+    final highlightedIndex = _highlightedSuggestionIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _highlightedSuggestionIndex != highlightedIndex ||
+          !_suggestionScrollController.isAttached) {
+        return;
+      }
+      final filterKind = _filterKind(_inputType);
+      final options = _autocompleteOptions(
+        ref.read(unifiedSearchHistoryProvider),
+      );
+      final headerCount = filterKind == null ? 0 : 1;
+      final contentCount = options.isEmpty ? 1 : options.length;
+      final itemIndex = highlightedIndex == _browseDirectorySuggestionIndex
+          ? (filterKind == null ? -1 : headerCount + contentCount)
+          : highlightedIndex >= 0 && highlightedIndex < options.length
+          ? headerCount + highlightedIndex
+          : -1;
+      if (itemIndex < 0) return;
+
+      final highlightedIsVisible = _suggestionPositions.itemPositions.value.any(
+        (position) =>
+            position.index == itemIndex &&
+            position.itemLeadingEdge >= 0 &&
+            position.itemTrailingEdge <= 1,
+      );
+      if (!highlightedIsVisible) {
+        _suggestionScrollController.jumpTo(index: itemIndex);
+      }
+    }, debugLabel: 'VideoSearchOptions.ensureVisible');
+  }
+
+  KeyEventResult _handleAutocompleteKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final filterKind = _filterKind(_inputType);
+    final options = _autocompleteOptions(
+      ref.read(unifiedSearchHistoryProvider),
+    );
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      if (options.isEmpty && filterKind == null) return KeyEventResult.ignored;
+      _suggestionsOverlay.show();
+      setState(() {
+        if (_highlightedSuggestionIndex == _browseDirectorySuggestionIndex) {
+          _highlightedSuggestionIndex = options.isEmpty ? -1 : 0;
+        } else if (_highlightedSuggestionIndex < options.length - 1) {
+          _highlightedSuggestionIndex++;
+        } else if (filterKind != null) {
+          _highlightedSuggestionIndex = _browseDirectorySuggestionIndex;
+        } else {
+          _highlightedSuggestionIndex = 0;
+        }
+      });
+      _scrollHighlightedSuggestionIntoView();
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      if (_highlightedSuggestionIndex == _browseDirectorySuggestionIndex) {
+        setState(() => _highlightedSuggestionIndex = options.length - 1);
+        _scrollHighlightedSuggestionIntoView();
+        return KeyEventResult.handled;
+      }
+      if (_highlightedSuggestionIndex > 0) {
+        setState(() => _highlightedSuggestionIndex--);
+        _scrollHighlightedSuggestionIntoView();
+        return KeyEventResult.handled;
+      }
+      if (_highlightedSuggestionIndex == 0) {
+        setState(() => _highlightedSuggestionIndex = -1);
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      _inputFocus.unfocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _onInputSubmitted(String value) {
+    final kind = _filterKind(_inputType);
+    if (_highlightedSuggestionIndex == _browseDirectorySuggestionIndex &&
+        kind != null) {
+      unawaited(_openFilterPicker(kind));
+      return;
+    }
+    final options = _autocompleteOptions(
+      ref.read(unifiedSearchHistoryProvider),
+    );
+    final index = _highlightedSuggestionIndex;
+    if (index >= 0 && index < options.length) {
+      _selectAutocompleteOption(options[index]);
+      return;
+    }
+    _submitSearch(value);
+  }
+
+  void _selectAutocompleteOption(_VideoSearchSuggestion option) {
+    final keyword = option.keyword;
+    if (keyword != null) {
+      _query.value = TextEditingValue(
+        text: keyword,
+        selection: TextSelection.collapsed(offset: keyword.length),
+      );
+      setState(() => _highlightedSuggestionIndex = -1);
+      _inputFocus.unfocus();
+      return;
+    }
+    _selectFilter(option.filter!);
+  }
+
+  Widget _buildSearchInputRow(
+    S s,
+    UnifiedSearchHistoryState history, {
+    Widget? filterButton,
+  }) {
+    final controller = _inputType == _VideoSearchInputType.keyword
+        ? _query
+        : _filterQuery;
     return Row(
       children: [
         Expanded(
-          child: TextField(
-            key: const ValueKey('video-search-input'),
-            controller: _query,
-            autofocus: widget.initialQuery == null,
-            textInputAction: TextInputAction.search,
-            onSubmitted: _submitSearch,
-            onChanged: (_) => setState(() {}),
-            decoration: searchInputDecoration(
-              hintText: s.videoSearchHint,
-              suffixIcon: IconButton(
-                tooltip: s.clear,
-                onPressed: _query.text.isEmpty && _filters.isEmpty
-                    ? null
-                    : _clearInput,
-                icon: const Icon(Icons.clear),
+          child: OverlayPortal.overlayChildLayoutBuilder(
+            controller: _suggestionsOverlay,
+            overlayChildBuilder: (context, info) =>
+                _buildAutocompleteOverlay(s, history, info),
+            child: Focus(
+              canRequestFocus: false,
+              onKeyEvent: _handleAutocompleteKey,
+              child: SizedBox(
+                key: _searchInputAnchorKey,
+                child: TextField(
+                  key: const ValueKey('video-search-input'),
+                  controller: controller,
+                  focusNode: _inputFocus,
+                  autofocus: widget.initialQuery == null,
+                  textInputAction: TextInputAction.search,
+                  onTap: _suggestionsOverlay.show,
+                  onSubmitted: _onInputSubmitted,
+                  onChanged: (_) {
+                    _suggestionsOverlay.show();
+                    setState(() => _highlightedSuggestionIndex = -1);
+                  },
+                  decoration: searchInputDecoration(
+                    hintText: s.videoSearchHint,
+                    prefixText: _inputType == _VideoSearchInputType.keyword
+                        ? null
+                        : '${_inputTypeTitle(_inputType, s)} · ',
+                    suffixIcon: IconButton(
+                      tooltip: s.clear,
+                      onPressed:
+                          _query.text.isEmpty &&
+                              _filterQuery.text.isEmpty &&
+                              _filters.isEmpty
+                          ? null
+                          : _clearInput,
+                      icon: const Icon(Icons.clear),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -468,7 +1317,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         IconButton(
           key: const ValueKey('video-search-submit'),
           tooltip: s.search,
-          onPressed: () => _submitSearch(_query.text),
+          onPressed: () => _submitSearch(controller.text),
           icon: const Icon(Icons.search),
         ),
       ],
@@ -608,6 +1457,8 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final query = keyword is String ? keyword : '';
     final filters = _historyFilters(entry);
     setState(() {
+      _inputType = _VideoSearchInputType.keyword;
+      _filterQuery.clear();
       _query.text = query;
       _filters
         ..clear()
@@ -801,7 +1652,10 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
               key: const ValueKey('video-search-history-toggle'),
               tooltip: _showHistory ? s.close : s.searchHistory,
               icon: Icon(_showHistory ? Icons.close : Icons.history),
-              onPressed: () => setState(() => _showHistory = !_showHistory),
+              onPressed: () {
+                _inputFocus.unfocus();
+                setState(() => _showHistory = !_showHistory);
+              },
             ),
           if (!_showHistory && _results != null && historyEntries.isNotEmpty)
             IconButton(
@@ -825,17 +1679,10 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                     if (widget.loadFilters == null)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        child: _buildSearchInputRow(s),
+                        child: _buildSearchInputRow(s, history),
                       )
                     else
-                      _filterControls(
-                        s,
-                        maxFilterHeight:
-                            constraints.maxHeight *
-                            (MediaQuery.viewInsetsOf(context).bottom > 0
-                                ? .15
-                                : .34),
-                      ),
+                      _filterControls(s, history),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.all(12),
@@ -923,12 +1770,18 @@ class _VideoSearchFilterPicker extends StatefulWidget {
     required this.title,
     required this.kind,
     required this.loadFilters,
+    required this.initialPage,
+    required this.cachedPage,
+    required this.onPageLoaded,
     this.verifyAccess,
   });
 
   final String title;
   final VideoSearchFilterKind kind;
   final VideoSearchFilterLoader loadFilters;
+  final VideoCatalogPage? initialPage;
+  final VideoCatalogPage? Function(String? pageUrl) cachedPage;
+  final void Function(String? pageUrl, VideoCatalogPage page) onPageLoaded;
   final VideoSearchAccessVerifier? verifyAccess;
 
   @override
@@ -948,13 +1801,28 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_load(null));
-    });
+    _page = widget.initialPage;
+    _loading = _page == null;
+    if (_page == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_load(null));
+      });
+    }
   }
 
   Future<void> _load(String? pageUrl) async {
     _requestedUrl = pageUrl;
+    final cached = widget.cachedPage(pageUrl);
+    if (cached != null) {
+      _request++;
+      setState(() {
+        _page = cached;
+        _error = null;
+        _verificationError = null;
+        _loading = false;
+      });
+      return;
+    }
     final request = ++_request;
     setState(() {
       _loading = true;
@@ -968,6 +1836,7 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
         _page = page;
         _loading = false;
       });
+      widget.onPageLoaded(pageUrl, page);
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {

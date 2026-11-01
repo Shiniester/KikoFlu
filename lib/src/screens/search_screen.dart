@@ -289,13 +289,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           _searchFocusNode.requestFocus();
-          final value = _searchController.value;
-          final affinity = value.selection.affinity == TextAffinity.upstream
-              ? TextAffinity.downstream
-              : TextAffinity.upstream;
-          _searchController.value = value.copyWith(
-            selection: value.selection.copyWith(affinity: affinity),
-          );
+          _refreshAutocomplete();
         });
       }
     } catch (e) {
@@ -335,7 +329,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             SearchType.circle => _allCircles.isNotEmpty,
             SearchType.keyword || SearchType.rjNumber => true,
           };
-    if (!hasSuggestions) unawaited(_loadSuggestions());
+    if (!hasSuggestions) {
+      unawaited(_loadSuggestions());
+    } else if (_searchController.text.isEmpty) {
+      _refreshAutocomplete();
+    }
+  }
+
+  void _refreshAutocomplete() {
+    final value = _searchController.value;
+    final affinity = value.selection.affinity == TextAffinity.upstream
+        ? TextAffinity.downstream
+        : TextAffinity.upstream;
+    _searchController.value = value.copyWith(
+      selection: value.selection.copyWith(affinity: affinity),
+    );
   }
 
   bool get _isJapaneseGlobalSearch =>
@@ -1113,34 +1121,47 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                         if (controller.text != _searchController.text) {
                           controller.value = _searchController.value;
                         }
-                        return TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          decoration: searchInputDecoration(
-                            hintText: _currentSearchType.localizedHint(context),
-                            prefixText:
-                                _currentSearchType == SearchType.rjNumber
-                                ? 'RJ'
-                                : null,
-                            suffixIcon: _searchInputSuffix(),
-                          ),
-                          onTap: _loadSuggestionsIfNeeded,
-                          textInputAction: TextInputAction.search,
-                          onChanged: (_) =>
-                              _searchController.value = controller.value,
-                          onSubmitted: (_) {
-                            if (!_isJapaneseGlobalSearch) {
-                              _performSearch(manual: true);
-                              return;
+                        return Focus(
+                          canRequestFocus: false,
+                          onKeyEvent: (_, event) {
+                            if (event is KeyDownEvent &&
+                                event.logicalKey == LogicalKeyboardKey.escape) {
+                              focusNode.unfocus();
+                              return KeyEventResult.handled;
                             }
-                            _submitAfterSuggestion = true;
-                            onSubmitted();
-                            if (_searchController.text.trim().isNotEmpty) {
-                              _submitAfterSuggestion = false;
-                              _performSearch(manual: true);
-                            }
-                            _submitAfterSuggestion = false;
+                            return KeyEventResult.ignored;
                           },
+                          child: TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            decoration: searchInputDecoration(
+                              hintText: _currentSearchType.localizedHint(
+                                context,
+                              ),
+                              prefixText:
+                                  _currentSearchType == SearchType.rjNumber
+                                  ? 'RJ'
+                                  : null,
+                              suffixIcon: _searchInputSuffix(),
+                            ),
+                            onTap: _loadSuggestionsIfNeeded,
+                            textInputAction: TextInputAction.search,
+                            onChanged: (_) =>
+                                _searchController.value = controller.value,
+                            onSubmitted: (_) {
+                              if (!_isJapaneseGlobalSearch) {
+                                _performSearch(manual: true);
+                                return;
+                              }
+                              _submitAfterSuggestion = true;
+                              onSubmitted();
+                              if (_searchController.text.trim().isNotEmpty) {
+                                _submitAfterSuggestion = false;
+                                _performSearch(manual: true);
+                              }
+                              _submitAfterSuggestion = false;
+                            },
+                          ),
                         );
                       },
                 )

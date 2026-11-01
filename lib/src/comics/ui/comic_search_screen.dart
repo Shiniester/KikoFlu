@@ -2,11 +2,14 @@ import 'dart:async';
 
 import '../../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/pagination_bar.dart';
 import '../../widgets/animated_menu_anchor.dart';
+import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/search_condition_chip.dart';
 import '../../widgets/search_filter_panel.dart';
 import '../../widgets/search_history_section.dart';
@@ -19,6 +22,90 @@ import '../comic_source.dart';
 import 'comic_widgets.dart';
 
 enum ComicSearchMode { single, grouped, merged }
+
+enum _ComicSearchSuggestionEmptyState { noHistory, noMatches }
+
+class _ComicSearchOptionsList extends StatefulWidget {
+  const _ComicSearchOptionsList({
+    required this.options,
+    required this.highlightedIndex,
+    required this.localizations,
+    required this.onSelected,
+  });
+
+  final Iterable<Object> options;
+  final int highlightedIndex;
+  final S localizations;
+  final ValueChanged<Object> onSelected;
+
+  @override
+  State<_ComicSearchOptionsList> createState() =>
+      _ComicSearchOptionsListState();
+}
+
+class _ComicSearchOptionsListState extends State<_ComicSearchOptionsList> {
+  final _scrollController = ItemScrollController();
+  final _itemPositions = ItemPositionsListener.create();
+
+  @override
+  void didUpdateWidget(_ComicSearchOptionsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.highlightedIndex == oldWidget.highlightedIndex) return;
+
+    final highlightedIndex = widget.highlightedIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.highlightedIndex != highlightedIndex ||
+          !_scrollController.isAttached ||
+          highlightedIndex < 0 ||
+          highlightedIndex >= widget.options.length) {
+        return;
+      }
+      final highlightedIsVisible = _itemPositions.itemPositions.value.any(
+        (position) =>
+            position.index == highlightedIndex &&
+            position.itemLeadingEdge >= 0 &&
+            position.itemTrailingEdge <= 1,
+      );
+      if (!highlightedIsVisible) {
+        _scrollController.jumpTo(index: highlightedIndex);
+      }
+    }, debugLabel: 'ComicSearchOptions.ensureVisible');
+  }
+
+  @override
+  Widget build(BuildContext context) => ScrollablePositionedList.builder(
+    key: const ValueKey('comic-search-history-suggestions'),
+    padding: EdgeInsets.zero,
+    shrinkWrap: true,
+    initialScrollIndex: widget.options.isEmpty
+        ? 0
+        : widget.highlightedIndex.clamp(0, widget.options.length - 1).toInt(),
+    itemCount: widget.options.length,
+    itemScrollController: _scrollController,
+    itemPositionsListener: _itemPositions,
+    itemBuilder: (context, index) {
+      final option = widget.options.elementAt(index);
+      if (option is! String) {
+        return ListTile(
+          leading: const Icon(Icons.history),
+          title: Text(
+            option == _ComicSearchSuggestionEmptyState.noHistory
+                ? widget.localizations.noSearchHistory
+                : widget.localizations.noResults,
+          ),
+          enabled: false,
+        );
+      }
+      return ListTile(
+        leading: const Icon(Icons.history),
+        title: Text(option, maxLines: 1, overflow: TextOverflow.ellipsis),
+        selected: index == widget.highlightedIndex,
+        onTap: () => widget.onSelected(option),
+      );
+    },
+  );
+}
 
 List<Comic> interleaveComicResults(List<List<Comic>> groups) {
   final result = <Comic>[];
@@ -50,6 +137,7 @@ class ComicSearchScreen extends ConsumerStatefulWidget {
 
 class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   late final _query = TextEditingController(text: widget.initialQuery);
+  final _searchFocusNode = FocusNode();
   late String _source =
       widget.initialSource ?? ref.read(comicSelectedSourceProvider);
   ComicSearchMode _mode = ComicSearchMode.single;
@@ -78,6 +166,8 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   bool _userSearchSubmitted = false;
   bool _historySessionActive = false;
   bool _showHistory = false;
+  bool _keyboardSuggestionNavigated = false;
+  bool _queryIsComposing = false;
   bool _searchUpdateFailed = false;
   final _scroll = ScrollController();
   late final _historySession = UnifiedSearchHistorySession(
@@ -119,6 +209,8 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(_refreshSearchSuggestions);
+    _query.addListener(_queryValueChanged);
     if (widget.initialQuery.isNotEmpty ||
         widget.category != null ||
         widget.libraryTab != null) {
@@ -138,7 +230,10 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   void dispose() {
     _generation++;
     _listenToRoute(_route, add: false);
+    _searchFocusNode.removeListener(_refreshSearchSuggestions);
+    _query.removeListener(_queryValueChanged);
     _query.dispose();
+    _searchFocusNode.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -195,7 +290,9 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   }
 
   void _submitSearch() {
+    _searchFocusNode.unfocus();
     _filterPanelKey.currentState?.collapse();
+    _keyboardSuggestionNavigated = false;
     _userSearchSubmitted = true;
     _historySessionActive = true;
     if (_showHistory) setState(() => _showHistory = false);
@@ -203,7 +300,40 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     unawaited(_search());
   }
 
+  void _queryValueChanged() {
+    final isComposing =
+        _query.value.composing.isValid && !_query.value.composing.isCollapsed;
+    if (isComposing == _queryIsComposing) return;
+    _queryIsComposing = isComposing;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refreshSearchSuggestions();
+    });
+  }
+
+  void _refreshSearchSuggestions() {
+    if (!_searchFocusNode.hasFocus) {
+      _keyboardSuggestionNavigated = false;
+      return;
+    }
+    _keyboardSuggestionNavigated = false;
+    final value = _query.value;
+    if (value.composing.isValid && !value.composing.isCollapsed) return;
+    final selection = value.selection;
+    // Refresh options without changing the query or its IME composition.
+    _query.value = value.copyWith(
+      selection: selection.isValid
+          ? selection.copyWith(
+              affinity: selection.affinity == TextAffinity.upstream
+                  ? TextAffinity.downstream
+                  : TextAffinity.upstream,
+            )
+          : TextSelection.collapsed(offset: value.text.length),
+    );
+  }
+
   void _clearSearch() {
+    _keyboardSuggestionNavigated = false;
     _generation++;
     _pageTurnRequest = null;
     _cancelledPageTurnRequest = null;
@@ -235,6 +365,8 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   }
 
   void _onFilterChanged() {
+    _searchFocusNode.unfocus();
+    _keyboardSuggestionNavigated = false;
     if (_showHistory) setState(() => _showHistory = false);
     if (!_userSearchSubmitted) return;
     if (_historySessionActive) {
@@ -278,7 +410,30 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     ].join(' · ');
   }
 
+  List<String> _searchHistorySuggestions(
+    List<UnifiedSearchHistoryEntry> entries,
+    TextEditingValue value,
+  ) {
+    if (value.composing.isValid && !value.composing.isCollapsed) {
+      return const [];
+    }
+    final query = value.text.trim().toLowerCase();
+    final seen = <String>{};
+    return entries
+        .map((entry) => entry.payload['keyword'])
+        .whereType<String>()
+        .map((keyword) => keyword.trim())
+        .where(
+          (keyword) =>
+              keyword.isNotEmpty &&
+              (query.isEmpty || keyword.toLowerCase().contains(query)) &&
+              seen.add(keyword.toLowerCase()),
+        )
+        .toList();
+  }
+
   void _replayHistory(UnifiedSearchHistoryEntry entry) {
+    _keyboardSuggestionNavigated = false;
     final payload = entry.payload;
     final modeName = payload['mode'];
     final mode = ComicSearchMode.values.firstWhere(
@@ -655,6 +810,34 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     };
   }
 
+  Widget _filterChoiceChip({
+    required String label,
+    required bool selected,
+    required ValueChanged<bool>? onSelected,
+  }) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: onSelected,
+        showCheckmark: true,
+        checkmarkColor: colors.primary,
+        selectedColor: colors.primaryContainer,
+        backgroundColor: Colors.transparent,
+        side: BorderSide.none,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        labelStyle: theme.textTheme.labelLarge?.copyWith(
+          color: selected ? colors.primary : colors.onSurfaceVariant,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
   Widget _group(ComicSource source) {
     final items = _results[source.key] ?? [];
     return Card(
@@ -739,6 +922,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(unifiedSearchHistoryProvider, (_, __) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshSearchSuggestions();
+      });
+    });
     ref.listen(comicPageSizeProvider, (_, __) {
       if (_submitted && _mode != ComicSearchMode.grouped) {
         _loadPage(1, reset: true);
@@ -768,20 +956,113 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       _ => s.libraryDownloads,
     };
     Widget searchField() => Expanded(
-      child: TextField(
-        key: const ValueKey('comic-search-input'),
-        controller: _query,
-        textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _submitSearch(),
-        onChanged: (_) => setState(() {}),
-        decoration: searchInputDecoration(
-          hintText: s.search,
-          suffixIcon: IconButton(
-            tooltip: s.clear,
-            onPressed: _clearSearch,
-            icon: const Icon(Icons.clear),
-          ),
-        ),
+      child: Autocomplete<Object>(
+        key: ValueKey((
+          historyContext.key,
+          searchHistory.entries,
+          _queryIsComposing,
+        )),
+        displayStringForOption: (option) =>
+            option is String ? option : _query.text,
+        textEditingController: _query,
+        focusNode: _searchFocusNode,
+        optionsBuilder: (value) {
+          if (value.composing.isValid && !value.composing.isCollapsed) {
+            return const <Object>[];
+          }
+          final suggestions = _searchHistorySuggestions(historyEntries, value);
+          if (suggestions.isNotEmpty) return suggestions;
+          return [
+            historyEntries.isEmpty
+                ? _ComicSearchSuggestionEmptyState.noHistory
+                : _ComicSearchSuggestionEmptyState.noMatches,
+          ];
+        },
+        optionsMaxHeight: 280,
+        optionsViewBuilder: (context, onSelected, options) {
+          final highlightedIndex = AutocompleteHighlightedOption.of(context);
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 8,
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: _ComicSearchOptionsList(
+                  options: options,
+                  highlightedIndex: highlightedIndex,
+                  localizations: s,
+                  onSelected: onSelected,
+                ),
+              ),
+            ),
+          );
+        },
+        onSelected: (option) {
+          if (option is String) {
+            _keyboardSuggestionNavigated = false;
+          }
+        },
+        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) =>
+            Focus(
+              onKeyEvent: (node, event) {
+                if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                  return KeyEventResult.ignored;
+                }
+                if (event.logicalKey == LogicalKeyboardKey.escape) {
+                  _keyboardSuggestionNavigated = false;
+                  _searchFocusNode.unfocus();
+                } else if (_searchHistorySuggestions(
+                      historyEntries,
+                      _query.value,
+                    ).isNotEmpty &&
+                    const [
+                      LogicalKeyboardKey.arrowDown,
+                      LogicalKeyboardKey.arrowUp,
+                      LogicalKeyboardKey.pageDown,
+                      LogicalKeyboardKey.pageUp,
+                    ].contains(event.logicalKey)) {
+                  _keyboardSuggestionNavigated = true;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                key: const ValueKey('comic-search-input'),
+                controller: controller,
+                focusNode: focusNode,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) {
+                  final value = _query.value;
+                  if (value.composing.isValid && !value.composing.isCollapsed) {
+                    return;
+                  }
+                  if (_keyboardSuggestionNavigated &&
+                      _searchHistorySuggestions(
+                        historyEntries,
+                        value,
+                      ).isNotEmpty) {
+                    _keyboardSuggestionNavigated = false;
+                    onFieldSubmitted();
+                  } else {
+                    _submitSearch();
+                  }
+                },
+                onChanged: (_) {
+                  _keyboardSuggestionNavigated = false;
+                  setState(() {});
+                },
+                decoration: searchInputDecoration(
+                  hintText: s.search,
+                  suffixIcon: IconButton(
+                    tooltip: s.clear,
+                    onPressed: _clearSearch,
+                    icon: const Icon(Icons.clear),
+                  ),
+                ),
+              ),
+            ),
       ),
     );
     Widget searchButton() => IconButton(
@@ -879,108 +1160,117 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                 filters: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final mode in ComicSearchMode.values)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(
-                                  [
+                    FloatingToolbarSurface(
+                      padding: const EdgeInsets.all(4),
+                      child: SizedBox(
+                        height: 48,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final mode in ComicSearchMode.values)
+                                _filterChoiceChip(
+                                  label: [
                                     s.comicSearchSingle,
                                     s.comicSearchGrouped,
                                     s.comicSearchMerged,
                                   ][mode.index],
+                                  selected: _mode == mode,
+                                  onSelected: (_) {
+                                    setState(() {
+                                      if (_mode == ComicSearchMode.single &&
+                                          mode != ComicSearchMode.single) {
+                                        _selectedSourceKeys = null;
+                                      }
+                                      _mode = mode;
+                                    });
+                                    _onFilterChanged();
+                                  },
                                 ),
-                                selected: _mode == mode,
-                                onSelected: (_) {
-                                  setState(() {
-                                    if (_mode == ComicSearchMode.single &&
-                                        mode != ComicSearchMode.single) {
-                                      _selectedSourceKeys = null;
-                                    }
-                                    _mode = mode;
-                                  });
-                                  _onFilterChanged();
-                                },
-                              ),
-                            ),
-                        ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final source in sources)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(source.name),
-                                selected:
-                                    _mode != ComicSearchMode.single ||
-                                    source.key == _source,
-                                onSelected: _mode != ComicSearchMode.single
-                                    ? null
-                                    : (_) {
-                                        setState(() {
-                                          _source = source.key;
-                                          _sort = null;
-                                        });
-                                        _onFilterChanged();
-                                      },
-                              ),
-                            ),
-                          if (_mode == ComicSearchMode.single &&
-                              (selected?.searchSorts.isNotEmpty ?? false))
-                            AnimatedMenuAnchor(
-                              menuStyle: const MenuStyle(
-                                alignment: AlignmentDirectional.bottomStart,
-                                maximumSize: WidgetStatePropertyAll(
-                                  Size(360, double.infinity),
+                    FloatingToolbarSurface(
+                      padding: const EdgeInsets.all(4),
+                      child: SizedBox(
+                        height: 48,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final source in sources)
+                                _filterChoiceChip(
+                                  label: source.name,
+                                  selected:
+                                      _mode != ComicSearchMode.single ||
+                                      source.key == _source,
+                                  onSelected: _mode != ComicSearchMode.single
+                                      ? null
+                                      : (_) {
+                                          setState(() {
+                                            _source = source.key;
+                                            _sort = null;
+                                          });
+                                          _onFilterChanged();
+                                        },
                                 ),
-                              ),
-                              crossAxisUnconstrained: false,
-                              menuChildren: [
-                                for (final sort in selected!.searchSorts)
-                                  Semantics(
-                                    selected:
-                                        sort ==
-                                        (_sort ?? selected.searchSorts.first),
-                                    child: MenuItemButton(
-                                      autofocus:
-                                          sort ==
-                                          (_sort ?? selected.searchSorts.first),
-                                      style:
-                                          AnimatedMenuAnchor.selectedItemStyle(
-                                            context,
-                                            sort ==
-                                                (_sort ??
-                                                    selected.searchSorts.first),
-                                          ),
-                                      onPressed: () {
-                                        setState(() => _sort = sort);
-                                        _onFilterChanged();
-                                      },
-                                      child: Text(
-                                        _sortLabel(sort),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
+                              if (_mode == ComicSearchMode.single &&
+                                  (selected?.searchSorts.isNotEmpty ?? false))
+                                AnimatedMenuAnchor(
+                                  menuStyle: const MenuStyle(
+                                    alignment: AlignmentDirectional.bottomStart,
+                                    maximumSize: WidgetStatePropertyAll(
+                                      Size(360, double.infinity),
                                     ),
                                   ),
-                              ],
-                              builder: (context, controller, _) => IconButton(
-                                tooltip: s.comicSort,
-                                icon: const Icon(Icons.sort),
-                                onPressed: () => controller.isOpen
-                                    ? controller.close()
-                                    : controller.open(),
-                              ),
-                            ),
-                        ],
+                                  crossAxisUnconstrained: false,
+                                  menuChildren: [
+                                    for (final sort in selected!.searchSorts)
+                                      Semantics(
+                                        selected:
+                                            sort ==
+                                            (_sort ??
+                                                selected.searchSorts.first),
+                                        child: MenuItemButton(
+                                          autofocus:
+                                              sort ==
+                                              (_sort ??
+                                                  selected.searchSorts.first),
+                                          style:
+                                              AnimatedMenuAnchor.selectedItemStyle(
+                                                context,
+                                                sort ==
+                                                    (_sort ??
+                                                        selected
+                                                            .searchSorts
+                                                            .first),
+                                              ),
+                                          onPressed: () {
+                                            setState(() => _sort = sort);
+                                            _onFilterChanged();
+                                          },
+                                          child: Text(
+                                            _sortLabel(sort),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                  builder: (context, controller, _) =>
+                                      IconButton(
+                                        tooltip: s.comicSort,
+                                        icon: const Icon(Icons.sort),
+                                        onPressed: () => controller.isOpen
+                                            ? controller.close()
+                                            : controller.open(),
+                                      ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],

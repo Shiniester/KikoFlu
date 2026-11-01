@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
@@ -69,6 +70,9 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   String? _translationTargetKey;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _scrollViewportKey = GlobalKey();
+  final GlobalKey _previewContentKey = GlobalKey();
+  final GlobalKey _editContentKey = GlobalKey();
   final ScrollThrottler _scrollThrottler = ScrollThrottler();
   double _scrollProgress = 0.0;
   bool _showTranslation = false;
@@ -78,8 +82,15 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   bool _isSearchMode = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _editFocusNode = FocusNode();
   List<_TextSearchMatch> _searchMatches = const [];
+  List<_TextSearchMarker> _searchMarkers = const [];
   int _currentSearchMatchIndex = -1;
+  bool _searchMarkerLayoutScheduled = false;
+  Size? _lastSearchViewportSize;
+  TextScaler? _lastTextScaler;
+  TextDirection? _lastTextDirection;
+  Locale? _lastTextLocale;
   bool _hasLoadedContent = false;
   bool _initialSaveOptionsShown = false;
   bool _autoTranslationStarted = false;
@@ -120,6 +131,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     _translatedTextController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _editFocusNode.dispose();
     super.dispose();
   }
 
@@ -362,6 +374,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     setState(() {
       _isSearchMode = false;
       _searchMatches = const [];
+      _searchMarkers = const [];
       _currentSearchMatchIndex = -1;
     });
   }
@@ -397,10 +410,12 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
     setState(() {
       _searchMatches = matches;
+      _searchMarkers = const [];
       _currentSearchMatchIndex = matches.isEmpty ? -1 : 0;
     });
 
     if (matches.isNotEmpty) {
+      _scheduleSearchMarkerLayout();
       _scheduleScrollToCurrentMatch();
     }
   }
@@ -413,7 +428,165 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     setState(() {
       _currentSearchMatchIndex = nextIndex;
     });
+    _scheduleSearchMarkerLayout();
     _scheduleScrollToCurrentMatch();
+  }
+
+  void _selectSearchMatch(int index) {
+    if (index < 0 || index >= _searchMatches.length) return;
+
+    if (_currentSearchMatchIndex != index) {
+      setState(() {
+        _currentSearchMatchIndex = index;
+      });
+      _scheduleSearchMarkerLayout();
+    }
+
+    if (_isEditMode) {
+      final match = _searchMatches[index];
+      final controller = _showTranslation && _translatedContent != null
+          ? _translatedTextController
+          : _textController;
+      controller.selection = TextSelection(
+        baseOffset: match.start,
+        extentOffset: match.end,
+      );
+      _editFocusNode.requestFocus();
+    }
+
+    _scheduleScrollToCurrentMatch();
+  }
+
+  void _selectNearestSearchMarker(double y) {
+    if (_searchMarkers.isEmpty || !_scrollController.hasClients) return;
+
+    final viewportHeight = _scrollController.position.viewportDimension;
+    if (viewportHeight <= 0) return;
+
+    var nearestMarker = _searchMarkers.first;
+    var nearestDistance = (nearestMarker.position * viewportHeight - y).abs();
+    for (final marker in _searchMarkers.skip(1)) {
+      final distance = (marker.position * viewportHeight - y).abs();
+      if (distance < nearestDistance) {
+        nearestMarker = marker;
+        nearestDistance = distance;
+      }
+    }
+
+    _selectSearchMatch(nearestMarker.firstMatchIndex);
+  }
+
+  void _scheduleSearchMarkerLayout() {
+    if (!_isSearchMode ||
+        _searchMatches.isEmpty ||
+        _searchMarkerLayoutScheduled) {
+      return;
+    }
+
+    _searchMarkerLayoutScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchMarkerLayoutScheduled = false;
+      if (!mounted || !_isSearchMode || _searchMatches.isEmpty) return;
+
+      final position = _scrollController.hasClients
+          ? _scrollController.position
+          : null;
+      if (position == null || position.viewportDimension <= 0) return;
+
+      final renderEditable = _findDescendantRenderObject<RenderEditable>(
+        (_isEditMode ? _editContentKey : _previewContentKey).currentContext,
+      );
+      final viewport = _findDescendantRenderObject<RenderAbstractViewport>(
+        _scrollViewportKey.currentContext,
+      );
+      if (renderEditable == null || viewport == null) return;
+
+      final contentExtent =
+          position.maxScrollExtent + position.viewportDimension;
+      if (contentExtent <= 0) return;
+
+      final textLength = (_getCurrentContent() ?? '').length;
+      final markers = <_TextSearchMarker>[];
+      var previousOffset = double.negativeInfinity;
+      for (var index = 0; index < _searchMatches.length; index++) {
+        final match = _searchMatches[index];
+        if (match.start < 0 || match.end > textLength) {
+          continue;
+        }
+
+        final caretRect = renderEditable.getLocalRectForCaret(
+          TextPosition(offset: match.start),
+        );
+        final revealOffset = viewport
+            .getOffsetToReveal(renderEditable, 0, rect: caretRect)
+            .offset;
+        if (!revealOffset.isFinite) continue;
+
+        final markerPosition = (revealOffset / contentExtent)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        if (markers.isNotEmpty && (revealOffset - previousOffset).abs() < 1) {
+          final previousMarker = markers.removeLast();
+          markers.add(
+            _TextSearchMarker(
+              position: previousMarker.position,
+              firstMatchIndex: previousMarker.firstMatchIndex,
+              lastMatchIndex: index,
+            ),
+          );
+        } else {
+          markers.add(
+            _TextSearchMarker(
+              position: markerPosition,
+              firstMatchIndex: index,
+              lastMatchIndex: index,
+            ),
+          );
+        }
+        previousOffset = revealOffset;
+      }
+
+      if (_sameSearchMarkers(_searchMarkers, markers)) return;
+      setState(() {
+        _searchMarkers = markers;
+      });
+    });
+  }
+
+  T? _findDescendantRenderObject<T extends RenderObject>(
+    BuildContext? context,
+  ) {
+    final root = context?.findRenderObject();
+    if (root == null) return null;
+
+    T? result;
+    void visit(RenderObject renderObject) {
+      if (renderObject is T) {
+        result = renderObject;
+        return;
+      }
+      renderObject.visitChildren((child) {
+        if (result == null) visit(child);
+      });
+    }
+
+    visit(root);
+    return result;
+  }
+
+  bool _sameSearchMarkers(
+    List<_TextSearchMarker> first,
+    List<_TextSearchMarker> second,
+  ) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index].firstMatchIndex != second[index].firstMatchIndex ||
+          first[index].lastMatchIndex != second[index].lastMatchIndex ||
+          (first[index].position - second[index].position).abs() > 0.0001) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _scheduleScrollToCurrentMatch() {
@@ -422,6 +595,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       if (!mounted || scheduledIndex != _currentSearchMatchIndex) return;
       _scrollToCurrentMatch();
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _scrollToCurrentMatch() {
@@ -431,16 +605,26 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       return;
     }
 
-    final content = _getCurrentContent() ?? '';
-    if (content.isEmpty) return;
+    final renderEditable = _findDescendantRenderObject<RenderEditable>(
+      (_isEditMode ? _editContentKey : _previewContentKey).currentContext,
+    );
+    final viewport = _findDescendantRenderObject<RenderAbstractViewport>(
+      _scrollViewportKey.currentContext,
+    );
+    if (renderEditable == null || viewport == null) return;
 
     final match = _searchMatches[_currentSearchMatchIndex];
     final position = _scrollController.position;
-    final matchProgress = match.start / content.length;
-    final centeredOffset =
-        position.maxScrollExtent * matchProgress -
-        position.viewportDimension * 0.25;
-    final targetOffset = centeredOffset
+    final textLength = (_getCurrentContent() ?? '').length;
+    if (match.start < 0 || match.end > textLength) {
+      return;
+    }
+    final caretRect = renderEditable.getLocalRectForCaret(
+      TextPosition(offset: match.start),
+    );
+    final targetOffset = viewport
+        .getOffsetToReveal(renderEditable, 0.25, rect: caretRect)
+        .offset
         .clamp(0.0, position.maxScrollExtent)
         .toDouble();
 
@@ -531,10 +715,13 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         .where((match) => match.start >= 0 && match.end <= content.length)
         .toList(growable: false);
     if (!_isSearchMode || validMatches.isEmpty) {
-      return SelectableText(
-        content,
-        key: const ValueKey('text-preview-content'),
-        style: _contentTextStyle,
+      return KeyedSubtree(
+        key: _previewContentKey,
+        child: SelectableText(
+          content,
+          key: const ValueKey('text-preview-content'),
+          style: _contentTextStyle,
+        ),
       );
     }
 
@@ -567,10 +754,48 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       spans.add(TextSpan(text: content.substring(cursor)));
     }
 
-    return SelectableText.rich(
-      TextSpan(children: spans),
-      key: const ValueKey('text-preview-content'),
-      style: _contentTextStyle,
+    return KeyedSubtree(
+      key: _previewContentKey,
+      child: SelectableText.rich(
+        TextSpan(children: spans),
+        key: const ValueKey('text-preview-content'),
+        style: _contentTextStyle,
+      ),
+    );
+  }
+
+  Widget _buildSearchMarkerRail() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final currentResult = _currentSearchMatchIndex + 1;
+    final label =
+        '${S.of(context).search}: $currentResult/${_searchMatches.length}';
+
+    return SizedBox(
+      key: const ValueKey('text-preview-search-marker-rail'),
+      width: 32,
+      child: Semantics(
+        button: true,
+        label: S.of(context).search,
+        value: '$currentResult/${_searchMatches.length}',
+        onTap: () => _selectSearchMatch(_currentSearchMatchIndex),
+        child: Tooltip(
+          message: label,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) =>
+                _selectNearestSearchMarker(details.localPosition.dy),
+            child: CustomPaint(
+              painter: _TextSearchMarkerPainter(
+                markers: _searchMarkers,
+                currentMatchIndex: _currentSearchMatchIndex,
+                currentColor: colorScheme.primary,
+                otherColor: colorScheme.tertiary,
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -852,6 +1077,18 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final textScaler = MediaQuery.textScalerOf(context);
+    final textDirection = Directionality.of(context);
+    final locale = Localizations.localeOf(context);
+    if (_lastTextScaler != textScaler ||
+        _lastTextDirection != textDirection ||
+        _lastTextLocale != locale) {
+      _lastTextScaler = textScaler;
+      _lastTextDirection = textDirection;
+      _lastTextLocale = locale;
+      _scheduleSearchMarkerLayout();
+    }
+
     ref.listen(effectiveTranslationTargetLocaleProvider, (_, next) {
       final target = next.valueOrNull;
       if (target == null ||
@@ -997,50 +1234,94 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             ),
           ),
         Expanded(
-          child: Scrollbar(
-            controller: _scrollController,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              child: _isEditMode
-                  ? TextField(
-                      controller: _showTranslation && _translatedContent != null
-                          ? _translatedTextController
-                          : _textController,
-                      maxLines: null,
-                      style: _contentTextStyle,
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        hintText: S.of(context).editTextContentHint,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportSize = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+              if (_lastSearchViewportSize != viewportSize) {
+                _lastSearchViewportSize = viewportSize;
+                _scheduleSearchMarkerLayout();
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      child: NotificationListener<ScrollMetricsNotification>(
+                        onNotification: (_) {
+                          _scheduleSearchMarkerLayout();
+                          return false;
+                        },
+                        child: SingleChildScrollView(
+                          key: _scrollViewportKey,
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16),
+                          child: _isEditMode
+                              ? KeyedSubtree(
+                                  key: _editContentKey,
+                                  child: TextField(
+                                    key: const ValueKey(
+                                      'text-preview-edit-field',
+                                    ),
+                                    controller:
+                                        _showTranslation &&
+                                            _translatedContent != null
+                                        ? _translatedTextController
+                                        : _textController,
+                                    focusNode: _editFocusNode,
+                                    maxLines: null,
+                                    style: _contentTextStyle,
+                                    decoration: InputDecoration(
+                                      border: const OutlineInputBorder(),
+                                      hintText: S
+                                          .of(context)
+                                          .editTextContentHint,
+                                    ),
+                                    onChanged: (value) {
+                                      if (!(_showTranslation &&
+                                          _translatedContent != null)) {
+                                        _translationGeneration++;
+                                        final updateScreen =
+                                            _translatedContent != null ||
+                                            _showTranslation ||
+                                            _isTranslating ||
+                                            _translationProgress.isNotEmpty ||
+                                            (_content?.isEmpty ?? true) !=
+                                                value.isEmpty;
+                                        if (updateScreen) {
+                                          setState(() {
+                                            _content = value;
+                                            _translatedContent = null;
+                                            _translatedTextController.clear();
+                                            _showTranslation = false;
+                                            _isTranslating = false;
+                                            _translationProgress = '';
+                                          });
+                                        } else {
+                                          _content = value;
+                                        }
+                                      }
+                                      _refreshSearchResults();
+                                    },
+                                  ),
+                                )
+                              : _buildPreviewContent(
+                                  _getCurrentContent() ?? '',
+                                ),
+                        ),
                       ),
-                      onChanged: (value) {
-                        if (!(_showTranslation && _translatedContent != null)) {
-                          _translationGeneration++;
-                          final updateScreen =
-                              _translatedContent != null ||
-                              _showTranslation ||
-                              _isTranslating ||
-                              _translationProgress.isNotEmpty ||
-                              (_content?.isEmpty ?? true) != value.isEmpty;
-                          if (updateScreen) {
-                            setState(() {
-                              _content = value;
-                              _translatedContent = null;
-                              _translatedTextController.clear();
-                              _showTranslation = false;
-                              _isTranslating = false;
-                              _translationProgress = '';
-                            });
-                          } else {
-                            _content = value;
-                          }
-                        }
-                        _refreshSearchResults();
-                      },
-                    )
-                  : _buildPreviewContent(_getCurrentContent() ?? ''),
-            ),
+                    ),
+                  ),
+                  if (_isSearchMode && _searchMatches.isNotEmpty)
+                    _buildSearchMarkerRail(),
+                ],
+              );
+            },
           ),
         ),
       ],
@@ -1053,6 +1334,70 @@ class _TextSearchMatch {
 
   final int start;
   final int end;
+}
+
+class _TextSearchMarker {
+  const _TextSearchMarker({
+    required this.position,
+    required this.firstMatchIndex,
+    required this.lastMatchIndex,
+  });
+
+  final double position;
+  final int firstMatchIndex;
+  final int lastMatchIndex;
+}
+
+class _TextSearchMarkerPainter extends CustomPainter {
+  const _TextSearchMarkerPainter({
+    required this.markers,
+    required this.currentMatchIndex,
+    required this.currentColor,
+    required this.otherColor,
+  });
+
+  final List<_TextSearchMarker> markers;
+  final int currentMatchIndex;
+  final Color currentColor;
+  final Color otherColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    bool isCurrent(_TextSearchMarker marker) =>
+        currentMatchIndex >= marker.firstMatchIndex &&
+        currentMatchIndex <= marker.lastMatchIndex;
+
+    void paintMarker(_TextSearchMarker marker, Color color) {
+      final centerY = (marker.position * size.height)
+          .clamp(2.0, size.height - 2.0)
+          .toDouble();
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(size.width / 2, centerY),
+            width: 8,
+            height: 4,
+          ),
+          const Radius.circular(2),
+        ),
+        Paint()..color = color,
+      );
+    }
+
+    for (final marker in markers) {
+      if (!isCurrent(marker)) paintMarker(marker, otherColor);
+    }
+    for (final marker in markers) {
+      if (isCurrent(marker)) paintMarker(marker, currentColor);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TextSearchMarkerPainter oldDelegate) =>
+      oldDelegate.markers != markers ||
+      oldDelegate.currentMatchIndex != currentMatchIndex ||
+      oldDelegate.currentColor != currentColor ||
+      oldDelegate.otherColor != otherColor;
 }
 
 List<_TextSearchMatch> _findTextMatches(String content, String query) {

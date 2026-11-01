@@ -736,6 +736,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   details?.video.title ?? widget.video.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
                 actions: [
                   if (!_isOffline)
@@ -752,6 +756,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     ),
                   if (!_isOffline)
                     IconButton(
+                      tooltip: s.videoAddToPlaylist,
+                      onPressed: details == null || _loading
+                          ? null
+                          : _showPlaylists,
+                      icon: const Icon(Icons.playlist_add),
+                    ),
+                  if (!_isOffline)
+                    IconButton(
                       tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
                       onPressed:
                           details == null ||
@@ -762,15 +774,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                           : _toggleFavorite,
                       icon: Icon(
                         _favorite ? Icons.bookmark : Icons.bookmark_outline,
+                        color: _favorite
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
                       ),
-                    ),
-                  if (!_isOffline)
-                    IconButton(
-                      tooltip: s.videoAddToPlaylist,
-                      onPressed: details == null || _loading
-                          ? null
-                          : _showPlaylists,
-                      icon: const Icon(Icons.playlist_add),
                     ),
                   IconButton(
                     tooltip: s.videoOpenSource,

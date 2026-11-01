@@ -19,6 +19,8 @@ import '../services/cache_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../utils/system_ui_style.dart';
 import '../utils/audio_source_headers.dart';
+import '../utils/server_utils.dart';
+import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
 import '../widgets/app_bottom_dock_transition.dart';
@@ -911,6 +913,12 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     // 根据主题亮度设置状态栏图标颜色
     final brightness = Theme.of(context).brightness;
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
+    final isOfficialServer = ServerUtils.isOfficialServer(
+      ref.watch(authProvider.select((state) => state.host)),
+    );
+    final showExternalLinks = ref.watch(
+      workDetailDisplayProvider.select((settings) => settings.showExternalLinks),
+    );
 
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
@@ -941,6 +949,16 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               onPressed: _showFileSelectionDialog,
               tooltip: S.of(context).download,
             ),
+            if (!widget.work.isJapaneseAsmr && isOfficialServer)
+              IconButton(
+                icon: const Icon(Icons.playlist_add),
+                tooltip: S.of(context).addToPlaylist,
+                onPressed: () => AddToPlaylistDialog.show(
+                  context: context,
+                  workId: widget.work.id,
+                  workTitle: _currentWork.title,
+                ),
+              ),
             if (!widget.work.isJapaneseAsmr)
               ListenableBuilder(
                 listenable: _metadataChanges,
@@ -949,6 +967,19 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                   isLoading: _isUpdatingProgress,
                   onPressed: _showProgressDialog,
                 ),
+              ),
+            if (showExternalLinks)
+              ListenableBuilder(
+                listenable: _metadataChanges,
+                builder: (context, _) {
+                  final sourceUrl = _currentWork.sourceUrl;
+                  if (sourceUrl == null) return const SizedBox.shrink();
+                  return IconButton(
+                    icon: const Icon(Icons.open_in_new),
+                    tooltip: S.of(context).openInBrowser,
+                    onPressed: () => _openSourceUrl(sourceUrl),
+                  );
+                },
               ),
           ],
         ),
@@ -1100,12 +1131,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               showTranslation: _showTranslation,
               showTranslateButton: displaySettings.showTranslateButton,
               isTranslating: _isTranslating,
-              showExternalLink:
-                  displaySettings.showExternalLinks && work.sourceUrl != null,
               onTranslate: _toggleTranslation,
-              onOpenExternalLink: work.sourceUrl == null
-                  ? null
-                  : () => _openSourceUrl(work.sourceUrl!),
               onCopy: (title) =>
                   _copyToClipboard(title, S.of(context).titleLabel),
             );

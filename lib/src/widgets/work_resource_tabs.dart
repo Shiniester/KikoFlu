@@ -71,6 +71,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.progressMessage,
     this.displayNameFor,
     this.metadataBuilder,
+    this.audioMetadataBuilder,
+    this.audioDurationBuilder,
     this.audioTrailingBuilder,
     this.onAudioLongPress,
     this.expandedFolders = const {},
@@ -94,6 +96,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final String? progressMessage;
   final FileTreeDisplayNameBuilder? displayNameFor;
   final FileTreeMetadataBuilder? metadataBuilder;
+  final FileTreeMetadataBuilder? audioMetadataBuilder;
+  final FileTreeMetadataBuilder? audioDurationBuilder;
   final FileTreeTrailingBuilder? audioTrailingBuilder;
   final ResourceAudioLongPress? onAudioLongPress;
   final Set<String> expandedFolders;
@@ -828,7 +832,12 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               variant.source,
               'hash',
             )?.toString();
-            final metadata = widget.metadataBuilder?.call(context, entry);
+            final metadata =
+                widget.audioMetadataBuilder?.call(context, entry) ??
+                (widget.audioDurationBuilder == null
+                    ? widget.metadataBuilder?.call(context, entry)
+                    : null);
+            final duration = widget.audioDurationBuilder?.call(context, entry);
             final actions = widget.audioTrailingBuilder?.call(context, entry);
             final audioColor = FileIconUtils.getFileIconColorByName(
               variant.title,
@@ -869,17 +878,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (actions != null) actions,
                   if (metadata != null) metadata,
-                  IconButton(
-                    tooltip: entry.displayTitle,
-                    icon: Icon(Icons.play_arrow, color: audioColor),
-                    iconSize: 20,
-                    onPressed: () => widget.onPlayAudio(
-                      variant.source,
-                      variant.parentPath,
-                      _queue,
-                    ),
-                  ),
                   if (subtitle != null || generatedPath != null)
                     IconButton(
                       key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
@@ -910,7 +910,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                         );
                       },
                     ),
-                  if (actions != null) actions,
+                  if (duration != null) duration,
                 ],
               ),
             );

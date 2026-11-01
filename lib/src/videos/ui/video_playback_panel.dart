@@ -572,6 +572,7 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.initialVolume = 100,
     this.appTabIndex = appVideoTabIndex,
     this.allowAutomaticFullscreen = true,
+    this.savePositionOnSourceChange = false,
     this.sessionFactory,
     this.platform,
     this.onStreamChanged,
@@ -591,6 +592,7 @@ class VideoPlaybackPanel extends StatefulWidget {
   final double initialVolume;
   final int appTabIndex;
   final bool allowAutomaticFullscreen;
+  final bool savePositionOnSourceChange;
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform? platform;
   final ValueChanged<VideoStream>? onStreamChanged;
@@ -622,6 +624,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Timer? _seekPreviewClearTimer;
   Timer? _keyboardRightTimer;
   Duration? _pendingLoadPosition;
+  String? _pendingLoadVideoId;
+  String? _loadedVideoId;
   Duration? _seekPreview;
   Duration? _pendingSeekPosition;
   Duration? _dragStartPosition;
@@ -955,13 +959,20 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   @override
   void didUpdateWidget(VideoPlaybackPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.videoId != widget.videoId ||
+    final videoIdChanged = oldWidget.videoId != widget.videoId;
+    if (videoIdChanged ||
         oldWidget.localPath != widget.localPath ||
         !listEquals(oldWidget.streams, widget.streams)) {
       _stopTemporaryRate();
-      if (oldWidget.videoId != widget.videoId) _sourceLoaded = false;
+      if (videoIdChanged) _sourceLoaded = false;
       _streamIndex = 0;
-      unawaited(_loadSource(position: widget.initialPosition));
+      unawaited(
+        _loadSource(
+          position: widget.initialPosition,
+          savePreviousPosition:
+              videoIdChanged && widget.savePositionOnSourceChange,
+        ),
+      );
     }
   }
 
@@ -1054,7 +1065,15 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     }
   }
 
-  Future<void> _loadSource({required Duration position, bool resume = false}) {
+  Future<void> _loadSource({
+    required Duration position,
+    bool resume = false,
+    bool savePreviousPosition = false,
+  }) {
+    final sourceVideoId = widget.videoId;
+    final sourceLocalPath = widget.localPath;
+    final sourceStreams = widget.streams;
+    final sourceStreamIndex = _streamIndex;
     _clearPendingSeek();
     _cancelSeekPreview();
     final generation = ++_loadGeneration;
@@ -1068,23 +1087,38 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     });
     final operation = _loadTail.then((_) async {
       if (_disposed || generation != _loadGeneration) return;
+      var loadPosition = position;
+      if (savePreviousPosition && widget.savePositionOnSourceChange) {
+        await _saveLoadedSourcePosition();
+        if (_disposed || generation != _loadGeneration) return;
+        _loadedVideoId = null;
+        loadPosition = widget.library.positionFor(sourceVideoId);
+      }
       await _settings.initialize();
       if (_disposed || generation != _loadGeneration) return;
       final autoPlay =
           firstSourceLoad && (_settings.autoPlay || widget.autoPlayOnStart);
       var autoPlayStarted = false;
-      _pendingLoadPosition = position > Duration.zero ? position : null;
+      _pendingLoadPosition = loadPosition > Duration.zero ? loadPosition : null;
+      _pendingLoadVideoId = sourceVideoId;
       _pendingLoadBasePosition = _session.snapshot.value.position;
-      if (widget.localPath != null) {
+      if (sourceLocalPath != null) {
         await _session.loadFile(
-          widget.localPath!,
-          position: position,
+          sourceLocalPath,
+          position: loadPosition,
           volume: _volume,
         );
       } else {
-        if (widget.streams.isEmpty) return;
-        final stream = widget.streams[_streamIndex];
-        await _session.loadStream(stream, position: position, volume: _volume);
+        if (sourceStreams.isEmpty) return;
+        final stream = sourceStreams[sourceStreamIndex];
+        await _session.loadStream(
+          stream,
+          position: loadPosition,
+          volume: _volume,
+        );
+      }
+      if (widget.savePositionOnSourceChange) {
+        _loadedVideoId = sourceVideoId;
       }
       if (_disposed || generation != _loadGeneration) return;
       _sourceLoaded = true;
@@ -1145,6 +1179,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _error = error.toString();
         _controlsVisible = true;
       });
+      if (widget.savePositionOnSourceChange &&
+          _pendingLoadVideoId == sourceVideoId &&
+          _loadedVideoId != sourceVideoId) {
+        _pendingLoadPosition = null;
+        _pendingLoadVideoId = null;
+      }
     });
     return _loadTail;
   }
@@ -2064,6 +2104,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         (snapshot.position == pending ||
             snapshot.position != _pendingLoadBasePosition)) {
       _pendingLoadPosition = null;
+      _pendingLoadVideoId = null;
     }
   }
 
@@ -2247,11 +2288,32 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   }
 
   Future<void> _savePosition() {
+    if (widget.savePositionOnSourceChange) {
+      final videoId = _loadedVideoId;
+      if (videoId == null) return Future<void>.value();
+      final pendingPosition = _pendingLoadVideoId == videoId
+          ? _pendingLoadPosition
+          : null;
+      return widget.library.savePosition(
+        videoId,
+        pendingPosition ?? _session.snapshot.value.position,
+      );
+    }
     if (!_sourceLoaded && _pendingLoadPosition == null) return Future.value();
     return widget.library.savePosition(
       widget.videoId,
       _pendingLoadPosition ?? _session.snapshot.value.position,
     );
+  }
+
+  Future<void> _saveLoadedSourcePosition() async {
+    if (_loadedVideoId == null) return;
+    try {
+      await _session.pause();
+    } catch (_) {
+      // A failed player still needs its last known position saved.
+    }
+    await _savePosition();
   }
 
   void _startFullscreenStatusUpdates() {
@@ -2618,14 +2680,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                         tooltip: S.of(context).retry,
                                         color: Colors.white,
                                         icon: const Icon(Icons.refresh),
-                                        onPressed: () => unawaited(
-                                          _loadSource(
-                                            position:
-                                                _pendingLoadPosition ??
-                                                snapshot.position,
-                                            resume: snapshot.playing,
-                                          ),
-                                        ),
+                                        onPressed: () =>
+                                            unawaited(_reloadSource()),
                                       ),
                                       if (widget.onVerifyAccess != null)
                                         TextButton.icon(
@@ -3255,7 +3311,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Future<void> _reloadSource() {
     final snapshot = _session.snapshot.value;
     return _loadSource(
-      position: _pendingLoadPosition ?? snapshot.position,
+      position:
+          widget.savePositionOnSourceChange && _loadedVideoId != widget.videoId
+          ? widget.library.positionFor(widget.videoId)
+          : _pendingLoadPosition ?? snapshot.position,
       resume: snapshot.playing,
     );
   }
@@ -3675,214 +3734,258 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final s = S.of(context);
     return Material(
       color: Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 500;
-            final buttonWidth = fullscreen ? 42.0 : 35.0;
-            final positionSlider = Slider(
-              key: const ValueKey('video-position-slider'),
-              padding: EdgeInsets.zero,
-              min: 0,
-              max: durationMs > 0 ? durationMs.toDouble() : 1,
-              value: durationMs > 0 ? positionMs : 0,
-              secondaryTrackValue: durationMs > 0
-                  ? snapshot.bufferPosition.inMilliseconds.toDouble().clamp(
-                      0,
-                      durationMs.toDouble(),
-                    )
-                  : null,
-              onChangeStart: durationMs <= 0
-                  ? null
-                  : (_) => _beginControlsInteraction(),
-              onChanged: durationMs <= 0
-                  ? null
-                  : (value) =>
-                        _previewSeek(Duration(milliseconds: value.round())),
-              onChangeEnd: durationMs <= 0
-                  ? null
-                  : (_) {
-                      _finishSeek();
-                      _endControlsInteraction();
-                    },
-            );
-            final styledPositionSlider = SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                activeTrackColor:
-                    Theme.of(context).brightness == Brightness.light
-                    ? Theme.of(context).colorScheme.inversePrimary
-                    : Theme.of(context).colorScheme.primary,
-                trackHeight: 3.5,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 25),
-                inactiveTrackColor: const Color(0x33FFFFFF),
-                secondaryActiveTrackColor:
-                    (Theme.of(context).brightness == Brightness.light
-                            ? Theme.of(context).colorScheme.inversePrimary
-                            : Theme.of(context).colorScheme.primary)
-                        .withValues(alpha: .4),
-                thumbColor: Theme.of(context).brightness == Brightness.light
-                    ? Theme.of(context).colorScheme.inversePrimary
-                    : Theme.of(context).colorScheme.primary,
-                overlayColor:
-                    (Theme.of(context).brightness == Brightness.light
-                            ? Theme.of(context).colorScheme.inversePrimary
-                            : Theme.of(context).colorScheme.primary)
-                        .withAlpha(80),
-              ),
-              child: positionSlider,
-            );
-            final times = Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _formatTime(position),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-                const Text(' / ', style: TextStyle(color: Colors.white70)),
-                Text(
-                  _formatTime(snapshot.duration),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ],
-            );
-            // Root menus cannot scroll the tab pager when revealing a selection.
-            final quickControls = <Widget>[
-              if (fullscreen || !compact)
-                PopupMenuButton<VideoPlayerFit>(
-                  useRootNavigator: true,
-                  tooltip: s.videoPlayerAspectRatio,
+      child: LayoutBuilder(
+        builder: (context, outerConstraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          final compactLayout =
+              outerConstraints.maxWidth < 360 || textScale > 1.4;
+          return Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: compactLayout ? 4 : 12,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 500;
+                final buttonWidth = fullscreen ? 42.0 : 35.0;
+                final positionSlider = Slider(
+                  key: const ValueKey('video-position-slider'),
                   padding: EdgeInsets.zero,
-                  initialValue: _settings.fit,
-                  onOpened: _beginControlsInteraction,
-                  onCanceled: _endControlsInteraction,
-                  onSelected: (fit) {
-                    _endControlsInteraction();
-                    unawaited(_settings.setFit(fit));
-                  },
-                  itemBuilder: (context) => [
-                    for (final fit in VideoPlayerFit.values)
-                      PopupMenuItem(value: fit, child: Text(_fitLabel(s, fit))),
-                  ],
-                  child: SizedBox(
-                    width: buttonWidth,
-                    height: 30,
-                    child: const Icon(
-                      Icons.fit_screen,
-                      color: Colors.white,
-                      size: 19,
+                  min: 0,
+                  max: durationMs > 0 ? durationMs.toDouble() : 1,
+                  value: durationMs > 0 ? positionMs : 0,
+                  secondaryTrackValue: durationMs > 0
+                      ? snapshot.bufferPosition.inMilliseconds.toDouble().clamp(
+                          0,
+                          durationMs.toDouble(),
+                        )
+                      : null,
+                  onChangeStart: durationMs <= 0
+                      ? null
+                      : (_) => _beginControlsInteraction(),
+                  onChanged: durationMs <= 0
+                      ? null
+                      : (value) =>
+                            _previewSeek(Duration(milliseconds: value.round())),
+                  onChangeEnd: durationMs <= 0
+                      ? null
+                      : (_) {
+                          _finishSeek();
+                          _endControlsInteraction();
+                        },
+                );
+                final styledPositionSlider = SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor:
+                        Theme.of(context).brightness == Brightness.light
+                        ? Theme.of(context).colorScheme.inversePrimary
+                        : Theme.of(context).colorScheme.primary,
+                    trackHeight: 3.5,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 7,
                     ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 25,
+                    ),
+                    inactiveTrackColor: const Color(0x33FFFFFF),
+                    secondaryActiveTrackColor:
+                        (Theme.of(context).brightness == Brightness.light
+                                ? Theme.of(context).colorScheme.inversePrimary
+                                : Theme.of(context).colorScheme.primary)
+                            .withValues(alpha: .4),
+                    thumbColor: Theme.of(context).brightness == Brightness.light
+                        ? Theme.of(context).colorScheme.inversePrimary
+                        : Theme.of(context).colorScheme.primary,
+                    overlayColor:
+                        (Theme.of(context).brightness == Brightness.light
+                                ? Theme.of(context).colorScheme.inversePrimary
+                                : Theme.of(context).colorScheme.primary)
+                            .withAlpha(80),
                   ),
-                ),
-              if (snapshot.subtitleTracks.isNotEmpty)
-                PopupMenuButton<String>(
-                  key: const ValueKey('video-subtitle-menu'),
-                  useRootNavigator: true,
-                  tooltip: s.videoPlayerSubtitleTrack,
-                  padding: EdgeInsets.zero,
-                  initialValue: _selectedSubtitleTrackId,
-                  onOpened: _beginControlsInteraction,
-                  onCanceled: _endControlsInteraction,
-                  onSelected: (id) {
-                    _endControlsInteraction();
-                    unawaited(_selectSubtitleTrack(id));
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'no',
-                      child: Text(
-                        '${s.videoPlayerSubtitleTrack}: ${s.noSubtitle}',
-                      ),
+                  child: positionSlider,
+                );
+                final times = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(position),
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
                     ),
-                    for (final track in snapshot.subtitleTracks)
-                      PopupMenuItem(
-                        value: track.id,
-                        child: Text(
-                          '${s.videoPlayerSubtitleTrack}: ${track.label}',
-                        ),
-                      ),
+                    const Text(' / ', style: TextStyle(color: Colors.white70)),
+                    Text(
+                      _formatTime(snapshot.duration),
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ],
-                  child: SizedBox(
-                    width: buttonWidth,
-                    height: 30,
-                    child: const Icon(
-                      Icons.closed_caption,
-                      color: Colors.white,
-                      size: 22,
-                    ),
-                  ),
-                ),
-              PopupMenuButton<double>(
-                useRootNavigator: true,
-                tooltip: s.playbackSpeed,
-                padding: EdgeInsets.zero,
-                initialValue: snapshot.rate,
-                onOpened: _beginControlsInteraction,
-                onCanceled: _endControlsInteraction,
-                onSelected: (rate) {
-                  _endControlsInteraction();
-                  _setRuntimeRate(rate);
-                },
-                itemBuilder: (context) => [
-                  for (final rate in _settings.speedList)
-                    PopupMenuItem(value: rate, child: Text('${rate}X')),
-                ],
-                child: SizedBox(
-                  width: buttonWidth,
-                  height: 30,
-                  child: Center(
-                    child: Text(
-                      '${snapshot.rate}X',
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
-                  ),
-                ),
-              ),
-              if (widget.streams.length > 1 && (fullscreen || !compact))
-                PopupMenuButton<int>(
-                  useRootNavigator: true,
-                  tooltip: s.videoQuality,
-                  padding: EdgeInsets.zero,
-                  initialValue: _streamIndex,
-                  onOpened: _beginControlsInteraction,
-                  onCanceled: _endControlsInteraction,
-                  onSelected: (index) {
-                    _endControlsInteraction();
-                    unawaited(_selectStream(index));
-                  },
-                  itemBuilder: (context) => [
-                    for (var index = 0; index < widget.streams.length; index++)
-                      PopupMenuItem(
-                        value: index,
-                        child: Text(widget.streams[index].label),
-                      ),
-                  ],
-                  child: SizedBox(
-                    width: buttonWidth,
-                    height: 30,
-                    child: Center(
-                      child: Text(
-                        widget.streams[_streamIndex].label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                );
+                // Root menus cannot scroll the tab pager when revealing a selection.
+                final quickControls = <Widget>[
+                  if (fullscreen || !compact)
+                    PopupMenuButton<VideoPlayerFit>(
+                      useRootNavigator: true,
+                      tooltip: s.videoPlayerAspectRatio,
+                      padding: EdgeInsets.zero,
+                      initialValue: _settings.fit,
+                      onOpened: _beginControlsInteraction,
+                      onCanceled: _endControlsInteraction,
+                      onSelected: (fit) {
+                        _endControlsInteraction();
+                        unawaited(_settings.setFit(fit));
+                      },
+                      itemBuilder: (context) => [
+                        for (final fit in VideoPlayerFit.values)
+                          PopupMenuItem(
+                            value: fit,
+                            child: Text(_fitLabel(s, fit)),
+                          ),
+                      ],
+                      child: SizedBox(
+                        width: buttonWidth,
+                        height: 30,
+                        child: const Icon(
+                          Icons.fit_screen,
                           color: Colors.white,
-                          fontSize: 13,
+                          size: 19,
+                        ),
+                      ),
+                    ),
+                  if (snapshot.subtitleTracks.isNotEmpty)
+                    PopupMenuButton<String>(
+                      key: const ValueKey('video-subtitle-menu'),
+                      useRootNavigator: true,
+                      tooltip: s.videoPlayerSubtitleTrack,
+                      padding: EdgeInsets.zero,
+                      initialValue: _selectedSubtitleTrackId,
+                      onOpened: _beginControlsInteraction,
+                      onCanceled: _endControlsInteraction,
+                      onSelected: (id) {
+                        _endControlsInteraction();
+                        unawaited(_selectSubtitleTrack(id));
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'no',
+                          child: Text(
+                            '${s.videoPlayerSubtitleTrack}: ${s.noSubtitle}',
+                          ),
+                        ),
+                        for (final track in snapshot.subtitleTracks)
+                          PopupMenuItem(
+                            value: track.id,
+                            child: Text(
+                              '${s.videoPlayerSubtitleTrack}: ${track.label}',
+                            ),
+                          ),
+                      ],
+                      child: SizedBox(
+                        width: buttonWidth,
+                        height: 30,
+                        child: const Icon(
+                          Icons.closed_caption,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  PopupMenuButton<double>(
+                    useRootNavigator: true,
+                    tooltip: s.playbackSpeed,
+                    padding: EdgeInsets.zero,
+                    initialValue: snapshot.rate,
+                    onOpened: _beginControlsInteraction,
+                    onCanceled: _endControlsInteraction,
+                    onSelected: (rate) {
+                      _endControlsInteraction();
+                      _setRuntimeRate(rate);
+                    },
+                    itemBuilder: (context) => [
+                      for (final rate in _settings.speedList)
+                        PopupMenuItem(value: rate, child: Text('${rate}X')),
+                    ],
+                    child: SizedBox(
+                      width: buttonWidth,
+                      height: 30,
+                      child: Center(
+                        child: Text(
+                          '${snapshot.rate}X',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              GestureDetector(
-                onSecondaryTap: fullscreen ? null : onSecondaryFullscreen,
-                child: IconButton(
-                  key: const ValueKey('video-fullscreen-control'),
-                  tooltip: s.videoFullscreen,
+                  if (widget.streams.length > 1 && (fullscreen || !compact))
+                    PopupMenuButton<int>(
+                      useRootNavigator: true,
+                      tooltip: s.videoQuality,
+                      padding: EdgeInsets.zero,
+                      initialValue: _streamIndex,
+                      onOpened: _beginControlsInteraction,
+                      onCanceled: _endControlsInteraction,
+                      onSelected: (index) {
+                        _endControlsInteraction();
+                        unawaited(_selectStream(index));
+                      },
+                      itemBuilder: (context) => [
+                        for (
+                          var index = 0;
+                          index < widget.streams.length;
+                          index++
+                        )
+                          PopupMenuItem(
+                            value: index,
+                            child: Text(widget.streams[index].label),
+                          ),
+                      ],
+                      child: SizedBox(
+                        width: buttonWidth,
+                        height: 30,
+                        child: Center(
+                          child: Text(
+                            widget.streams[_streamIndex].label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ];
+                final fullscreenControl = GestureDetector(
+                  onSecondaryTap: fullscreen ? null : onSecondaryFullscreen,
+                  child: IconButton(
+                    key: const ValueKey('video-fullscreen-control'),
+                    tooltip: s.videoFullscreen,
+                    color: Colors.white,
+                    icon: Icon(
+                      fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      size: 24,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: BoxConstraints.tightFor(
+                      width: buttonWidth,
+                      height: 30,
+                    ),
+                    style: IconButton.styleFrom(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      minimumSize: Size(buttonWidth, 30),
+                      maximumSize: Size(buttonWidth, 30),
+                      padding: EdgeInsets.zero,
+                    ),
+                    onPressed: onFullscreen,
+                  ),
+                );
+                final playbackControl = IconButton(
+                  tooltip: snapshot.playing ? s.pause : s.videoPlay,
                   color: Colors.white,
                   icon: Icon(
-                    fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                    size: 24,
+                    snapshot.playing ? Icons.pause : Icons.play_arrow,
+                    size: 20,
                   ),
                   padding: EdgeInsets.zero,
                   constraints: BoxConstraints.tightFor(
@@ -3895,58 +3998,88 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                     maximumSize: Size(buttonWidth, 30),
                     padding: EdgeInsets.zero,
                   ),
-                  onPressed: onFullscreen,
-                ),
-              ),
-            ];
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 7),
-                  child: SizedBox(height: 50, child: styledPositionSlider),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: snapshot.playing ? s.pause : s.videoPlay,
-                      color: Colors.white,
-                      icon: Icon(
-                        snapshot.playing ? Icons.pause : Icons.play_arrow,
-                        size: 20,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints.tightFor(
-                        width: buttonWidth,
-                        height: 30,
-                      ),
-                      style: IconButton.styleFrom(
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        minimumSize: Size(buttonWidth, 30),
-                        maximumSize: Size(buttonWidth, 30),
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: _togglePlayback,
+                  onPressed: _togglePlayback,
+                );
+                final quickControlStrip = Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: quickControls,
                     ),
-                    const SizedBox(width: 8),
-                    times,
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        reverse: true,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: quickControls,
+                  ),
+                );
+                if (compactLayout) {
+                  final compactTimes = Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _formatTime(position),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 4),
+                      const Text('/', style: TextStyle(color: Colors.white70)),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _formatTime(snapshot.duration),
+                          maxLines: 1,
+                          textAlign: TextAlign.end,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      compactTimes,
+                      SizedBox(height: 32, child: styledPositionSlider),
+                      Row(
+                        children: [
+                          playbackControl,
+                          const SizedBox(width: 8),
+                          quickControlStrip,
+                          fullscreenControl,
+                        ],
+                      ),
+                    ],
+                  );
+                }
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 7),
+                      child: SizedBox(height: 50, child: styledPositionSlider),
+                    ),
+                    Row(
+                      children: [
+                        playbackControl,
+                        const SizedBox(width: 8),
+                        times,
+                        const SizedBox(width: 8),
+                        quickControlStrip,
+                        fullscreenControl,
+                      ],
                     ),
                   ],
-                ),
-              ],
-            );
-          },
-        ),
+                );
+              },
+            ),
+          );
+        },
       ),
     );
   }

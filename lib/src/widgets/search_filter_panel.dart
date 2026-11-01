@@ -24,6 +24,8 @@ class SearchFilterPanel extends StatefulWidget {
 class SearchFilterPanelState extends State<SearchFilterPanel> {
   bool _expanded = false;
 
+  bool get isExpanded => _expanded;
+
   void _toggle() => setState(() => _expanded = !_expanded);
 
   void collapse() {

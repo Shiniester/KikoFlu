@@ -266,6 +266,10 @@ _Avoid_: App Tab Bar, Works Home Tab
 A video file supplied among an audio work's resources, separate from videos
 cataloged by a Video Source.
 
+**Same-folder Work Videos (同文件夹作品视频)**:
+Work Resource Videos directly contained in the same resource folder. Videos in
+child folders belong to their own folder.
+
 **Work Image Viewing (作品图片查看)**:
 Viewing a work's resource images or cover with shared reader controls and settings.
 It is separate from comic Reading Progress and does not add a comic history entry.
@@ -306,6 +310,11 @@ without requiring a manual translation action.
 Each text whose resolved source matches the effective translation target stays
 original while other texts in the same work can be translated. Manual translation
 uses the same policy.
+
+**Text Preview (文本预览)**:
+The reading and editing view for a work's subtitle or other text file, also used
+for subtitles opened from the subtitle library or player. It is distinct from
+the synchronized display in the Player Lyrics Page.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details

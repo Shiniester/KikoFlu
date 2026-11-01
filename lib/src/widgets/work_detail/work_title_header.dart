@@ -10,9 +10,7 @@ class WorkTitleHeader extends StatelessWidget {
     this.showTranslation = false,
     this.showTranslateButton = true,
     this.isTranslating = false,
-    this.showExternalLink = false,
     this.onTranslate,
-    this.onOpenExternalLink,
     this.onCopy,
     this.style,
   });
@@ -22,9 +20,7 @@ class WorkTitleHeader extends StatelessWidget {
   final bool showTranslation;
   final bool showTranslateButton;
   final bool isTranslating;
-  final bool showExternalLink;
   final VoidCallback? onTranslate;
-  final VoidCallback? onOpenExternalLink;
   final ValueChanged<String>? onCopy;
   final TextStyle? style;
 
@@ -45,25 +41,6 @@ class WorkTitleHeader extends StatelessWidget {
         TextSpan(
           children: [
             TextSpan(text: displayTitle),
-            if (showExternalLink && onOpenExternalLink != null)
-              WidgetSpan(
-                alignment: PlaceholderAlignment.middle,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onOpenExternalLink,
-                      child: Icon(
-                        Icons.open_in_new,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             if (showTranslateButton)
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,

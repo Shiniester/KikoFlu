@@ -7882,6 +7882,24 @@ abstract class S {
   /// **'Search videos'**
   String get videoSearchHint;
 
+  /// Explains that video directory suggestions only match pages already loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Matches are limited to loaded directory pages.'**
+  String get videoSearchLoadedDirectoryPagesHint;
+
+  /// Shown when a video directory query has not been selected as a filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a directory suggestion first.'**
+  String get videoSearchSelectFilterBeforeSearch;
+
+  /// Opens the paginated video filter directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse the full directory.'**
+  String get videoSearchBrowseAllDirectory;
+
   /// No description provided for @videoSourceAccount.
   ///
   /// In en, this message translates to:

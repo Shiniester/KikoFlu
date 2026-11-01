@@ -249,6 +249,37 @@ void main() {
     );
   });
   test(
+    'NH favorite results carry source status while details stay unchanged',
+    () async {
+      final comic = {
+        'id': 42,
+        'title': {'english': 'A book'},
+        'cover': {'path': '42/cover.jpg'},
+        'tags': <dynamic>[],
+        'pages': <dynamic>[],
+      };
+      final adapter = _Adapter()
+        ..respond = (request) => jsonEncode(
+          request.uri.path.endsWith('/favorites')
+              ? {
+                  'num_pages': 1,
+                  'result': [comic],
+                }
+              : comic,
+        );
+      final source = NhSource(
+        ComicHttp('nhentai', client: Dio()..httpClientAdapter = adapter),
+      );
+      addTearDown(source.http.dispose);
+
+      final favorite = await source.favorites();
+      final detail = await source.details('42');
+
+      expect(favorite.items.single.extra['isFavorite'], true);
+      expect(detail.extra.containsKey('isFavorite'), isFalse);
+    },
+  );
+  test(
     'NH comments retain the source avatar, timestamp, and image Referer',
     () async {
       final adapter = _Adapter()
@@ -372,6 +403,48 @@ void main() {
     expect(result.items.single.coverDate, '2024-06-07');
     expect(result.items.single.publishedDate, '2024-06-07');
   });
+  test(
+    'HT resolves the current account favorite ID before canceling',
+    () async {
+      final adapter = _Adapter()
+        ..respond = (request) => switch (request.uri.path) {
+          '/users-addfav-id-42.html' =>
+            '<select><option value="7">Default</option></select>',
+          '/users-users_fav-page-1.html' =>
+            '''<div class="asTB"><div class="box_cel u_listcon">
+          <p class="l_title"><a href="/photos-index-aid-42.html">Title</a></p>
+          <p class="alopt"><a onclick="del('/users-fav_del-id-99.html')">Delete</a></p>
+          </div></div>''',
+          _ => '{}',
+        };
+      final source = HtSource(
+        ComicHttp('htmanga', client: Dio()..httpClientAdapter = adapter),
+      );
+      addTearDown(source.http.dispose);
+      const comic = Comic(source: 'htmanga', id: '42', title: 'Title');
+
+      await source.setFavorite(comic, true);
+      await source.setFavorite(
+        const Comic(
+          source: 'htmanga',
+          id: '42',
+          title: 'Title',
+          extra: {'favoriteId': '55'},
+        ),
+        false,
+      );
+
+      expect(adapter.requests.map((request) => request.method), [
+        'GET',
+        'POST',
+        'GET',
+        'GET',
+      ]);
+      expect(adapter.requests[2].uri.path, '/users-users_fav-page-1.html');
+      expect(adapter.requests.last.uri.path, '/users-fav_del-id-99.html');
+      expect(adapter.requests.last.uri.queryParameters['ajax'], 'true');
+    },
+  );
   test('HT listing keeps its source creation date', () {
     final result = HtSource.parseListing(
       '''<div class="gallary_wrap"><ul><li><div class="pic_box">

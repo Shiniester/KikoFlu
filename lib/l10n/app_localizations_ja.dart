@@ -4306,6 +4306,15 @@ class SJa extends S {
   String get videoSearchHint => '動画を検索';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint => '読み込み済みの一覧ページのみを検索します。';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '先に一覧の候補を選択してください。';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '一覧をすべて見る。';
+
+  @override
   String get videoSourceAccount => 'MissAV アカウント';
 
   @override

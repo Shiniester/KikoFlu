@@ -4284,6 +4284,15 @@ class SZh extends S {
   String get videoSearchHint => '搜索视频';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint => '仅匹配已加载的目录页';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '请先选择目录候选项';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '浏览完整目录';
+
+  @override
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
@@ -9096,6 +9105,15 @@ class SZhHant extends SZh {
 
   @override
   String get videoSearchHint => '搜尋影片';
+
+  @override
+  String get videoSearchLoadedDirectoryPagesHint => '僅比對已載入的目錄頁面。';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '請先選取目錄候選項。';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '瀏覽完整目錄。';
 
   @override
   String get videoSourceAccount => 'MissAV 帳號';

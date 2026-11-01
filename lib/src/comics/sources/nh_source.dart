@@ -156,7 +156,19 @@ class NhSource extends ComicSource {
   @override
   Future<ComicResult> favorites({String? cursor}) async {
     final page = int.parse(cursor ?? '1');
-    return _result(await _api('favorites?page=$page'), page);
+    final result = _result(await _api('favorites?page=$page'), page);
+    return ComicResult(
+      result.items
+          .map(
+            (comic) => Comic.fromJson({
+              ...comic.toJson(),
+              'extra': {...comic.extra, 'isFavorite': true},
+            }),
+          )
+          .toList(),
+      next: result.next,
+      totalPages: result.totalPages,
+    );
   }
 
   @override

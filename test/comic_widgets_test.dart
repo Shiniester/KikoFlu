@@ -83,22 +83,28 @@ const _comic = Comic(
 class _Source extends ComicSource {
   _Source([this.sourceKey = 'fixture']) : super(ComicHttp(sourceKey));
   final String sourceKey;
-  bool loggedIn = false, favoriteFails = false;
+  bool loggedIn = false, favoriteFails = false, remoteFavorites = true;
   bool commentsEnabled = false;
   List<ComicComment> commentsResult = const [
     ComicComment('Reader', 'Existing comment'),
   ];
   final pageRequests = <String>[];
   final searchQueries = <String>[];
+  final favoriteValues = <bool>[];
+  final favoriteComics = <Comic>[];
   int searches = 0, favoriteWrites = 0, favoriteReads = 0;
   int detailRequests = 0, chapterRequests = 0;
   final searchGates = <int, Completer<ComicResult>>{};
   Completer<Comic>? detailGate;
   Completer<List<ComicChapter>>? chapterGate;
   Comic? detailResult;
+  List<Comic>? favoritesResponse;
+  Completer<void>? favoriteGate;
   bool detailFails = false, chaptersFail = false;
   @override
   bool get isLoggedIn => loggedIn;
+  @override
+  bool get hasRemoteFavorites => remoteFavorites;
   @override
   bool get hasComments => commentsEnabled;
   @override
@@ -106,6 +112,10 @@ class _Source extends ComicSource {
   @override
   Future<void> setFavorite(Comic comic, bool value) async {
     favoriteWrites++;
+    favoriteValues.add(value);
+    favoriteComics.add(comic);
+    final gate = favoriteGate;
+    if (gate != null) await gate.future;
     if (favoriteFails) throw const ComicSourceException('favorite rejected');
   }
 
@@ -142,9 +152,10 @@ class _Source extends ComicSource {
   @override
   Future<ComicResult> favorites({String? cursor}) async {
     favoriteReads++;
-    return ComicResult([
-      Comic(source: key, id: 'favorite', title: 'Online favorite'),
-    ]);
+    return ComicResult(
+      favoritesResponse ??
+          [Comic(source: key, id: 'favorite', title: 'Online favorite')],
+    );
   }
 
   @override
@@ -292,6 +303,7 @@ class _BatchSource extends _Source {
 class _Library extends ComicLibrary {
   final List<Map<String, dynamic>> savedTasks = [];
   Comic? lastFavorite;
+  final favoriteKeys = <String>{};
   List<Comic> favoritesResult = const [];
   @override
   Future<void> saveTask(String id, Map<String, dynamic> task) async {}
@@ -306,7 +318,16 @@ class _Library extends ComicLibrary {
   Future<void> favorite(Comic comic, bool value) async {
     favoriteWrites++;
     lastFavorite = comic;
+    if (value) {
+      favoriteKeys.add(comic.key);
+    } else {
+      favoriteKeys.remove(comic.key);
+    }
   }
+
+  @override
+  Future<bool> isFavorite(Comic comic) async =>
+      favoriteKeys.contains(comic.key);
 
   @override
   Future<List<Map<String, dynamic>>> loadTasks() async => savedTasks;
@@ -341,6 +362,14 @@ class _NotifyingLibrary extends _Library {
   @override
   Future<void> removeHistory(Comic comic) async {
     last = null;
+    notifyListeners();
+  }
+}
+
+class _FavoriteNotifyingLibrary extends _Library {
+  @override
+  Future<void> favorite(Comic comic, bool value) async {
+    await super.favorite(comic, value);
     notifyListeners();
   }
 }
@@ -5106,6 +5135,485 @@ void main() {
     );
   });
 
+  testWidgets(
+    'comic search suggestions open on first focus and fill only the keyword',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final source = _SortedSource();
+      final other = _Source('other');
+      final container = await pump(
+        tester,
+        const ComicSearchScreen(initialSource: 'fixture'),
+        _Library(),
+        source,
+        other: other,
+        textScale: 1.4,
+      );
+      final history = container.read(unifiedSearchHistoryProvider.notifier);
+      const fixtureContext = UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: 'source-directory',
+        source: 'fixture',
+      );
+      const otherContext = UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: 'source-directory',
+        source: 'other',
+      );
+      const libraryHistoryContext = UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: 'history',
+        source: 'local',
+      );
+      await history.addOrReplace(fixtureContext, {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+        'sort': 'dd',
+      });
+      await history.addOrReplace(fixtureContext, {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+        'sort': 'da',
+      });
+      await history.addOrReplace(fixtureContext, {
+        'keyword': 'Contains Phrase',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+        'sort': 'dd',
+      });
+      await history.addOrReplace(otherContext, {
+        'keyword': 'same query other',
+        'mode': 'single',
+        'source': 'other',
+        'sources': ['other'],
+      });
+      await history.addOrReplace(libraryHistoryContext, {
+        'keyword': 'other scope only',
+        'mode': 'single',
+        'source': 'local',
+        'sources': ['local'],
+      });
+      await tester.pumpAndSettle();
+
+      final input = find.byKey(const ValueKey('comic-search-input'));
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      final menu = find.byKey(
+        const ValueKey('comic-search-history-suggestions'),
+      );
+      expect(menu, findsOneWidget);
+      expect(
+        find.descendant(of: menu, matching: find.text('same query')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: menu, matching: find.text('same query other')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: menu, matching: find.text('other scope only')),
+        findsNothing,
+      );
+      expect(source.searches, 0);
+
+      await tester.enterText(input, 'pHrAsE');
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: menu, matching: find.text('Contains Phrase')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: menu, matching: find.text('same query')),
+        findsNothing,
+      );
+      await tester.enterText(input, 'no matching phrase');
+      await tester.pumpAndSettle();
+      final localizations = S.of(
+        tester.element(find.byType(ComicSearchScreen)),
+      );
+      final noResults = localizations.noResults;
+      expect(
+        find.descendant(of: menu, matching: find.text(noResults)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: menu,
+          matching: find.text(localizations.noSearchHistory),
+        ),
+        findsNothing,
+      );
+      await tester.enterText(input, '');
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.descendant(of: menu, matching: find.text('same query')),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).controller!.text, 'same query');
+      expect(source.searches, 0);
+      expect(source.sortRequests, isEmpty);
+      expect(history.itemsFor(fixtureContext), hasLength(3));
+
+      await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
+      await tester.pumpAndSettle();
+      final otherSource = find.widgetWithText(ChoiceChip, 'Other');
+      await tester.ensureVisible(otherSource);
+      await tester.tap(otherSource);
+      await tester.pumpAndSettle();
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).controller!.text, 'same query');
+      expect(
+        find.descendant(
+          of: menu,
+          matching: find.text('same query other'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: menu, matching: find.text('same query')),
+        findsNothing,
+      );
+      expect(other.searches, 0);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      expect(menu, findsOneWidget);
+      expect(
+        find.descendant(
+          of: menu,
+          matching: find.text('same query other'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('comic search submits typed text before a matching suggestion', (
+    tester,
+  ) async {
+    final source = _SortedSource();
+    final container = await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture'),
+      _Library(),
+      source,
+    );
+    const context = UnifiedSearchHistoryContext(
+      contentType: 'comic',
+      entryScope: 'source-directory',
+      source: 'fixture',
+    );
+    await container
+        .read(unifiedSearchHistoryProvider.notifier)
+        .addOrReplace(context, {
+          'keyword': 'same query',
+          'mode': 'single',
+          'source': 'fixture',
+          'sources': ['fixture'],
+        });
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.enterText(input, 'same');
+    await tester.pumpAndSettle();
+    final menu = find.byKey(
+      const ValueKey('comic-search-history-suggestions'),
+    );
+    expect(
+      find.descendant(of: menu, matching: find.text('same query')),
+      findsOneWidget,
+    );
+
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await waitForFinder(tester, find.text(_comic.title));
+    expect(source.searchQueries, ['same']);
+    expect(source.searches, 1);
+    expect(tester.widget<TextField>(input).controller!.text, 'same');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic search selects a suggestion after keyboard navigation', (
+    tester,
+  ) async {
+    final source = _Source();
+    final container = await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture'),
+      _Library(),
+      source,
+    );
+    const context = UnifiedSearchHistoryContext(
+      contentType: 'comic',
+      entryScope: 'source-directory',
+      source: 'fixture',
+    );
+    await container
+        .read(unifiedSearchHistoryProvider.notifier)
+        .addOrReplace(context, {
+          'keyword': 'same query',
+          'mode': 'single',
+          'source': 'fixture',
+          'sources': ['fixture'],
+        });
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.enterText(input, 'same');
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(input).controller!.text, 'same query');
+    expect(source.searches, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'comic keyboard keeps a long history suggestion visible and only fills its keyword',
+    (tester) async {
+      final source = _Source();
+      final container = await pump(
+        tester,
+        const ComicSearchScreen(initialSource: 'fixture'),
+        _Library(),
+        source,
+        textScale: 1.4,
+      );
+      const historyContext = UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: 'source-directory',
+        source: 'fixture',
+      );
+      final history = container.read(unifiedSearchHistoryProvider.notifier);
+      for (var index = 11; index >= 0; index--) {
+        await history.addOrReplace(historyContext, {
+          'keyword': 'Comic history $index',
+          'mode': 'single',
+          'source': 'fixture',
+          'sources': ['fixture'],
+        });
+      }
+      final expectedKeyword = history
+          .itemsFor(historyContext)
+          .map((entry) => entry.payload['keyword'] as String)
+          .elementAt(7);
+      await tester.pumpAndSettle();
+
+      final input = find.byKey(const ValueKey('comic-search-input'));
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      final menu = find.byKey(
+        const ValueKey('comic-search-history-suggestions'),
+      );
+      final semantics = tester.ensureSemantics();
+      for (var index = 0; index < 7; index++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pump();
+      }
+      await tester.pump();
+
+      final highlightedSuggestion = find.descendant(
+        of: menu,
+        matching: find.text(expectedKeyword),
+      );
+      final highlightedTile = find
+          .ancestor(of: highlightedSuggestion, matching: find.byType(ListTile))
+          .first;
+      expect(highlightedTile.hitTestable(), findsOneWidget);
+      expect(tester.widget<ListTile>(highlightedTile).selected, isTrue);
+      expect(
+        tester.getSemantics(highlightedTile).flagsCollection.isSelected,
+        ui.Tristate.isTrue,
+      );
+      semantics.dispose();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      expect(highlightedTile.hitTestable(), findsOneWidget);
+      expect(tester.widget<ListTile>(highlightedTile).selected, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).controller!.text, expectedKeyword);
+      expect(source.searches, 0);
+      expect(menu, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'comic search resumes keyboard navigation after selecting a suggestion',
+    (tester) async {
+      final source = _Source();
+      final container = await pump(
+        tester,
+        const ComicSearchScreen(initialSource: 'fixture'),
+        _Library(),
+        source,
+      );
+      const context = UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: 'source-directory',
+        source: 'fixture',
+      );
+      final history = container.read(unifiedSearchHistoryProvider.notifier);
+      await history.addOrReplace(context, {
+        'keyword': 'same',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      });
+      await history.addOrReplace(context, {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      });
+      await tester.pumpAndSettle();
+
+      final input = find.byKey(const ValueKey('comic-search-input'));
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      final menu = find.byKey(
+        const ValueKey('comic-search-history-suggestions'),
+      );
+      await tester.tap(find.descendant(of: menu, matching: find.text('same')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).controller!.text, 'same');
+      expect(tester.widget<TextField>(input).focusNode!.hasFocus, isTrue);
+      expect(menu, findsNothing);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pumpAndSettle();
+      expect(menu, findsOneWidget);
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<TextField>(input).controller!.text, 'same query');
+      expect(source.searches, 0);
+      expect(source.searchQueries, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('comic search preserves composing text while updating history', (
+    tester,
+  ) async {
+    final container = await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture'),
+      _Library(),
+      _Source(),
+    );
+    const context = UnifiedSearchHistoryContext(
+      contentType: 'comic',
+      entryScope: 'source-directory',
+      source: 'fixture',
+    );
+    await container
+        .read(unifiedSearchHistoryProvider.notifier)
+        .addOrReplace(context, {
+          'keyword': 'same query',
+          'mode': 'single',
+          'source': 'fixture',
+          'sources': ['fixture'],
+        });
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.tap(input);
+    await tester.pumpAndSettle();
+    final controller = tester.widget<TextField>(input).controller!;
+    controller.value = const TextEditingValue(
+      text: 'same',
+      selection: TextSelection.collapsed(offset: 4),
+      composing: TextRange(start: 0, end: 4),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.value.text, 'same');
+    expect(controller.value.composing, const TextRange(start: 0, end: 4));
+    expect(
+      find.byKey(const ValueKey('comic-search-history-suggestions')),
+      findsNothing,
+    );
+
+    controller.value = controller.value.copyWith(composing: TextRange.empty);
+    await tester.pumpAndSettle();
+    expect(controller.value.text, 'same');
+    expect(controller.value.composing, TextRange.empty);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('comic-search-history-suggestions')),
+        matching: find.text('same query'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic search suggestions use the current scope empty state', (
+    tester,
+  ) async {
+    final container = await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', libraryTab: 2),
+      _Library(),
+      _Source(),
+    );
+    const directoryContext = UnifiedSearchHistoryContext(
+      contentType: 'comic',
+      entryScope: 'source-directory',
+      source: 'fixture',
+    );
+    await container
+        .read(unifiedSearchHistoryProvider.notifier)
+        .addOrReplace(directoryContext, {
+          'keyword': 'directory only',
+          'mode': 'single',
+          'source': 'fixture',
+          'sources': ['fixture'],
+        });
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('comic-search-input')));
+    await tester.pumpAndSettle();
+    final menu = find.byKey(
+      const ValueKey('comic-search-history-suggestions'),
+    );
+    final noHistory = S.of(
+      tester.element(find.byType(ComicSearchScreen)),
+    ).noSearchHistory;
+    expect(
+      find.descendant(of: menu, matching: find.text(noHistory)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: menu, matching: find.text('directory only')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic history restores a query and preserves its old entry', (
     tester,
   ) async {
@@ -8663,6 +9171,41 @@ void main() {
     },
   );
 
+  testWidgets('downloaded comic keeps the incoming source favorite', (
+    tester,
+  ) async {
+    final library = _Library();
+    library.savedTasks.add(
+      ComicDownloadTask(
+        comic: _comic,
+        chapter: _comic.chapters.first,
+        directory: 'offline',
+        status: ComicDownloadStatus.complete,
+      ).toJson(),
+    );
+    final source = _Source()..loggedIn = true;
+    await pump(
+      tester,
+      const ComicDetailScreen(
+        comic: Comic(
+          source: 'fixture',
+          id: 'book',
+          title: 'Fixture book',
+          extra: {'isFavorite': true, 'favoriteId': '99'},
+        ),
+      ),
+      library,
+      source,
+    );
+
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteValues, [false]);
+    expect(source.favoriteComics.single.extra['favoriteId'], '99');
+    expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+  });
+
   testWidgets('completed offline comic opens without metadata requests', (
     tester,
   ) async {
@@ -9544,6 +10087,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(source.favoriteWrites, 1);
       expect(library.favoriteWrites, 0);
+      source.loggedIn = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(library.favoriteWrites, 0);
+      expect(
+        find.text('Sign in to this source in comic settings.'),
+        findsOneWidget,
+      );
+      source.loggedIn = true;
       source.favoriteFails = false;
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
@@ -9556,6 +10108,294 @@ void main() {
       expect(library.favoriteWrites, 2);
     },
   );
+  testWidgets(
+    'comic detail shows a local favorite in the theme color and removes it anonymously',
+    (tester) async {
+      final library = _Library()..favoriteKeys.add(_comic.key);
+      final colorScheme = ColorScheme.fromSeed(seedColor: Colors.purple);
+      final container = await pump(
+        tester,
+        const ComicDetailScreen(comic: _comic),
+        library,
+        _Source(),
+        theme: ThemeData(colorScheme: colorScheme),
+      );
+
+      final icon = tester.widget<Icon>(find.byIcon(Icons.bookmark));
+      expect(icon.color, colorScheme.primary);
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+      expect(library.favoriteWrites, 1);
+      expect(library.favoriteKeys, isEmpty);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 0);
+    },
+  );
+  testWidgets(
+    'canceling a source favorite keeps local state after failure and can retry',
+    (tester) async {
+      const comic = Comic(
+        source: 'fixture',
+        id: 'remote-book',
+        title: 'Remote book',
+        extra: {'isFavorite': true},
+      );
+      final library = _Library()..favoriteKeys.add(comic.key);
+      final source = _Source()
+        ..loggedIn = true
+        ..favoriteFails = true
+        ..detailResult = comic;
+      final container = await pump(
+        tester,
+        const ComicDetailScreen(comic: comic),
+        library,
+        source,
+      );
+
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pumpAndSettle();
+      expect(source.favoriteValues, [false]);
+      expect(library.favoriteWrites, 0);
+      expect(library.favoriteKeys, contains(comic.key));
+      expect(find.byIcon(Icons.bookmark), findsOneWidget);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 0);
+
+      source.loggedIn = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(source.favoriteValues, [false]);
+      expect(library.favoriteKeys, contains(comic.key));
+      expect(
+        find.text('Sign in to this source in comic settings.'),
+        findsOneWidget,
+      );
+
+      source.loggedIn = true;
+      source.favoriteFails = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(source.favoriteValues, [false, false]);
+      expect(library.favoriteWrites, 1);
+      expect(library.favoriteKeys, isEmpty);
+      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 1);
+    },
+  );
+  testWidgets('favorite keeps details that arrive during the request', (
+    tester,
+  ) async {
+    const comic = Comic(
+      source: 'fixture',
+      id: 'race-book',
+      title: 'Listing title',
+      extra: {'isFavorite': false},
+    );
+    final source = _Source()
+      ..loggedIn = true
+      ..detailGate = Completer<Comic>()
+      ..favoriteGate = Completer<void>();
+    final library = _Library();
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      library,
+      source,
+      settle: false,
+    );
+
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pump();
+    source.detailGate!.complete(
+      const Comic(
+        source: 'fixture',
+        id: 'race-book',
+        title: 'Loaded title',
+        description: 'Loaded description',
+        extra: {'isFavorite': false},
+      ),
+    );
+    await pumpFrames(tester, frames: 8);
+    expect(
+      tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+      'Loaded title',
+    );
+    source.favoriteGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+      'Loaded title',
+    );
+    expect(library.lastFavorite?.title, 'Loaded title');
+    expect(library.lastFavorite?.description, 'Loaded description');
+  });
+
+  testWidgets(
+    'comic detail ignores a repeated tap while adding, then cancels on the next tap',
+    (tester) async {
+      const comic = Comic(
+        source: 'fixture',
+        id: 'toggle-book',
+        title: 'Toggle book',
+        extra: {'isFavorite': false},
+      );
+      final gate = Completer<void>();
+      final source = _Source()
+        ..loggedIn = true
+        ..detailResult = comic
+        ..favoriteGate = gate;
+      final library = _Library();
+      final container = await pump(
+        tester,
+        const ComicDetailScreen(comic: comic),
+        library,
+        source,
+      );
+
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pump();
+      expect(source.favoriteValues, [true]);
+      expect(library.favoriteWrites, 0);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(library.favoriteWrites, 1);
+      expect(library.lastFavorite?.extra['isFavorite'], true);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 1);
+
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pumpAndSettle();
+      expect(source.favoriteValues, [true, false]);
+      expect(library.favoriteWrites, 2);
+      expect(library.favoriteKeys, isEmpty);
+      expect(find.byIcon(Icons.bookmark_add_outlined), findsOneWidget);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 2);
+    },
+  );
+  testWidgets('reader favorite can be removed again in details', (
+    tester,
+  ) async {
+    const comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: [ComicChapter('one', 'Chapter 1')],
+      extra: {'isFavorite': true},
+    );
+    final library = _FavoriteNotifyingLibrary()..favoriteKeys.add(comic.key);
+    final source = _Source()
+      ..loggedIn = true
+      ..detailResult = comic;
+    await pump(tester, const ComicDetailScreen(comic: comic), library, source);
+
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteValues, [false]);
+    await tester.tap(find.text('Start reading'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteValues, [false, true]);
+
+    source.favoritesResponse = [comic];
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteValues, [false, true, false]);
+    expect(library.favoriteKeys, isEmpty);
+  });
+
+  testWidgets('HT favorite IDs survive details metadata', (tester) async {
+    const comic = Comic(
+      source: 'htmanga',
+      id: '42',
+      title: 'HT book',
+      extra: {'favoriteId': '99'},
+    );
+    final source = _Source('htmanga')
+      ..loggedIn = true
+      ..detailResult = const Comic(
+        source: 'htmanga',
+        id: '42',
+        title: 'HT book details',
+      );
+    final container = await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+    );
+
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteValues, [false]);
+    expect(source.favoriteComics.single.extra['favoriteId'], '99');
+    expect(source.favoriteReads, 0);
+    expect(container.read(comicRemoteFavoritesRevisionProvider), 1);
+  });
+  testWidgets(
+    'unknown source status is checked before removing a local favorite',
+    (tester) async {
+      const comic = Comic(source: 'htmanga', id: '42', title: 'HT book');
+      final library = _Library()..favoriteKeys.add(comic.key);
+      final source = _Source('htmanga')
+        ..loggedIn = true
+        ..detailResult = comic
+        ..favoritesResponse = const [
+          Comic(
+            source: 'htmanga',
+            id: '42',
+            title: 'HT book',
+            extra: {'favoriteId': '99'},
+          ),
+        ];
+      final container = await pump(
+        tester,
+        const ComicDetailScreen(comic: comic),
+        library,
+        source,
+      );
+
+      await tester.tap(find.byTooltip('Favorites'));
+      await tester.pumpAndSettle();
+
+      expect(source.favoriteReads, 1);
+      expect(source.favoriteValues, [false]);
+      expect(source.favoriteComics.single.extra['favoriteId'], '99');
+      expect(library.favoriteKeys, isEmpty);
+      expect(container.read(comicRemoteFavoritesRevisionProvider), 1);
+    },
+  );
+  testWidgets('NH favorite marker survives details without that field', (
+    tester,
+  ) async {
+    const comic = Comic(
+      source: 'nhentai',
+      id: '42',
+      title: 'NH book',
+      extra: {'isFavorite': true},
+    );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      _Source('nhentai')
+        ..detailResult = const Comic(
+          source: 'nhentai',
+          id: '42',
+          title: 'NH book details',
+        ),
+    );
+
+    expect(find.byIcon(Icons.bookmark), findsOneWidget);
+  });
   for (final loggedIn in [false, true]) {
     testWidgets(
       'comic home ignores online favorites preference when loggedIn=$loggedIn',
