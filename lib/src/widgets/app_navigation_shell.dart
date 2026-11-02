@@ -33,6 +33,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   late bool _navigationVisible;
   late bool _playerLaunchPreviewActive;
   bool _keepAudioRailStationary = false;
+  bool _landscapeInsetsScheduled = false;
+  double _audioMiniPlayerHeight = 0;
+  EdgeInsets? _lastPlayerPadding;
+  bool? _lastPlayerOffline;
   bool _animateNavigation = false;
   bool _reduceMotion = false;
   final _dockClipKey = GlobalKey();
@@ -81,6 +85,20 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   void _syncNavigation() {
     final visible = controller.navigationVisible;
     final previewActive = controller.playerLaunchPreviewActive;
+    if (_navigationVisible &&
+        !visible &&
+        (previewActive || controller.audioPlayerNavigationTransition != null)) {
+      final dock = _dockClipKey.currentContext?.findRenderObject();
+      final bottomInset = controller.audioPlayerLandscapeInsets?.bottom;
+      _audioMiniPlayerHeight = dock is RenderBox && dock.hasSize
+          ? (dock.size.height - AppBottomDock.layoutExtent(context)).clamp(
+              0.0,
+              double.infinity,
+            )
+          : ((bottomInset ?? MediaQuery.paddingOf(context).bottom) -
+                    MediaQuery.paddingOf(context).bottom)
+                .clamp(0.0, double.infinity);
+    }
     if (!visible) {
       _keepAudioRailStationary =
           previewActive || controller.audioPlayerNavigationTransition != null;
@@ -176,6 +194,19 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     final playerTransition = isLandscape
         ? controller.audioPlayerNavigationTransition
         : null;
+    if (playerTransition != null) {
+      final padding = MediaQuery.paddingOf(context);
+      if (controller.audioPlayerLandscapeInsets == null ||
+          _lastPlayerPadding != padding ||
+          _lastPlayerOffline != offline) {
+        _lastPlayerPadding = padding;
+        _lastPlayerOffline = offline;
+        _scheduleAudioLandscapeInsets();
+      }
+    } else {
+      _lastPlayerPadding = null;
+      _lastPlayerOffline = null;
+    }
     final miniPlayer = ref
         .watch(currentTrackProvider)
         .when<Widget?>(
@@ -232,6 +263,30 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     );
   }
 
+  void _scheduleAudioLandscapeInsets() {
+    if (_landscapeInsetsScheduled) return;
+    _landscapeInsetsScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _landscapeInsetsScheduled = false;
+      if (!mounted ||
+          MediaQuery.orientationOf(context) != Orientation.landscape ||
+          controller.audioPlayerNavigationTransition == null) {
+        return;
+      }
+      final rail = _railKey.currentContext?.findRenderObject();
+      if (rail is! RenderBox || !rail.hasSize) return;
+      final padding = MediaQuery.paddingOf(context);
+      controller.setAudioPlayerLandscapeInsets(
+        EdgeInsets.fromLTRB(
+          rail.size.width + 1 + padding.left,
+          _lastPlayerOffline == true ? _offlineBannerHeight : 0,
+          padding.right,
+          padding.bottom + _audioMiniPlayerHeight,
+        ),
+      );
+    });
+  }
+
   Widget _buildShellFrame(
     BuildContext context, {
     required bool isLandscape,
@@ -257,7 +312,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         ? rail
         : null;
     final railTop =
-        isLandscape && !visible && _keepAudioRailStationary && offline
+        isLandscape &&
+            !visible &&
+            _keepAudioRailStationary &&
+            offline &&
+            !controller.playerLaunchPreviewActive
         ? _offlineBannerHeight
         : 0.0;
     final railWithDivider = railOnstage == null
@@ -377,7 +436,13 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         children: [
           Padding(
             padding: EdgeInsets.only(
-              top: showOffline ? _offlineBannerHeight : 0,
+              top:
+                  showOffline ||
+                      (isLandscape &&
+                          offline &&
+                          controller.playerLaunchPreviewActive)
+                  ? _offlineBannerHeight
+                  : 0,
             ),
             child: content,
           ),

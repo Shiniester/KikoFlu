@@ -57,6 +57,23 @@ Widget _tabHome(
   ),
 );
 
+class _StatefulHomeProbe extends StatefulWidget {
+  const _StatefulHomeProbe(this.navigation);
+
+  final AppNavigationController navigation;
+
+  @override
+  State<_StatefulHomeProbe> createState() => _StatefulHomeProbeState();
+}
+
+class _StatefulHomeProbeState extends State<_StatefulHomeProbe> {
+  @override
+  Widget build(BuildContext context) => _tabHome(
+    widget.navigation,
+    const Scaffold(body: SizedBox.expand(key: ValueKey('home-viewport'))),
+  );
+}
+
 class _EmptyTagSearchApi extends KikoeruApiService {
   _EmptyTagSearchApi({this.withResults = false});
 
@@ -1188,12 +1205,18 @@ void main() {
     );
     final rail = find.byType(NavigationRail);
     final initialRect = tester.getRect(rail);
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    final initialHomeRect = tester.getRect(home);
     expect(initialRect.top, 30);
 
     navigation.setPlayerLaunchPreview(true);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getRect(rail), initialRect);
+    expect(tester.getRect(home), initialHomeRect);
     navigation.setPlayerLaunchPreview(false);
     await tester.pumpAndSettle();
 
@@ -1201,6 +1224,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getRect(rail), initialRect);
+    expect(tester.getRect(home), initialHomeRect);
     final playerTop = tester
         .getTopLeft(find.byKey(const ValueKey('player-viewport')))
         .dy;
@@ -1227,8 +1251,274 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(tester.getRect(rail), initialRect);
+    expect(tester.getRect(home), initialHomeRect);
     await tester.pumpAndSettle();
     expect(tester.getRect(rail), initialRect);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final withTrack in [false, true]) {
+    for (final safePadding in [
+      FakeViewPadding.zero,
+      const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    ]) {
+      testWidgets(
+        'landscape home stays in place while the player opens and closes '
+        '(track=$withTrack, left=${safePadding.left})',
+        (tester) async {
+          final navigation = await _pumpShell(
+            tester,
+            size: const Size(1280, 720),
+            withTrack: withTrack,
+            safePadding: safePadding,
+          );
+          final home = find.byKey(
+            const ValueKey('home-viewport'),
+            skipOffstage: false,
+          );
+          final initialRect = tester.getRect(home);
+          final initialElement = tester.element(home);
+
+          _openPlayer(navigation);
+          await tester.pump();
+          expect(tester.element(home), same(initialElement));
+          expect(tester.getRect(home), initialRect, reason: 'first frame');
+          await tester.pump(const Duration(milliseconds: 80));
+          expect(tester.getRect(home), initialRect, reason: 'player opening');
+          expect(
+            tester.getSize(find.byKey(const ValueKey('player-viewport'))),
+            const Size(1280, 720),
+          );
+          await tester.pumpAndSettle();
+
+          navigation.navigator!.pop();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(tester.getRect(home), initialRect, reason: 'player closing');
+          await tester.pumpAndSettle();
+          expect(tester.getRect(home), initialRect, reason: 'player closed');
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  testWidgets('landscape page above the player keeps the full viewport', (
+    tester,
+  ) async {
+    const size = Size(1280, 720);
+    final navigation = await _pumpShell(tester, size: size);
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    final homeRect = tester.getRect(home);
+    _openPlayer(navigation);
+    await tester.pumpAndSettle();
+
+    unawaited(
+      navigation.navigator!.push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(
+            body: SizedBox.expand(key: ValueKey('player-preview-viewport')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(navigation.navigationVisible, isFalse);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('player-preview-viewport'))),
+      Offset.zero & size,
+    );
+    expect(tester.getRect(home), homeRect);
+
+    final preview = find.byKey(const ValueKey('player-preview-viewport'));
+    unawaited(
+      showDialog<void>(
+        context: tester.element(preview),
+        builder: (_) => const AlertDialog(content: Text('Save lyrics')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getRect(preview), Offset.zero & size);
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isFalse);
+    expect(tester.getSize(find.byKey(const ValueKey('player-viewport'))), size);
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isTrue);
+    expect(tester.getRect(home), homeRect);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape root page stays in place beneath the player', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester, size: const Size(1280, 720));
+    unawaited(
+      navigation.navigator!.push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(
+            body: SizedBox.expand(key: ValueKey('root-page-viewport')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final page = find.byKey(
+      const ValueKey('root-page-viewport'),
+      skipOffstage: false,
+    );
+    final initialRect = tester.getRect(page);
+    _openPlayer(navigation);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(page), initialRect, reason: 'player opening');
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getRect(page), initialRect, reason: 'player closing');
+    await tester.pumpAndSettle();
+    expect(tester.getRect(page), initialRect, reason: 'player closed');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player preserves the browsing page state', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      homeBuilder: (navigation) => _StatefulHomeProbe(navigation),
+    );
+    final home = find.byType(_StatefulHomeProbe, skipOffstage: false);
+    final initialState = tester.state(home);
+    _openPlayer(navigation);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.state(home), same(initialState));
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.state(home), same(initialState));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final withTrack in [false, true]) {
+    for (final safePadding in [
+      FakeViewPadding.zero,
+      const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    ]) {
+      for (final offline in [false, true]) {
+        testWidgets('landscape player exit preserves the page after rotation '
+            '(track=$withTrack, left=${safePadding.left}, offline=$offline)', (
+          tester,
+        ) async {
+          final navigation = await _pumpShell(
+            tester,
+            withTrack: withTrack,
+            safePadding: safePadding,
+            offline: offline,
+          );
+          final home = find.byKey(
+            const ValueKey('home-viewport'),
+            skipOffstage: false,
+          );
+          _openPlayer(navigation);
+          await tester.pumpAndSettle();
+          tester.view.physicalSize = const Size(1280, 720);
+          await tester.pumpAndSettle();
+          navigation.navigator!.pop();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+          final duringExit = tester.getRect(home);
+          await tester.pumpAndSettle();
+          expect(duringExit, tester.getRect(home));
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  }
+
+  testWidgets('landscape player exit follows a changed safe area', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      safePadding: const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    );
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    _openPlayer(navigation);
+    await tester.pumpAndSettle();
+    tester.view.padding = const FakeViewPadding(
+      left: 12,
+      right: 44,
+      bottom: 20,
+    );
+    tester.view.viewPadding = tester.view.padding;
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final duringExit = tester.getRect(home);
+    await tester.pumpAndSettle();
+    expect(duringExit, tester.getRect(home));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player preserves a scrolled browsing page', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      homeBuilder: (navigation) => _tabHome(
+        navigation,
+        Scaffold(
+          body: SingleChildScrollView(
+            key: const ValueKey('scrolled-home'),
+            controller: scroll,
+            child: const SizedBox(height: 2400),
+          ),
+        ),
+      ),
+    );
+    scroll.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    final home = find.byKey(
+      const ValueKey('scrolled-home'),
+      skipOffstage: false,
+    );
+    final initialRect = tester.getRect(home);
+    final initialOffset = scroll.offset;
+
+    _openPlayer(navigation);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(home), initialRect);
+    expect(scroll.offset, initialOffset);
+    await tester.pumpAndSettle();
+    expect(scroll.offset, initialOffset);
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getRect(home), initialRect);
+    expect(scroll.offset, initialOffset);
+    await tester.pumpAndSettle();
+    expect(scroll.offset, initialOffset);
     expect(tester.takeException(), isNull);
   });
 
@@ -1394,6 +1684,11 @@ void main() {
     final navigation = await _pumpShell(tester, size: const Size(1280, 720));
     final rail = find.byType(NavigationRail, skipOffstage: false);
     final railRect = tester.getRect(rail);
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    final homeRect = tester.getRect(home);
     final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
 
     Future<int> railPixel() async {
@@ -1427,6 +1722,7 @@ void main() {
     );
     expect(tester.getTopLeft(player).dy, lessThan(500));
     expect(tester.getRect(rail), railRect);
+    expect(tester.getRect(home), homeRect);
     final coveredPixel = await railPixel();
     expect(coveredPixel, isNot(initialPixel));
 
@@ -1434,6 +1730,7 @@ void main() {
     await tester.pump();
     expect(tester.getTopLeft(player).dy, greaterThan(500));
     expect(tester.getRect(rail), railRect);
+    expect(tester.getRect(home), homeRect);
     final uncoveredPixel = await railPixel();
     int colorDistance(int first, int second) => [8, 16, 24]
         .map(
@@ -1449,6 +1746,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(navigation.navigationVisible, isTrue);
     expect(tester.getRect(rail), railRect);
+    expect(tester.getRect(home), homeRect);
     expect(rail.hitTestable(), findsOneWidget);
 
     final completedGesture = await tester.startGesture(
@@ -1462,10 +1760,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(navigation.navigationVisible, isFalse);
     expect(tester.getRect(rail), railRect);
+    expect(tester.getSize(home), homeRect.size);
     navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getRect(home), homeRect);
     await tester.pumpAndSettle();
     expect(navigation.navigationVisible, isTrue);
     expect(tester.getRect(rail), railRect);
+    expect(tester.getRect(home), homeRect);
     expect(tester.takeException(), isNull);
   });
 

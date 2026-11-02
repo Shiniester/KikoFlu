@@ -48,6 +48,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   bool _playerLaunchPreviewActive = false;
   Animation<double>? _fullscreenTransition;
   TransitionRoute<dynamic>? _audioPlayerNavigationRoute;
+  EdgeInsets? _audioPlayerLandscapeInsets;
   PopupRoute<dynamic>? _popupRoute;
   PageRoute<dynamic>? _outgoing;
 
@@ -60,6 +61,26 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   Animation<double>? get fullscreenTransition => _fullscreenTransition;
   Animation<double>? get audioPlayerNavigationTransition =>
       _audioPlayerNavigationRoute?.animation;
+  EdgeInsets? get audioPlayerLandscapeInsets => _audioPlayerLandscapeInsets;
+
+  bool isBelowAudioPlayer(Route<dynamic> route) {
+    final player = _audioPlayerNavigationRoute;
+    if (player == null) return false;
+    final routeIndex = _routes.indexOf(route);
+    final playerIndex = _routes.indexOf(player);
+    // A popped player still covers earlier routes until its exit finishes.
+    return routeIndex >= 0 && (playerIndex < 0 || routeIndex < playerIndex);
+  }
+
+  void setAudioPlayerLandscapeInsets(EdgeInsets insets) {
+    if (_audioPlayerNavigationRoute == null ||
+        _audioPlayerLandscapeInsets == insets) {
+      return;
+    }
+    _audioPlayerLandscapeInsets = insets;
+    _refresh(forceNotify: true);
+  }
+
   PopupRoute<dynamic>? get popupRoute => _popupRoute ?? sheetRoutes.lastOrNull;
   Iterable<PopupRoute<dynamic>> get popupRoutes => {
     ..._routes.whereType<PopupRoute<dynamic>>(),
@@ -187,8 +208,30 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   void setPlayerLaunchPreview(bool active) {
     if (_playerLaunchPreviewActive == active) return;
+    if (active && _navigationVisible) _captureAudioPlayerLandscapeInsets();
     _playerLaunchPreviewActive = active;
+    if (!active &&
+        audioPlayerRoute == null &&
+        _closingAudioPlayerRoutes.isEmpty) {
+      _audioPlayerLandscapeInsets = null;
+    }
     _refresh(forceNotify: true);
+  }
+
+  void _captureAudioPlayerLandscapeInsets() {
+    final root = navigator;
+    if (root == null) return;
+    final media = MediaQuery.of(root.context);
+    if (media.orientation != Orientation.landscape) return;
+    final box = root.context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final rect = box.localToGlobal(Offset.zero) & box.size;
+    _audioPlayerLandscapeInsets = EdgeInsets.fromLTRB(
+      rect.left,
+      rect.top,
+      media.size.width - rect.right,
+      media.size.height - rect.bottom,
+    );
   }
 
   @override
@@ -197,6 +240,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     if (route is TransitionRoute<dynamic> &&
         route.settings.name == appAudioPlayerRouteSettings.name &&
         (_navigationVisible || _playerLaunchPreviewActive)) {
+      if (!_playerLaunchPreviewActive) _captureAudioPlayerLandscapeInsets();
       _audioPlayerNavigationRoute = route;
     }
     _routes.add(route);
@@ -260,6 +304,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     _fullscreenTransitions.remove(route);
     if (identical(_audioPlayerNavigationRoute, route)) {
       _audioPlayerNavigationRoute = null;
+      _audioPlayerLandscapeInsets = null;
     }
   }
 

@@ -52,35 +52,48 @@ class WorkCoverFrame extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: WorkCoverClip(
-          cornerRadius: workCoverDetailRadius,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: isLandscape ? null : double.infinity,
-              constraints: BoxConstraints(
-                maxHeight: isLandscape ? mediaSize.height * 0.8 : 500,
-                maxWidth: isLandscape
-                    ? mediaSize.width * 0.45
-                    : double.infinity,
-              ),
-              child: PrivacyBlurCover(
-                child: Stack(
-                  fit: StackFit.passthrough,
-                  children: [
-                    ...layers,
-                    if (showAgeRating && AgeRatingFormatter.hasValue(age))
-                      Positioned(
-                        left: _coverBadgeInset,
-                        bottom: _coverBadgeInset,
-                        child: AgeRatingChip(
-                          key: const ValueKey('work-cover-age-badge'),
-                          age: age,
-                          compact: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Center(
+            heightFactor: 1,
+            child: WorkCoverClip(
+              cornerRadius: workCoverDetailRadius,
+              child: Material(
+                color: Colors.transparent,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: isLandscape ? mediaSize.height * 0.8 : 500,
+                    maxWidth: isLandscape
+                        ? mediaSize.width * 0.45
+                        : double.infinity,
+                  ),
+                  child: PrivacyBlurCover(
+                    child: Stack(
+                      fit: StackFit.passthrough,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            child: Stack(
+                              fit: StackFit.passthrough,
+                              children: layers,
+                            ),
+                          ),
                         ),
-                      ),
-                    if (showSubtitleBadge) const _SubtitleBadge(),
-                  ],
+                        if (showAgeRating && AgeRatingFormatter.hasValue(age))
+                          Positioned(
+                            left: _coverBadgeInset,
+                            bottom: _coverBadgeInset,
+                            child: AgeRatingChip(
+                              key: const ValueKey('work-cover-age-badge'),
+                              age: age,
+                              compact: true,
+                            ),
+                          ),
+                        if (showSubtitleBadge) const _SubtitleBadge(),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
