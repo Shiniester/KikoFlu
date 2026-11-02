@@ -47,31 +47,30 @@ void main() {
       expect(find.byIcon(Icons.visibility), findsNothing);
     });
 
-    testWidgets('keeps video playback action and passes parent path', (
+    testWidgets('does not render video or image playback actions', (
       tester,
     ) async {
-      String? playedTitle;
-      String? playedParent;
+      for (final item in [
+        {'type': 'video', 'title': 'clip.mp4'},
+        {'type': 'image', 'title': 'cover.jpg'},
+      ]) {
+        await tester.pumpWidget(
+          _testApp(FileTreeActions(entry: _entry(item: item))),
+        );
+        expect(find.byIcon(Icons.video_library), findsNothing);
+        expect(find.byIcon(Icons.visibility), findsNothing);
 
-      await tester.pumpWidget(
-        _testApp(
-          FileTreeActions(
-            entry: _entry(
-              item: {'type': 'video', 'title': 'clip.mp4', 'hash': 'video'},
+        await tester.pumpWidget(
+          _testApp(
+            FileTreeActions(
+              entry: _entry(item: item),
+              showDeleteAction: true,
+              onDelete: (_, __) {},
             ),
-            onPlayVideo: (item, parentPath) {
-              playedTitle = item['title'] as String;
-              playedParent = parentPath;
-            },
           ),
-        ),
-      );
-
-      expect(find.byIcon(Icons.video_library), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.video_library));
-      expect(playedTitle, 'clip.mp4');
-      expect(playedParent, 'Disc 1');
+        );
+        expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      }
     });
 
     testWidgets('renders subtitle and preview actions for lyric text', (
@@ -121,7 +120,6 @@ void main() {
                   'hash': 'archive',
                 },
               ),
-              showPlaybackActions: false,
               showPreviewActions: false,
               showDeleteAction: true,
               onDelete: (item, _) {
@@ -138,5 +136,38 @@ void main() {
         expect(deletedTitle, 'archive.zip');
       },
     );
+  });
+
+  testWidgets('video and image resource rows remain tappable', (tester) async {
+    final tapped = <(String, String)>[];
+    await tester.pumpWidget(
+      _testApp(
+        CustomScrollView(
+          slivers: [
+            FileTreeView(
+              items: const [
+                {
+                  'type': 'folder',
+                  'title': 'Disc 1',
+                  'children': [
+                    {'type': 'video', 'title': 'clip.mp4'},
+                    {'type': 'image', 'title': 'cover.jpg'},
+                  ],
+                },
+              ],
+              expandedFolders: const {'Disc 1'},
+              onToggleFolder: (_) {},
+              onFileTap: (item, _, parentPath) =>
+                  tapped.add((item['title'] as String, parentPath)),
+              trailingBuilder: (_, entry) => FileTreeActions(entry: entry),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('clip.mp4'));
+    await tester.tap(find.text('cover.jpg'));
+    expect(tapped, [('clip.mp4', 'Disc 1'), ('cover.jpg', 'Disc 1')]);
   });
 }

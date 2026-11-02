@@ -482,6 +482,14 @@
   "selectSubtitlePriority": "Select subtitle library priority for auto-loading:",
   "subtitlePriorityHighestDesc": "Search subtitle library first, then online/downloads",
   "subtitlePriorityLowestDesc": "Search online/downloads first, then subtitle library",
+  "autoSearchLastSubtitleQuery": "Automatically search the last keyword",
+  "@autoSearchLastSubtitleQuery": {
+    "description": "Preference for automatically opening text preview search with the last keyword."
+  },
+  "autoSearchLastSubtitleQueryDesc": "Search for the last keyword when opening a text preview.",
+  "@autoSearchLastSubtitleQueryDesc": {
+    "description": "Explains when text preview search opens automatically."
+  },
   "translationSourceSettings": "Translation Source Settings",
   "selectTranslationProvider": "Select translation service provider:",
   "translationTargetLanguage": "Target Language",

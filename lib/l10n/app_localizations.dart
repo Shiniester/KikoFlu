@@ -1906,6 +1906,18 @@ abstract class S {
   /// **'Search online/downloads first, then subtitle library'**
   String get subtitlePriorityLowestDesc;
 
+  /// Preference for automatically opening text preview search with the last keyword.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically search the last keyword'**
+  String get autoSearchLastSubtitleQuery;
+
+  /// Explains when text preview search opens automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for the last keyword when opening a text preview.'**
+  String get autoSearchLastSubtitleQueryDesc;
+
   /// No description provided for @translationSourceSettings.
   ///
   /// In en, this message translates to:

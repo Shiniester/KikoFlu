@@ -352,7 +352,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     }
   }
 
-  void _openSearch() {
+  void _openSearch({bool requestFocus = true}) {
     final rememberedQuery = ref.read(subtitleSearchQueryProvider);
     _searchController.value = TextEditingValue(
       text: rememberedQuery,
@@ -362,11 +362,24 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       _isSearchMode = true;
     });
     _updateSearchResults(_searchController.text);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _searchFocusNode.requestFocus();
-      }
-    });
+    if (requestFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _searchFocusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _maybeAutoOpenSearchFromPreference() {
+    if (_content == null ||
+        _isSearchMode ||
+        !ref.read(autoSearchLastSubtitleQueryProvider) ||
+        ref.read(subtitleSearchQueryProvider).trim().isEmpty) {
+      return;
+    }
+
+    _openSearch(requestFocus: false);
   }
 
   void _closeSearch() {
@@ -864,6 +877,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             _showTranslation = translated != null;
             _isLoading = false;
           });
+          _maybeAutoOpenSearchFromPreference();
           _showInitialSaveOptionsIfNeeded();
           _maybeAutoTranslateContent();
           return;
@@ -893,6 +907,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             _textController.text = cachedContent;
             _isLoading = false;
           });
+          _maybeAutoOpenSearchFromPreference();
           _showInitialSaveOptionsIfNeeded();
           _maybeAutoTranslateContent();
           return;
@@ -928,6 +943,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         _textController.text = remote.text;
         _isLoading = false;
       });
+      _maybeAutoOpenSearchFromPreference();
       _showInitialSaveOptionsIfNeeded();
       _maybeAutoTranslateContent();
     } catch (e) {

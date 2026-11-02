@@ -8,12 +8,13 @@ Widget _testApp(Widget child) {
     locale: const Locale('en'),
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
-    home: Scaffold(body: child),
+    home: Scaffold(appBar: AppBar(actions: [child])),
   );
 }
 
 void main() {
   testWidgets('renders mark action and handles taps', (tester) async {
+    final semantics = tester.ensureSemantics();
     var tapCount = 0;
 
     await tester.pumpWidget(
@@ -24,10 +25,18 @@ void main() {
       ),
     );
 
-    expect(find.text('Mark'), findsOneWidget);
+    expect(find.text('Mark'), findsNothing);
     expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+    expect(
+      tester.getSize(find.byIcon(Icons.bookmark_border)),
+      const Size(24, 24),
+    );
+    expect(find.byTooltip('Mark'), findsOneWidget);
+    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 44);
+    expect(tester.getSemantics(find.byType(IconButton)).tooltip, 'Mark');
+    semantics.dispose();
 
-    await tester.tap(find.byType(TextButton));
+    await tester.tap(find.byTooltip('Mark'));
 
     expect(tapCount, 1);
   });
@@ -58,6 +67,7 @@ void main() {
       expect(tester.getSemantics(find.byType(IconButton)).tooltip, state.label);
       semantics.dispose();
       final icon = tester.widget<Icon>(find.byIcon(state.icon));
+      expect(tester.getSize(find.byIcon(state.icon)), const Size(24, 24));
       expect(
         icon.color,
         Theme.of(tester.element(find.byIcon(state.icon))).colorScheme.primary,
@@ -78,7 +88,8 @@ void main() {
     );
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.byType(TextButton), findsNothing);
+    expect(find.byType(IconButton), findsNothing);
     expect(find.text('Listened'), findsNothing);
+    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 44);
   });
 }

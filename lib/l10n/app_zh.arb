@@ -337,6 +337,8 @@
   "selectSubtitlePriority": "选择字幕库在自动加载中的优先级：",
   "subtitlePriorityHighestDesc": "优先查找字幕库，再查找在线/下载",
   "subtitlePriorityLowestDesc": "优先查找在线/下载，再查找字幕库",
+  "autoSearchLastSubtitleQuery": "自动搜索上次关键词",
+  "autoSearchLastSubtitleQueryDesc": "打开文本预览时搜索上次使用的关键词。",
   "translationSourceSettings": "翻译源设置",
   "selectTranslationProvider": "选择翻译服务提供商：",
   "translationTargetLanguage": "目标语言",

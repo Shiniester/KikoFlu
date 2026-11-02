@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show mapEquals, setEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,6 +30,7 @@ import '../services/file_name_translation_controller.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../services/storage_service.dart';
+import '../services/subtitle_library_service.dart';
 import '../utils/audio_source_headers.dart';
 import '../utils/file_icon_utils.dart';
 import '../utils/file_tree_utils.dart';
@@ -130,7 +131,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   int _preferenceUpdateGeneration = 0;
   int _translationSourceGeneration = 0;
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
+  StreamSubscription<void>? _subtitleUpdates;
   int _loadGeneration = 0;
+  bool _subtitleScanRequested = false;
+  Future<bool>? _subtitleScanTask;
   bool _downloadScanRunning = false;
   bool _downloadScanRequested = false;
   List<String> _visibleNames = const [];
@@ -173,6 +177,11 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
     });
+    _subtitleUpdates = SubtitleLibraryService.onCacheUpdated.listen((_) {
+      if (_subtitleScanTask != null || !_isLoading) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
+    });
     _loadWorkTree();
     // 监听下载任务变化
     _listenToDownloadTasks();
@@ -204,6 +213,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     _loadGeneration++;
     _translationController.dispose();
     _downloadTasksSubscription?.cancel();
+    unawaited(_subtitleUpdates?.cancel());
     super.dispose();
   }
 
@@ -346,31 +356,88 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕
-  Future<bool> _checkLibrarySubtitles(int generation) async {
+  Future<bool> _checkLibrarySubtitles(int generation) {
+    _subtitleScanRequested = true;
+    final running = _subtitleScanTask;
+    if (running != null) {
+      return running.then(
+        (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+      );
+    }
+    final task = _drainLibrarySubtitleScans();
+    _subtitleScanTask = task;
+    return task.then(
+      (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+    );
+  }
+
+  Future<bool> _drainLibrarySubtitleScans() async {
+    var scanLoadGeneration = _loadGeneration;
+    var workId = _work.id;
     try {
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
-      final matches = await _subtitleMatchLoader.loadMatches(
-        workId: _work.id,
-        fileTree: _rootFiles,
-      );
-      if (!_isCurrentLoad(generation)) return false;
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
+      while (mounted && _subtitleScanRequested) {
+        _subtitleScanRequested = false;
+        scanLoadGeneration = _loadGeneration;
+        workId = _work.id;
+        final fileTree = List<dynamic>.of(_rootFiles);
+        bool requestIsCurrent() => !_subtitleScanRequested;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != _work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _audioWithLibrarySubtitles
-        ..clear()
-        ..addAll(matches);
+        final Set<String> matches;
+        try {
+          matches = await _subtitleMatchLoader.loadMatches(
+            workId: workId,
+            fileTree: fileTree,
+          );
+        } catch (e) {
+          _log.captureOutput('[FileExplorer] 检查字幕库失败: $e');
+          if (!requestIsCurrent()) continue;
+          return true;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != _work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != _work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _log.captureOutput(
-        '[FileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
-      );
+        if (!setEquals(_audioWithLibrarySubtitles, matches)) {
+          setState(() {
+            _audioWithLibrarySubtitles
+              ..clear()
+              ..addAll(matches);
+          });
+        }
+
+        _log.captureOutput(
+          '[FileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
+        );
+      }
       return true;
     } catch (e) {
       _log.captureOutput('[FileExplorer] 检查字幕库失败: $e');
-      return _isCurrentLoad(generation);
+      return _isCurrentLoad(scanLoadGeneration) && workId == _work.id;
+    } finally {
+      _subtitleScanTask = null;
+      if (mounted && _subtitleScanRequested) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
     }
   }
 
@@ -1101,6 +1168,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       downloadedFiles: _downloadedFiles,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
+      audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final auth = ref.read(authProvider);
@@ -1139,10 +1207,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   Widget? _buildFileActions(BuildContext context, FileTreeEntry entry) {
     return FileTreeActions(
       entry: entry,
-      onPlayVideo: (item, parentPath) =>
-          unawaited(_playVideo(item, parentPath)),
       onLoadSubtitle: (item, _) => _loadLyricManually(item),
-      onPreviewImage: (item, _) => _previewImageFile(item),
       onPreviewText: (item, _) => _previewTextFile(item),
       onPreviewPdf: (item, _) => _previewPdfFile(item),
     );

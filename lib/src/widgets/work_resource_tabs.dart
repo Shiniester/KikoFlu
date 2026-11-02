@@ -78,6 +78,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.expandedFolders = const {},
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
+    this.audioWithLibrarySubtitles = const {},
   });
 
   final int workId;
@@ -103,6 +104,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final Set<String> expandedFolders;
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
+  final Set<String> audioWithLibrarySubtitles;
 
   @override
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
@@ -880,35 +882,18 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 children: [
                   if (actions != null) actions,
                   if (metadata != null) metadata,
-                  if (subtitle != null || generatedPath != null)
+                  if (subtitle != null ||
+                      generatedPath != null ||
+                      widget.audioWithLibrarySubtitles.contains(variant.title))
                     IconButton(
                       key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
                       tooltip: S.of(context).preview,
                       icon: const Icon(Icons.visibility),
                       color: Colors.blue,
                       iconSize: 20,
-                      onPressed: () {
-                        if (subtitle != null && generatedPath == null) {
-                          widget.onFileTap(
-                            subtitle.source,
-                            _displayName(subtitle.title),
-                            _subtitleParent(subtitle),
-                          );
-                          return;
-                        }
-                        final path = generatedPath!;
-                        final title = p.basename(path);
-                        widget.onFileTap(
-                          {
-                            'type': 'text',
-                            'title': title,
-                            'localPath': path,
-                            'workId': widget.workId,
-                          },
-                          _displayName(title),
-                          '',
-                        );
-                      },
+                      onPressed: () => unawaited(
+                        _previewAudioSubtitle(variant, subtitle, generatedPath),
+                      ),
                     ),
                   if (duration != null) duration,
                 ],
@@ -923,6 +908,74 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   String _subtitleParent(PlayerSubtitleCandidate subtitle) {
     final separator = subtitle.pathLabel.lastIndexOf('/');
     return separator < 0 ? '' : subtitle.pathLabel.substring(0, separator);
+  }
+
+  Future<void> _previewAudioSubtitle(
+    PlayerAudioVariant variant,
+    PlayerSubtitleCandidate? subtitle,
+    String? generatedPath,
+  ) async {
+    if (subtitle != null && generatedPath == null) {
+      widget.onFileTap(
+        subtitle.source,
+        _displayName(subtitle.title),
+        _subtitleParent(subtitle),
+      );
+      return;
+    }
+    if (generatedPath != null) {
+      final title = p.basename(generatedPath);
+      widget.onFileTap(
+        {
+          'type': 'text',
+          'title': title,
+          'localPath': generatedPath,
+          'workId': widget.workId,
+        },
+        _displayName(title),
+        '',
+      );
+      return;
+    }
+
+    final track = _trackForVariant(variant);
+    final workId = widget.workId;
+    final audioIdentity = GeneratedSubtitleStore.audioIdentity(track);
+    final targetLocale = _subtitleTargetLocale;
+    final candidates = await const PlayerSubtitleCandidateRepository().load(
+      track: track,
+      fileTree: widget.fileTree,
+      libraryPriority: ref.read(subtitleLibraryPriorityProvider),
+      audioParentPath: variant.parentPath,
+      targetLocale: targetLocale,
+    );
+    final candidate = candidates
+        .where(
+          (candidate) =>
+              candidate.origin == PlayerSubtitleCandidateOrigin.library &&
+              candidate.matchesCurrentAudio &&
+              !GeneratedSubtitleStore.isGeneratedRelativePath(
+                candidate.pathLabel,
+              ),
+        )
+        .firstOrNull;
+    if (!mounted ||
+        candidate == null ||
+        widget.workId != workId ||
+        _subtitleTargetLocale != targetLocale ||
+        !_audio.any(
+          (current) =>
+              current.fullPath == variant.fullPath &&
+              GeneratedSubtitleStore.audioIdentity(_trackForVariant(current)) ==
+                  audioIdentity,
+        )) {
+      return;
+    }
+    widget.onFileTap(
+      {...candidate.source, 'type': 'text'},
+      _displayName(candidate.title),
+      _subtitleParent(candidate),
+    );
   }
 
   Future<void> _copyName(String title) async {

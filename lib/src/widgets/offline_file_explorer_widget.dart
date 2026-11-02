@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -12,6 +13,7 @@ import '../services/download_service.dart';
 import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_match_loader.dart';
+import '../services/subtitle_library_service.dart';
 import '../services/audio_playback_plan_builder.dart';
 import '../services/file_preview_resolver.dart';
 import '../services/file_size_resolver.dart';
@@ -87,7 +89,10 @@ class _OfflineFileExplorerWidgetState
   bool _audioVariantsReady = false;
   int _preferenceUpdateGeneration = 0;
   late final FileListController _fileListController;
+  StreamSubscription<void>? _subtitleUpdates;
   int _loadGeneration = 0;
+  bool _subtitleScanRequested = false;
+  Future<bool>? _subtitleScanTask;
   String? _workDirPath;
   List<String> _visibleNames = const [];
 
@@ -132,6 +137,11 @@ class _OfflineFileExplorerWidgetState
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
     });
+    _subtitleUpdates = SubtitleLibraryService.onCacheUpdated.listen((_) {
+      if (_workDirPath != null) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
+    });
     _loadLocalFiles();
   }
 
@@ -155,6 +165,7 @@ class _OfflineFileExplorerWidgetState
   void dispose() {
     _loadGeneration++;
     _translationController.dispose();
+    unawaited(_subtitleUpdates?.cancel());
     // 离线页面关闭时清空文件列表，避免影响其他作品
     // 使用 Future.microtask 延迟执行，避免在 dispose 中直接修改 provider
     Future.microtask(() => _fileListController.clear(workId: widget.work.id));
@@ -255,31 +266,88 @@ class _OfflineFileExplorerWidgetState
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕
-  Future<bool> _checkLibrarySubtitles(int generation) async {
+  Future<bool> _checkLibrarySubtitles(int generation) {
+    _subtitleScanRequested = true;
+    final running = _subtitleScanTask;
+    if (running != null) {
+      return running.then(
+        (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+      );
+    }
+    final task = _drainLibrarySubtitleScans();
+    _subtitleScanTask = task;
+    return task.then(
+      (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+    );
+  }
+
+  Future<bool> _drainLibrarySubtitleScans() async {
+    var scanLoadGeneration = _loadGeneration;
+    var workId = widget.work.id;
     try {
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
-      final matches = await _subtitleMatchLoader.loadMatches(
-        workId: widget.work.id,
-        fileTree: _localFiles,
-      );
-      if (!_isCurrentLoad(generation)) return false;
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
+      while (mounted && _subtitleScanRequested) {
+        _subtitleScanRequested = false;
+        scanLoadGeneration = _loadGeneration;
+        workId = widget.work.id;
+        final fileTree = List<dynamic>.of(_localFiles);
+        bool requestIsCurrent() => !_subtitleScanRequested;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _audioWithLibrarySubtitles
-        ..clear()
-        ..addAll(matches);
+        final Set<String> matches;
+        try {
+          matches = await _subtitleMatchLoader.loadMatches(
+            workId: workId,
+            fileTree: fileTree,
+          );
+        } catch (e) {
+          _log.captureOutput('[OfflineFileExplorer] 检查字幕库失败: $e');
+          if (!requestIsCurrent()) continue;
+          return true;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _log.captureOutput(
-        '[OfflineFileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
-      );
+        if (!setEquals(_audioWithLibrarySubtitles, matches)) {
+          setState(() {
+            _audioWithLibrarySubtitles
+              ..clear()
+              ..addAll(matches);
+          });
+        }
+
+        _log.captureOutput(
+          '[OfflineFileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
+        );
+      }
       return true;
     } catch (e) {
       _log.captureOutput('[OfflineFileExplorer] 检查字幕库失败: $e');
-      return _isCurrentLoad(generation);
+      return _isCurrentLoad(scanLoadGeneration) && workId == widget.work.id;
+    } finally {
+      _subtitleScanTask = null;
+      if (mounted && _subtitleScanRequested) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
     }
   }
 
@@ -809,6 +877,7 @@ class _OfflineFileExplorerWidgetState
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
+      audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final items = await _previewResolver.buildOfflineImageItems(
@@ -859,7 +928,6 @@ class _OfflineFileExplorerWidgetState
   Widget? _buildFileActions(BuildContext context, FileTreeEntry entry) {
     return FileTreeActions(
       entry: entry,
-      showPlaybackActions: false,
       showPreviewActions: false,
       showDeleteAction: true,
       onLoadSubtitle: (item, _) => _loadLyricManually(item),

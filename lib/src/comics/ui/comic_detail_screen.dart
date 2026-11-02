@@ -581,12 +581,14 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             IconButton(
               tooltip: s.download,
               icon: const Icon(Icons.download),
+              visualDensity: const VisualDensity(horizontal: -1),
               onPressed: !_initialContentVisible || _chapters.isEmpty
                   ? null
                   : () => _download(_readyComic),
             ),
             IconButton(
               tooltip: s.comicFavorites,
+              visualDensity: const VisualDensity(horizontal: -1),
               icon: Icon(
                 _isFavorite ? Icons.bookmark : Icons.bookmark_add_outlined,
                 color: _isFavorite

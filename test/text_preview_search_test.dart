@@ -84,6 +84,14 @@ double _markerYForMatch(
       railRect.height;
 }
 
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 40 && finder.evaluate().isEmpty; attempt++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+  }
+  expect(finder, findsOneWidget);
+}
+
 Future<void> _tapMarkerForMatch(
   WidgetTester tester,
   int matchOffset, {
@@ -326,6 +334,166 @@ void main() {
       );
     },
   );
+
+  testWidgets('opens saved search after text loads without taking focus', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'text_preview_auto_search_',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+    });
+
+    final content = [
+      'needle first',
+      ...List.filled(24, 'filler'),
+      'needle second',
+    ].join('\n');
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync(content);
+    await StorageService.setString(
+      SubtitleSearchQueryNotifier.preferenceKey,
+      'needle',
+    );
+
+    await tester.pumpWidget(_testApp(subtitle.path));
+    final searchField = find.byKey(const ValueKey('text-preview-search-field'));
+    await _pumpUntilFound(tester, searchField);
+
+    expect(find.text('1/2'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('text-preview-search-marker-rail')),
+      findsOneWidget,
+    );
+    expect(tester.widget<TextField>(searchField).focusNode!.hasFocus, isFalse);
+  });
+
+  testWidgets('empty remembered query does not open search automatically', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'text_preview_empty_auto_search_',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+    });
+
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync('needle subtitle text');
+    await tester.pumpWidget(_testApp(subtitle.path));
+    final searchAction = find.byKey(
+      const ValueKey('text-preview-search-action'),
+    );
+    await _pumpUntilFound(tester, searchAction);
+
+    final searchField = find.byKey(const ValueKey('text-preview-search-field'));
+    expect(searchField, findsNothing);
+    expect(
+      find.byKey(const ValueKey('text-preview-search-marker-rail')),
+      findsNothing,
+    );
+
+    await tester.tap(searchAction);
+    await tester.pump();
+    await tester.enterText(searchField, 'needle');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('text-preview-search-clear')));
+    await tester.pump();
+    expect(find.text('0/0'), findsOneWidget);
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        SubtitleSearchQueryNotifier.preferenceKey,
+      ),
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('text-preview-search-close')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(_testApp(subtitle.path));
+    await _pumpUntilFound(tester, searchAction);
+    expect(searchField, findsNothing);
+  });
+
+  testWidgets('disabled auto search keeps the last query for manual search', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'text_preview_disabled_auto_search_',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+    });
+
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync('needle first\nneedle second');
+    await StorageService.setString(
+      SubtitleSearchQueryNotifier.preferenceKey,
+      'needle',
+    );
+    await StorageService.setBool(
+      AutoSearchLastSubtitleQueryNotifier.preferenceKey,
+      false,
+    );
+
+    await tester.pumpWidget(_testApp(subtitle.path));
+    final searchAction = find.byKey(
+      const ValueKey('text-preview-search-action'),
+    );
+    await _pumpUntilFound(tester, searchAction);
+    expect(
+      find.byKey(const ValueKey('text-preview-search-field')),
+      findsNothing,
+    );
+
+    await tester.tap(searchAction);
+    await tester.pump();
+    final searchField = find.byKey(const ValueKey('text-preview-search-field'));
+    expect(tester.widget<TextField>(searchField).controller!.text, 'needle');
+    expect(find.text('1/2'), findsOneWidget);
+  });
+
+  testWidgets('saved search opens after a failed text load is retried', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'text_preview_retry_auto_search_',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+    });
+
+    final subtitle = File('${tempDir.path}/track01.srt');
+    await StorageService.setString(
+      SubtitleSearchQueryNotifier.preferenceKey,
+      'needle',
+    );
+    await tester.pumpWidget(_testApp(subtitle.path));
+
+    final retry = find.text(
+      S.of(tester.element(find.byType(TextPreviewScreen))).retry,
+    );
+    await _pumpUntilFound(tester, retry);
+    subtitle.writeAsStringSync('needle after retry');
+
+    await tester.tap(retry);
+    final searchField = find.byKey(const ValueKey('text-preview-search-field'));
+    await _pumpUntilFound(tester, searchField);
+    expect(find.text('1/1'), findsOneWidget);
+  });
 
   testWidgets('short preview selects the middle search marker', (tester) async {
     final tempDir = Directory.systemTemp.createTempSync(
@@ -846,15 +1014,12 @@ void main() {
         );
         await tester.pump();
       }
-      await tester.tap(restartedSearch);
-      await tester.pump();
+      final restartedSearchField = find.byKey(
+        const ValueKey('text-preview-search-field'),
+      );
+      expect(restartedSearchField, findsOneWidget);
       expect(
-        tester
-            .widget<TextField>(
-              find.byKey(const ValueKey('text-preview-search-field')),
-            )
-            .controller!
-            .text,
+        tester.widget<TextField>(restartedSearchField).controller!.text,
         'needle',
       );
 

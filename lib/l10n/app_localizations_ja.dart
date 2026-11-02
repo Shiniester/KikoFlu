@@ -967,6 +967,13 @@ class SJa extends S {
   String get subtitlePriorityLowestDesc => 'オンライン/ダウンロードを優先して検索';
 
   @override
+  String get autoSearchLastSubtitleQuery => '前回のキーワードを自動検索';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc =>
+      'テキストプレビューを開くと、前回使用したキーワードを検索します。';
+
+  @override
   String get translationSourceSettings => '翻訳ソース設定';
 
   @override

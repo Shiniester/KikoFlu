@@ -948,11 +948,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               icon: const Icon(Icons.download),
               onPressed: _showFileSelectionDialog,
               tooltip: S.of(context).download,
+              visualDensity: const VisualDensity(horizontal: -1),
             ),
             if (!widget.work.isJapaneseAsmr && isOfficialServer)
               IconButton(
                 icon: const Icon(Icons.playlist_add),
                 tooltip: S.of(context).addToPlaylist,
+                visualDensity: const VisualDensity(horizontal: -1),
                 onPressed: () => AddToPlaylistDialog.show(
                   context: context,
                   workId: widget.work.id,
@@ -977,6 +979,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                   return IconButton(
                     icon: const Icon(Icons.open_in_new),
                     tooltip: S.of(context).openInBrowser,
+                    visualDensity: const VisualDensity(horizontal: -1),
                     onPressed: () => _openSourceUrl(sourceUrl),
                   );
                 },

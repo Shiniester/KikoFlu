@@ -9,6 +9,7 @@ import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../providers/proxy_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/subtitle_search_query_provider.dart';
 import '../services/proxy_config.dart';
 import '../utils/l10n_extensions.dart';
 import '../utils/snackbar_util.dart';
@@ -273,6 +274,9 @@ class PreferencesScreen extends ConsumerWidget {
     final autoTranslateWorkDetails = ref.watch(
       autoTranslateWorkDetailsProvider,
     );
+    final autoSearchLastSubtitleQuery = ref.watch(
+      autoSearchLastSubtitleQueryProvider,
+    );
     final preloadSettings = ref.watch(preloadNextSettingsProvider);
     final audioTapPlaylistMode = ref.watch(audioTapPlaylistModeProvider);
 
@@ -338,6 +342,15 @@ class PreferencesScreen extends ConsumerWidget {
                     .of(context)
                     .currentSettingLabel(priority.localizedName(context)),
                 onTap: () => _showSubtitleLibraryPriorityDialog(context, ref),
+              ),
+              SettingsSwitchTile(
+                icon: Icons.search,
+                title: S.of(context).autoSearchLastSubtitleQuery,
+                subtitle: S.of(context).autoSearchLastSubtitleQueryDesc,
+                value: autoSearchLastSubtitleQuery,
+                onChanged: (enabled) => ref
+                    .read(autoSearchLastSubtitleQueryProvider.notifier)
+                    .setEnabled(enabled),
               ),
             ],
           ),

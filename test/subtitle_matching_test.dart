@@ -64,6 +64,26 @@ void main() {
       expect(result.score, 0.0);
     });
 
+    test('matches parser-supported imported subtitle formats', () {
+      for (final extension in ['ass', 'ssa', 'sbv', 'dfxp', 'ttml']) {
+        expect(
+          SubtitleMatcher.check('track01.$extension', 'track01.mp3').isMatch,
+          isTrue,
+          reason: '.$extension is parsed by LyricParser',
+        );
+      }
+    });
+
+    test('does not match unsupported VobSub imports', () {
+      for (final extension in ['idx', 'sub']) {
+        expect(
+          SubtitleMatcher.check('track01.$extension', 'track01.mp3').isMatch,
+          isFalse,
+          reason: '.$extension has no LyricParser implementation',
+        );
+      }
+    });
+
     test('prepared matcher preserves results and scores', () {
       const pairs = [
         ('track01.lrc', 'track01.mp3'),

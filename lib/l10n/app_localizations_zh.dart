@@ -966,6 +966,12 @@ class SZh extends S {
   String get subtitlePriorityLowestDesc => '优先查找在线/下载，再查找字幕库';
 
   @override
+  String get autoSearchLastSubtitleQuery => '自动搜索上次关键词';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc => '打开文本预览时搜索上次使用的关键词。';
+
+  @override
   String get translationSourceSettings => '翻译源设置';
 
   @override
@@ -5787,6 +5793,12 @@ class SZhHant extends SZh {
 
   @override
   String get subtitlePriorityLowestDesc => '優先查找線上/下載，再查找字幕庫';
+
+  @override
+  String get autoSearchLastSubtitleQuery => '自動搜尋上次關鍵字';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc => '開啟文字預覽時搜尋上次使用的關鍵字。';
 
   @override
   String get translationSourceSettings => '翻譯源設定';

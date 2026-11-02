@@ -11,6 +11,7 @@ import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/generated_subtitle_store.dart';
 import 'package:kikoeru_flutter/src/services/generated_subtitle_translation_service.dart';
@@ -537,6 +538,9 @@ void main() {
       'locale_language': 'en',
       AutoSaveTranslatedLyricsNotifier.preferenceKey: false,
     });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     final tempDir = Directory.systemTemp.createTempSync('preview_auto_');
     final document = File('${tempDir.path}/notes.md')
       ..writeAsStringSync(source);
@@ -607,6 +611,71 @@ void main() {
       expect(
         find.byKey(const ValueKey('text-preview-search-marker-rail')),
         findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'automatic search stays open and follows auto-translation without focus',
+    (tester) async {
+      const source = 'needle original\nsecond needle';
+      const translated = 'needle translated';
+      final translation = Completer<String>();
+      var translationRequested = false;
+      final tempDir = await _createPreviewRoot(autoSaveTranslated: false);
+      final subtitle = File('${tempDir.path}/track01.srt')
+        ..writeAsStringSync(source);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        if (!translation.isCompleted) translation.complete(translated);
+        await tester.runAsync(() => tempDir.delete(recursive: true));
+      });
+
+      await StorageService.setString(
+        SubtitleSearchQueryNotifier.preferenceKey,
+        'needle',
+      );
+      await tester.pumpWidget(
+        _testPreviewApp(
+          subtitle.path,
+          title: 'track01.srt',
+          autoTranslate: true,
+          translateContentForTesting: (_) {
+            translationRequested = true;
+            return translation.future;
+          },
+        ),
+      );
+
+      await _pumpUntil(tester, () => _displayedPreviewText(tester) == source);
+      final searchField = find.byKey(
+        const ValueKey('text-preview-search-field'),
+      );
+      expect(searchField, findsOneWidget);
+      expect(find.text('1/2'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(searchField).focusNode!.hasFocus,
+        isFalse,
+      );
+
+      await _pumpUntil(tester, () => translationRequested);
+      translation.complete(translated);
+      await _pumpUntil(
+        tester,
+        () => _displayedPreviewText(tester) == translated,
+      );
+
+      expect(searchField, findsOneWidget);
+      expect(tester.widget<TextField>(searchField).controller!.text, 'needle');
+      expect(find.text('1/1'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('text-preview-search-marker-rail')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextField>(searchField).focusNode!.hasFocus,
+        isFalse,
       );
       expect(tester.takeException(), isNull);
     },

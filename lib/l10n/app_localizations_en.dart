@@ -989,6 +989,14 @@ class SEn extends S {
       'Search online/downloads first, then subtitle library';
 
   @override
+  String get autoSearchLastSubtitleQuery =>
+      'Automatically search the last keyword';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc =>
+      'Search for the last keyword when opening a text preview.';
+
+  @override
   String get translationSourceSettings => 'Translation Source Settings';
 
   @override

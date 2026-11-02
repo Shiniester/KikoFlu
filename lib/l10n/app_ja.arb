@@ -337,6 +337,8 @@
   "selectSubtitlePriority": "自動読み込みでの字幕ライブラリの優先度を選択：",
   "subtitlePriorityHighestDesc": "字幕ライブラリを優先して検索",
   "subtitlePriorityLowestDesc": "オンライン/ダウンロードを優先して検索",
+  "autoSearchLastSubtitleQuery": "前回のキーワードを自動検索",
+  "autoSearchLastSubtitleQueryDesc": "テキストプレビューを開くと、前回使用したキーワードを検索します。",
   "translationSourceSettings": "翻訳ソース設定",
   "selectTranslationProvider": "翻訳サービスプロバイダーを選択：",
   "translationTargetLanguage": "ターゲット言語",

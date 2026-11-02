@@ -745,6 +745,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: s.download,
+                      visualDensity: const VisualDensity(horizontal: -1),
                       onPressed: _loading || _selectedStream == null
                           ? null
                           : _download,
@@ -757,6 +758,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: s.videoAddToPlaylist,
+                      visualDensity: const VisualDensity(horizontal: -1),
                       onPressed: details == null || _loading
                           ? null
                           : _showPlaylists,
@@ -765,6 +767,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
+                      visualDensity: const VisualDensity(horizontal: -1),
                       onPressed:
                           details == null ||
                               _loading ||
@@ -781,6 +784,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     ),
                   IconButton(
                     tooltip: s.videoOpenSource,
+                    visualDensity: const VisualDensity(horizontal: -1),
                     onPressed: () => _openSource(),
                     icon: const Icon(Icons.open_in_new),
                   ),

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../utils/file_tree_utils.dart';
+import 'generated_subtitle_store.dart';
+import 'subtitle_language.dart';
 import 'subtitle_library_service.dart';
 import 'subtitle_matching.dart';
 
@@ -34,29 +36,49 @@ class SubtitleAvailabilityScanner {
       SubtitleLibraryService.parsedFolderName,
     );
 
-    for (final folderName in possibleWorkFolderNames(workId)) {
-      final folder = Directory(p.join(parsedFolderPath, folderName));
-      if (!await folder.exists()) continue;
+    Future<void> scanFolder(
+      Directory folder, {
+      bool skipGenerated = false,
+    }) async {
+      if (!await folder.exists()) return;
 
       await for (final entity in folder.list(recursive: true)) {
         if (entity is! File) continue;
+        if (skipGenerated &&
+            GeneratedSubtitleStore.isGeneratedRelativePath(
+              p
+                  .relative(entity.path, from: libraryDir.path)
+                  .replaceAll('\\', '/'),
+            )) {
+          continue;
+        }
 
-        final subtitle = SubtitleMatcher.prepareSubtitle(
-          p.basename(entity.path),
-        );
-        if (subtitle == null) continue;
+        final subtitleName = p.basename(entity.path);
+        if (SubtitleMatcher.prepareSubtitle(subtitleName) == null) continue;
 
         for (var index = unmatchedAudio.length - 1; index >= 0; index--) {
           final audio = unmatchedAudio[index];
-          if (SubtitleMatcher.checkPrepared(subtitle, audio.prepared).isMatch) {
+          if (SubtitleLanguage.match(subtitleName, audio.prepared).isMatch) {
             matchedAudioTitles.add(audio.title);
             unmatchedAudio.removeAt(index);
           }
         }
 
-        if (unmatchedAudio.isEmpty) return matchedAudioTitles;
+        if (unmatchedAudio.isEmpty) return;
       }
     }
+
+    for (final folderName in possibleWorkFolderNames(workId)) {
+      await scanFolder(Directory(p.join(parsedFolderPath, folderName)));
+      if (unmatchedAudio.isEmpty) return matchedAudioTitles;
+    }
+
+    await scanFolder(
+      Directory(
+        p.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
+      ),
+      skipGenerated: true,
+    );
 
     return matchedAudioTitles;
   }

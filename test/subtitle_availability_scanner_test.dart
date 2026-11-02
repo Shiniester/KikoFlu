@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:kikoeru_flutter/src/services/generated_subtitle_store.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_availability_scanner.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
 
@@ -90,6 +91,67 @@ void main() {
         await tempDir.delete(recursive: true);
       }
     });
+
+    test(
+      'matches saved imports and parsed formats but ignores unknown folders',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'kikoflu_saved_subtitle_scanner_test_',
+        );
+
+        try {
+          final parsedDir = Directory(
+            p.join(
+              tempDir.path,
+              SubtitleLibraryService.parsedFolderName,
+              'RJ123456',
+            ),
+          );
+          final savedDir = Directory(
+            p.join(tempDir.path, SubtitleLibraryService.savedFolderName),
+          );
+          final unknownDir = Directory(
+            p.join(tempDir.path, SubtitleLibraryService.unknownFolderName),
+          );
+          await parsedDir.create(recursive: true);
+          await savedDir.create(recursive: true);
+          await unknownDir.create(recursive: true);
+          await File(
+            p.join(parsedDir.path, 'track01.ssa'),
+          ).writeAsString('sub');
+          await File(
+            p.join(savedDir.path, 'track02.en.sbv'),
+          ).writeAsString('sub');
+          await File(
+            p.join(unknownDir.path, 'track03.ttml'),
+          ).writeAsString('sub');
+          final generatedDir = Directory(
+            p.join(tempDir.path, GeneratedSubtitleStore.relativeDirectory),
+          );
+          await generatedDir.create(recursive: true);
+          await File(
+            p.join(generatedDir.path, 'track04.srt'),
+          ).writeAsString('sub');
+
+          final matches = await const SubtitleAvailabilityScanner()
+              .findAudioTitlesWithSubtitles(
+                libraryDir: tempDir,
+                workId: 123456,
+                fileTree: [
+                  fileItem('track01.wav'),
+                  fileItem('track02.wav'),
+                  fileItem('track03.wav'),
+                  fileItem('track04.wav'),
+                  fileItem('unmatched.wav'),
+                ],
+              );
+
+          expect(matches, {'track01.wav', 'track02.wav'});
+        } finally {
+          await tempDir.delete(recursive: true);
+        }
+      },
+    );
 
     test('returns empty set when library directory is missing', () async {
       final tempDir = await Directory.systemTemp.createTemp(

@@ -10123,6 +10123,28 @@ void main() {
 
       final icon = tester.widget<Icon>(find.byIcon(Icons.bookmark));
       expect(icon.color, colorScheme.primary);
+      final appBar = find.byType(AppBar);
+      final download = find.descendant(
+        of: appBar,
+        matching: find.byTooltip('Download'),
+      );
+      final favorite = find.descendant(
+        of: appBar,
+        matching: find.byTooltip('Favorites'),
+      );
+      expect(
+        tester.getCenter(favorite).dx - tester.getCenter(download).dx,
+        closeTo(44, 0.1),
+      );
+      for (final action in [download, favorite]) {
+        final button = find.ancestor(
+          of: action,
+          matching: find.byType(IconButton),
+        );
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        final icon = find.descendant(of: button, matching: find.byType(Icon));
+        expect(tester.getSize(icon), const Size(24, 24));
+      }
       await tester.tap(find.byTooltip('Favorites'));
       await tester.pumpAndSettle();
 

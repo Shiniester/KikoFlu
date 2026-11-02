@@ -1165,10 +1165,20 @@ void main() {
         ])
           find.descendant(of: appBar, matching: find.byTooltip(label)),
       ];
+      for (final action in actions) {
+        final button = find.ancestor(
+          of: action,
+          matching: find.byType(IconButton),
+        );
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        final icon = find.descendant(of: button, matching: find.byType(Icon));
+        expect(tester.getSize(icon), const Size(24, 24));
+      }
       for (var index = 1; index < actions.length; index++) {
         expect(
-          tester.getCenter(actions[index - 1]).dx,
-          lessThan(tester.getCenter(actions[index]).dx),
+          tester.getCenter(actions[index]).dx -
+              tester.getCenter(actions[index - 1]).dx,
+          closeTo(44, 0.1),
         );
       }
       expect(tester.takeException(), isNull);

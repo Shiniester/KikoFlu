@@ -311,6 +311,33 @@ void main() {
       final previousAction = scenario.id < 0
           ? find.byTooltip(s.download)
           : find.byType(WorkProgressActionButton);
+      final actions = [
+        find.byTooltip(s.download),
+        if (scenario.id > 0) find.byTooltip(s.addToPlaylist),
+        if (scenario.id > 0)
+          find.descendant(
+            of: find.byType(WorkProgressActionButton),
+            matching: find.byType(IconButton),
+          ),
+        if (scenario.initialUrl != null) source,
+      ];
+      for (final action in actions) {
+        final button = find.ancestor(
+          of: action,
+          matching: find.byType(IconButton),
+          matchRoot: true,
+        );
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        final icon = find.descendant(of: button, matching: find.byType(Icon));
+        expect(tester.getSize(icon), const Size(24, 24));
+      }
+      for (var index = 1; index < actions.length; index++) {
+        expect(
+          tester.getCenter(actions[index]).dx -
+              tester.getCenter(actions[index - 1]).dx,
+          closeTo(44, 0.1),
+        );
+      }
       if (scenario.initialUrl == null) {
         expect(source, findsNothing);
       } else {
