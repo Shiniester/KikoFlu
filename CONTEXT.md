@@ -148,6 +148,10 @@ A provider of audio works for independent browsing, search and playback, such as
 ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
 _Avoid_: Playback fallback, mirror server
 
+**Automatic Work Marking (作品自动标记)**:
+根据收听和安排播放的行为，自动更新音声作品在音声源账号中的在线标记。
+作品自动标记仅适用于支持在线标记的音声源。
+
 **Audio Source Verification (音声源验证)**:
 The website check required before an Audio Source permits access from the current
 network. It is separate from signing in to an audio account.
@@ -221,10 +225,23 @@ An individually playable, named section of an audio work, bounded within the
 complete work's timeline. It is distinct from a separately supplied audio file
 and from a comic chapter.
 
+**Completed Audio (已听完音频)**:
+播放到末尾并结束的单段作品音频。拖动到末尾后结束也算已听完。
+_避免_：作品“听过”标记
+
+**Audio Completion Record (音频完成记录)**:
+本机保存的某个音声源账号听完某段音频的记录。清除播放历史不会清除此记录。
+_避免_：播放历史
+
+**Work Queue Completion (作品队列完成情况)**:
+当前播放队列中一部作品的各段音频，在该队列内的听完情况。
+其他队列的完成情况不计入。
+_避免_：音频完成记录
+
 **Related Recommendations (相关推荐)**:
 Works shown in the rightmost resource tab of an online Work Details Screen,
 ranked using subject tags,
-personal preferences, voice actors, circles, subtitle availability and public
+personal preferences, voice actors, circles, and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
 traditional Chinese and other languages in recommendations.
@@ -236,7 +253,8 @@ _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:
 A preference signal from an account's ratings, replay or marked status, and
-playlist membership. Device playback history is a separate, weaker signal.
+playlist membership. Marks set by Automatic Work Marking are included. Device
+playback history is a separate, weaker signal.
 _Avoid_: Listening history, public rating
 
 **Exploration Recommendation (探索推荐)**:
@@ -332,9 +350,12 @@ A two-image spread requires choosing one visible image before saving.
 **Bottom Dock (底部 Dock)**:
 The persistent Mini Player and app navigation shared by browsing pages.
 App navigation stays below the content in portrait and on the left in landscape.
-Full-screen audio playback, comic reading, and full-screen video hide this surface.
-The Bottom Dock stays hidden while the full-screen audio player remains open,
-including when Cover Preview or a lyric text preview is open.
+Full-screen audio playback, comic reading, and full-screen video hide this surface
+when fully open. During landscape audio player transitions, the player covers or
+uncovers the stationary left navigation. Navigation becomes interactive after
+the player finishes closing. The Bottom Dock stays hidden while the full-screen
+audio player is fully open, including when Cover Preview or a lyric text preview
+is open.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:

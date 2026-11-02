@@ -1706,5 +1706,11 @@
   "audioSlicePosition": "播放位置",
   "audioSliceCurrent": "当前切片",
   "audioSliceSelected": "选中切片",
-  "audioSliceEndpointAction": "{endpoint}：{action}"
+  "audioSliceEndpointAction": "{endpoint}：{action}",
+  "automaticWorkMarking": "自动标记音声作品",
+  "automaticWorkMarkingDescription": "根据加入列表、播放和完成状态更新标记。需要登录账号。离线更新无法确认安全同步时会被放弃。",
+  "clearAudioCompletionHistory": "清除音频完成记录",
+  "clearAudioCompletionHistoryDescription": "仅清除此账号在本机的音频完成记录，保留在线标记和播放历史。",
+  "audioCompletionHistoryCleared": "已清除音频完成记录",
+  "automaticMarkingConflict": "自动标记无法安全同步，已放弃此更新并保留账号在线标记。"
 }

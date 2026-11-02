@@ -36,6 +36,7 @@ import '../widgets/player/player_scroll_drag_handoff.dart';
 import '../widgets/player/player_page_scroll_physics.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
+import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/cover_preview_dialog.dart';
 import '../widgets/responsive_dialog.dart';
@@ -88,6 +89,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   static const Curve _pageTransitionCurve = Curves.ease;
 
   final ValueNotifier<String?> _workProgress = ValueNotifier(null);
+  String? _onlineWorkProgress;
   String? get _currentProgress => _workProgress.value;
   int? _currentRating;
   int? _currentWorkId;
@@ -330,7 +332,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
       if (mounted && _currentWorkId == workId) {
         _currentRating = work.userRating;
-        _workProgress.value = work.progress;
+        _onlineWorkProgress = work.progress;
+        _workProgress.value = ref
+            .read(automaticWorkMarkingProvider)
+            .progressFor(workId, work.progress);
       }
     } catch (e) {
       debugPrint('Failed to load progress for work $workId: $e');
@@ -386,6 +391,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(automaticWorkMarkingRevisionProvider, (_, __) {
+      final workId = _currentWorkId;
+      if (workId != null) {
+        _workProgress.value = ref
+            .read(automaticWorkMarkingProvider)
+            .progressFor(workId, _onlineWorkProgress);
+      }
+    });
     final currentTrack = ref.watch(currentTrackProvider);
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
@@ -448,6 +461,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentWorkId == track.workId) return;
       _currentWorkId = track.workId;
+      _onlineWorkProgress = null;
       _currentRating = null;
       _workProgress.value = null;
       _loadCurrentProgress(track.workId!);
@@ -3110,6 +3124,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         if (mounted && _currentWorkId == workId) {
           _currentRating = newRating;
           _workProgress.value = newProgress;
+          _onlineWorkProgress = newProgress;
         }
       },
     );

@@ -364,6 +364,7 @@ class _OfflineWorkDetailScreenState
           floatingActionButton: const DownloadFab(),
           appBar: ScrollableAppBar(
             centerTitle: false,
+            titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
             systemOverlayStyle: systemOverlayStyle,
             actions: [
               IconButton(

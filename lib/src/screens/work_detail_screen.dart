@@ -43,6 +43,7 @@ import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/work_detail/work_detail_responsive_layout.dart';
 import '../widgets/work_detail/work_detail_error_banner.dart';
 import '../widgets/work_detail/work_progress_action_button.dart';
+import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/work_detail_route_readiness.dart';
 
 import '../widgets/work_image_reader.dart';
@@ -774,6 +775,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
       final apiService = ref.read(kikoeruApiServiceProvider);
 
+      final marking = ref.read(automaticWorkMarkingProvider);
+      final markingSnapshot = marking.refreshSnapshot(widget.work.id);
       // 元数据、文件树和封面都必须完成验证后再报告刷新成功。
       final refreshResults = await Future.wait<dynamic>([
         apiService.getWork(widget.work.id, forceRefresh: true),
@@ -795,6 +798,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       }
       final response = refreshResults.first as Map<String, dynamic>;
       final detailedWork = _workFromDetailResponse(response);
+      marking.refreshedProgress(
+        detailedWork.id,
+        detailedWork.progress,
+        snapshot: markingSnapshot,
+      );
       final sourceChanged =
           TranslationService.sourceLanguageForWork(_currentWork.lang) !=
           TranslationService.sourceLanguageForWork(detailedWork.lang);
@@ -917,7 +925,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       ref.watch(authProvider.select((state) => state.host)),
     );
     final showExternalLinks = ref.watch(
-      workDetailDisplayProvider.select((settings) => settings.showExternalLinks),
+      workDetailDisplayProvider.select(
+        (settings) => settings.showExternalLinks,
+      ),
     );
 
     return GlobalAudioPlayerWrapper(
@@ -925,6 +935,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
           centerTitle: false,
+          leadingWidth: 48,
+          titleSpacing: ModalRoute.of(context)?.canPop == true ? 0 : null,
           systemOverlayStyle: systemOverlayStyle,
           // 作品编号作为标题,支持长按复制
           title: GestureDetector(
@@ -934,6 +946,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             ),
             child: Text(
               widget.work.displayId,
+              maxLines: 1,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
@@ -948,13 +961,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               icon: const Icon(Icons.download),
               onPressed: _showFileSelectionDialog,
               tooltip: S.of(context).download,
-              visualDensity: const VisualDensity(horizontal: -1),
+              visualDensity: const VisualDensity(horizontal: -2),
             ),
             if (!widget.work.isJapaneseAsmr && isOfficialServer)
               IconButton(
                 icon: const Icon(Icons.playlist_add),
                 tooltip: S.of(context).addToPlaylist,
-                visualDensity: const VisualDensity(horizontal: -1),
+                visualDensity: const VisualDensity(horizontal: -2),
                 onPressed: () => AddToPlaylistDialog.show(
                   context: context,
                   workId: widget.work.id,
@@ -964,10 +977,17 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             if (!widget.work.isJapaneseAsmr)
               ListenableBuilder(
                 listenable: _metadataChanges,
-                builder: (context, _) => WorkProgressActionButton(
-                  progress: _currentProgress,
-                  isLoading: _isUpdatingProgress,
-                  onPressed: _showProgressDialog,
+                builder: (context, _) => Consumer(
+                  builder: (context, ref, _) {
+                    ref.watch(automaticWorkMarkingRevisionProvider);
+                    return WorkProgressActionButton(
+                      progress: ref
+                          .read(automaticWorkMarkingProvider)
+                          .progressFor(widget.work.id, _currentProgress),
+                      isLoading: _isUpdatingProgress,
+                      onPressed: _showProgressDialog,
+                    );
+                  },
                 ),
               ),
             if (showExternalLinks)
@@ -979,7 +999,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                   return IconButton(
                     icon: const Icon(Icons.open_in_new),
                     tooltip: S.of(context).openInBrowser,
-                    visualDensity: const VisualDensity(horizontal: -1),
+                    visualDensity: const VisualDensity(horizontal: -2),
                     onPressed: () => _openSourceUrl(sourceUrl),
                   );
                 },

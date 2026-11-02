@@ -123,14 +123,14 @@ void main() {
     );
   });
 
-  test('subtitle availability adds ten points and can change ranking', () {
+  test('subtitle availability does not affect scores or ranking', () {
     final current = _work(100);
-    expect(_score(current, _work(1, hasSubtitle: true)), 10);
-    expect(_score(current, _work(2, hasSubtitle: false)), 0);
-    expect(_score(current, _work(3)), 0);
+    for (final hasSubtitle in <bool?>[true, false, null]) {
+      expect(_score(current, _work(1, rating: 4, hasSubtitle: hasSubtitle)), 4);
+    }
     expect(
       _score(current, _work(4, rating: 5)),
-      lessThan(_score(current, _work(5, rating: 0, hasSubtitle: true))),
+      greaterThan(_score(current, _work(5, rating: 0, hasSubtitle: true))),
     );
   });
 

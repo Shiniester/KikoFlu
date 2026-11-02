@@ -11,6 +11,8 @@ import 'app_navigation_scope.dart';
 import 'mini_player.dart';
 import 'responsive_dialog.dart';
 
+const _offlineBannerHeight = 30.0;
+
 class AppNavigationShell extends StatefulWidget {
   const AppNavigationShell({
     super.key,
@@ -30,9 +32,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   late final AnimationController _navigationMotion;
   late bool _navigationVisible;
   late bool _playerLaunchPreviewActive;
+  bool _keepAudioRailStationary = false;
   bool _animateNavigation = false;
   bool _reduceMotion = false;
   final _dockClipKey = GlobalKey();
+  final _railKey = GlobalKey();
 
   AppNavigationController get controller => widget.controller;
   Widget get child => widget.child;
@@ -42,6 +46,9 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     super.initState();
     _navigationVisible = controller.navigationVisible;
     _playerLaunchPreviewActive = controller.playerLaunchPreviewActive;
+    _keepAudioRailStationary =
+        _playerLaunchPreviewActive ||
+        controller.audioPlayerNavigationTransition != null;
     _navigationMotion = AnimationController(
       vsync: this,
       value: _navigationVisible ? 0 : 1,
@@ -74,6 +81,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   void _syncNavigation() {
     final visible = controller.navigationVisible;
     final previewActive = controller.playerLaunchPreviewActive;
+    if (!visible) {
+      _keepAudioRailStationary =
+          previewActive || controller.audioPlayerNavigationTransition != null;
+    }
     final handoffCompleted =
         _playerLaunchPreviewActive &&
         !previewActive &&
@@ -157,12 +168,14 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     ];
     final auth = ref.watch(authProvider);
     final offline =
-        visible &&
         controller.selectedIndex == 0 &&
         auth.currentUser != null &&
         !auth.isLoggedIn &&
         auth.error != null;
     final transition = controller.fullscreenTransition;
+    final playerTransition = isLandscape
+        ? controller.audioPlayerNavigationTransition
+        : null;
     final miniPlayer = ref
         .watch(currentTrackProvider)
         .when<Widget?>(
@@ -195,7 +208,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
           )
         : null;
     return AnimatedBuilder(
-      animation: Listenable.merge([_navigationMotion, transition]),
+      animation: Listenable.merge([
+        _navigationMotion,
+        transition,
+        playerTransition,
+      ]),
       builder: (context, _) => _buildShellFrame(
         context,
         isLandscape: isLandscape,
@@ -209,6 +226,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             ? transition.value
             : _navigationMotion.value,
         explicitTransition: explicitTransition,
+        playerTransition: playerTransition,
         safePadding: MediaQuery.paddingOf(context),
       ),
     );
@@ -225,6 +243,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     required WidgetRef ref,
     required double progress,
     required bool explicitTransition,
+    required Animation<double>? playerTransition,
     required EdgeInsets safePadding,
   }) {
     final visible = controller.navigationVisible;
@@ -234,7 +253,25 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         (explicitTransition && progress < 1);
     final navigationOnstage =
         visible || progress < 1 || controller.playerLaunchPreviewActive;
-    final railOnstage = navigationOnstage ? rail : null;
+    final railOnstage = navigationOnstage || playerTransition != null
+        ? rail
+        : null;
+    final railTop =
+        isLandscape && !visible && _keepAudioRailStationary && offline
+        ? _offlineBannerHeight
+        : 0.0;
+    final railWithDivider = railOnstage == null
+        ? null
+        : Padding(
+            padding: EdgeInsets.only(top: railTop),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                railOnstage,
+                const VerticalDivider(thickness: 1, width: 1),
+              ],
+            ),
+          );
     final showOffline = offline && visible;
     // An immersive route keeps its viewport while the Dock slides out.
     Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
@@ -266,15 +303,26 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                 alignment: AlignmentDirectional.centerStart,
                 widthFactor: explicitTransition ? 1 - progress : 1,
                 child: FractionalTranslation(
-                  translation: Offset(explicitTransition ? 0 : -progress, 0),
-                  child: railOnstage,
+                  translation: Offset(
+                    explicitTransition || _keepAudioRailStationary
+                        ? 0
+                        : -progress,
+                    0,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: railTop),
+                    child: railOnstage,
+                  ),
                 ),
               ),
             ),
           if (showRail)
-            SizedBox(
-              width: explicitTransition ? 1 - progress : 1,
-              child: const VerticalDivider(thickness: 1, width: 1),
+            Padding(
+              padding: EdgeInsets.only(top: railTop),
+              child: SizedBox(
+                width: explicitTransition ? 1 - progress : 1,
+                child: const VerticalDivider(thickness: 1, width: 1),
+              ),
             ),
           Expanded(
             child: MediaQuery.removePadding(
@@ -328,23 +376,39 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       body: Stack(
         children: [
           Padding(
-            padding: EdgeInsets.only(top: showOffline ? 30 : 0),
+            padding: EdgeInsets.only(
+              top: showOffline ? _offlineBannerHeight : 0,
+            ),
             child: content,
           ),
           if (!layoutVisible && railOnstage != null)
             Positioned.fill(
               child: Row(
                 children: [
-                  FractionalTranslation(
-                    translation: Offset(-progress, 0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        railOnstage,
-                        const VerticalDivider(thickness: 1, width: 1),
-                      ],
+                  if (playerTransition != null)
+                    Align(
+                      alignment: Alignment.topLeft,
+                      widthFactor: 1,
+                      // The shell paints above the route, so clip at the player edge.
+                      child: ClipRect(
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          widthFactor: 1,
+                          heightFactor: _reduceMotion
+                              ? 0
+                              : (1 - playerTransition.value).clamp(0.0, 1.0),
+                          child: railWithDivider,
+                        ),
+                      ),
+                    )
+                  else
+                    FractionalTranslation(
+                      translation: Offset(
+                        _keepAudioRailStationary ? 0 : -progress,
+                        0,
+                      ),
+                      child: railWithDivider,
                     ),
-                  ),
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
@@ -355,7 +419,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                       ),
                       child: Align(
                         alignment: Alignment.bottomCenter,
-                        child: playback,
+                        child: navigationOnstage ? playback : null,
                       ),
                     ),
                   ),
@@ -401,6 +465,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     List<NavigationDestination> destinations,
     ValueChanged<int> selectTab,
   ) => SafeArea(
+    key: _railKey,
     right: false,
     child: SingleChildScrollView(
       child: ConstrainedBox(

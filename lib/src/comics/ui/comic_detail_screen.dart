@@ -563,6 +563,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       child: Scaffold(
         appBar: ScrollableAppBar(
           centerTitle: false,
+          titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
           systemOverlayStyle: transparentSystemBarsForBrightness(
             Theme.of(context).brightness,
           ),
@@ -581,14 +582,14 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             IconButton(
               tooltip: s.download,
               icon: const Icon(Icons.download),
-              visualDensity: const VisualDensity(horizontal: -1),
+              visualDensity: const VisualDensity(horizontal: -2),
               onPressed: !_initialContentVisible || _chapters.isEmpty
                   ? null
                   : () => _download(_readyComic),
             ),
             IconButton(
               tooltip: s.comicFavorites,
-              visualDensity: const VisualDensity(horizontal: -1),
+              visualDensity: const VisualDensity(horizontal: -2),
               icon: Icon(
                 _isFavorite ? Icons.bookmark : Icons.bookmark_add_outlined,
                 color: _isFavorite

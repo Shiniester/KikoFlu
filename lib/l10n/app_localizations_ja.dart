@@ -4859,4 +4859,25 @@ class SJa extends S {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '音声作品を自動でマーク';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      'リストへの追加、再生、再生完了に応じてマークを更新します。ログインが必要です。安全な同期を確認できないオフライン更新は破棄します。';
+
+  @override
+  String get clearAudioCompletionHistory => '音声の再生完了記録を消去';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      'このアカウントの端末内の再生完了記録だけを消去します。オンラインのマークと再生履歴は保持します。';
+
+  @override
+  String get audioCompletionHistoryCleared => '音声の再生完了記録を消去しました';
+
+  @override
+  String get automaticMarkingConflict =>
+      '自動マークを安全に同期できないため、更新を破棄しました。アカウントのオンラインのマークは保持しました。';
 }

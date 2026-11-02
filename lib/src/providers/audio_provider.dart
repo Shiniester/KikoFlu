@@ -13,6 +13,7 @@ import '../services/audio_player_service.dart';
 import '../services/log_service.dart';
 import '../services/playback_history_service.dart';
 import 'settings_provider.dart';
+import 'automatic_work_marking_provider.dart';
 import 'history_provider.dart';
 import 'auth_provider.dart' show kikoeruApiServiceProvider;
 
@@ -21,6 +22,7 @@ final _log = LogService.instance;
 // Audio Player Service Provider
 final audioPlayerServiceProvider = Provider<AudioPlayerService>((ref) {
   final service = AudioPlayerService.instance;
+  ref.read(automaticWorkMarkingProvider);
   return service;
 });
 

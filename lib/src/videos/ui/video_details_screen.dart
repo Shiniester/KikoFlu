@@ -732,8 +732,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             ? null
             : AppBar(
                 centerTitle: false,
+                titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
                 title: Text(
-                  details?.video.title ?? widget.video.title,
+                  details?.video.catalogNumber ??
+                      widget.video.catalogNumber ??
+                      (_loading
+                          ? ''
+                          : details?.video.title ?? widget.video.title),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -745,7 +750,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: s.download,
-                      visualDensity: const VisualDensity(horizontal: -1),
+                      visualDensity: const VisualDensity(horizontal: -2),
                       onPressed: _loading || _selectedStream == null
                           ? null
                           : _download,
@@ -758,7 +763,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: s.videoAddToPlaylist,
-                      visualDensity: const VisualDensity(horizontal: -1),
+                      visualDensity: const VisualDensity(horizontal: -2),
                       onPressed: details == null || _loading
                           ? null
                           : _showPlaylists,
@@ -767,7 +772,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   if (!_isOffline)
                     IconButton(
                       tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
-                      visualDensity: const VisualDensity(horizontal: -1),
+                      visualDensity: const VisualDensity(horizontal: -2),
                       onPressed:
                           details == null ||
                               _loading ||
@@ -784,7 +789,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     ),
                   IconButton(
                     tooltip: s.videoOpenSource,
-                    visualDensity: const VisualDensity(horizontal: -1),
+                    visualDensity: const VisualDensity(horizontal: -2),
                     onPressed: () => _openSource(),
                     icon: const Icon(Icons.open_in_new),
                   ),

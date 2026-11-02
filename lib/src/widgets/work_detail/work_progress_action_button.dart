@@ -21,7 +21,7 @@ class WorkProgressActionButton extends StatelessWidget {
 
   Widget _buildLoading(BuildContext context) {
     return SizedBox(
-      width: 44,
+      width: 40,
       child: Center(
         child: SizedBox(
           width: 20,
@@ -47,7 +47,7 @@ class WorkProgressActionButton extends StatelessWidget {
     return IconButton(
       onPressed: onPressed,
       tooltip: ReviewProgressDialog.getProgressLabel(progress, context),
-      visualDensity: const VisualDensity(horizontal: -1),
+      visualDensity: const VisualDensity(horizontal: -2),
       icon: icon,
     );
   }

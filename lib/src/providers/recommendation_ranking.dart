@@ -347,7 +347,6 @@ double recommendationScore({
           ) +
       (sameVa ? 20 : 0) +
       (sameCircle ? 10 : 0) +
-      (candidate.hasSubtitle == true ? 10 : 0) +
       (candidate.rateAverage ?? 0) -
       (heard ? 10 : 0);
 }

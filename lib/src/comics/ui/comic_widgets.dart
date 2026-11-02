@@ -506,32 +506,34 @@ class ComicErrorView extends StatelessWidget {
         error is ComicSourceException &&
         (error as ComicSourceException).loginRequired;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              login ? Icons.account_circle_outlined : Icons.error_outline,
-              size: 36,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              login ? S.of(context).comicLoginRequired : error.toString(),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: retry, child: Text(S.of(context).retry)),
-            if (login)
-              TextButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const ComicSettingsScreen(),
-                  ),
-                ),
-                child: Text(S.of(context).comicSettings),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                login ? Icons.account_circle_outlined : Icons.error_outline,
+                size: 36,
               ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                login ? S.of(context).comicLoginRequired : error.toString(),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: retry, child: Text(S.of(context).retry)),
+              if (login)
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ComicSettingsScreen(),
+                    ),
+                  ),
+                  child: Text(S.of(context).comicSettings),
+                ),
+            ],
+          ),
         ),
       ),
     );

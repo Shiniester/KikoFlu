@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -200,6 +201,15 @@ Future<void> _pumpFrames(WidgetTester tester, {int count = 4}) async {
 }
 
 void main() {
+  setUpAll(() async {
+    final fonts =
+        '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';
+    final fontBytes = await File('$fonts/roboto-bold.ttf').readAsBytes();
+    await (FontLoader(
+      'DetailHeaderRoboto',
+    )..addFont(Future.value(ByteData.sublistView(fontBytes)))).load();
+  });
+
   setUp(() {
     CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
     addTearDown(() {
@@ -210,19 +220,19 @@ void main() {
   for (final scenario in [
     (
       size: const Size(320, 640),
-      id: 99,
+      id: 12345678,
       initialUrl: null,
       progress: 'listening',
     ),
     (
       size: const Size(320, 640),
-      id: 99,
+      id: 12345678,
       initialUrl: 'https://example.test/initial',
       progress: null,
     ),
     (
       size: const Size(1000, 600),
-      id: 99,
+      id: 12345678,
       initialUrl: 'https://example.test/initial',
       progress: 'listening',
     ),
@@ -281,6 +291,7 @@ void main() {
           container: container,
           child: MaterialApp(
             navigatorKey: navigator,
+            theme: ThemeData(fontFamily: 'DetailHeaderRoboto'),
             locale: const Locale('en'),
             localizationsDelegates: S.localizationsDelegates,
             supportedLocales: S.supportedLocales,
@@ -301,7 +312,8 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 450));
+      await tester.pump();
       final s = S.of(tester.element(find.byType(WorkDetailScreen)));
       expect(find.byType(BackButton), findsOneWidget);
       final source = find.descendant(
@@ -321,6 +333,31 @@ void main() {
           ),
         if (scenario.initialUrl != null) source,
       ];
+      if (scenario.id > 0) {
+        final title = find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('RJ${scenario.id}'),
+        );
+        expect(title, findsOneWidget);
+        expect(tester.widget<Text>(title).style?.fontSize, 18);
+        expect(
+          tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
+          isFalse,
+        );
+        expect(
+          tester.getRect(title).width,
+          closeTo(tester.getSize(title).width, 0.1),
+        );
+        final titleRect = tester.getRect(title);
+        expect(
+          titleRect.left - tester.getRect(find.byType(BackButton)).right,
+          closeTo(0, 0.1),
+        );
+        expect(
+          titleRect.right,
+          lessThanOrEqualTo(tester.getRect(actions.first).left),
+        );
+      }
       for (final action in actions) {
         final button = find.ancestor(
           of: action,
@@ -335,7 +372,7 @@ void main() {
         expect(
           tester.getCenter(actions[index]).dx -
               tester.getCenter(actions[index - 1]).dx,
-          closeTo(44, 0.1),
+          closeTo(40, 0.1),
         );
       }
       if (scenario.initialUrl == null) {

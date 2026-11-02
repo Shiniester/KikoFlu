@@ -40,6 +40,7 @@ import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
 
 import '../support/linux_golden_file_comparator.dart';
@@ -1115,6 +1116,115 @@ void main() {
     },
   );
 
+  for (final (initialId, loadedId, loadedTitle, before, after) in [
+    (
+      'abc-123-uncensored-leak',
+      'abc-123',
+      'ABC-123 Loaded title',
+      'ABC-123',
+      'ABC-123',
+    ),
+    ('abc-123', 'source-entry', 'Loaded title', 'ABC-123', 'ABC-123'),
+    ('source-entry', 'source-entry', 'ABC-123 Loaded title', '', 'ABC-123'),
+    ('source-entry', 'source-entry', 'Loaded title', '', 'Loaded title'),
+  ]) {
+    _testPlayerWidget('video detail toolbar for $initialId and $loadedTitle', (
+      tester,
+    ) async {
+      final initial = VideoItem(
+        id: initialId,
+        title: 'Listing title',
+        pageUrl: 'https://missav.ai/cn/$initialId',
+      );
+      final details = VideoDetails(
+        video: VideoItem(
+          id: loadedId,
+          title: loadedTitle,
+          pageUrl: initial.pageUrl,
+        ),
+        streams: _details().streams,
+      );
+      final client = _TestMissavClient(details)
+        ..detailsCompleter = Completer<VideoDetails>();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: initial,
+            sessionFactory: () => _FakePlaybackSession(),
+          ),
+        ),
+      );
+      await tester.pump();
+      final appBar = find.byType(AppBar);
+      expect(
+        find.descendant(of: appBar, matching: find.text(before)),
+        findsOneWidget,
+      );
+
+      client.detailsCompleter!.complete(details);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: appBar, matching: find.text(after)),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is WorkTitleHeader && widget.title == loadedTitle,
+        ),
+        findsOneWidget,
+      );
+      if (after != loadedTitle) {
+        expect(
+          find.descendant(of: appBar, matching: find.text(loadedTitle)),
+          findsNothing,
+        );
+      }
+    });
+  }
+
+  _testPlayerWidget('video detail toolbar shows the title after load failure', (
+    tester,
+  ) async {
+    const video = VideoItem(
+      id: 'source-entry',
+      title: 'Listing title',
+      pageUrl: 'https://missav.ai/cn/source-entry',
+    );
+    final client = _TestMissavClient(_details())
+      ..detailsCompleter = Completer<VideoDetails>();
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _testVideoDetailsScreen(
+          video: video,
+          sessionFactory: () => _FakePlaybackSession(),
+        ),
+      ),
+    );
+    for (var frame = 0; frame < 30 && client.detailsCalls == 0; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(client.detailsCalls, 1);
+    client.detailsCompleter!.completeError(const MissavException('Failed'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text(video.title),
+      ),
+      findsOneWidget,
+    );
+  });
+
   for (final size in [const Size(320, 640), const Size(1200, 800)]) {
     _testPlayerWidget('video detail title and actions stay ordered at $size', (
       tester,
@@ -1140,7 +1250,7 @@ void main() {
       final appBar = find.byType(AppBar);
       final title = find.descendant(
         of: appBar,
-        matching: find.text('Fixture video'),
+        matching: find.text('DVD-1'),
       );
       final titleStyle = DefaultTextStyle.of(
         tester.element(title),
@@ -1153,7 +1263,7 @@ void main() {
       );
       expect(
         tester.getTopLeft(title).dx,
-        closeTo(kToolbarHeight + NavigationToolbar.kMiddleSpacing, 0.1),
+        closeTo(kToolbarHeight + 4, 0.1),
       );
       final l10n = await S.delegate.load(const Locale('en'));
       final actions = <Finder>[
@@ -1178,7 +1288,7 @@ void main() {
         expect(
           tester.getCenter(actions[index]).dx -
               tester.getCenter(actions[index - 1]).dx,
-          closeTo(44, 0.1),
+          closeTo(40, 0.1),
         );
       }
       expect(tester.takeException(), isNull);

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show CharacterBoundary;
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -72,6 +73,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _scrollViewportKey = GlobalKey();
   final GlobalKey _previewContentKey = GlobalKey();
+  final GlobalKey _searchHighlightPaintKey = GlobalKey();
   final GlobalKey _editContentKey = GlobalKey();
   final ScrollThrottler _scrollThrottler = ScrollThrottler();
   double _scrollProgress = 0.0;
@@ -85,8 +87,15 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   final FocusNode _editFocusNode = FocusNode();
   List<_TextSearchMatch> _searchMatches = const [];
   List<_TextSearchMarker> _searchMarkers = const [];
+  List<_TextSearchMarker> _pendingSearchMarkers = [];
   int _currentSearchMatchIndex = -1;
   bool _searchMarkerLayoutScheduled = false;
+  bool _searchMarkerLayoutComplete = false;
+  int _searchMarkerLayoutGeneration = 0;
+  int _nextSearchMarkerIndex = 0;
+  double _previousSearchMarkerOffset = double.negativeInfinity;
+  double? _lastSearchMarkerContentExtent;
+  double? _lastSearchMarkerViewportDimension;
   Size? _lastSearchViewportSize;
   TextScaler? _lastTextScaler;
   TextDirection? _lastTextDirection;
@@ -384,6 +393,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   void _closeSearch() {
     _searchController.clear();
+    _invalidateSearchMarkerLayout();
     setState(() {
       _isSearchMode = false;
       _searchMatches = const [];
@@ -418,6 +428,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _updateSearchResults(String query) {
+    _invalidateSearchMarkerLayout();
     final content = _getCurrentContent() ?? '';
     final matches = _findTextMatches(content, query);
 
@@ -438,10 +449,13 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
     final nextIndex =
         (_currentSearchMatchIndex + offset) % _searchMatches.length;
-    setState(() {
-      _currentSearchMatchIndex = nextIndex;
-    });
-    _scheduleSearchMarkerLayout();
+    if (nextIndex != _currentSearchMatchIndex) {
+      _invalidateSearchMarkerLayout();
+      setState(() {
+        _currentSearchMatchIndex = nextIndex;
+      });
+      _scheduleSearchMarkerLayout();
+    }
     _scheduleScrollToCurrentMatch();
   }
 
@@ -449,6 +463,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     if (index < 0 || index >= _searchMatches.length) return;
 
     if (_currentSearchMatchIndex != index) {
+      _invalidateSearchMarkerLayout();
       setState(() {
         _currentSearchMatchIndex = index;
       });
@@ -471,15 +486,22 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _selectNearestSearchMarker(double y) {
-    if (_searchMarkers.isEmpty || !_scrollController.hasClients) return;
+    if (!_searchMarkerLayoutComplete ||
+        _searchMarkers.isEmpty ||
+        !_scrollController.hasClients) {
+      return;
+    }
 
     final viewportHeight = _scrollController.position.viewportDimension;
     if (viewportHeight <= 0) return;
 
     var nearestMarker = _searchMarkers.first;
-    var nearestDistance = (nearestMarker.position * viewportHeight - y).abs();
+    var nearestDistance =
+        (_searchMarkerCenterY(nearestMarker.position, viewportHeight) - y)
+            .abs();
     for (final marker in _searchMarkers.skip(1)) {
-      final distance = (marker.position * viewportHeight - y).abs();
+      final distance =
+          (_searchMarkerCenterY(marker.position, viewportHeight) - y).abs();
       if (distance < nearestDistance) {
         nearestMarker = marker;
         nearestDistance = distance;
@@ -492,19 +514,41 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   void _scheduleSearchMarkerLayout() {
     if (!_isSearchMode ||
         _searchMatches.isEmpty ||
-        _searchMarkerLayoutScheduled) {
+        _searchMarkerLayoutScheduled ||
+        _searchMarkerLayoutComplete) {
       return;
     }
 
     _searchMarkerLayoutScheduled = true;
+    _scheduleSearchMarkerLayoutChunk(_searchMarkerLayoutGeneration);
+  }
+
+  void _invalidateSearchMarkerLayout() {
+    _searchMarkerLayoutGeneration++;
+    _searchMarkerLayoutScheduled = false;
+    _searchMarkerLayoutComplete = false;
+    _searchMarkers = const [];
+    _pendingSearchMarkers = [];
+    _nextSearchMarkerIndex = 0;
+    _previousSearchMarkerOffset = double.negativeInfinity;
+  }
+
+  void _scheduleSearchMarkerLayoutChunk(int generation) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _searchMarkerLayoutScheduled = false;
-      if (!mounted || !_isSearchMode || _searchMatches.isEmpty) return;
+      if (!mounted ||
+          generation != _searchMarkerLayoutGeneration ||
+          !_isSearchMode ||
+          _searchMatches.isEmpty) {
+        return;
+      }
 
       final position = _scrollController.hasClients
           ? _scrollController.position
           : null;
-      if (position == null || position.viewportDimension <= 0) return;
+      if (position == null || position.viewportDimension <= 0) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
 
       final renderEditable = _findDescendantRenderObject<RenderEditable>(
         (_isEditMode ? _editContentKey : _previewContentKey).currentContext,
@@ -512,18 +556,33 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       final viewport = _findDescendantRenderObject<RenderAbstractViewport>(
         _scrollViewportKey.currentContext,
       );
-      if (renderEditable == null || viewport == null) return;
+      if (renderEditable == null || viewport == null) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
 
       final contentExtent =
           position.maxScrollExtent + position.viewportDimension;
-      if (contentExtent <= 0) return;
+      if (contentExtent <= 0) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
+      _lastSearchMarkerContentExtent = contentExtent;
+      _lastSearchMarkerViewportDimension = position.viewportDimension;
 
       final textLength = (_getCurrentContent() ?? '').length;
-      final markers = <_TextSearchMarker>[];
-      var previousOffset = double.negativeInfinity;
-      for (var index = 0; index < _searchMatches.length; index++) {
+      const maxMatchesPerFrame = 64;
+      const frameBudget = Duration(milliseconds: 4);
+      final geometryTimer = Stopwatch()..start();
+      var processedMatches = 0;
+      while (_nextSearchMarkerIndex < _searchMatches.length &&
+          processedMatches < maxMatchesPerFrame &&
+          (processedMatches == 0 || geometryTimer.elapsed < frameBudget)) {
+        final index = _nextSearchMarkerIndex;
         final match = _searchMatches[index];
         if (match.start < 0 || match.end > textLength) {
+          _nextSearchMarkerIndex++;
+          processedMatches++;
           continue;
         }
 
@@ -533,14 +592,19 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         final revealOffset = viewport
             .getOffsetToReveal(renderEditable, 0, rect: caretRect)
             .offset;
-        if (!revealOffset.isFinite) continue;
+        if (!revealOffset.isFinite) {
+          _nextSearchMarkerIndex++;
+          processedMatches++;
+          continue;
+        }
 
         final markerPosition = (revealOffset / contentExtent)
             .clamp(0.0, 1.0)
             .toDouble();
-        if (markers.isNotEmpty && (revealOffset - previousOffset).abs() < 1) {
-          final previousMarker = markers.removeLast();
-          markers.add(
+        if (_pendingSearchMarkers.isNotEmpty &&
+            (revealOffset - _previousSearchMarkerOffset).abs() < 1) {
+          final previousMarker = _pendingSearchMarkers.removeLast();
+          _pendingSearchMarkers.add(
             _TextSearchMarker(
               position: previousMarker.position,
               firstMatchIndex: previousMarker.firstMatchIndex,
@@ -548,7 +612,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             ),
           );
         } else {
-          markers.add(
+          _pendingSearchMarkers.add(
             _TextSearchMarker(
               position: markerPosition,
               firstMatchIndex: index,
@@ -556,50 +620,28 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             ),
           );
         }
-        previousOffset = revealOffset;
+        _previousSearchMarkerOffset = revealOffset;
+        _nextSearchMarkerIndex++;
+        processedMatches++;
       }
 
-      if (_sameSearchMarkers(_searchMarkers, markers)) return;
-      setState(() {
-        _searchMarkers = markers;
-      });
-    });
-  }
-
-  T? _findDescendantRenderObject<T extends RenderObject>(
-    BuildContext? context,
-  ) {
-    final root = context?.findRenderObject();
-    if (root == null) return null;
-
-    T? result;
-    void visit(RenderObject renderObject) {
-      if (renderObject is T) {
-        result = renderObject;
+      if (generation != _searchMarkerLayoutGeneration) return;
+      if (_nextSearchMarkerIndex == _searchMatches.length) {
+        final completedMarkers = List<_TextSearchMarker>.unmodifiable(
+          _pendingSearchMarkers,
+        );
+        setState(() {
+          _searchMarkers = completedMarkers;
+          _searchMarkerLayoutComplete = true;
+          _searchMarkerLayoutScheduled = false;
+        });
         return;
       }
-      renderObject.visitChildren((child) {
-        if (result == null) visit(child);
-      });
-    }
 
-    visit(root);
-    return result;
-  }
-
-  bool _sameSearchMarkers(
-    List<_TextSearchMarker> first,
-    List<_TextSearchMarker> second,
-  ) {
-    if (first.length != second.length) return false;
-    for (var index = 0; index < first.length; index++) {
-      if (first[index].firstMatchIndex != second[index].firstMatchIndex ||
-          first[index].lastMatchIndex != second[index].lastMatchIndex ||
-          (first[index].position - second[index].position).abs() > 0.0001) {
-        return false;
-      }
-    }
-    return true;
+      _scheduleSearchMarkerLayoutChunk(generation);
+      WidgetsBinding.instance.ensureVisualUpdate();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _scheduleScrollToCurrentMatch() {
@@ -738,41 +780,53 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       );
     }
 
+    final currentMatchIndex = _currentSearchMatchIndex
+        .clamp(0, validMatches.length - 1)
+        .toInt();
+    final currentMatch = validMatches[currentMatchIndex];
     final colorScheme = Theme.of(context).colorScheme;
     final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (var index = 0; index < validMatches.length; index++) {
-      final match = validMatches[index];
-      if (match.start > cursor) {
-        spans.add(TextSpan(text: content.substring(cursor, match.start)));
-      }
-
-      final isCurrent = index == _currentSearchMatchIndex;
-      spans.add(
-        TextSpan(
-          text: content.substring(match.start, match.end),
-          style: TextStyle(
-            backgroundColor: isCurrent
-                ? colorScheme.primaryContainer
-                : colorScheme.tertiaryContainer.withValues(alpha: 0.7),
-            color: isCurrent ? colorScheme.onPrimaryContainer : null,
-            fontWeight: isCurrent ? FontWeight.w700 : null,
-          ),
-        ),
-      );
-      cursor = match.end;
+    if (currentMatch.start > 0) {
+      spans.add(TextSpan(text: content.substring(0, currentMatch.start)));
     }
-
-    if (cursor < content.length) {
-      spans.add(TextSpan(text: content.substring(cursor)));
+    spans.add(
+      TextSpan(
+        text: content.substring(currentMatch.start, currentMatch.end),
+        style: TextStyle(
+          backgroundColor: colorScheme.primaryContainer,
+          color: colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+    if (currentMatch.end < content.length) {
+      spans.add(TextSpan(text: content.substring(currentMatch.end)));
     }
 
     return KeyedSubtree(
       key: _previewContentKey,
-      child: SelectableText.rich(
-        TextSpan(children: spans),
-        key: const ValueKey('text-preview-content'),
-        style: _contentTextStyle,
+      child: CustomPaint(
+        key: _searchHighlightPaintKey,
+        painter: _TextSearchHighlightPainter(
+          matches: validMatches,
+          currentMatchIndex: currentMatchIndex,
+          content: content,
+          markers: _searchMarkerLayoutComplete ? _searchMarkers : const [],
+          editableContext: () => _previewContentKey.currentContext,
+          viewportContext: () => _scrollViewportKey.currentContext,
+          paintContext: () => _searchHighlightPaintKey.currentContext,
+          viewportSize: _lastSearchViewportSize,
+          textScaler: _lastTextScaler ?? MediaQuery.textScalerOf(context),
+          textDirection: _lastTextDirection ?? Directionality.of(context),
+          locale: _lastTextLocale ?? Localizations.localeOf(context),
+          otherColor: colorScheme.tertiaryContainer.withValues(alpha: 0.7),
+          scrollController: _scrollController,
+        ),
+        child: SelectableText.rich(
+          TextSpan(children: spans),
+          key: const ValueKey('text-preview-content'),
+          style: _contentTextStyle,
+        ),
       ),
     );
   }
@@ -799,7 +853,9 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
                 _selectNearestSearchMarker(details.localPosition.dy),
             child: CustomPaint(
               painter: _TextSearchMarkerPainter(
-                markers: _searchMarkers,
+                markers: _searchMarkerLayoutComplete
+                    ? _searchMarkers
+                    : const [],
                 currentMatchIndex: _currentSearchMatchIndex,
                 currentColor: colorScheme.primary,
                 otherColor: colorScheme.tertiary,
@@ -1102,6 +1158,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       _lastTextScaler = textScaler;
       _lastTextDirection = textDirection;
       _lastTextLocale = locale;
+      _invalidateSearchMarkerLayout();
       _scheduleSearchMarkerLayout();
     }
 
@@ -1258,6 +1315,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
               );
               if (_lastSearchViewportSize != viewportSize) {
                 _lastSearchViewportSize = viewportSize;
+                _invalidateSearchMarkerLayout();
                 _scheduleSearchMarkerLayout();
               }
 
@@ -1269,8 +1327,20 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
                       controller: _scrollController,
                       thumbVisibility: true,
                       child: NotificationListener<ScrollMetricsNotification>(
-                        onNotification: (_) {
-                          _scheduleSearchMarkerLayout();
+                        onNotification: (notification) {
+                          final metrics = notification.metrics;
+                          final contentExtent =
+                              metrics.maxScrollExtent +
+                              metrics.viewportDimension;
+                          if (_lastSearchMarkerContentExtent != contentExtent ||
+                              _lastSearchMarkerViewportDimension !=
+                                  metrics.viewportDimension) {
+                            _lastSearchMarkerContentExtent = contentExtent;
+                            _lastSearchMarkerViewportDimension =
+                                metrics.viewportDimension;
+                            _invalidateSearchMarkerLayout();
+                            _scheduleSearchMarkerLayout();
+                          }
                           return false;
                         },
                         child: SingleChildScrollView(
@@ -1364,6 +1434,9 @@ class _TextSearchMarker {
   final int lastMatchIndex;
 }
 
+double _searchMarkerCenterY(double position, double height) =>
+    (position * height).clamp(2.0, height - 2.0).toDouble();
+
 class _TextSearchMarkerPainter extends CustomPainter {
   const _TextSearchMarkerPainter({
     required this.markers,
@@ -1384,9 +1457,7 @@ class _TextSearchMarkerPainter extends CustomPainter {
         currentMatchIndex <= marker.lastMatchIndex;
 
     void paintMarker(_TextSearchMarker marker, Color color) {
-      final centerY = (marker.position * size.height)
-          .clamp(2.0, size.height - 2.0)
-          .toDouble();
+      final centerY = _searchMarkerCenterY(marker.position, size.height);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromCenter(
@@ -1414,6 +1485,209 @@ class _TextSearchMarkerPainter extends CustomPainter {
       oldDelegate.currentMatchIndex != currentMatchIndex ||
       oldDelegate.currentColor != currentColor ||
       oldDelegate.otherColor != otherColor;
+}
+
+class _TextSearchHighlightPainter extends CustomPainter {
+  _TextSearchHighlightPainter({
+    required this.matches,
+    required this.currentMatchIndex,
+    required this.content,
+    required this.markers,
+    required this.editableContext,
+    required this.viewportContext,
+    required this.paintContext,
+    required this.viewportSize,
+    required this.textScaler,
+    required this.textDirection,
+    required this.locale,
+    required this.otherColor,
+    required ScrollController scrollController,
+  }) : scrollController = scrollController,
+       super(repaint: scrollController);
+
+  final List<_TextSearchMatch> matches;
+  final int currentMatchIndex;
+  final String content;
+  final List<_TextSearchMarker> markers;
+  final BuildContext? Function() editableContext;
+  final BuildContext? Function() viewportContext;
+  final BuildContext? Function() paintContext;
+  final Size? viewportSize;
+  final TextScaler textScaler;
+  final TextDirection textDirection;
+  final Locale locale;
+  final Color otherColor;
+  final ScrollController scrollController;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final renderEditable = _findDescendantRenderObject<RenderEditable>(
+      editableContext(),
+    );
+    final viewport = viewportContext()?.findRenderObject();
+    final paintRenderObject = paintContext()?.findRenderObject();
+    if (renderEditable == null ||
+        viewport is! RenderBox ||
+        paintRenderObject is! RenderBox ||
+        matches.length < 2) {
+      return;
+    }
+
+    final viewportPosition = scrollController.hasClients
+        ? scrollController.position
+        : null;
+    final hasCompleteMarkers = markers.isNotEmpty && viewportPosition != null;
+    var firstVisibleMatch = 0;
+    var afterLastVisibleMatch = matches.length;
+    if (hasCompleteMarkers) {
+      final scrollPosition = viewportPosition;
+      final contentExtent =
+          scrollPosition.maxScrollExtent + scrollPosition.viewportDimension;
+      final visibleTop = scrollPosition.pixels;
+      final visibleBottom = visibleTop + scrollPosition.viewportDimension;
+
+      var firstMarkerAtOrAfterTop = 0;
+      var limit = markers.length;
+      while (firstMarkerAtOrAfterTop < limit) {
+        final middle = (firstMarkerAtOrAfterTop + limit) >> 1;
+        if (markers[middle].position * contentExtent < visibleTop) {
+          firstMarkerAtOrAfterTop = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+
+      var afterLastMarkerInView = 0;
+      limit = markers.length;
+      while (afterLastMarkerInView < limit) {
+        final middle = (afterLastMarkerInView + limit) >> 1;
+        if (markers[middle].position * contentExtent <= visibleBottom) {
+          afterLastMarkerInView = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+      if (afterLastMarkerInView == 0) {
+        firstVisibleMatch = 0;
+        afterLastVisibleMatch = 0;
+      } else {
+        final firstMarker = (firstMarkerAtOrAfterTop - 1)
+            .clamp(0, afterLastMarkerInView - 1)
+            .toInt();
+        firstVisibleMatch = markers[firstMarker].firstMatchIndex;
+        afterLastVisibleMatch =
+            markers[afterLastMarkerInView - 1].lastMatchIndex + 1;
+      }
+    } else {
+      final viewportTopLeft = viewport.localToGlobal(Offset.zero);
+      final viewportBottom = viewport
+          .localToGlobal(Offset(0, viewport.size.height))
+          .dy;
+      final sampleX = viewportTopLeft.dx + viewport.size.width / 2;
+      final firstVisiblePosition = renderEditable.getPositionForPoint(
+        Offset(sampleX, viewportTopLeft.dy + 1),
+      );
+      final lastVisiblePosition = renderEditable.getPositionForPoint(
+        Offset(sampleX, viewportBottom - 1),
+      );
+      final firstVisibleLine = renderEditable.getLineAtOffset(
+        firstVisiblePosition,
+      );
+      final lastVisibleLine = renderEditable.getLineAtOffset(
+        lastVisiblePosition,
+      );
+
+      var limit = matches.length;
+      while (firstVisibleMatch < limit) {
+        final middle = (firstVisibleMatch + limit) >> 1;
+        if (matches[middle].end <= firstVisibleLine.baseOffset) {
+          firstVisibleMatch = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+
+      afterLastVisibleMatch = firstVisibleMatch;
+      limit = matches.length;
+      while (afterLastVisibleMatch < limit) {
+        final middle = (afterLastVisibleMatch + limit) >> 1;
+        if (matches[middle].start <= lastVisibleLine.extentOffset) {
+          afterLastVisibleMatch = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+    }
+
+    final paint = Paint()..color = otherColor;
+    CharacterBoundary? characterBoundary;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    for (
+      var index = firstVisibleMatch;
+      index < afterLastVisibleMatch;
+      index++
+    ) {
+      if (index == currentMatchIndex) continue;
+      final match = matches[index];
+      final boundary = characterBoundary ??= CharacterBoundary(content);
+      final expandedStart = boundary.getLeadingTextBoundaryAt(match.start);
+      final expandedEnd = boundary.getTrailingTextBoundaryAt(match.end - 1);
+      if (expandedStart == null ||
+          expandedEnd == null ||
+          expandedStart >= expandedEnd) {
+        continue;
+      }
+
+      final boxes = renderEditable.getBoxesForSelection(
+        TextSelection(baseOffset: expandedStart, extentOffset: expandedEnd),
+      );
+      for (final box in boxes) {
+        final rect = box.toRect();
+        final topLeft = paintRenderObject.globalToLocal(
+          renderEditable.localToGlobal(rect.topLeft),
+        );
+        final bottomRight = paintRenderObject.globalToLocal(
+          renderEditable.localToGlobal(rect.bottomRight),
+        );
+        final paintRect = Rect.fromPoints(topLeft, bottomRight);
+        if (paintRect.overlaps(Offset.zero & size)) {
+          canvas.drawRect(paintRect, paint);
+        }
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_TextSearchHighlightPainter oldDelegate) =>
+      !identical(oldDelegate.matches, matches) ||
+      !identical(oldDelegate.markers, markers) ||
+      oldDelegate.currentMatchIndex != currentMatchIndex ||
+      oldDelegate.otherColor != otherColor ||
+      oldDelegate.viewportSize != viewportSize ||
+      oldDelegate.textScaler != textScaler ||
+      oldDelegate.textDirection != textDirection ||
+      oldDelegate.locale != locale;
+}
+
+T? _findDescendantRenderObject<T extends RenderObject>(BuildContext? context) {
+  final root = context?.findRenderObject();
+  if (root == null) return null;
+
+  T? result;
+  void visit(RenderObject renderObject) {
+    if (renderObject is T) {
+      result = renderObject;
+      return;
+    }
+    renderObject.visitChildren((child) {
+      if (result == null) visit(child);
+    });
+  }
+
+  visit(root);
+  return result;
 }
 
 List<_TextSearchMatch> _findTextMatches(String content, String query) {

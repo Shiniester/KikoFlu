@@ -4,6 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/app_navigation_scope.dart';
+
 /// Slides the foreground page with source parallax; shared elements use overlays.
 class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
@@ -54,6 +56,7 @@ class _PageTransitionState extends State<_PageTransition>
   late final HorizontalDragGestureRecognizer _edgeDrag;
   NavigatorState? _gestureNavigator;
   Animation<double>? _settlingAnimation;
+  double _lastBottomInset = 0;
   bool _dragging = false;
   bool _completionScheduled = false;
   bool _semanticsRestored = false;
@@ -174,6 +177,23 @@ class _PageTransitionState extends State<_PageTransition>
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final navigation = AppNavigationScope.maybeOf(context);
+    final navigationVisible = navigation?.navigationVisible ?? false;
+    final routeName = widget.route.settings.name;
+    final ordinaryPortrait =
+        navigation != null &&
+        MediaQuery.orientationOf(context) == Orientation.portrait &&
+        routeName != appImmersiveRouteSettings.name &&
+        routeName != appAudioPlayerRouteSettings.name &&
+        routeName != appNavigationHostRouteSettings.name &&
+        !(widget.route.isFirst &&
+            identical(widget.route.navigator, navigation.navigator));
+    if (ordinaryPortrait && navigationVisible) {
+      _lastBottomInset = MediaQuery.paddingOf(context).bottom;
+    }
+    final minimumBottom = ordinaryPortrait && !navigationVisible
+        ? _lastBottomInset
+        : 0.0;
     if (reduceMotion && !_completionScheduled) {
       _completionScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -204,7 +224,16 @@ class _PageTransitionState extends State<_PageTransition>
             controller: _snapshotController,
             mode: SnapshotMode.permissive,
             autoresize: true,
-            child: RepaintBoundary(child: widget.child),
+            child: RepaintBoundary(
+              child: SafeArea(
+                top: false,
+                left: false,
+                right: false,
+                bottom: ordinaryPortrait,
+                minimum: EdgeInsets.only(bottom: minimumBottom),
+                child: widget.child,
+              ),
+            ),
           ),
           builder: (context, child) {
             _snapshotController.allowSnapshotting =

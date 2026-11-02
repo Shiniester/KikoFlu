@@ -1663,5 +1663,11 @@
   "audioSlicePosition": "播放位置",
   "audioSliceCurrent": "目前切片",
   "audioSliceSelected": "選取的切片",
-  "audioSliceEndpointAction": "{endpoint}：{action}"
+  "audioSliceEndpointAction": "{endpoint}：{action}",
+  "automaticWorkMarking": "自動標記音聲作品",
+  "automaticWorkMarkingDescription": "根據加入清單、播放和完成狀態更新標記。需要登入帳號。離線更新無法確認安全同步時會被放棄。",
+  "clearAudioCompletionHistory": "清除音訊完成記錄",
+  "clearAudioCompletionHistoryDescription": "僅清除此帳號在本機的音訊完成記錄，保留線上標記和播放歷史。",
+  "audioCompletionHistoryCleared": "已清除音訊完成記錄",
+  "automaticMarkingConflict": "自動標記無法安全同步，已放棄此更新並保留帳號線上標記。"
 }

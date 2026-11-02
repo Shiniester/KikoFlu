@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/automatic_marking_event.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
@@ -94,6 +95,11 @@ void main() {
   }
 
   test('manual next reuses the native source without another load', () async {
+    final completions = <AutomaticMarkingEvent>[];
+    final subscription = service.automaticMarkingEvents
+        .where((event) => event.type == AutomaticMarkingEventType.completed)
+        .listen(completions.add);
+    addTearDown(subscription.cancel);
     await warm();
     expect(player.window.useLazyPreparation, isFalse);
     expect(
@@ -106,9 +112,15 @@ void main() {
     expect(player.indexedSeeks, [1]);
     expect(player.activeUri.toString(), b.url);
     expect(player.window.children, hasLength(1));
+    expect(completions, isEmpty);
   });
 
   test('natural transition publishes once after a no-op enqueue', () async {
+    final completions = <AutomaticMarkingEvent>[];
+    final markingSubscription = service.automaticMarkingEvents
+        .where((event) => event.type == AutomaticMarkingEventType.completed)
+        .listen(completions.add);
+    addTearDown(markingSubscription.cancel);
     final published = <AudioTrack?>[];
     final subscription = service.currentTrackStream.listen(published.add);
     await warm();
@@ -118,6 +130,7 @@ void main() {
     expect(player.loaded, [a.url]);
     expect(published.map((track) => track?.id), ['a', 'b']);
     expect(service.currentIndex, 1);
+    expect(completions.map((event) => event.track?.id), ['a']);
     await subscription.cancel();
   });
 

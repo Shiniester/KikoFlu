@@ -10,6 +10,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
+import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
@@ -20,6 +21,7 @@ import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
@@ -30,6 +32,7 @@ import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
@@ -39,6 +42,19 @@ const _track = AudioTrack(
   id: 'shell-transition-track',
   title: 'Audio',
   url: 'https://example.invalid/audio.mp3',
+);
+
+Widget _tabHome(
+  AppNavigationController navigation,
+  Widget child, {
+  int index = 0,
+}) => NavigatorPopHandler<void>(
+  onPopWithResult: (_) => navigation.tabNavigator(index)?.maybePop<void>(),
+  child: Navigator(
+    key: navigation.tabNavigatorKey(index),
+    observers: [navigation.tabObserver(index)],
+    onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => child),
+  ),
 );
 
 class _EmptyTagSearchApi extends KikoeruApiService {
@@ -95,11 +111,22 @@ class _EmptyTagSearchApi extends KikoeruApiService {
   }) async => [];
 }
 
+class _OfflineAuthNotifier extends AuthNotifier {
+  _OfflineAuthNotifier() : super(KikoeruApiService()) {
+    state = const AuthState(
+      currentUser: User(name: 'Offline'),
+      error: 'offline',
+    );
+  }
+}
+
 Future<AppNavigationController> _pumpShell(
   WidgetTester tester, {
   Size size = const Size(390, 844),
   bool reducedMotion = false,
   bool withTrack = true,
+  bool offline = false,
+  Stream<AudioTrack?>? trackStream,
   bool fakeTagSearch = false,
   bool tagSearchResults = false,
   int initialTabIndex = 0,
@@ -115,15 +142,17 @@ Future<AppNavigationController> _pumpShell(
   final navigation = AppNavigationController();
   navigation.selectTab(initialTabIndex);
   addTearDown(navigation.dispose);
+  final appTheme = AppTheme.lightTheme(null);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        if (offline) authProvider.overrideWith((ref) => _OfflineAuthNotifier()),
         if (fakeTagSearch)
           kikoeruApiServiceProvider.overrideWith(
             (ref) => _EmptyTagSearchApi(withResults: tagSearchResults),
           ),
         currentTrackProvider.overrideWith(
-          (ref) => Stream.value(withTrack ? _track : null),
+          (ref) => trackStream ?? Stream.value(withTrack ? _track : null),
         ),
         showUpdateRedDotProvider.overrideWith((ref) => false),
         positionProvider.overrideWith(
@@ -159,7 +188,9 @@ Future<AppNavigationController> _pumpShell(
         ),
       ],
       child: MaterialApp(
-        theme: theme,
+        theme: (theme ?? appTheme).copyWith(
+          pageTransitionsTheme: appTheme.pageTransitionsTheme,
+        ),
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
         navigatorObservers: [navigation],
@@ -174,8 +205,12 @@ Future<AppNavigationController> _pumpShell(
         ),
         home:
             homeBuilder?.call(navigation) ??
-            const Scaffold(
-              body: SizedBox.expand(key: ValueKey('home-viewport')),
+            _tabHome(
+              navigation,
+              const Scaffold(
+                body: SizedBox.expand(key: ValueKey('home-viewport')),
+              ),
+              index: initialTabIndex,
             ),
       ),
     ),
@@ -217,6 +252,171 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  for (final size in [
+    const Size(390, 844),
+    const Size(800, 1200),
+    const Size(1280, 720),
+  ]) {
+    for (final withTrack in [false, true]) {
+      testWidgets(
+        'page viewport ends above the Dock at $size (track=$withTrack)',
+        (tester) async {
+          final navigation = await _pumpShell(
+            tester,
+            size: size,
+            withTrack: withTrack,
+            safePadding: const FakeViewPadding(bottom: 24),
+          );
+          final bottom = withTrack
+              ? tester.getTopLeft(find.byType(MiniPlayer)).dy
+              : size.width > size.height
+              ? size.height - 24
+              : tester.getTopLeft(find.byType(AppBottomDock)).dy;
+          final home = find.byKey(const ValueKey('home-viewport'));
+          expect(tester.getRect(home).bottom, closeTo(bottom, 0.01));
+
+          unawaited(
+            navigation.navigator!.push<void>(
+              MaterialPageRoute(
+                builder: (_) => const Scaffold(
+                  body: SizedBox.expand(key: ValueKey('page-viewport')),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(find.byKey(const ValueKey('page-viewport'))).bottom,
+            closeTo(bottom, 0.01),
+          );
+          navigation.navigator!.pop();
+          await tester.pumpAndSettle();
+          expect(tester.getRect(home).bottom, closeTo(bottom, 0.01));
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  testWidgets(
+    'tab viewport follows playback and rotation without losing state',
+    (tester) async {
+      final tracks = StreamController<AudioTrack?>();
+      addTearDown(tracks.close);
+      final navigation = await _pumpShell(
+        tester,
+        trackStream: tracks.stream,
+        safePadding: const FakeViewPadding(bottom: 24),
+        homeBuilder: (navigation) => Navigator(
+          key: navigation.tabNavigatorKey(0),
+          observers: [navigation.tabObserver(0)],
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Tab home')),
+          ),
+        ),
+      );
+      unawaited(
+        navigation
+            .tabNavigator(0)!
+            .push<void>(
+              MaterialPageRoute(
+                builder: (_) => const Scaffold(
+                  body: SizedBox.expand(
+                    key: ValueKey('tab-page-viewport'),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: TextField(key: ValueKey('retained-input')),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      );
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('retained-input'));
+      await tester.enterText(input, 'Retained input');
+      FocusScope.of(tester.element(input)).unfocus();
+
+      for (final size in [
+        const Size(390, 844),
+        const Size(1280, 720),
+        const Size(390, 844),
+      ]) {
+        tester.view.physicalSize = size;
+        for (final track in [null, _track, null]) {
+          tracks.add(track);
+          await tester.pump();
+          await tester.pumpAndSettle();
+          final bottom = track != null
+              ? tester.getTopLeft(find.byType(MiniPlayer)).dy
+              : size.width > size.height
+              ? size.height - 24
+              : tester.getTopLeft(find.byType(AppBottomDock)).dy;
+          expect(
+            tester
+                .getRect(find.byKey(const ValueKey('tab-page-viewport')))
+                .bottom,
+            closeTo(bottom, 0.01),
+          );
+          expect(find.text('Retained input'), findsOneWidget);
+          expect(navigation.tabNavigator(0)!.canPop(), isTrue);
+        }
+      }
+      navigation.tabNavigator(0)!.pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Tab home'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final player in [false, true]) {
+    testWidgets(
+      'opening a ${player ? 'player' : 'sheet'} preserves a scrolled page position',
+      (tester) async {
+        final scroll = ScrollController();
+        addTearDown(scroll.dispose);
+        final navigation = await _pumpShell(
+          tester,
+          safePadding: const FakeViewPadding(bottom: 24),
+          homeBuilder: (navigation) => _tabHome(
+            navigation,
+            Scaffold(
+              body: SingleChildScrollView(
+                controller: scroll,
+                padding: const EdgeInsets.all(16),
+                child: const SizedBox(height: 2400),
+              ),
+            ),
+          ),
+        );
+        final viewport = find.byType(SingleChildScrollView);
+        final bottom = tester.getTopLeft(find.byType(AppBottomDock)).dy;
+        expect(tester.getRect(viewport).bottom, closeTo(bottom, 0.01));
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        final offset = scroll.offset;
+        if (player) {
+          _openPlayer(navigation);
+        } else {
+          unawaited(
+            showResponsiveBottomSheet<void>(
+              context: tester.element(viewport),
+              builder: (_) => const BottomSheetMenu(
+                children: [ListTile(title: Text('Menu action'))],
+              ),
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        (player ? navigation.navigator! : navigation.tabNavigator(0)!).pop();
+        await tester.pumpAndSettle();
+        expect(scroll.offset, closeTo(offset, 0.01));
+        expect(tester.getRect(viewport).bottom, closeTo(bottom, 0.01));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   for (final withTrack in [false, true]) {
     testWidgets('portrait sheet covers the Dock (track=$withTrack)', (
@@ -604,6 +804,7 @@ void main() {
     unawaited(
       navigation.navigator!.push(
         MaterialPageRoute<void>(
+          settings: appNavigationHostRouteSettings,
           builder: (_) => Navigator(
             onGenerateRoute: (_) => MaterialPageRoute<void>(
               builder: (context) => Scaffold(
@@ -748,6 +949,9 @@ void main() {
                     key: navigation.tabNavigatorKey(index),
                     observers: [navigation.tabObserver(index)],
                     onGenerateRoute: (_) => MaterialPageRoute<void>(
+                      settings: nested && index == 0
+                          ? appNavigationHostRouteSettings
+                          : null,
                       builder: (context) {
                         Widget content(BuildContext context) => Scaffold(
                           body: TextButton(
@@ -953,9 +1157,82 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('landscape playback and navigation slide out of the viewport', (
+  testWidgets('landscape player preserves the navigation scroll position', (
     tester,
   ) async {
+    final navigation = await _pumpShell(tester, size: const Size(640, 160));
+    final settings = find.byIcon(Icons.settings_outlined);
+    final unscrolledTop = tester.getTopLeft(settings).dy;
+    await tester.ensureVisible(settings);
+    await tester.pumpAndSettle();
+    final initialTop = tester.getTopLeft(settings).dy;
+    expect(initialTop, lessThan(unscrolledTop));
+    _openPlayer(navigation);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getTopLeft(settings).dy, closeTo(initialTop, 0.01));
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(settings).dy, closeTo(initialTop, 0.01));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player keeps offline navigation in place', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      offline: true,
+    );
+    final rail = find.byType(NavigationRail);
+    final initialRect = tester.getRect(rail);
+    expect(initialRect.top, 30);
+
+    navigation.setPlayerLaunchPreview(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(rail), initialRect);
+    navigation.setPlayerLaunchPreview(false);
+    await tester.pumpAndSettle();
+
+    _openPlayer(navigation, child: const ColoredBox(color: Color(0xff13579b)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(rail), initialRect);
+    final playerTop = tester
+        .getTopLeft(find.byKey(const ValueKey('player-viewport')))
+        .dy;
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('shell-paint')),
+    );
+    await tester.runAsync(() async {
+      final image = await boundary.toImage();
+      try {
+        final pixels = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        final offset =
+            4 *
+            ((playerTop.ceil() + 2) * image.width +
+                initialRect.center.dx.floor());
+        expect(pixels.getUint32(offset), 0x13579bff);
+      } finally {
+        image.dispose();
+      }
+    });
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getRect(rail), initialRect);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(rail), initialRect);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player covers stationary navigation', (tester) async {
     final navigation = await _pumpShell(
       tester,
       size: const Size(1280, 720),
@@ -964,29 +1241,86 @@ void main() {
     final mini = find.byType(MiniPlayer);
     final rail = find.byType(NavigationRail);
     final initialMiniRect = tester.getRect(mini);
-    final initialRailLeft = tester.getTopLeft(rail).dx;
-    _openPlayer(navigation);
+    final initialRailRect = tester.getRect(rail);
+    final player = find.byKey(const ValueKey('player-viewport'));
+    final route = _openPlayer(
+      navigation,
+      child: const ColoredBox(color: Color(0xff13579b)),
+    );
+
+    Future<void> expectPlayerCoversRail() async {
+      final playerTop = tester.getTopLeft(player).dy;
+      expect(playerTop, greaterThan(0));
+      expect(playerTop, lessThan(720));
+      expect(tester.getRect(rail), initialRailRect);
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('shell-paint')),
+      );
+      await tester.runAsync(() async {
+        final image = await boundary.toImage();
+        try {
+          final pixels = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          int pixelAt(double x, double y) =>
+              pixels.getUint32(4 * (y.floor() * image.width + x.floor()));
+          final x = initialRailRect.center.dx;
+          expect(pixelAt(x, playerTop / 2), isNot(0x13579bff));
+          expect(pixelAt(x, (playerTop + 720) / 2), 0x13579bff);
+        } finally {
+          image.dispose();
+        }
+      });
+    }
+
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getTopLeft(mini).dy, greaterThan(initialMiniRect.top));
     expect(tester.getRect(mini).left, initialMiniRect.left);
     expect(tester.getRect(mini).width, initialMiniRect.width);
-    expect(tester.getTopLeft(rail).dx, lessThan(initialRailLeft));
+    await expectPlayerCoversRail();
     expect(rail.hitTestable(), findsNothing);
     await tester.pumpAndSettle();
     expect(mini, findsNothing);
-    expect(rail, findsNothing);
+    expect(rail.hitTestable(), findsNothing);
+    expect(
+      route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
+      isTrue,
+    );
+    route.updateVerticalDismissGesture(distance: 240, extent: 720);
+    await tester.pump();
+    await expectPlayerCoversRail();
+    route.updateVerticalDismissGesture(distance: 80, extent: 720);
+    await tester.pump();
+    await expectPlayerCoversRail();
+    route.cancelVerticalDismissGesture();
+    await tester.pumpAndSettle();
+    var exitCompleted = false;
+    unawaited(route.completed.then((_) => exitCompleted = true));
     navigation.navigator!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(exitCompleted, isFalse);
     expect(mini, findsNothing);
-    await tester.pump(const Duration(milliseconds: 200));
+    await expectPlayerCoversRail();
+    final settings = find.byIcon(Icons.settings_outlined);
+    expect(
+      tester.getCenter(settings).dy,
+      lessThan(tester.getTopLeft(player).dy),
+    );
+    await tester.tap(settings, warnIfMissed: false);
+    expect(navigation.selectedIndex, 0);
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.pump();
     expect(tester.getRect(mini).left, initialMiniRect.left);
     expect(tester.getRect(mini).width, initialMiniRect.width);
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(mini).dy, closeTo(initialMiniRect.top, 0.01));
-    expect(tester.getTopLeft(rail).dx, initialRailLeft);
+    expect(tester.getRect(rail), initialRailRect);
+    expect(rail.hitTestable(), findsOneWidget);
+    await tester.tap(settings);
+    await tester.pump();
+    expect(navigation.selectedIndex, 3);
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
@@ -1005,6 +1339,9 @@ void main() {
         final miniTop = tester.getTopLeft(mini).dy;
         final dock = find.byType(AppBottomDock, skipOffstage: false);
         final rail = find.byType(NavigationRail, skipOffstage: false);
+        final railLeft = size.width > size.height
+            ? tester.getTopLeft(rail).dx
+            : null;
 
         navigation.setPlayerLaunchPreview(true);
         await tester.pump();
@@ -1015,7 +1352,7 @@ void main() {
         expect(tester.state(mini), same(miniState));
         if (size.width > size.height) {
           expect(rail, findsOneWidget);
-          expect(tester.getRect(rail).right, lessThanOrEqualTo(0));
+          expect(tester.getTopLeft(rail).dx, railLeft);
           expect(tester.getTopLeft(mini).dy, greaterThan(miniTop));
           expect(rail.hitTestable(), findsNothing);
           expect(mini.hitTestable(), findsNothing);
@@ -1036,7 +1373,7 @@ void main() {
           size,
         );
         expect(dock, findsNothing);
-        expect(rail, findsNothing);
+        expect(rail, size.width > size.height ? findsOneWidget : findsNothing);
         expect(mini, findsNothing);
 
         navigation.navigator!.pop();
@@ -1050,6 +1387,87 @@ void main() {
       },
     );
   }
+
+  testWidgets('landscape drag covers and uncovers stationary navigation', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester, size: const Size(1280, 720));
+    final rail = find.byType(NavigationRail, skipOffstage: false);
+    final railRect = tester.getRect(rail);
+    final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
+
+    Future<int> railPixel() async {
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('shell-paint')),
+      );
+      return (await tester.runAsync(() async {
+        final image = await boundary.toImage();
+        try {
+          final pixels = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          return pixels.getUint32(
+            4 * (500 * image.width + railRect.center.dx.floor()),
+          );
+        } finally {
+          image.dispose();
+        }
+      }))!;
+    }
+
+    final initialPixel = await railPixel();
+    final gesture = await tester.startGesture(tester.getCenter(launcher));
+    await gesture.moveBy(const Offset(0, -300));
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump();
+    }
+    final player = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
+      skipOffstage: false,
+    );
+    expect(tester.getTopLeft(player).dy, lessThan(500));
+    expect(tester.getRect(rail), railRect);
+    final coveredPixel = await railPixel();
+    expect(coveredPixel, isNot(initialPixel));
+
+    await gesture.moveBy(const Offset(0, 180));
+    await tester.pump();
+    expect(tester.getTopLeft(player).dy, greaterThan(500));
+    expect(tester.getRect(rail), railRect);
+    final uncoveredPixel = await railPixel();
+    int colorDistance(int first, int second) => [8, 16, 24]
+        .map(
+          (shift) =>
+              (((first >> shift) & 255) - ((second >> shift) & 255)).abs(),
+        )
+        .reduce((a, b) => a + b);
+    expect(
+      colorDistance(uncoveredPixel, initialPixel),
+      lessThan(colorDistance(coveredPixel, initialPixel)),
+    );
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isTrue);
+    expect(tester.getRect(rail), railRect);
+    expect(rail.hitTestable(), findsOneWidget);
+
+    final completedGesture = await tester.startGesture(
+      tester.getCenter(launcher),
+    );
+    await completedGesture.moveBy(const Offset(0, -300));
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump();
+    }
+    await completedGesture.up();
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isFalse);
+    expect(tester.getRect(rail), railRect);
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isTrue);
+    expect(tester.getRect(rail), railRect);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('landscape reader preview preserves its immersive viewport', (
     tester,
@@ -1097,6 +1515,16 @@ void main() {
     expect(mini, findsOneWidget);
     expect(tester.state(mini), same(miniState));
     expect(launcher.hitTestable(), findsOneWidget);
+    _openPlayer(navigation);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.byType(NavigationRail, skipOffstage: false), findsNothing);
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byType(NavigationRail, skipOffstage: false), findsNothing);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -1199,7 +1627,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.byType(AppBottomDock), findsNothing);
-        expect(find.byType(NavigationRail), findsNothing);
+        expect(find.byType(NavigationRail).hitTestable(), findsNothing);
         expect(tester.getSize(player), size);
 
         navigation.navigator!.pop();
@@ -1252,7 +1680,13 @@ void main() {
   testWidgets('player metadata search exits without an Audio tab navigator', (
     tester,
   ) async {
-    final navigation = await _pumpShell(tester, fakeTagSearch: true);
+    final navigation = await _pumpShell(
+      tester,
+      fakeTagSearch: true,
+      homeBuilder: (_) =>
+          const Scaffold(body: SizedBox.expand(key: ValueKey('home-viewport'))),
+    );
+    expect(navigation.tabNavigator(appAudioTabIndex), isNull);
     final player = _openPlayer(
       navigation,
       child: const Center(
@@ -1515,6 +1949,43 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     expect(tester.getRect(find.byType(AppBottomDock)), initialRect);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reduced motion keeps landscape navigation behind the player', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      reducedMotion: true,
+    );
+    final x = tester.getCenter(find.byType(NavigationRail)).dx;
+    _openPlayer(navigation, child: const ColoredBox(color: Color(0xff13579b)));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('player-viewport')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('player-viewport'))).dy,
+      0,
+    );
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('shell-paint')),
+    );
+    await tester.runAsync(() async {
+      final image = await boundary.toImage();
+      try {
+        final pixels = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        expect(
+          pixels.getUint32(4 * (100 * image.width + x.floor())),
+          0x13579bff,
+        );
+      } finally {
+        image.dispose();
+      }
+    });
     expect(tester.takeException(), isNull);
   });
 }

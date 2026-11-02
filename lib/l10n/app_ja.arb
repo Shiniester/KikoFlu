@@ -1663,5 +1663,11 @@
   "audioSlicePosition": "再生位置",
   "audioSliceCurrent": "現在のスライス",
   "audioSliceSelected": "選択中のスライス",
-  "audioSliceEndpointAction": "{endpoint}：{action}"
+  "audioSliceEndpointAction": "{endpoint}：{action}",
+  "automaticWorkMarking": "音声作品を自動でマーク",
+  "automaticWorkMarkingDescription": "リストへの追加、再生、再生完了に応じてマークを更新します。ログインが必要です。安全な同期を確認できないオフライン更新は破棄します。",
+  "clearAudioCompletionHistory": "音声の再生完了記録を消去",
+  "clearAudioCompletionHistoryDescription": "このアカウントの端末内の再生完了記録だけを消去します。オンラインのマークと再生履歴は保持します。",
+  "audioCompletionHistoryCleared": "音声の再生完了記録を消去しました",
+  "automaticMarkingConflict": "自動マークを安全に同期できないため、更新を破棄しました。アカウントのオンラインのマークは保持しました。"
 }

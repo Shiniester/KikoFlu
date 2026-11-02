@@ -7519,6 +7519,32 @@ void main() {
     expectVisibleComicCoverRatio(tester, 100 / 220);
   });
 
+  testWidgets('comic detail title stays close to the back button', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(tester, const Scaffold(), _Library(), _Source());
+    tester.state<NavigatorState>(find.byType(Navigator)).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ComicDetailScreen(comic: _comic),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final appBar = find.byType(AppBar);
+    final title = find.descendant(
+      of: appBar,
+      matching: find.text('Fixture book'),
+    );
+    final back = find.descendant(of: appBar, matching: find.byType(BackButton));
+    expect(
+      tester.getRect(title).left - tester.getRect(back).right,
+      closeTo(8, 0.1),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(320, 640), const Size(1000, 600)]) {
     testWidgets('comic details keep toolbar actions and shared tags at $size', (
       tester,
@@ -10134,7 +10160,7 @@ void main() {
       );
       expect(
         tester.getCenter(favorite).dx - tester.getCenter(download).dx,
-        closeTo(44, 0.1),
+        closeTo(40, 0.1),
       );
       for (final action in [download, favorite]) {
         final button = find.ancestor(

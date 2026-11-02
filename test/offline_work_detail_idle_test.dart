@@ -146,6 +146,11 @@ void main() {
       await tester.pump();
 
       expect(find.byType(OfflineFileExplorerWidget), findsOneWidget);
+      expect(
+        tester.getRect(find.text('RJ800')).left -
+            tester.getRect(find.byType(BackButton)).right,
+        closeTo(8, 0.1),
+      );
       expect(find.text('Known VA'), findsOneWidget);
       final l10n = S.of(tester.element(find.byType(OfflineWorkDetailScreen)));
       for (

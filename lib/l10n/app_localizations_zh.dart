@@ -4831,6 +4831,26 @@ class SZh extends S {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '自动标记音声作品';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      '根据加入列表、播放和完成状态更新标记。需要登录账号。离线更新无法确认安全同步时会被放弃。';
+
+  @override
+  String get clearAudioCompletionHistory => '清除音频完成记录';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      '仅清除此账号在本机的音频完成记录，保留在线标记和播放历史。';
+
+  @override
+  String get audioCompletionHistoryCleared => '已清除音频完成记录';
+
+  @override
+  String get automaticMarkingConflict => '自动标记无法安全同步，已放弃此更新并保留账号在线标记。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -9660,4 +9680,24 @@ class SZhHant extends SZh {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '自動標記音聲作品';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      '根據加入清單、播放和完成狀態更新標記。需要登入帳號。離線更新無法確認安全同步時會被放棄。';
+
+  @override
+  String get clearAudioCompletionHistory => '清除音訊完成記錄';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      '僅清除此帳號在本機的音訊完成記錄，保留線上標記和播放歷史。';
+
+  @override
+  String get audioCompletionHistoryCleared => '已清除音訊完成記錄';
+
+  @override
+  String get automaticMarkingConflict => '自動標記無法安全同步，已放棄此更新並保留帳號線上標記。';
 }

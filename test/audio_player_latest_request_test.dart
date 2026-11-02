@@ -6,18 +6,26 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/automatic_marking_event.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/automatic_work_marking_provider.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    show KikoeruApiService;
+import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'automatic_work_marking_test.dart' as marking_fixture;
 
 const tracks = [
   AudioTrack(id: 'a', title: 'A', url: 'https://example.invalid/a.wav'),
@@ -62,6 +70,107 @@ void main() {
     await service.dispose();
     await cacheRoot.delete(recursive: true);
   });
+
+  test(
+    'automatic marking distinguishes actual start, resume, skip, and completion',
+    () async {
+      final events = <AutomaticMarkingEvent>[];
+      final subscription = service.automaticMarkingEvents.listen(events.add);
+      addTearDown(subscription.cancel);
+      await service.updateQueue(tracks, autoplay: true);
+      expect(
+        events.where(
+          (event) => event.type == AutomaticMarkingEventType.started,
+        ),
+        isEmpty,
+      );
+      player.position = const Duration(seconds: 1);
+      player.positions.add(player.position);
+      expect(
+        events
+            .where((event) => event.type == AutomaticMarkingEventType.started)
+            .map((event) => event.track?.id),
+        ['a'],
+      );
+      await service.pause();
+      await service.play();
+      player.positions.add(const Duration(seconds: 2));
+      expect(
+        events.where(
+          (event) => event.type == AutomaticMarkingEventType.started,
+        ),
+        hasLength(2),
+      );
+      await service.skipToNext();
+      expect(
+        events.where(
+          (event) => event.type == AutomaticMarkingEventType.completed,
+        ),
+        isEmpty,
+      );
+      expect(
+        events.where(
+          (event) => event.type == AutomaticMarkingEventType.selected,
+        ),
+        isEmpty,
+      );
+      player.processingState = ProcessingState.completed;
+      player.emitPlayerState();
+      await until(() => service.currentTrack?.id == 'c');
+      expect(
+        events
+            .where((event) => event.type == AutomaticMarkingEventType.completed)
+            .map((event) => event.track?.id),
+        ['b'],
+      );
+    },
+  );
+
+  test(
+    'no-op additions do not leave replay choices for the current audio',
+    () async {
+      final events = <AutomaticMarkingEvent>[];
+      final subscription = service.automaticMarkingEvents.listen(events.add);
+      addTearDown(subscription.cancel);
+      await service.updateQueue(tracks, autoplay: true);
+      await service.enqueueNext(tracks.first);
+      await service.appendTracks([tracks.first]);
+      expect(
+        events.where((event) => event.type == AutomaticMarkingEventType.added),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'reselecting a pending item waits for its actual playback before marking started',
+    () async {
+      final events = <AutomaticMarkingEvent>[];
+      final subscription = service.automaticMarkingEvents.listen(events.add);
+      addTearDown(subscription.cancel);
+      await service.updateQueue(tracks, autoplay: true);
+      player.holdNextLoad = true;
+      final selecting = service.skipToIndex(1);
+      await until(() => player.pendingLoad != null);
+      await service.skipToIndex(1);
+      expect(
+        events.where(
+          (event) => event.type == AutomaticMarkingEventType.started,
+        ),
+        isEmpty,
+      );
+      player.finishLoad();
+      await selecting;
+      player.position = const Duration(seconds: 1);
+      player.positions.add(player.position);
+      expect(
+        events
+            .where((event) => event.type == AutomaticMarkingEventType.started)
+            .map((event) => event.track?.id),
+        ['b'],
+      );
+    },
+  );
 
   test(
     'interrupted complete-cache load preserves the file and avoids fallback',
@@ -123,19 +232,22 @@ void main() {
     expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
   });
 
-  test('HLS playlist URLs bypass automatic caching without a work ID', () async {
-    const hlsTrack = AudioTrack(
-      id: 'hls',
-      title: 'playlist.m3u8',
-      url: 'https://media.example.invalid/playlist.m3u8',
-      hash: 'hls-playlist',
-    );
+  test(
+    'HLS playlist URLs bypass automatic caching without a work ID',
+    () async {
+      const hlsTrack = AudioTrack(
+        id: 'hls',
+        title: 'playlist.m3u8',
+        url: 'https://media.example.invalid/playlist.m3u8',
+        hash: 'hls-playlist',
+      );
 
-    await service.updateQueue([hlsTrack], autoplay: true);
+      await service.updateQueue([hlsTrack], autoplay: true);
 
-    expect(player.loaded, [hlsTrack.url]);
-    expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
-  });
+      expect(player.loaded, [hlsTrack.url]);
+      expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
+    },
+  );
 
   test(
     'clips online chapter playback and leaves downloaded chapter files alone',
@@ -562,6 +674,71 @@ void main() {
   }
 
   testWidgets(
+    'player mark updates for optimistic progress and conflict rollback',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final marking = marking_fixture.Harness()..offline = true;
+      marking.service.observeProgress(1, 'marked');
+      final api = _ProgressApi();
+      final container = ProviderContainer(
+        overrides: [
+          audioPlayerServiceProvider.overrideWithValue(service),
+          lyricAutoLoaderProvider.overrideWith((ref) {}),
+          automaticWorkMarkingProvider.overrideWithValue(marking.service),
+          kikoeruApiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(api.dispose);
+      await tester.runAsync(
+        () => service.updateQueue([marking_fixture.a], autoplay: true),
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: AudioPlayerScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await marking.event(
+        AutomaticMarkingEventType.started,
+        track: marking_fixture.a,
+      );
+      container.read(automaticWorkMarkingRevisionProvider.notifier).state++;
+      await tester.pump();
+      final controls = find.byType(PlayerControlsWidget, skipOffstage: false);
+      expect(controls, findsWidgets);
+      expect(
+        tester
+            .widgetList<PlayerControlsWidget>(controls)
+            .map((widget) => widget.currentProgress),
+        everyElement('listening'),
+      );
+      marking.offline = false;
+      marking.online[1] = 'postponed';
+      await marking.service.reconcilePending();
+      container.read(automaticWorkMarkingRevisionProvider.notifier).state++;
+      await tester.pump();
+      expect(
+        tester
+            .widgetList<PlayerControlsWidget>(controls)
+            .map((widget) => widget.currentProgress),
+        everyElement('postponed'),
+      );
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
     'mini swipes submit during loading and can reverse an active transition',
     (tester) async {
       await tester.runAsync(() => service.updateQueue(tracks, autoplay: true));
@@ -961,6 +1138,15 @@ Future<void> until(bool Function() ready) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
   fail('Expected operation did not start');
+}
+
+class _ProgressApi extends KikoeruApiService {
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int id, {
+    bool forceRefresh = false,
+    CancelToken? cancelToken,
+  }) async => {'id': id, 'title': 'Work', 'progress': 'marked'};
 }
 
 class ControlledPlayer extends Fake implements AudioPlayer {

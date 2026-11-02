@@ -10,6 +10,7 @@ import 'package:smtc_windows/smtc_windows.dart';
 
 import '../models/audio_slice.dart';
 import '../models/audio_track.dart';
+import '../models/automatic_marking_event.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/playback_diagnostic_event.dart';
 import '../performance/performance_build_guard.dart';
@@ -538,6 +539,19 @@ class AudioPlayerService {
       }
       _updateAudioCacheTarget();
       _handleSlicePosition(position);
+      if (position > Duration.zero &&
+          _player.playing &&
+          !_isSwitchingTrack &&
+          _activeTrackLoad == null &&
+          _latestTrackLoad == null &&
+          _markingStartedGeneration != _committedTrackGeneration &&
+          currentTrack != null) {
+        _markingStartedGeneration = _committedTrackGeneration;
+        _emitAutomaticMarking(
+          AutomaticMarkingEventType.started,
+          track: currentTrack,
+        );
+      }
       _checkpointPlaybackSession(position);
       _updatePlaybackState();
     });
@@ -642,6 +656,29 @@ class AudioPlayerService {
     }
   }
 
+  final _automaticMarkingController =
+      StreamController<AutomaticMarkingEvent>.broadcast(sync: true);
+  Stream<AutomaticMarkingEvent> get automaticMarkingEvents =>
+      _automaticMarkingController.stream;
+  String _markingQueueId = '';
+  int? _markingStartedGeneration;
+
+  void _emitAutomaticMarking(
+    AutomaticMarkingEventType type, {
+    AudioTrack? track,
+    List<AudioTrack> tracks = const [],
+  }) {
+    _automaticMarkingController.add(
+      AutomaticMarkingEvent(
+        type,
+        queueId: _markingQueueId,
+        queue: List<AudioTrack>.of(_queue),
+        track: track,
+        tracks: tracks,
+      ),
+    );
+  }
+
   // Queue management
   Future<void> updateQueue(
     List<AudioTrack> tracks, {
@@ -659,6 +696,8 @@ class AudioPlayerService {
     _sessionOwnerKey = _currentSessionOwnerKey();
     _queue.clear();
     _queue.addAll(tracks);
+    _markingQueueId = DateTime.now().microsecondsSinceEpoch.toString();
+    _emitAutomaticMarking(AutomaticMarkingEventType.replace, tracks: tracks);
     final targetIndex = startIndex.clamp(0, tracks.length - 1).toInt();
     _pendingTargetTrackId = tracks[targetIndex].id;
     _refreshManualSkipAvailability();
@@ -699,6 +738,7 @@ class AudioPlayerService {
     _desiredPlaying = false;
     _refreshManualSkipAvailability();
     _queueController.add(const []);
+    _emitAutomaticMarking(AutomaticMarkingEventType.replace);
     _lastTrackChangePresentation = null;
     _currentTrackController.add(null);
     ++_slicePlaybackRevision;
@@ -1055,6 +1095,7 @@ class AudioPlayerService {
     _currentIndex = index;
     _pendingTargetTrackId = null;
     _publishedTrack = request.track;
+    if (request.emitCurrentTrack) _markingStartedGeneration = null;
     _refreshManualSkipAvailability();
     _sourceNeedsReload = false;
     _failedSeekSource = null;
@@ -1553,6 +1594,12 @@ class AudioPlayerService {
       return;
     }
     _handlingTrackCompletion = true;
+    if (_player.processingState == ProcessingState.completed) {
+      _emitAutomaticMarking(
+        AutomaticMarkingEventType.completed,
+        track: currentTrack,
+      );
+    }
     try {
       if (_appLoopMode == LoopMode.one) {
         // Single track repeat - replay current track
@@ -1938,6 +1985,10 @@ class AudioPlayerService {
         }),
       );
     }
+    _emitAutomaticMarking(
+      AutomaticMarkingEventType.completed,
+      track: currentTrack,
+    );
     final request = _enqueueTrackLoad(
       next,
       emitCurrentTrack: true,
@@ -2153,6 +2204,7 @@ class AudioPlayerService {
 
   void _startPlaybackWithSideEffects({bool startHaptics = true}) {
     _sessionCompleted = false;
+    _markingStartedGeneration = null;
 
     final playbackGeneration = _committedTrackGeneration;
     final playbackTrackId = currentTrack?.id;
@@ -2559,7 +2611,15 @@ class AudioPlayerService {
 
   Future<void> skipToIndex(int index) async {
     final currentIndex = _effectiveQueueIndex;
-    if (index < 0 || index >= _queue.length || index == currentIndex) return;
+    if (index < 0 || index >= _queue.length) return;
+    _emitAutomaticMarking(
+      AutomaticMarkingEventType.selected,
+      track: _queue[index],
+    );
+    if (index == currentIndex) {
+      _markingStartedGeneration = null;
+      return;
+    }
     final direction = resolvePlayerTrackChangeDirection(
       currentIndex: currentIndex,
       targetIndex: index,
@@ -2631,12 +2691,17 @@ class AudioPlayerService {
     if (index < 0 || index >= _queue.length) return;
     ++_intentRevision;
 
-    final removedTrackId = _queue[index].id;
+    final removedTrack = _queue[index];
+    final removedTrackId = removedTrack.id;
     final targetTrackId = _pendingTargetTrackId ?? _publishedTrack?.id;
     final removesTarget = removedTrackId == targetTrackId;
     final currentTrackId = _publishedTrack?.id;
 
     _queue.removeAt(index);
+    _emitAutomaticMarking(
+      AutomaticMarkingEventType.removed,
+      track: removedTrack,
+    );
     _refreshManualSkipAvailability();
     _queueController.add(List.from(_queue));
 
@@ -2708,6 +2773,7 @@ class AudioPlayerService {
     _queue
       ..clear()
       ..addAll(mutation.queue);
+    _emitAutomaticMarking(AutomaticMarkingEventType.added, tracks: [track]);
     if (_publishedTrack != null) {
       final publishedIndex = _queue.indexWhere(
         (item) => item.id == _publishedTrack!.id,
@@ -2741,6 +2807,7 @@ class AudioPlayerService {
     }
 
     bool appended = false;
+    final addedTracks = <AudioTrack>[];
     for (final track in tracks) {
       final existing = existingIndex[track.id];
       if (existing != null) {
@@ -2749,6 +2816,7 @@ class AudioPlayerService {
       }
 
       _queue.add(track);
+      addedTracks.add(track);
       final newIndex = _queue.length - 1;
       existingIndex[track.id] = newIndex;
       indexMap[track.id] = newIndex;
@@ -2762,6 +2830,12 @@ class AudioPlayerService {
       _updateAudioCacheTarget();
     }
 
+    if (addedTracks.isNotEmpty) {
+      _emitAutomaticMarking(
+        AutomaticMarkingEventType.added,
+        tracks: addedTracks,
+      );
+    }
     // Ensure we still report indexes for tracks that already existed
     for (final track in tracks) {
       indexMap[track.id] ??=
@@ -2802,6 +2876,7 @@ class AudioPlayerService {
       currentIndex: _currentIndex,
       position: _player.position,
       ownerKey: _sessionOwnerKey ??= _currentSessionOwnerKey() ?? '',
+      markingQueueId: _markingQueueId,
     );
     if (snapshot.ownerKey.isEmpty) return _sessionWrite;
     _lastSessionPositionMs = snapshot.position.inMilliseconds;
@@ -2849,6 +2924,9 @@ class AudioPlayerService {
     _isRestoringSession = true;
     _sessionCompleted = false;
     _sessionOwnerKey = currentOwnerKey;
+    _markingQueueId =
+        snapshot.markingQueueId ??
+        DateTime.now().microsecondsSinceEpoch.toString();
     _desiredPlaying = false;
     try {
       final restoredQueue = snapshot.queue
@@ -2861,6 +2939,7 @@ class AudioPlayerService {
       _pendingTargetTrackId = _queue[targetIndex].id;
       _refreshManualSkipAvailability();
       _queueController.add(List<AudioTrack>.from(_queue));
+      _emitAutomaticMarking(AutomaticMarkingEventType.restore);
       _log.captureOutput(
         '[AudioSession] Loading restored source at index=$targetIndex',
       );
@@ -3553,6 +3632,7 @@ class AudioPlayerService {
     if (!stoppedNativeLoad) await _player.stop();
     await _playerStateSubscription?.cancel();
     await _queueController.close();
+    await _automaticMarkingController.close();
     await _currentTrackController.close();
     await _sliceStateController.close();
     await _manualSkipAvailabilityController.close();

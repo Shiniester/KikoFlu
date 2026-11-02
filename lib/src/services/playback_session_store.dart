@@ -11,6 +11,7 @@ class PlaybackSessionSnapshot {
     required this.currentIndex,
     required this.position,
     required this.ownerKey,
+    this.markingQueueId,
   });
 
   static const int version = 1;
@@ -19,6 +20,7 @@ class PlaybackSessionSnapshot {
   final int currentIndex;
   final Duration position;
   final String ownerKey;
+  final String? markingQueueId;
 
   Map<String, dynamic> toJson() => {
     'version': version,
@@ -26,6 +28,7 @@ class PlaybackSessionSnapshot {
     'currentIndex': currentIndex,
     'positionMs': position.inMilliseconds,
     'ownerKey': ownerKey,
+    'markingQueueId': markingQueueId,
   };
 
   factory PlaybackSessionSnapshot.fromJson(Map<String, dynamic> json) {
@@ -61,6 +64,7 @@ class PlaybackSessionSnapshot {
       currentIndex: currentIndex,
       position: Duration(milliseconds: positionMs.clamp(0, 1 << 53)),
       ownerKey: ownerKey,
+      markingQueueId: json['markingQueueId'] as String?,
     );
   }
 }
@@ -120,6 +124,7 @@ class SharedPreferencesPlaybackSessionStore implements PlaybackSessionStore {
         currentIndex: snapshot.currentIndex,
         position: Duration(milliseconds: positionMs.clamp(0, 1 << 53)),
         ownerKey: snapshot.ownerKey,
+        markingQueueId: snapshot.markingQueueId,
       );
     } catch (error) {
       LogService.instance.captureOutput(

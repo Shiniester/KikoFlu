@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 const appImmersiveRouteSettings = RouteSettings(name: 'app-immersive');
 const appAudioPlayerRouteSettings = RouteSettings(name: 'app-audio-player');
+const appNavigationHostRouteSettings = RouteSettings(
+  name: 'app-navigation-host',
+);
 const appAudioTabIndex = 0;
 const appVideoTabIndex = 2;
 const appTabCount = 4;
@@ -44,6 +47,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   bool _navigationVisible = true;
   bool _playerLaunchPreviewActive = false;
   Animation<double>? _fullscreenTransition;
+  TransitionRoute<dynamic>? _audioPlayerNavigationRoute;
   PopupRoute<dynamic>? _popupRoute;
   PageRoute<dynamic>? _outgoing;
 
@@ -54,6 +58,8 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       .where((route) => route.settings.name == appAudioPlayerRouteSettings.name)
       .lastOrNull;
   Animation<double>? get fullscreenTransition => _fullscreenTransition;
+  Animation<double>? get audioPlayerNavigationTransition =>
+      _audioPlayerNavigationRoute?.animation;
   PopupRoute<dynamic>? get popupRoute => _popupRoute ?? sheetRoutes.lastOrNull;
   Iterable<PopupRoute<dynamic>> get popupRoutes => {
     ..._routes.whereType<PopupRoute<dynamic>>(),
@@ -188,6 +194,11 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     if (route is PageRoute<dynamic>) _outgoing = null;
+    if (route is TransitionRoute<dynamic> &&
+        route.settings.name == appAudioPlayerRouteSettings.name &&
+        (_navigationVisible || _playerLaunchPreviewActive)) {
+      _audioPlayerNavigationRoute = route;
+    }
     _routes.add(route);
     _refresh(
       forceNotify: route is PageRoute<dynamic> && _sheetRoutes.isNotEmpty,
@@ -247,6 +258,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     _fullscreenRoutes.remove(route);
     _closingAudioPlayerRoutes.remove(route);
     _fullscreenTransitions.remove(route);
+    if (identical(_audioPlayerNavigationRoute, route)) {
+      _audioPlayerNavigationRoute = null;
+    }
   }
 
   void _refresh({bool forceNotify = false}) {

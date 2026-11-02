@@ -32,7 +32,7 @@ void main() {
       const Size(24, 24),
     );
     expect(find.byTooltip('Mark'), findsOneWidget);
-    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 44);
+    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 40);
     expect(tester.getSemantics(find.byType(IconButton)).tooltip, 'Mark');
     semantics.dispose();
 
@@ -90,6 +90,6 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.byType(IconButton), findsNothing);
     expect(find.text('Listened'), findsNothing);
-    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 44);
+    expect(tester.getSize(find.byType(WorkProgressActionButton)).width, 40);
   });
 }

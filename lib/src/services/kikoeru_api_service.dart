@@ -34,9 +34,9 @@ class KikoeruApiService {
   final String _order = 'create_date';
   final String _sort = 'desc'; // 默认降序排列
 
-  KikoeruApiService({JapaneseAsmrService? japaneseAsmrService}) {
+  KikoeruApiService({JapaneseAsmrService? japaneseAsmrService, Dio? dio}) {
     _japaneseAsmrService = japaneseAsmrService ?? JapaneseAsmrService.instance;
-    _dio = Dio();
+    _dio = dio ?? Dio();
     _conditionalGetCache = ConditionalGetCache(
       directoryProvider: CacheService.getApiResponseCacheDirectory,
       scopeProvider: () => _cacheScope,
@@ -122,6 +122,7 @@ class KikoeruApiService {
 
           // 自动重试连接超时错误（仅重试一次）
           if (error.type == DioExceptionType.connectionTimeout &&
+              error.requestOptions.extra['automaticReview'] != true &&
               error.requestOptions.extra['retried'] != true) {
             _logOutput('Connection timeout detected, retrying once...');
 
@@ -234,6 +235,17 @@ class KikoeruApiService {
 
   bool get hasAuthenticatedAccount =>
       _token != null && _token!.isNotEmpty && _accountScope != 'anonymous';
+
+  bool isCurrentReviewAccount({
+    required String host,
+    required String username,
+    required String token,
+  }) =>
+      hasAuthenticatedAccount &&
+      _accountScope == username &&
+      _token == token &&
+      _host?.replaceFirst(RegExp(r'/+$'), '') ==
+          host.replaceFirst(RegExp(r'/+$'), '');
 
   bool _changesRecommendationPreferences(RequestOptions options) {
     if (const {
@@ -1662,11 +1674,31 @@ class KikoeruApiService {
     }
   }
 
+  Future<void> updateAutomaticReviewProgress(
+    int workId,
+    String progress,
+  ) async {
+    if (_isOfficialServer) {
+      await _updateReviewProgressOfficial(
+        workId,
+        progress: progress,
+        automatic: true,
+      );
+    } else {
+      await _updateReviewProgressCustom(
+        workId,
+        progress: progress,
+        automatic: true,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> _updateReviewProgressOfficial(
     int workId, {
     String? progress,
     int? rating,
     String? reviewText,
+    bool automatic = false,
   }) async {
     try {
       final data = <String, dynamic>{'work_id': workId};
@@ -1674,7 +1706,23 @@ class KikoeruApiService {
       if (rating != null) data['rating'] = rating;
       if (reviewText != null) data['review_text'] = reviewText;
 
-      final response = await _dio.put('/api/review', data: data);
+      final response = await _dio.put(
+        '/api/review',
+        data: data,
+        queryParameters:
+            automatic &&
+                progress != null &&
+                rating == null &&
+                reviewText == null
+            ? {'starOnly': false, 'progressOnly': true}
+            : null,
+        options: Options(
+          extra: {
+            if (automatic) 'automaticReview': true,
+            'audioSessionGeneration': _sessionGeneration,
+          },
+        ),
+      );
 
       await CacheService.invalidateWorkDetailCache(workId, scope: _cacheScope);
       return response.data;
@@ -1688,6 +1736,7 @@ class KikoeruApiService {
     String? progress,
     int? rating,
     String? reviewText,
+    bool automatic = false,
   }) async {
     _logOutput(
       '[API] 更新评论状态: workId=$workId, progress=$progress, rating=$rating, reviewText=${reviewText != null ? "exists" : "null"}',
@@ -1716,6 +1765,12 @@ class KikoeruApiService {
         '/api/review',
         data: data,
         queryParameters: queryParams,
+        options: Options(
+          extra: {
+            if (automatic) 'automaticReview': true,
+            'audioSessionGeneration': _sessionGeneration,
+          },
+        ),
       );
 
       // 更新成功后清除该作品的详情缓存，确保下次获取最新状态
@@ -1738,7 +1793,11 @@ class KikoeruApiService {
 
   Future<void> _deleteReviewOfficial(int workId) async {
     try {
-      await _dio.delete('/api/review', queryParameters: {'work_id': workId});
+      await _dio.delete(
+        '/api/review',
+        queryParameters: {'work_id': workId},
+        options: Options(extra: {'audioSessionGeneration': _sessionGeneration}),
+      );
       await CacheService.invalidateWorkDetailCache(workId, scope: _cacheScope);
     } catch (e) {
       throw KikoeruApiException('Failed to delete review', e);
@@ -1747,7 +1806,11 @@ class KikoeruApiService {
 
   Future<void> _deleteReviewCustom(int workId) async {
     try {
-      await _dio.delete('/api/review', queryParameters: {'work_id': workId});
+      await _dio.delete(
+        '/api/review',
+        queryParameters: {'work_id': workId},
+        options: Options(extra: {'audioSessionGeneration': _sessionGeneration}),
+      );
 
       // 删除成功后清除该作品的详情缓存，确保下次获取最新状态
       await CacheService.invalidateWorkDetailCache(workId, scope: _cacheScope);

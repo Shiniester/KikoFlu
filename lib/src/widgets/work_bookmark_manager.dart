@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/my_reviews_provider.dart';
+import '../providers/automatic_work_marking_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../../l10n/app_localizations.dart';
 import 'review_progress_dialog.dart';
@@ -13,10 +14,7 @@ class WorkBookmarkManager {
   final WidgetRef ref;
   final BuildContext context;
 
-  WorkBookmarkManager({
-    required this.ref,
-    required this.context,
-  });
+  WorkBookmarkManager({required this.ref, required this.context});
 
   /// 显示标记对话框并处理更新
   /// 返回包含进度和评分的Map（如果有变化）
@@ -30,7 +28,9 @@ class WorkBookmarkManager {
     final s = S.of(context);
     final result = await ReviewProgressDialog.show(
       context: context,
-      currentProgress: currentProgress,
+      currentProgress: ref
+          .read(automaticWorkMarkingProvider)
+          .progressFor(workId, currentProgress),
       currentRating: currentRating,
       title: s.markWork,
       workId: workId,
@@ -46,7 +46,9 @@ class WorkBookmarkManager {
 
       if (result['progress'] == '__REMOVE__') {
         // 删除标记
-        await apiService.deleteReview(workId);
+        await ref
+            .read(automaticWorkMarkingProvider)
+            .manualUpdate(workId, null, () => apiService.deleteReview(workId));
         if (!context.mounted) return null;
 
         SnackBarUtil.showSuccess(context, s.bookmarkRemoved);
@@ -70,10 +72,16 @@ class WorkBookmarkManager {
         );
 
         // 更新标记（包括进度和评分）
-        await apiService.updateReviewProgress(
+        await ref.read(automaticWorkMarkingProvider).manualUpdate(
           workId,
-          progress: newProgress,
-          rating: newRating,
+          newProgress,
+          () async {
+            await apiService.updateReviewProgress(
+              workId,
+              progress: newProgress,
+              rating: newRating,
+            );
+          },
         );
         if (!context.mounted) return null;
 
@@ -90,7 +98,9 @@ class WorkBookmarkManager {
     } catch (e) {
       if (context.mounted) {
         SnackBarUtil.showError(
-            context, s.operationFailedWithError(e.toString()));
+          context,
+          s.operationFailedWithError(e.toString()),
+        );
       }
     }
 
@@ -105,13 +115,17 @@ class WorkBookmarkManager {
   }) {
     if (newProgress != null && newRating != null) {
       // 同时设置了进度和评分
-      final filterLabel =
-          ReviewProgressDialog.getProgressLabel(newProgress, context);
+      final filterLabel = ReviewProgressDialog.getProgressLabel(
+        newProgress,
+        context,
+      );
       return s.setProgressAndRating(filterLabel, newRating);
     } else if (newProgress != null) {
       // 只设置了进度
-      final filterLabel =
-          ReviewProgressDialog.getProgressLabel(newProgress, context);
+      final filterLabel = ReviewProgressDialog.getProgressLabel(
+        newProgress,
+        context,
+      );
       return s.setProgressTo(filterLabel);
     } else if (newRating != null) {
       // 只设置了评分

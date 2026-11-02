@@ -2272,5 +2272,29 @@
         "example": "+0.2 s"
       }
     }
+  },
+  "automaticWorkMarking": "Automatically mark audio works",
+  "@automaticWorkMarking": {
+    "description": "Automatically mark audio works"
+  },
+  "automaticWorkMarkingDescription": "Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified.",
+  "@automaticWorkMarkingDescription": {
+    "description": "Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified."
+  },
+  "clearAudioCompletionHistory": "Clear completed audio history",
+  "@clearAudioCompletionHistory": {
+    "description": "Clear completed audio history"
+  },
+  "clearAudioCompletionHistoryDescription": "Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged.",
+  "@clearAudioCompletionHistoryDescription": {
+    "description": "Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged."
+  },
+  "audioCompletionHistoryCleared": "Completed audio history cleared",
+  "@audioCompletionHistoryCleared": {
+    "description": "Completed audio history cleared"
+  },
+  "automaticMarkingConflict": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.",
+  "@automaticMarkingConflict": {
+    "description": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept."
   }
 }
