@@ -106,6 +106,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   late final CurvedAnimation _automaticVisualAnimation;
   late final ProxyAnimation _visualAnimation;
 
+  @override
+  Animation<double> get visualAnimation => _visualAnimation;
+
   bool get _compactQueueEntry {
     final routeNavigator = navigator;
     return _prepareInitialFrame &&

@@ -39,7 +39,7 @@ class SettingsSubpageScaffold extends StatelessWidget {
         title: Text(title, style: UiTextStyles.pageTitle),
         actions: appBarActions.isEmpty ? null : appBarActions,
       ),
-      body: body,
+      body: SafeArea(top: false, left: false, right: false, child: body),
     );
   }
 }

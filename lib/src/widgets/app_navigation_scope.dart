@@ -3,11 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
+import 'player/player_vertical_gestures.dart';
+
 const appImmersiveRouteSettings = RouteSettings(name: 'app-immersive');
 const appAudioPlayerRouteSettings = RouteSettings(name: 'app-audio-player');
-const appNavigationHostRouteSettings = RouteSettings(
-  name: 'app-navigation-host',
-);
 const appAudioTabIndex = 0;
 const appVideoTabIndex = 2;
 const appTabCount = 4;
@@ -59,8 +58,15 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       .where((route) => route.settings.name == appAudioPlayerRouteSettings.name)
       .lastOrNull;
   Animation<double>? get fullscreenTransition => _fullscreenTransition;
-  Animation<double>? get audioPlayerNavigationTransition =>
-      _audioPlayerNavigationRoute?.animation;
+  Animation<double>? get audioPlayerNavigationTransition {
+    final route = _audioPlayerNavigationRoute;
+    if (route is PlayerInteractiveDismissRoute) {
+      // ModalRoute reports completion while the entering route is offstage.
+      return (route as PlayerInteractiveDismissRoute).visualAnimation;
+    }
+    return route?.animation;
+  }
+
   EdgeInsets? get audioPlayerLandscapeInsets => _audioPlayerLandscapeInsets;
 
   bool isBelowAudioPlayer(Route<dynamic> route) {

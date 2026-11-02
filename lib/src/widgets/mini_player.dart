@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -117,9 +118,70 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 );
                 final shouldShowLyric =
                     isPlaying && hasLyrics && hasCurrentLyric;
-                final playerHeight = shouldShowLyric ? 88.0 : 72.0;
+                final miniLyricFontSize = shouldShowLyric
+                    ? ref.watch(
+                        playerLyricSettingsProvider.select(
+                          (settings) => settings.miniFontSize,
+                        ),
+                      )
+                    : 0.0;
+                final miniLyricLineHeight = shouldShowLyric
+                    ? ref.watch(
+                        playerLyricSettingsProvider.select(
+                          (settings) => settings.miniLineHeight,
+                        ),
+                      )
+                    : 0.0;
+                const topBorderWidth = 1.0;
+                const progressSliderHeight = 12.0;
+                const controlBottomInset = 8.0;
+                final basePlayerHeight = shouldShowLyric ? 88.0 : 72.0;
+                final lyricStyle = shouldShowLyric
+                    ? _miniPlayerLyricStyle(
+                        context,
+                        fontSize: miniLyricFontSize,
+                        lineHeight: miniLyricLineHeight,
+                      )
+                    : null;
+                final lyricHeight = shouldShowLyric
+                    ? _measureMiniPlayerTextHeight(context, ' ', lyricStyle) + 4
+                    : 0.0;
+                final baseLyricHeight = shouldShowLyric
+                    ? _measureMiniPlayerTextHeight(
+                            context,
+                            ' ',
+                            lyricStyle,
+                            textScaler: TextScaler.noScaling,
+                          ) +
+                          4
+                    : 0.0;
+                final progressAreaHeight = progressSliderHeight + lyricHeight;
+                final baseProgressAreaHeight =
+                    progressSliderHeight + baseLyricHeight;
+                final baseTrackInfoHeight =
+                    basePlayerHeight -
+                    topBorderWidth -
+                    baseProgressAreaHeight -
+                    controlBottomInset;
+                final trackInfoHeight = _miniPlayerTrackInfoHeight(
+                  context,
+                  track,
+                );
+                final controlsHeight = math.max(
+                  kMinInteractiveDimension,
+                  math.max(trackInfoHeight, baseTrackInfoHeight),
+                );
+                final requiredPlayerHeight =
+                    progressAreaHeight +
+                    topBorderWidth +
+                    controlBottomInset +
+                    controlsHeight;
+                final playerHeight = requiredPlayerHeight > basePlayerHeight
+                    ? requiredPlayerHeight
+                    : basePlayerHeight;
 
                 final playerContent = Container(
+                  key: const ValueKey('mini-player-content'),
                   height: playerHeight,
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
@@ -128,7 +190,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         color: Theme.of(
                           context,
                         ).colorScheme.outline.withValues(alpha: 0.2),
-                        width: 1,
+                        width: topBorderWidth,
                       ),
                     ),
                   ),
@@ -460,9 +522,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
             Text(
               track.title,
               textAlign: TextAlign.start,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+              style: _miniPlayerTitleStyle(context),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -471,9 +531,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
               Text(
                 artist,
                 textAlign: TextAlign.start,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                style: _miniPlayerArtistStyle(context),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -714,11 +772,10 @@ class _MiniPlayerLyricLine extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       child: Text(
         currentLyric,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
+        style: _miniPlayerLyricStyle(
+          context,
           fontSize: lyricSettings.miniFontSize,
-          height: lyricSettings.miniLineHeight,
-          fontWeight: FontWeight.w600,
+          lineHeight: lyricSettings.miniLineHeight,
         ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
@@ -843,4 +900,62 @@ class _MiniPlayerPlayButton extends ConsumerWidget {
       iconSize: 28,
     );
   }
+}
+
+TextStyle? _miniPlayerTitleStyle(BuildContext context) => Theme.of(
+  context,
+).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500);
+
+TextStyle? _miniPlayerArtistStyle(BuildContext context) => Theme.of(context)
+    .textTheme
+    .bodySmall
+    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+
+TextStyle? _miniPlayerLyricStyle(
+  BuildContext context, {
+  required double fontSize,
+  required double lineHeight,
+}) => Theme.of(context).textTheme.bodySmall?.copyWith(
+  color: Theme.of(context).colorScheme.primary,
+  fontSize: fontSize,
+  height: lineHeight,
+  fontWeight: FontWeight.w600,
+);
+
+double _measureMiniPlayerTextHeight(
+  BuildContext context,
+  String text,
+  TextStyle? style, {
+  TextScaler? textScaler,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: DefaultTextStyle.of(context).style.merge(style),
+    ),
+    textScaler: textScaler ?? MediaQuery.textScalerOf(context),
+    textDirection: Directionality.of(context),
+    textHeightBehavior: DefaultTextStyle.of(context).textHeightBehavior,
+    locale: Localizations.maybeLocaleOf(context),
+    maxLines: 1,
+  )..layout();
+  final height = painter.height;
+  painter.dispose();
+  return height;
+}
+
+double _miniPlayerTrackInfoHeight(BuildContext context, AudioTrack track) {
+  final titleHeight = _measureMiniPlayerTextHeight(
+    context,
+    track.title,
+    _miniPlayerTitleStyle(context),
+  );
+  // Keep space for an outgoing artist while tracks cross-fade.
+  return titleHeight +
+      2 +
+      _measureMiniPlayerTextHeight(
+        context,
+        track.artist ?? track.title,
+        _miniPlayerArtistStyle(context),
+      );
 }

@@ -37,10 +37,12 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   double _audioMiniPlayerHeight = 0;
   EdgeInsets? _lastPlayerPadding;
   bool? _lastPlayerOffline;
+  bool? _lastPlayerHasTrack;
   bool _animateNavigation = false;
   bool _reduceMotion = false;
   final _dockClipKey = GlobalKey();
   final _railKey = GlobalKey();
+  final _miniPlayerKey = GlobalKey();
 
   AppNavigationController get controller => widget.controller;
   Widget get child => widget.child;
@@ -89,8 +91,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         !visible &&
         (previewActive || controller.audioPlayerNavigationTransition != null)) {
       final dock = _dockClipKey.currentContext?.findRenderObject();
+      final miniPlayer = _miniPlayerKey.currentContext?.findRenderObject();
       final bottomInset = controller.audioPlayerLandscapeInsets?.bottom;
-      _audioMiniPlayerHeight = dock is RenderBox && dock.hasSize
+      _audioMiniPlayerHeight = miniPlayer is RenderBox && miniPlayer.hasSize
+          ? miniPlayer.size.height
+          : dock is RenderBox && dock.hasSize
           ? (dock.size.height - AppBottomDock.layoutExtent(context)).clamp(
               0.0,
               double.infinity,
@@ -194,19 +199,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     final playerTransition = isLandscape
         ? controller.audioPlayerNavigationTransition
         : null;
-    if (playerTransition != null) {
-      final padding = MediaQuery.paddingOf(context);
-      if (controller.audioPlayerLandscapeInsets == null ||
-          _lastPlayerPadding != padding ||
-          _lastPlayerOffline != offline) {
-        _lastPlayerPadding = padding;
-        _lastPlayerOffline = offline;
-        _scheduleAudioLandscapeInsets();
-      }
-    } else {
-      _lastPlayerPadding = null;
-      _lastPlayerOffline = null;
-    }
     final miniPlayer = ref
         .watch(currentTrackProvider)
         .when<Widget?>(
@@ -214,6 +206,22 @@ class _AppNavigationShellState extends State<AppNavigationShell>
           loading: () => null,
           error: (_, __) => null,
         );
+    if (playerTransition != null) {
+      final padding = MediaQuery.paddingOf(context);
+      if (controller.audioPlayerLandscapeInsets == null ||
+          _lastPlayerPadding != padding ||
+          _lastPlayerOffline != offline ||
+          _lastPlayerHasTrack != (miniPlayer != null)) {
+        _lastPlayerPadding = padding;
+        _lastPlayerOffline = offline;
+        _lastPlayerHasTrack = miniPlayer != null;
+        _scheduleAudioLandscapeInsets();
+      }
+    } else {
+      _lastPlayerPadding = null;
+      _lastPlayerOffline = null;
+      _lastPlayerHasTrack = null;
+    }
     void selectTab(int index) {
       if (index == controller.selectedIndex) return;
       controller.selectTab(index);
@@ -275,6 +283,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       }
       final rail = _railKey.currentContext?.findRenderObject();
       if (rail is! RenderBox || !rail.hasSize) return;
+      final miniPlayer = _miniPlayerKey.currentContext?.findRenderObject();
+      _audioMiniPlayerHeight = miniPlayer is RenderBox && miniPlayer.hasSize
+          ? miniPlayer.size.height
+          : 0;
       final padding = MediaQuery.paddingOf(context);
       controller.setAudioPlayerLandscapeInsets(
         EdgeInsets.fromLTRB(
@@ -332,9 +344,23 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             ),
           );
     final showOffline = offline && visible;
+    final keyboardVisible =
+        isLandscape && MediaQuery.viewInsetsOf(context).bottom > 0;
     // An immersive route keeps its viewport while the Dock slides out.
     Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
-    final playback = miniPlayer == null
+    final measuredMiniPlayer = miniPlayer == null
+        ? null
+        : NotificationListener<SizeChangedLayoutNotification>(
+            onNotification: (_) {
+              if (playerTransition != null) _scheduleAudioLandscapeInsets();
+              return false;
+            },
+            child: SizeChangedLayoutNotifier(
+              key: _miniPlayerKey,
+              child: miniPlayer,
+            ),
+          );
+    final playback = measuredMiniPlayer == null
         ? null
         : _protectNavigation(
             ClipRect(
@@ -342,11 +368,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                   ? Align(
                       alignment: Alignment.bottomCenter,
                       heightFactor: 1 - progress,
-                      child: miniPlayer,
+                      child: measuredMiniPlayer,
                     )
                   : FractionalTranslation(
                       translation: Offset(0, progress),
-                      child: miniPlayer,
+                      child: measuredMiniPlayer,
                     ),
             ),
             enabled: visible,
@@ -384,30 +410,33 @@ class _AppNavigationShellState extends State<AppNavigationShell>
               ),
             ),
           Expanded(
-            child: MediaQuery.removePadding(
-              context: context,
-              removeLeft: true,
-              removeRight: true,
-              removeBottom: true,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  0,
-                  0,
-                  safePadding.right * paddingFactor,
-                  safePadding.bottom * paddingFactor,
-                ),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          left: safePadding.left * paddingFactor,
+            child: Builder(
+              builder: (context) => MediaQuery.removePadding(
+                context: context,
+                removeLeft: true,
+                removeRight: true,
+                removeBottom: true,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    0,
+                    0,
+                    safePadding.right * paddingFactor,
+                    safePadding.bottom * paddingFactor,
+                  ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            left: safePadding.left * paddingFactor,
+                          ),
+                          child: child,
                         ),
-                        child: child,
                       ),
-                    ),
-                    if (playback != null) playback,
-                  ],
+                      if (playback != null)
+                        keyboardVisible ? Offstage(child: playback) : playback,
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -484,7 +513,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                       ),
                       child: Align(
                         alignment: Alignment.bottomCenter,
-                        child: navigationOnstage ? playback : null,
+                        child: navigationOnstage
+                            ? playback
+                            : playerTransition != null
+                            ? Offstage(child: playback)
+                            : null,
                       ),
                     ),
                   ),

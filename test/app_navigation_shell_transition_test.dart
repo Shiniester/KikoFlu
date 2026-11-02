@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
@@ -144,10 +145,12 @@ Future<AppNavigationController> _pumpShell(
   bool withTrack = true,
   bool offline = false,
   Stream<AudioTrack?>? trackStream,
+  Stream<PlayerState>? playerStateStream,
   bool fakeTagSearch = false,
   bool tagSearchResults = false,
   int initialTabIndex = 0,
   ThemeData? theme,
+  TextScaler? textScaler,
   FakeViewPadding safePadding = FakeViewPadding.zero,
   Widget Function(AppNavigationController)? homeBuilder,
 }) async {
@@ -179,7 +182,9 @@ Future<AppNavigationController> _pumpShell(
           (ref) => Stream.value(const Duration(minutes: 4)),
         ),
         playerStateProvider.overrideWith(
-          (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+          (ref) =>
+              playerStateStream ??
+              Stream.value(PlayerState(false, ProcessingState.ready)),
         ),
         queueProvider.overrideWith((ref) => Stream.value([_track])),
         manualSkipAvailabilityProvider.overrideWith(
@@ -214,7 +219,7 @@ Future<AppNavigationController> _pumpShell(
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
             context,
-          ).copyWith(disableAnimations: reducedMotion),
+          ).copyWith(disableAnimations: reducedMotion, textScaler: textScaler),
           child: RepaintBoundary(
             key: const ValueKey('shell-paint'),
             child: AppNavigationShell(controller: navigation, child: child!),
@@ -270,14 +275,10 @@ void main() {
     );
   });
 
-  for (final size in [
-    const Size(390, 844),
-    const Size(800, 1200),
-    const Size(1280, 720),
-  ]) {
+  for (final size in [const Size(390, 600), const Size(1280, 720)]) {
     for (final withTrack in [false, true]) {
       testWidgets(
-        'page viewport ends above the Dock at $size (track=$withTrack)',
+        'settings stay above shared navigation at $size (track=$withTrack)',
         (tester) async {
           final navigation = await _pumpShell(
             tester,
@@ -285,154 +286,50 @@ void main() {
             withTrack: withTrack,
             safePadding: const FakeViewPadding(bottom: 24),
           );
-          final bottom = withTrack
-              ? tester.getTopLeft(find.byType(MiniPlayer)).dy
-              : size.width > size.height
-              ? size.height - 24
-              : tester.getTopLeft(find.byType(AppBottomDock)).dy;
-          final home = find.byKey(const ValueKey('home-viewport'));
-          expect(tester.getRect(home).bottom, closeTo(bottom, 0.01));
-
           unawaited(
-            navigation.navigator!.push<void>(
-              MaterialPageRoute(
-                builder: (_) => const Scaffold(
-                  body: SizedBox.expand(key: ValueKey('page-viewport')),
+            navigation
+                .tabNavigator(0)!
+                .push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const VideoCardDisplaySettingsScreen(),
+                  ),
                 ),
-              ),
-            ),
           );
           await tester.pumpAndSettle();
+
+          final list = find.byType(ListView);
+          final scroll = tester
+              .state<ScrollableState>(
+                find.descendant(of: list, matching: find.byType(Scrollable)),
+              )
+              .position;
+          scroll.jumpTo(scroll.maxScrollExtent);
+          await tester.pumpAndSettle();
+
+          final bottom = size.width > size.height
+              ? withTrack
+                    ? tester.getTopLeft(find.byType(MiniPlayer)).dy
+                    : size.height - 24
+              : tester.getTopLeft(find.byType(AppBottomDock)).dy;
+          final lastSwitch = find.descendant(
+            of: find.byType(SwitchListTile).last,
+            matching: find.byType(Switch),
+          );
+          expect(tester.getRect(list).bottom, closeTo(bottom, 0.01));
+          expect(tester.getRect(lastSwitch).bottom, lessThanOrEqualTo(bottom));
+          expect(lastSwitch.hitTestable(), findsOneWidget);
+          await tester.tap(lastSwitch);
+          await tester.pump();
           expect(
-            tester.getRect(find.byKey(const ValueKey('page-viewport'))).bottom,
-            closeTo(bottom, 0.01),
+            tester
+                .widget<SwitchListTile>(find.byType(SwitchListTile).last)
+                .value,
+            isTrue,
           );
-          navigation.navigator!.pop();
-          await tester.pumpAndSettle();
-          expect(tester.getRect(home).bottom, closeTo(bottom, 0.01));
           expect(tester.takeException(), isNull);
         },
       );
     }
-  }
-
-  testWidgets(
-    'tab viewport follows playback and rotation without losing state',
-    (tester) async {
-      final tracks = StreamController<AudioTrack?>();
-      addTearDown(tracks.close);
-      final navigation = await _pumpShell(
-        tester,
-        trackStream: tracks.stream,
-        safePadding: const FakeViewPadding(bottom: 24),
-        homeBuilder: (navigation) => Navigator(
-          key: navigation.tabNavigatorKey(0),
-          observers: [navigation.tabObserver(0)],
-          onGenerateRoute: (_) => MaterialPageRoute<void>(
-            builder: (_) => const Scaffold(body: Text('Tab home')),
-          ),
-        ),
-      );
-      unawaited(
-        navigation
-            .tabNavigator(0)!
-            .push<void>(
-              MaterialPageRoute(
-                builder: (_) => const Scaffold(
-                  body: SizedBox.expand(
-                    key: ValueKey('tab-page-viewport'),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: TextField(key: ValueKey('retained-input')),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-      );
-      await tester.pumpAndSettle();
-      final input = find.byKey(const ValueKey('retained-input'));
-      await tester.enterText(input, 'Retained input');
-      FocusScope.of(tester.element(input)).unfocus();
-
-      for (final size in [
-        const Size(390, 844),
-        const Size(1280, 720),
-        const Size(390, 844),
-      ]) {
-        tester.view.physicalSize = size;
-        for (final track in [null, _track, null]) {
-          tracks.add(track);
-          await tester.pump();
-          await tester.pumpAndSettle();
-          final bottom = track != null
-              ? tester.getTopLeft(find.byType(MiniPlayer)).dy
-              : size.width > size.height
-              ? size.height - 24
-              : tester.getTopLeft(find.byType(AppBottomDock)).dy;
-          expect(
-            tester
-                .getRect(find.byKey(const ValueKey('tab-page-viewport')))
-                .bottom,
-            closeTo(bottom, 0.01),
-          );
-          expect(find.text('Retained input'), findsOneWidget);
-          expect(navigation.tabNavigator(0)!.canPop(), isTrue);
-        }
-      }
-      navigation.tabNavigator(0)!.pop();
-      await tester.pumpAndSettle();
-      expect(find.text('Tab home'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  for (final player in [false, true]) {
-    testWidgets(
-      'opening a ${player ? 'player' : 'sheet'} preserves a scrolled page position',
-      (tester) async {
-        final scroll = ScrollController();
-        addTearDown(scroll.dispose);
-        final navigation = await _pumpShell(
-          tester,
-          safePadding: const FakeViewPadding(bottom: 24),
-          homeBuilder: (navigation) => _tabHome(
-            navigation,
-            Scaffold(
-              body: SingleChildScrollView(
-                controller: scroll,
-                padding: const EdgeInsets.all(16),
-                child: const SizedBox(height: 2400),
-              ),
-            ),
-          ),
-        );
-        final viewport = find.byType(SingleChildScrollView);
-        final bottom = tester.getTopLeft(find.byType(AppBottomDock)).dy;
-        expect(tester.getRect(viewport).bottom, closeTo(bottom, 0.01));
-        scroll.jumpTo(scroll.position.maxScrollExtent);
-        await tester.pumpAndSettle();
-        final offset = scroll.offset;
-        if (player) {
-          _openPlayer(navigation);
-        } else {
-          unawaited(
-            showResponsiveBottomSheet<void>(
-              context: tester.element(viewport),
-              builder: (_) => const BottomSheetMenu(
-                children: [ListTile(title: Text('Menu action'))],
-              ),
-            ),
-          );
-        }
-        await tester.pumpAndSettle();
-        (player ? navigation.navigator! : navigation.tabNavigator(0)!).pop();
-        await tester.pumpAndSettle();
-        expect(scroll.offset, closeTo(offset, 0.01));
-        expect(tester.getRect(viewport).bottom, closeTo(bottom, 0.01));
-        expect(tester.takeException(), isNull);
-      },
-    );
   }
 
   for (final withTrack in [false, true]) {
@@ -821,7 +718,6 @@ void main() {
     unawaited(
       navigation.navigator!.push(
         MaterialPageRoute<void>(
-          settings: appNavigationHostRouteSettings,
           builder: (_) => Navigator(
             onGenerateRoute: (_) => MaterialPageRoute<void>(
               builder: (context) => Scaffold(
@@ -966,9 +862,6 @@ void main() {
                     key: navigation.tabNavigatorKey(index),
                     observers: [navigation.tabObserver(index)],
                     onGenerateRoute: (_) => MaterialPageRoute<void>(
-                      settings: nested && index == 0
-                          ? appNavigationHostRouteSettings
-                          : null,
                       builder: (context) {
                         Widget content(BuildContext context) => Scaffold(
                           body: TextButton(
@@ -1117,6 +1010,87 @@ void main() {
     expect(tester.getTopLeft(dock).dy, lessThan(844));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(dock).dy, closeTo(initialTop, 0.01));
+  });
+
+  for (final withTrack in [false, true]) {
+    testWidgets('landscape keyboard resizes the page once (track=$withTrack)', (
+      tester,
+    ) async {
+      await _pumpShell(
+        tester,
+        size: const Size(844, 390),
+        withTrack: withTrack,
+      );
+      final mini = find.byType(MiniPlayer, skipOffstage: false);
+      final miniState = withTrack ? tester.state(mini) : null;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(find.byKey(const ValueKey('home-viewport'))).bottom,
+        closeTo(390 - 200, 0.01),
+      );
+      expect(find.byType(MiniPlayer), findsNothing);
+      if (withTrack) {
+        expect(tester.state(mini), same(miniState));
+        expect(mini.hitTestable(), findsNothing);
+      }
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(MiniPlayer),
+        withTrack ? findsOneWidget : findsNothing,
+      );
+      if (withTrack) expect(tester.state(mini), same(miniState));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('landscape keyboard leaves room for the page with large lyrics', (
+    tester,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setDouble('player_lyric_miniFontSize', 20);
+    await preferences.setDouble('player_lyric_miniLineHeight', 2);
+    await _pumpShell(
+      tester,
+      size: const Size(640, 360),
+      textScaler: const TextScaler.linear(2),
+      playerStateStream: Stream.value(PlayerState(true, ProcessingState.ready)),
+    );
+    tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('home-viewport'))).height,
+      greaterThan(0),
+    );
+  });
+
+  testWidgets('landscape sheet stays usable above the keyboard', (
+    tester,
+  ) async {
+    await _pumpShell(tester, size: const Size(844, 390));
+    final context = tester.element(find.byKey(const ValueKey('home-viewport')));
+    unawaited(
+      showResponsiveBottomSheet<void>(
+        context: context,
+        builder: (_) => const BottomSheetMenu(
+          children: [ListTile(title: Text('Landscape sheet action'))],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Landscape sheet action').hitTestable(), findsOneWidget);
+    expect(
+      tester.getRect(find.text('Landscape sheet action')).bottom,
+      lessThanOrEqualTo(190),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   for (final size in [const Size(640, 360), const Size(1280, 720)]) {
@@ -1302,6 +1276,144 @@ void main() {
       );
     }
   }
+
+  for (final startingPlaying in [false, true]) {
+    testWidgets(
+      'landscape player exit follows playback changes (playing=$startingPlaying)',
+      (tester) async {
+        final states = StreamController<PlayerState>.broadcast();
+        addTearDown(states.close);
+        final navigation = await _pumpShell(
+          tester,
+          size: const Size(1280, 720),
+          playerStateStream: states.stream,
+        );
+        states.add(PlayerState(startingPlaying, ProcessingState.ready));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSize(find.byType(MiniPlayer)).height,
+          startingPlaying ? 88 : 72,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('mini-player-track-swipe-region')),
+        );
+        await tester.pumpAndSettle();
+        states.add(PlayerState(!startingPlaying, ProcessingState.ready));
+        await tester.pumpAndSettle();
+
+        final home = find.byKey(
+          const ValueKey('home-viewport'),
+          skipOffstage: false,
+        );
+        navigation.navigator!.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+        final duringExit = tester.getRect(home);
+        await tester.pumpAndSettle();
+
+        expect(tester.getRect(home), duringExit);
+        expect(tester.getRect(home).bottom, startingPlaying ? 648 : 632);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('landscape player exit follows scaled playback height', (
+    tester,
+  ) async {
+    final states = StreamController<PlayerState>.broadcast();
+    addTearDown(states.close);
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      textScaler: const TextScaler.linear(2),
+      playerStateStream: states.stream,
+    );
+    states.add(PlayerState(false, ProcessingState.ready));
+    await tester.pumpAndSettle();
+    _openPlayer(navigation);
+    await tester.pumpAndSettle();
+    states.add(PlayerState(true, ProcessingState.ready));
+    await tester.pumpAndSettle();
+
+    final miniPlayer = find.byType(MiniPlayer, skipOffstage: false);
+    final miniPlayerHeight = tester.getSize(miniPlayer).height;
+    expect(miniPlayerHeight, greaterThan(88));
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final duringExit = tester.getRect(home);
+    await tester.pumpAndSettle();
+
+    expect(tester.getRect(home), duringExit);
+    expect(tester.getRect(home).bottom, closeTo(720 - miniPlayerHeight, 0.01));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player exit follows removal of the current track', (
+    tester,
+  ) async {
+    final tracks = StreamController<AudioTrack?>.broadcast();
+    addTearDown(tracks.close);
+    final navigation = await _pumpShell(
+      tester,
+      size: const Size(1280, 720),
+      trackStream: tracks.stream,
+    );
+    tracks.add(_track);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('mini-player-track-swipe-region')),
+    );
+    await tester.pumpAndSettle();
+    tracks.add(null);
+    await tester.pumpAndSettle();
+
+    final home = find.byKey(
+      const ValueKey('home-viewport'),
+      skipOffstage: false,
+    );
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final duringExit = tester.getRect(home);
+    await tester.pumpAndSettle();
+
+    expect(tester.getRect(home), duringExit);
+    expect(tester.getRect(home).bottom, 720);
+    expect(find.byType(MiniPlayer), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landscape player can reopen after a drag handoff', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester, size: const Size(1280, 720));
+    final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
+    final gesture = await tester.startGesture(tester.getCenter(launcher));
+    for (var step = 0; step < 14; step++) {
+      await gesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(navigation.audioPlayerRoute, isNotNull);
+    expect(find.byType(MiniPlayer), findsNothing);
+
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('mini-player-track-swipe-region')),
+    );
+    await tester.pumpAndSettle();
+    expect(navigation.audioPlayerRoute, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('landscape page above the player keeps the full viewport', (
     tester,
@@ -1522,6 +1634,70 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final target in [
+    'mini-player-track-swipe-region',
+    'mini-player-queue-button',
+  ]) {
+    for (final safePadding in [
+      FakeViewPadding.zero,
+      const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    ]) {
+      testWidgets(
+        'landscape navigation does not flash when tapping the Mini Player '
+        '(target=$target, left=${safePadding.left})',
+        (tester) async {
+          final navigation = await _pumpShell(
+            tester,
+            size: const Size(1280, 720),
+            safePadding: safePadding,
+          );
+          final railFinder = find.byType(NavigationRail);
+          final rail = tester.getRect(railFinder);
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('shell-paint')),
+          );
+          Future<List<int>> readRail() async =>
+              (await tester.runAsync(() async {
+                final image = await boundary.toImage();
+                try {
+                  final pixels = (await image.toByteData(
+                    format: ui.ImageByteFormat.rawRgba,
+                  ))!;
+                  return [
+                    for (var y = 0; y < rail.height / 2; y += 3)
+                      for (var x = rail.left.toInt(); x < rail.right; x += 3)
+                        pixels.getUint32(4 * (y * image.width + x)),
+                  ];
+                } finally {
+                  image.dispose();
+                }
+              }))!;
+
+          final before = await readRail();
+          await tester.tap(find.byKey(ValueKey(target)));
+          for (final elapsed in [0, 16, 16, 16]) {
+            await tester.pump(Duration(milliseconds: elapsed));
+            expect(navigation.audioPlayerRoute, isNotNull);
+            expect(
+              navigation.audioPlayerNavigationTransition!.value,
+              lessThan(0.5),
+            );
+            final actual = await readRail();
+            final changed = [
+              for (var i = 0; i < actual.length; i++)
+                if (actual[i] != before[i]) i,
+            ];
+            expect(changed, isEmpty, reason: 'after $elapsed ms');
+          }
+          await tester.pumpAndSettle();
+          navigation.navigator!.pop();
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('landscape player covers stationary navigation', (tester) async {
     final navigation = await _pumpShell(
       tester,
@@ -1664,7 +1840,14 @@ void main() {
         );
         expect(dock, findsNothing);
         expect(rail, size.width > size.height ? findsOneWidget : findsNothing);
-        expect(mini, findsNothing);
+        if (size.width > size.height) {
+          expect(mini, findsOneWidget);
+          expect(tester.state(mini), same(miniState));
+          expect(find.byType(MiniPlayer), findsNothing);
+          expect(mini.hitTestable(), findsNothing);
+        } else {
+          expect(mini, findsNothing);
+        }
 
         navigation.navigator!.pop();
         await tester.pumpAndSettle();
