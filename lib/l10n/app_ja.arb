@@ -276,6 +276,9 @@
   "loadFileListFailed": "ファイルリストの読み込みに失敗: {error}",
 
   "playlistTitle": "再生キュー",
+  "currentPlaybackQueue": "現在の再生キュー",
+  "playbackQueueHistory": "再生キューの履歴",
+  "queueBrowserPagePosition": "{current}/{total} ページ",
   "clearPlaybackQueueTitle": "再生キューをクリアしますか？",
   "clearPlaybackQueueMessage": "再生を停止し、キュー内のすべての項目を削除します。",
   "noAudioPlaying": "再生中の音声がありません",

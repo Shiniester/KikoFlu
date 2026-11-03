@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart'
     show BaseCacheManager, FileResponse;
@@ -63,6 +64,7 @@ import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
@@ -497,6 +499,39 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  testWidgets('queue history is nested under history and opens without audio', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    _requestAudioPage(tester, 'history');
+    await tester.pumpAndSettle();
+
+    const entryKey = ValueKey('audio-queue-history-entry');
+    final historyEntry = _audioPageTile(tester, 'history').children
+        .whereType<LibraryDrawerTile>()
+        .singleWhere((tile) => tile.key == entryKey);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    expect(
+      _section(tester, s.libraryPages).children
+          .whereType<LibraryDrawerTile>()
+          .where((tile) => tile.key == entryKey),
+      isEmpty,
+    );
+
+    historyEntry.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.byType(PlayerQueueBrowser), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

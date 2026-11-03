@@ -804,6 +804,17 @@ class SEn extends S {
   String get playlistTitle => 'Playback Queue';
 
   @override
+  String get currentPlaybackQueue => 'Current queue';
+
+  @override
+  String get playbackQueueHistory => 'Playback queue history';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return 'Page $current of $total';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => 'Clear playback queue?';
 
   @override

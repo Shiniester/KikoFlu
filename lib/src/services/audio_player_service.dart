@@ -186,6 +186,15 @@ class AudioPlayerService {
   static const Duration _androidBackBufferDuration = Duration(seconds: 30);
   static const Duration _androidCacheStartBuffer = Duration(seconds: 15);
   static const Duration _androidCacheContinueBuffer = Duration(seconds: 5);
+  static int _lastMarkingQueueIdTimestamp = 0;
+
+  static String _newMarkingQueueId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    _lastMarkingQueueIdTimestamp = math
+        .max(now, _lastMarkingQueueIdTimestamp + 1)
+        .toInt();
+    return _lastMarkingQueueIdTimestamp.toString();
+  }
 
   AudioPlayerService._() {
     _androidNativePreload = Platform.isAndroid;
@@ -211,6 +220,7 @@ class AudioPlayerService {
     }
     _audioCacheDownloader = _createAudioCacheDownloader();
     _listenForPlaybackErrors();
+    _startHistoricalQueueLoad();
   }
 
   late final AudioPlayer _player;
@@ -220,6 +230,8 @@ class AudioPlayerService {
     AudioPlayer player, {
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
+    PlaybackQueueHistoryStore queueHistoryStore =
+        const SharedPreferencesPlaybackQueueHistoryStore(),
     AudioSliceStore sliceStore = const SharedPreferencesAudioSliceStore(),
     bool androidSeekRecovery = false,
     bool androidNativePreload = false,
@@ -228,6 +240,7 @@ class AudioPlayerService {
   }) {
     _player = player;
     _playbackSessionStore = sessionStore;
+    _playbackQueueHistoryStore = queueHistoryStore;
     _audioSliceStore = sliceStore;
     _androidSeekRecovery = androidSeekRecovery;
     _androidNativePreload = androidNativePreload;
@@ -235,6 +248,7 @@ class AudioPlayerService {
     _audioCacheDownloader = cacheDownloader ?? _createAudioCacheDownloader();
     _listenForPlaybackErrors();
     _setupPlayerListeners();
+    _startHistoricalQueueLoad();
   }
 
   AudioCacheDownloader _createAudioCacheDownloader() => AudioCacheDownloader(
@@ -318,11 +332,21 @@ class AudioPlayerService {
   late final AudioCacheDownloader _audioCacheDownloader;
   AudioCacheRequest? _audioCacheTarget;
   Future<void> _sessionWrite = Future.value();
+  Future<void> _queueHistoryWrite = Future.value();
   int _lastSessionPositionMs = 0;
   bool _isRestoringSession = false;
   bool _sessionCompleted = false;
   bool _handlingTrackCompletion = false;
   String? _sessionOwnerKey;
+  PlaybackQueueHistoryStore _playbackQueueHistoryStore =
+      const SharedPreferencesPlaybackQueueHistoryStore();
+  final StreamController<List<PlaybackSessionSnapshot>>
+  _storedHistoricalQueuesController = StreamController.broadcast(sync: true);
+  List<PlaybackSessionSnapshot> _storedHistoricalQueues = const [];
+  Future<void>? _historicalQueueLoad;
+  PlaybackSessionSnapshot? _committedQueueSnapshot;
+  PlaybackSessionSnapshot? _pendingQueueReplacementSnapshot;
+  PlaybackSessionSnapshot? _pendingHistoricalRestoreSnapshot;
 
   // 下一首预加载：剩余时长低于此阈值时提前缓存下一首，避免切歌空档
   // null 表示关闭预加载。Android 默认 60 秒，其他平台默认 10 秒。
@@ -370,6 +394,230 @@ class AudioPlayerService {
   double _userVolume = 1;
   double _audioGainDecibels = AudioGainSettings.defaultDecibels;
   bool _audioPassthroughEnabled = false;
+
+  void _startHistoricalQueueLoad() {
+    _historicalQueueLoad ??= _loadHistoricalQueues();
+  }
+
+  Future<void> _ensureHistoricalQueuesLoaded() {
+    _startHistoricalQueueLoad();
+    return _historicalQueueLoad!;
+  }
+
+  Future<void> _loadHistoricalQueues() async {
+    try {
+      _storedHistoricalQueues = _limitHistoricalQueues(
+        await _playbackQueueHistoryStore.load(),
+      );
+    } catch (error) {
+      _log.captureOutput('[AudioSession] Failed to load queue history: $error');
+    }
+    _emitHistoricalQueuesChanged();
+  }
+
+  List<PlaybackSessionSnapshot> get historicalQueues {
+    return historicalQueuesForOwner(_currentSessionOwnerKey());
+  }
+
+  List<PlaybackSessionSnapshot> historicalQueuesForOwner(String? ownerKey) {
+    if (ownerKey == null || ownerKey.isEmpty) return const [];
+    return List.unmodifiable(
+      _storedHistoricalQueues.where(
+        (snapshot) => snapshot.ownerKey == ownerKey,
+      ),
+    );
+  }
+
+  Stream<List<PlaybackSessionSnapshot>> get historicalQueuesStream =>
+      historicalQueuesForOwnerStream(_currentSessionOwnerKey());
+
+  Stream<List<PlaybackSessionSnapshot>> historicalQueuesForOwnerStream(
+    String? ownerKey,
+  ) => _storedHistoricalQueuesController.stream.map(
+    (_) => historicalQueuesForOwner(ownerKey),
+  );
+
+  void _emitHistoricalQueuesChanged() {
+    if (!_storedHistoricalQueuesController.isClosed) {
+      _storedHistoricalQueuesController.add(_storedHistoricalQueues);
+    }
+  }
+
+  static String? playbackQueueOwnerKey({
+    required String? host,
+    required String? userName,
+  }) {
+    final normalizedHost = host
+        ?.trim()
+        .replaceFirst(RegExp(r'/+$'), '')
+        .toLowerCase();
+    if (normalizedHost == null || normalizedHost.isEmpty) return null;
+    final normalizedUserName = userName?.trim();
+    return '$normalizedHost\n${normalizedUserName == null || normalizedUserName.isEmpty ? 'anonymous' : normalizedUserName}';
+  }
+
+  List<PlaybackSessionSnapshot> _limitHistoricalQueues(
+    Iterable<PlaybackSessionSnapshot> queues,
+  ) {
+    final counts = <String, int>{};
+    final limited = <PlaybackSessionSnapshot>[];
+    for (final snapshot in queues) {
+      final count = counts[snapshot.ownerKey] ?? 0;
+      if (count == 20) continue;
+      counts[snapshot.ownerKey] = count + 1;
+      limited.add(snapshot);
+    }
+    return List.unmodifiable(limited);
+  }
+
+  bool _sameHistoricalQueue(
+    PlaybackSessionSnapshot first,
+    PlaybackSessionSnapshot second,
+  ) {
+    if (first.ownerKey != second.ownerKey) return false;
+    final firstId = first.markingQueueId;
+    final secondId = second.markingQueueId;
+    return firstId != null && secondId != null
+        ? firstId == secondId
+        : identical(first, second);
+  }
+
+  bool _isUsedQueue(PlaybackSessionSnapshot? snapshot) =>
+      snapshot != null &&
+      snapshot.queue.isNotEmpty &&
+      snapshot.ownerKey.isNotEmpty &&
+      snapshot.markingQueueId?.isNotEmpty == true;
+
+  Future<void> _archiveQueue(PlaybackSessionSnapshot? snapshot) async {
+    if (!_isUsedQueue(snapshot)) return;
+    await _ensureHistoricalQueuesLoaded();
+    await _enqueueQueueHistoryWrite(() async {
+      final queue = snapshot!;
+      final next = _storedHistoricalQueues
+          .where((item) => !_sameHistoricalQueue(item, queue))
+          .toList();
+      next.insert(0, queue);
+      final limited = _limitHistoricalQueues(next);
+      await _playbackQueueHistoryStore.save(limited);
+      _storedHistoricalQueues = limited;
+      _emitHistoricalQueuesChanged();
+    });
+  }
+
+  Future<T> _enqueueQueueHistoryWrite<T>(Future<T> Function() operation) {
+    final result = Completer<T>();
+    _queueHistoryWrite = _queueHistoryWrite.then((_) async {
+      try {
+        result.complete(await operation());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+
+  Future<List<PlaybackSessionSnapshot>?> _commitPendingQueueHistory(
+    _TrackLoadRequest request,
+  ) async {
+    _ensureCurrentTrackLoad(request);
+    final leavingQueue = _pendingQueueReplacementSnapshot;
+    final restoredQueue = _pendingHistoricalRestoreSnapshot;
+    if (leavingQueue == null && restoredQueue == null) return null;
+
+    if (restoredQueue != null &&
+        _currentSessionOwnerKey() != restoredQueue.ownerKey) {
+      throw const _TrackLoadSuperseded();
+    }
+    await _ensureHistoricalQueuesLoaded();
+    _ensureCurrentTrackLoad(request);
+    final previous = _storedHistoricalQueues;
+    final next = previous.where((item) {
+      return (restoredQueue == null ||
+              !_sameHistoricalQueue(item, restoredQueue)) &&
+          (leavingQueue == null || !_sameHistoricalQueue(item, leavingQueue));
+    }).toList();
+    if (_isUsedQueue(leavingQueue) &&
+        (restoredQueue == null ||
+            !_sameHistoricalQueue(leavingQueue!, restoredQueue))) {
+      next.insert(0, leavingQueue!);
+    }
+    final limited = _limitHistoricalQueues(next);
+    await _playbackQueueHistoryStore.save(limited);
+    if (!_isCurrentTrackLoad(request) ||
+        (restoredQueue != null &&
+            _currentSessionOwnerKey() != restoredQueue.ownerKey)) {
+      await _playbackQueueHistoryStore.save(previous);
+      throw const _TrackLoadSuperseded();
+    }
+    _storedHistoricalQueues = limited;
+    _emitHistoricalQueuesChanged();
+    return previous;
+  }
+
+  PlaybackSessionSnapshot? _snapshotCurrentQueue({Duration? position}) {
+    final ownerKey = _sessionOwnerKey ?? _currentSessionOwnerKey();
+    if (_queue.isEmpty ||
+        _publishedTrack == null ||
+        _currentIndex < 0 ||
+        _currentIndex >= _queue.length ||
+        ownerKey == null ||
+        ownerKey.isEmpty) {
+      return null;
+    }
+    return PlaybackSessionSnapshot(
+      queue: List.unmodifiable(_queue),
+      currentIndex: _currentIndex,
+      position: position ?? _player.position,
+      ownerKey: ownerKey,
+      markingQueueId: _markingQueueId,
+    );
+  }
+
+  void _updateCommittedQueueSnapshot() {
+    if (_pendingQueueReplacementSnapshot != null ||
+        _pendingHistoricalRestoreSnapshot != null ||
+        _committedQueueSnapshot == null) {
+      return;
+    }
+    final current = _committedQueueSnapshot!;
+    if (_queue.isEmpty || _publishedTrack == null) return;
+    final currentIndex = _queue.indexWhere(
+      (track) => track.id == _publishedTrack!.id,
+    );
+    if (currentIndex < 0) return;
+    final loading =
+        _sourceNeedsReload ||
+        _isSwitchingTrack ||
+        _activeTrackLoad != null ||
+        _latestTrackLoad != null;
+    _committedQueueSnapshot = PlaybackSessionSnapshot(
+      queue: List.unmodifiable(_queue),
+      currentIndex: currentIndex,
+      position: loading ? current.position : _player.position,
+      ownerKey: current.ownerKey,
+      markingQueueId: _markingQueueId,
+    );
+  }
+
+  void _updateCommittedQueuePosition(Duration position) {
+    if (_pendingQueueReplacementSnapshot != null ||
+        _pendingHistoricalRestoreSnapshot != null ||
+        _sourceNeedsReload ||
+        _isSwitchingTrack ||
+        _activeTrackLoad != null ||
+        _latestTrackLoad != null) {
+      return;
+    }
+    final current = _committedQueueSnapshot;
+    if (current == null) return;
+    _committedQueueSnapshot = PlaybackSessionSnapshot(
+      queue: current.queue,
+      currentIndex: current.currentIndex,
+      position: position,
+      ownerKey: current.ownerKey,
+      markingQueueId: current.markingQueueId,
+    );
+  }
 
   // Stream controllers
   final StreamController<List<AudioTrack>> _queueController =
@@ -552,6 +800,7 @@ class AudioPlayerService {
           track: currentTrack,
         );
       }
+      _updateCommittedQueuePosition(position);
       _checkpointPlaybackSession(position);
       _updatePlaybackState();
     });
@@ -661,6 +910,7 @@ class AudioPlayerService {
   Stream<AutomaticMarkingEvent> get automaticMarkingEvents =>
       _automaticMarkingController.stream;
   String _markingQueueId = '';
+  ({String queueId, AutomaticMarkingEventType type})? _pendingQueueMarking;
   int? _markingStartedGeneration;
 
   void _emitAutomaticMarking(
@@ -668,6 +918,11 @@ class AudioPlayerService {
     AudioTrack? track,
     List<AudioTrack> tracks = const [],
   }) {
+    // Failed queue changes must not evict saved completion history.
+    if (_pendingQueueMarking != null ||
+        _pendingHistoricalRestoreSnapshot != null) {
+      return;
+    }
     _automaticMarkingController.add(
       AutomaticMarkingEvent(
         type,
@@ -692,12 +947,16 @@ class AudioPlayerService {
     }
 
     if (_disposed) throw StateError('AudioPlayerService is disposed');
+    _pendingQueueReplacementSnapshot ??= _committedQueueSnapshot;
+    _pendingHistoricalRestoreSnapshot = null;
     _sessionCompleted = false;
     _sessionOwnerKey = _currentSessionOwnerKey();
     _queue.clear();
     _queue.addAll(tracks);
-    _markingQueueId = DateTime.now().microsecondsSinceEpoch.toString();
-    _emitAutomaticMarking(AutomaticMarkingEventType.replace, tracks: tracks);
+    _pendingQueueMarking = (
+      queueId: _newMarkingQueueId(),
+      type: AutomaticMarkingEventType.replace,
+    );
     final targetIndex = startIndex.clamp(0, tracks.length - 1).toInt();
     _pendingTargetTrackId = tracks[targetIndex].id;
     _refreshManualSkipAvailability();
@@ -721,12 +980,82 @@ class AudioPlayerService {
     }
   }
 
-  Future<void> clearQueue() async {
+  Future<bool> restoreHistoricalQueue(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) async {
+    if (_disposed) throw StateError('AudioPlayerService is disposed');
+    await _ensureHistoricalQueuesLoaded();
+    final ownerKey = _currentSessionOwnerKey();
+    if (ownerKey == null ||
+        snapshot.ownerKey != ownerKey ||
+        snapshot.currentIndex < 0 ||
+        snapshot.currentIndex >= snapshot.queue.length ||
+        index < 0 ||
+        index >= snapshot.queue.length ||
+        !historicalQueues.any((item) => _sameHistoricalQueue(item, snapshot))) {
+      return false;
+    }
+
+    _pendingQueueReplacementSnapshot ??= _committedQueueSnapshot;
+    _pendingHistoricalRestoreSnapshot = snapshot;
+    _pendingQueueMarking = null;
+    _sessionCompleted = false;
+    _sessionOwnerKey = ownerKey;
+    _pendingTargetTrackId = snapshot.queue[index].id;
+    _refreshManualSkipAvailability();
+    _queue
+      ..clear()
+      ..addAll(snapshot.queue.map(_refreshStoredTrackCredentials));
+    _queueController.add(List<AudioTrack>.from(_queue));
+
+    final targetPosition = index == snapshot.currentIndex
+        ? snapshot.position
+        : Duration.zero;
+    final request = _enqueueTrackLoad(
+      _queue[index],
+      emitCurrentTrack: true,
+      autoplay: true,
+      direction: PlayerTrackChangeDirection.none,
+      initialPosition: targetPosition,
+    );
+    try {
+      await request.future;
+    } catch (_) {
+      if (!request.superseded && _isLatestTrackLoad(request)) {
+        await _clearQueueAfterLoadFailure(request);
+      }
+      rethrow;
+    }
+    if (!request.committed &&
+        _trackLoadGeneration == request.generation &&
+        identical(_pendingHistoricalRestoreSnapshot, snapshot) &&
+        _activeTrackLoad == null &&
+        _latestTrackLoad == null) {
+      final previous = _pendingQueueReplacementSnapshot;
+      if (previous != null) {
+        await _restoreQueueAfterLoadFailure(previous);
+      } else {
+        await _clearQueue(archive: false);
+      }
+    }
+    return request.committed;
+  }
+
+  Future<void> clearQueue() => _clearQueue(archive: true);
+
+  Future<void> _clearQueue({required bool archive}) async {
+    final leavingQueue = _committedQueueSnapshot;
     _desiredPlaying = false;
     _setAudioCacheTarget(null);
     final clearRevision = ++_intentRevision;
     final stoppedNativeLoad = await _invalidateTrackLoads();
     if (clearRevision != _intentRevision) return;
+
+    if (archive) {
+      await _archiveQueue(leavingQueue);
+      if (clearRevision != _intentRevision) return;
+    }
 
     _queue.clear();
     _currentIndex = 0;
@@ -735,6 +1064,10 @@ class AudioPlayerService {
     _resumeTrack = null;
     _performanceActivePlaybackRequestId = null;
     _performanceActivePlaybackTrackId = null;
+    _committedQueueSnapshot = null;
+    _pendingQueueReplacementSnapshot = null;
+    _pendingHistoricalRestoreSnapshot = null;
+    _pendingQueueMarking = null;
     _desiredPlaying = false;
     _refreshManualSkipAvailability();
     _queueController.add(const []);
@@ -898,7 +1231,8 @@ class AudioPlayerService {
                 isLoading: false,
               ),
         );
-        _commitTrackLoad(request);
+        final commit = _commitTrackLoad(request);
+        if (commit != null) await commit;
         request.complete();
       } on _TrackLoadSuperseded {
         request.supersede();
@@ -1087,7 +1421,30 @@ class AudioPlayerService {
     );
   }
 
-  void _commitTrackLoad(_TrackLoadRequest request) {
+  Future<void>? _commitTrackLoad(_TrackLoadRequest request) {
+    _ensureCurrentTrackLoad(request);
+    if (_pendingQueueReplacementSnapshot == null &&
+        _pendingHistoricalRestoreSnapshot == null) {
+      _commitTrackLoadState(request);
+      return null;
+    }
+    return _enqueueQueueHistoryWrite(() async {
+      final previousHistory = await _commitPendingQueueHistory(request);
+      try {
+        _ensureCurrentTrackLoad(request);
+        _commitTrackLoadState(request);
+      } on _TrackLoadSuperseded {
+        if (previousHistory != null) {
+          await _playbackQueueHistoryStore.save(previousHistory);
+          _storedHistoricalQueues = previousHistory;
+          _emitHistoricalQueuesChanged();
+        }
+        rethrow;
+      }
+    });
+  }
+
+  void _commitTrackLoadState(_TrackLoadRequest request) {
     _ensureCurrentTrackLoad(request);
     final index = _queue.indexWhere((item) => item.id == request.track.id);
     if (index < 0) throw const _TrackLoadSuperseded();
@@ -1095,15 +1452,41 @@ class AudioPlayerService {
     _currentIndex = index;
     _pendingTargetTrackId = null;
     _publishedTrack = request.track;
+    final restoredQueue = _pendingHistoricalRestoreSnapshot;
+    final pendingQueueMarking = _pendingQueueMarking;
+    if (restoredQueue != null) {
+      _markingQueueId = restoredQueue.markingQueueId ?? _newMarkingQueueId();
+    } else if (pendingQueueMarking != null) {
+      _markingQueueId = pendingQueueMarking.queueId;
+    }
     if (request.emitCurrentTrack) _markingStartedGeneration = null;
     _refreshManualSkipAvailability();
     _sourceNeedsReload = false;
     _failedSeekSource = null;
     _failedSeekPosition = null;
+    _pendingQueueReplacementSnapshot = null;
+    _pendingHistoricalRestoreSnapshot = null;
+    _pendingQueueMarking = null;
     _seekRecoveryGeneration = request.sourceToReload == null
         ? null
         : request.generation;
     _committedTrackGeneration = request.generation;
+    request.committed = true;
+    _committedQueueSnapshot = _snapshotCurrentQueue();
+    if (restoredQueue != null) {
+      _emitAutomaticMarking(AutomaticMarkingEventType.restore);
+      _emitAutomaticMarking(
+        AutomaticMarkingEventType.selected,
+        track: request.track,
+      );
+    } else if (pendingQueueMarking != null) {
+      _emitAutomaticMarking(
+        pendingQueueMarking.type,
+        tracks: pendingQueueMarking.type == AutomaticMarkingEventType.replace
+            ? _queue
+            : const [],
+      );
+    }
     if (request.emitCurrentTrack) {
       _publishCurrentTrack(request.track, direction: request.direction);
     }
@@ -1140,7 +1523,46 @@ class AudioPlayerService {
 
   Future<void> _clearQueueAfterLoadFailure(_TrackLoadRequest request) async {
     if (!_isLatestTrackLoad(request)) return;
-    await clearQueue();
+    final previous = _pendingQueueReplacementSnapshot;
+    if (previous == null) {
+      _pendingHistoricalRestoreSnapshot = null;
+      await _clearQueue(archive: false);
+      return;
+    }
+
+    await _restoreQueueAfterLoadFailure(previous);
+  }
+
+  Future<void> _restoreQueueAfterLoadFailure(
+    PlaybackSessionSnapshot previous,
+  ) async {
+    final restoreMarkingState =
+        _markingQueueId != previous.markingQueueId &&
+        _currentSessionOwnerKey() == previous.ownerKey;
+    _queue
+      ..clear()
+      ..addAll(previous.queue);
+    _currentIndex = previous.currentIndex;
+    _sessionOwnerKey = previous.ownerKey;
+    _markingQueueId = previous.markingQueueId ?? _markingQueueId;
+    _pendingTargetTrackId = null;
+    _pendingQueueReplacementSnapshot = null;
+    _pendingHistoricalRestoreSnapshot = null;
+    _pendingQueueMarking = null;
+    _committedQueueSnapshot = previous;
+    _resumeTrack = _publishedTrack ?? _queue[_currentIndex];
+    _sourceNeedsReload = true;
+    _failedSeekSource = null;
+    _failedSeekPosition = previous.position;
+    _desiredPlaying = false;
+    _sessionCompleted = false;
+    _refreshManualSkipAvailability();
+    _queueController.add(List<AudioTrack>.from(_queue));
+    if (restoreMarkingState) {
+      _emitAutomaticMarking(AutomaticMarkingEventType.restore);
+    }
+    _updatePlaybackState();
+    await _enqueueSessionWrite(() => _playbackSessionStore.save(previous));
   }
 
   Future<void> _loadTrack(_TrackLoadRequest request) async {
@@ -2706,7 +3128,7 @@ class AudioPlayerService {
     _queueController.add(List.from(_queue));
 
     if (_queue.isEmpty) {
-      await clearQueue();
+      await _clearQueue(archive: false);
       return;
     }
 
@@ -2730,6 +3152,7 @@ class AudioPlayerService {
         _currentIndex = updatedIndex;
       }
     }
+    _updateCommittedQueueSnapshot();
     await persistPlaybackSession();
     _updateAudioCacheTarget();
   }
@@ -2750,6 +3173,7 @@ class AudioPlayerService {
 
     _refreshManualSkipAvailability();
     _queueController.add(List.from(_queue));
+    _updateCommittedQueueSnapshot();
     await persistPlaybackSession();
     _updateAudioCacheTarget();
   }
@@ -2784,6 +3208,7 @@ class AudioPlayerService {
     _refreshManualSkipAvailability();
     _sessionCompleted = false;
     _queueController.add(List<AudioTrack>.from(_queue));
+    _updateCommittedQueueSnapshot();
     await persistPlaybackSession();
     _updateAudioCacheTarget();
     return mutation.result;
@@ -2826,6 +3251,7 @@ class AudioPlayerService {
     if (appended) {
       _refreshManualSkipAvailability();
       _queueController.add(List.from(_queue));
+      _updateCommittedQueueSnapshot();
       await persistPlaybackSession();
       _updateAudioCacheTarget();
     }
@@ -2850,6 +3276,7 @@ class AudioPlayerService {
     if (_queue.isEmpty ||
         _isRestoringSession ||
         _isSwitchingTrack ||
+        _sourceNeedsReload ||
         _sessionCompleted) {
       return;
     }
@@ -2871,12 +3298,17 @@ class AudioPlayerService {
       return _sessionWrite;
     }
 
+    final position = _sourceNeedsReload
+        ? (_committedQueueSnapshot?.position ??
+              _failedSeekPosition ??
+              Duration.zero)
+        : _player.position;
     final snapshot = PlaybackSessionSnapshot(
       queue: List<AudioTrack>.from(_queue),
       currentIndex: _currentIndex,
-      position: _player.position,
+      position: position,
       ownerKey: _sessionOwnerKey ??= _currentSessionOwnerKey() ?? '',
-      markingQueueId: _markingQueueId,
+      markingQueueId: _pendingQueueMarking?.queueId ?? _markingQueueId,
     );
     if (snapshot.ownerKey.isEmpty) return _sessionWrite;
     _lastSessionPositionMs = snapshot.position.inMilliseconds;
@@ -2887,6 +3319,7 @@ class AudioPlayerService {
     if (_queue.isEmpty ||
         _isRestoringSession ||
         _isSwitchingTrack ||
+        _sourceNeedsReload ||
         _activeTrackLoad != null ||
         _latestTrackLoad != null ||
         _sessionCompleted) {
@@ -2924,9 +3357,10 @@ class AudioPlayerService {
     _isRestoringSession = true;
     _sessionCompleted = false;
     _sessionOwnerKey = currentOwnerKey;
-    _markingQueueId =
-        snapshot.markingQueueId ??
-        DateTime.now().microsecondsSinceEpoch.toString();
+    _pendingQueueMarking = (
+      queueId: snapshot.markingQueueId ?? _newMarkingQueueId(),
+      type: AutomaticMarkingEventType.restore,
+    );
     _desiredPlaying = false;
     try {
       final restoredQueue = snapshot.queue
@@ -2939,7 +3373,6 @@ class AudioPlayerService {
       _pendingTargetTrackId = _queue[targetIndex].id;
       _refreshManualSkipAvailability();
       _queueController.add(List<AudioTrack>.from(_queue));
-      _emitAutomaticMarking(AutomaticMarkingEventType.restore);
       _log.captureOutput(
         '[AudioSession] Loading restored source at index=$targetIndex',
       );
@@ -2986,16 +3419,10 @@ class AudioPlayerService {
   }
 
   String? _currentSessionOwnerKey() {
-    final host = StorageService.getString(
-      'server_host',
-    )?.trim().replaceFirst(RegExp(r'/+$'), '').toLowerCase();
-    final userName = StorageService.getMap(
-      'current_user',
-    )?['name']?.toString().trim();
-    if (host == null || host.isEmpty) {
-      return null;
-    }
-    return '$host\n${userName == null || userName.isEmpty ? 'anonymous' : userName}';
+    return playbackQueueOwnerKey(
+      host: StorageService.getString('server_host'),
+      userName: StorageService.getMap('current_user')?['name']?.toString(),
+    );
   }
 
   AudioTrack _refreshStoredTrackCredentials(AudioTrack track) {
@@ -3639,6 +4066,8 @@ class AudioPlayerService {
     await _trackLoadingController.close();
     await _requestedTrackController.close();
     await _playbackDiagnosticController.close();
+    await _historicalQueueLoad;
+    await _storedHistoricalQueuesController.close();
     await _player.dispose();
     _releaseCachedPlaybackLease();
     await _audioCacheDownloader.dispose();
@@ -3953,6 +4382,7 @@ class _TrackLoadRequest {
   final Completer<void> completer = Completer<void>();
   final Completer<void> supersedeSignal = Completer<void>();
   bool superseded = false;
+  bool committed = false;
   final int? performanceRequestId;
 
   Future<void> get future => completer.future;

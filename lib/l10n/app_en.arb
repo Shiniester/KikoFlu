@@ -391,6 +391,16 @@
   },
 
   "playlistTitle": "Playback Queue",
+  "currentPlaybackQueue": "Current queue",
+  "playbackQueueHistory": "Playback queue history",
+  "queueBrowserPagePosition": "Page {current} of {total}",
+  "@queueBrowserPagePosition": {
+    "description": "Indicates the current page in the playback queue browser.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
   "clearPlaybackQueueTitle": "Clear playback queue?",
   "clearPlaybackQueueMessage": "This will stop playback and remove every item from the queue.",
   "noAudioPlaying": "No audio playing",

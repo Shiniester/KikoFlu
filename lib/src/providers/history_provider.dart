@@ -70,35 +70,30 @@ final historyProvider = StateNotifierProvider<HistoryNotifier, HistoryState>((
 class HistoryNotifier extends StateNotifier<HistoryState> {
   // ignore: unused_field - kept for potential future use with Ref
   final Ref _ref;
-  final DateTime Function() _now;
-
-  HistoryNotifier(this._ref, {DateTime Function()? now})
-    : _now = now ?? DateTime.now,
-      super(const HistoryState()) {
-    _lastRefreshTime = _now();
+  HistoryNotifier(this._ref) : super(const HistoryState()) {
     load(refresh: true);
     _initHistoryUpdateListener();
   }
 
   StreamSubscription? _historyUpdateSubscription;
-  late DateTime _lastRefreshTime;
   final PagedRequestGate _requestGate = PagedRequestGate();
-  bool _isVisible = false;
-  bool _historyChangePending = false;
+  bool _isBrowsing = false;
+  bool _refreshWhenNextVisible = false;
+  bool _hasSnapshot = false;
+  List<HistoryRecord> _sessionRecords = const [];
 
+  /// Tracks the history browsing session, including covered and paused states.
   void setVisible(bool visible) {
-    if (_isVisible == visible) return;
-    _isVisible = visible;
-    if (visible) _refreshPendingHistory();
-  }
-
-  void _refreshPendingHistory() {
-    if (!_isVisible || !_historyChangePending || _requestGate.isInFlight) {
-      return;
+    if (_isBrowsing == visible) return;
+    _isBrowsing = visible;
+    if (visible) {
+      if (_refreshWhenNextVisible) {
+        _refreshWhenNextVisible = false;
+        unawaited(refresh());
+      }
+    } else {
+      _refreshWhenNextVisible = true;
     }
-    _historyChangePending = false;
-    _lastRefreshTime = _now();
-    unawaited(refresh());
   }
 
   Future<void> load({
@@ -109,8 +104,9 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     final token = _requestGate.begin(supersede: force || refresh);
     if (token == null) return;
 
-    final page = refresh ? 1 : (targetPage ?? state.currentPage);
-    final offset = (page - 1) * state.pageSize;
+    final page = refresh || !_hasSnapshot
+        ? 1
+        : (targetPage ?? state.currentPage);
 
     state = state.copyWith(
       isLoading: true,
@@ -122,24 +118,15 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     );
 
     try {
-      final records = await HistoryDatabase.instance.getAllHistory(
-        limit: state.pageSize,
-        offset: offset,
-      );
-      final totalCount = await HistoryDatabase.instance.getHistoryCount();
+      if (refresh || !_hasSnapshot) {
+        final records = await HistoryDatabase.instance.getAllHistory();
+        if (!_requestGate.isCurrent(token)) return;
+        _sessionRecords = List.unmodifiable(records);
+        _hasSnapshot = true;
+      }
       if (!_requestGate.isCurrent(token)) return;
 
-      state = state.copyWith(
-        records: records,
-        currentPage: page,
-        totalCount: totalCount,
-        hasMore: offset + records.length < totalCount,
-        isLoading: false,
-        isRefreshing: false,
-        isLoadingMore: false,
-        error: null,
-        loadMoreError: null,
-      );
+      _showPage(page);
     } catch (e) {
       if (!_requestGate.isCurrent(token)) return;
       final message = e.toString();
@@ -153,13 +140,40 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
       logOutput('Failed to load history: $e');
     } finally {
       _requestGate.complete(token);
-      _refreshPendingHistory();
     }
   }
 
   Future<void> refresh() async {
-    _historyChangePending = false;
+    _refreshWhenNextVisible = false;
     await load(refresh: true, force: true);
+  }
+
+  void _showPage(int requestedPage) {
+    final totalCount = _sessionRecords.length;
+    final lastPage = totalCount == 0
+        ? 1
+        : (totalCount - 1) ~/ state.pageSize + 1;
+    final page = requestedPage < 1
+        ? 1
+        : requestedPage > lastPage
+        ? lastPage
+        : requestedPage;
+    final start = (page - 1) * state.pageSize;
+    final end = start + state.pageSize < totalCount
+        ? start + state.pageSize
+        : totalCount;
+
+    state = state.copyWith(
+      records: List.unmodifiable(_sessionRecords.getRange(start, end)),
+      currentPage: page,
+      totalCount: totalCount,
+      hasMore: end < totalCount,
+      isLoading: false,
+      isRefreshing: false,
+      isLoadingMore: false,
+      error: null,
+      loadMoreError: null,
+    );
   }
 
   Future<void> loadMore() async {
@@ -227,24 +241,30 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     }
 
     await HistoryDatabase.instance.addOrUpdate(record);
-    if (_isVisible) {
-      _historyChangePending = false;
-      await load(force: true);
-    } else {
-      _historyChangePending = true;
-    }
+    _refreshWhenNextVisible = true;
   }
 
   Future<void> remove(int workId) async {
     await HistoryDatabase.instance.delete(workId);
-    _historyChangePending = false;
-    await load(force: true);
+    _requestGate.invalidate();
+    _refreshWhenNextVisible = true;
+    if (!_hasSnapshot) {
+      await refresh();
+      return;
+    }
+
+    _sessionRecords = List.unmodifiable(
+      _sessionRecords.where((record) => record.work.id != workId),
+    );
+    _showPage(state.currentPage);
   }
 
   Future<void> clear() async {
     await HistoryDatabase.instance.clear();
     _requestGate.invalidate();
-    _historyChangePending = false;
+    _refreshWhenNextVisible = false;
+    _sessionRecords = const [];
+    _hasSnapshot = true;
     state = state.copyWith(
       records: [],
       totalCount: 0,
@@ -258,27 +278,12 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     );
   }
 
-  /// 监听 PlaybackHistoryService 的写入通知，节流刷新列表
+  /// 监听播放服务写入，供下次进入历史页时刷新快照。
   void _initHistoryUpdateListener() {
     _historyUpdateSubscription = PlaybackHistoryService
         .instance
         .historyUpdatedStream
-        .listen((_) {
-          final now = _now();
-          if (!_isVisible) {
-            _historyChangePending = true;
-            return;
-          }
-          // 节流：10 秒内最多刷新一次列表
-          if (now.difference(_lastRefreshTime).inSeconds >= 10) {
-            _lastRefreshTime = now;
-            if (_requestGate.isInFlight) {
-              _historyChangePending = true;
-              return;
-            }
-            unawaited(refresh());
-          }
-        });
+        .listen((_) => _refreshWhenNextVisible = true);
   }
 
   @override

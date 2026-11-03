@@ -147,6 +147,11 @@ The sidebar shows the current page's options beneath its page entry, with shared
 browsing options in a separate group; swiping right across the main content opens it.
 _Avoid_: Home page, My page
 
+**Audio History Visit (音声历史浏览)**:
+A visit to audio history that ends when switching to another Audio Screen page or
+another App Tab Bar entry. Pagination, a Work Details Screen, Scoped Search
+opened from history, and backgrounding the app do not end the visit.
+
 **Audio Source (音声源)**:
 A provider of audio works for independent browsing, search and playback, such as
 ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
@@ -368,9 +373,15 @@ controls.
 _Avoid_: Player home page, main page
 
 **Player Queue Page (播放器队列页)**:
-The full-screen player page containing the current playback queue. It is
-distinct from the app-level playlist and playlist details screens.
+The full-screen player page for browsing the current playback queue and
+Historical Playback Queues. It is distinct from the app-level playlist and
+playlist details screens.
 _Avoid_: Player playlist page, playlist screen
+
+**Historical Playback Queue (历史播放队列)**:
+A previously used audio playback queue retained for later browsing. It is
+distinct from per-work playback history and account playlists.
+_Avoid_: Playback history, account playlist
 
 **Audio Add Mode (音频添加模式)**:
 The global preference that determines how selecting an audio item changes the

@@ -36,6 +36,8 @@ import '../widgets/library_page_scaffold.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/tab_page_motion.dart';
 import '../widgets/virtualized_sliver_collection.dart';
+import '../widgets/player/player_route.dart';
+import '../widgets/player/player_vertical_gestures.dart';
 import '../widgets/works_grid_view.dart';
 import 'downloads_screen.dart';
 import 'blocked_items_screen.dart';
@@ -611,6 +613,18 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         ]);
         break;
       case 'history':
+        options.add(
+          LibraryDrawerTile(
+            key: const ValueKey('audio-queue-history-entry'),
+            icon: Icons.queue_music,
+            title: s.playbackQueueHistory,
+            onTap: () => openAudioPlayer<void>(
+              context,
+              initialSurface: PlayerInitialSurface.queue,
+              initialQueueHistory: true,
+            ),
+          ),
+        );
         options.add(
           _layoutTile(
             title: s.layout,

@@ -567,6 +567,73 @@ void main() {
     expect(firstRowX, hasLength(3));
   });
 
+  for (final scenario in {
+    'first item changes': [2, 1, 0],
+    'first item stays while later IDs swap': [0, 2, 1],
+  }.entries) {
+    testWidgets(
+      'masonry reorder ${scenario.key} keeps columns filled and scroll position',
+      (tester) async {
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        final initialItems = List.generate(60, (index) => index);
+        final items = ValueNotifier<List<int>>(initialItems);
+        addTearDown(items.dispose);
+
+        await tester.pumpWidget(
+          _app(
+            ValueListenableBuilder<List<int>>(
+              valueListenable: items,
+              builder: (context, value, child) =>
+                  VirtualizedSliverCollection<int>(
+                    items: value,
+                    itemId: (item) => item,
+                    controller: controller,
+                    layout: VirtualizedCollectionLayout.masonry,
+                    masonryCrossAxisCount: 3,
+                    masonryMainAxisSpacing: 8,
+                    masonryCrossAxisSpacing: 8,
+                    showEndIndicator: false,
+                    itemBuilder: (context, item, index) => SizedBox(
+                      key: ValueKey('masonry-reorder-$item'),
+                      height: (72 + item % 4 * 8).toDouble(),
+                      child: Text('Item $item'),
+                    ),
+                  ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        controller.jumpTo(400);
+        await tester.pump();
+        final scrollOffset = controller.offset;
+        items.value = [...scenario.value, ...initialItems.skip(3)];
+        await tester.pumpAndSettle();
+        expect(controller.offset, closeTo(scrollOffset, 0.1));
+
+        controller.jumpTo(0);
+        await tester.pumpAndSettle();
+        final firstRowTop = [0, 1, 2]
+            .map(
+              (item) => tester
+                  .getTopLeft(find.byKey(ValueKey('masonry-reorder-$item')))
+                  .dy,
+            )
+            .reduce((left, right) => left < right ? left : right);
+        final firstRowX = <double>{};
+        for (final item in [0, 1, 2]) {
+          final topLeft = tester.getTopLeft(
+            find.byKey(ValueKey('masonry-reorder-$item')),
+          );
+          if ((topLeft.dy - firstRowTop).abs() < 1) firstRowX.add(topLeft.dx);
+        }
+        expect(firstRowX, hasLength(3));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('explicit pagination never auto-loads and prevents reentry',
       (tester) async {
     final controller = ScrollController();

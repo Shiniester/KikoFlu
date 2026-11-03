@@ -74,11 +74,13 @@ class AudioPlayerScreen extends ConsumerStatefulWidget {
     this.initialPalette,
     this.initialPaletteTrackId,
     this.initialSurface = PlayerInitialSurface.main,
+    this.initialQueueHistory = false,
   });
 
   final PlayerVisualPalette? initialPalette;
   final String? initialPaletteTrackId;
   final PlayerInitialSurface initialSurface;
+  final bool initialQueueHistory;
 
   @override
   ConsumerState<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
@@ -143,6 +145,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   final Map<PageController, int> _pageDragOrigins = {};
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'audio-player');
   bool? _lastWasWide;
+  bool _initialQueueHistorySelected = false;
   double? _compactSharedWidth;
   Animation<double>? _paletteRouteAnimation;
   ValueNotifier<bool>? _paletteRouteGesture;
@@ -414,6 +417,35 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     return currentTrack.when(
       data: (track) {
         if (track == null) {
+          if (_directQueueEntry) {
+            return Scaffold(
+              body: CallbackShortcuts(
+                bindings: <ShortcutActivator, VoidCallback>{
+                  const SingleActivator(LogicalKeyboardKey.escape): _handleBack,
+                },
+                child: Focus(
+                  autofocus: true,
+                  focusNode: _keyboardFocusNode,
+                  child: SafeArea(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = usesWidePlayerLayout(
+                          constraints.maxWidth,
+                        );
+                        if (!isWide) {
+                          _compactSharedWidth = math.max(
+                            0,
+                            constraints.maxWidth - 56,
+                          );
+                        }
+                        return _buildQueuePane(context, isWide: isWide);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
           return Scaffold(
             body: Center(child: Text(S.of(context).noAudioPlaying)),
           );
@@ -1868,7 +1900,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         child: Column(
           children: [
             Expanded(
-              child: PlayerQueueSurface(
+              child: PlayerQueueBrowser(
+                initialQueueHistory:
+                    widget.initialQueueHistory && !_initialQueueHistorySelected,
+                onInitialHistorySelected: () {
+                  _initialQueueHistorySelected = true;
+                },
                 onTrackSelected: () {},
                 onClear: _clearQueueAndClosePlayer,
                 onDismissRequested: directQueueOnly ? _dismissPlayer : null,
@@ -1883,6 +1920,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     : isWide
                     ? _widePageHandoff
                     : _compactPageHandoff,
+                showPageButtons: isWide,
                 horizontalPadding: isWide ? 0 : 10,
               ),
             ),

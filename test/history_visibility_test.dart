@@ -224,9 +224,7 @@ void main() {
       final container = ProviderContainer(
         observers: [observer],
         overrides: [
-          historyProvider.overrideWith(
-            (ref) => HistoryNotifier(ref, now: () => now),
-          ),
+          historyProvider.overrideWith((ref) => HistoryNotifier(ref)),
         ],
       );
 
@@ -307,7 +305,7 @@ void main() {
   );
 
   testWidgets(
-    'history defers updates while audio, main, route, or app is hidden',
+    'history refreshes on tab changes but stays frozen on route and resume',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       await StorageService.initCritical(
@@ -322,9 +320,7 @@ void main() {
         observers: [observer],
         overrides: [
           authProvider.overrideWith((ref) => _TestAuth()),
-          historyProvider.overrideWith(
-            (ref) => HistoryNotifier(ref, now: () => now),
-          ),
+          historyProvider.overrideWith((ref) => HistoryNotifier(ref)),
         ],
       );
       final mainPages = PageController();
@@ -428,6 +424,11 @@ void main() {
         );
         observer.reset();
 
+        final browsingPositionMs = container
+            .read(historyProvider)
+            .records
+            .single
+            .lastPositionMs;
         final coveredRoute = navigatorKey.currentState!.push<void>(
           MaterialPageRoute<void>(
             builder: (_) => const Scaffold(body: Text('Cover route')),
@@ -435,28 +436,58 @@ void main() {
         );
         await tester.pumpAndSettle();
         now = now.add(const Duration(seconds: 11));
+        await tester.runAsync(() async {
+          final record = await HistoryDatabase.instance.getHistoryByWorkId(902);
+          await HistoryDatabase.instance.addOrUpdate(
+            record!.copyWith(lastPlayedTime: now, lastPositionMs: 15000),
+          );
+        });
         await historyService.onSeekCommitted(const Duration(seconds: 15));
         await tester.pump();
         expect(observer.updates, 0);
-        await _expectDeferredRefresh(tester, observer, 0, 902, 902, () async {
-          navigatorKey.currentState!.pop();
-          await tester.pumpAndSettle();
-          await coveredRoute;
-        });
+        navigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+        await coveredRoute;
+        expect(observer.updates, 0);
+        expect(
+          container.read(historyProvider).records.single.lastPositionMs,
+          browsingPositionMs,
+        );
+        expect(
+          (await tester.runAsync(
+            () => HistoryDatabase.instance.getHistoryByWorkId(902),
+          ))?.lastPositionMs,
+          15000,
+        );
         observer.reset();
 
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
         await tester.pump();
         now = now.add(const Duration(seconds: 11));
+        await tester.runAsync(() async {
+          final record = await HistoryDatabase.instance.getHistoryByWorkId(902);
+          await HistoryDatabase.instance.addOrUpdate(
+            record!.copyWith(lastPlayedTime: now, lastPositionMs: 20000),
+          );
+        });
         await historyService.onSeekCommitted(const Duration(seconds: 20));
         await tester.pump();
         expect(observer.updates, 0);
-        await _expectDeferredRefresh(tester, observer, 0, 902, 902, () async {
-          tester.binding.handleAppLifecycleStateChanged(
-            AppLifecycleState.resumed,
-          );
-          await tester.pump();
-        });
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(observer.updates, 0);
+        expect(
+          container.read(historyProvider).records.single.lastPositionMs,
+          browsingPositionMs,
+        );
+        expect(
+          (await tester.runAsync(
+            () => HistoryDatabase.instance.getHistoryByWorkId(902),
+          ))?.lastPositionMs,
+          20000,
+        );
 
         await tester.pumpWidget(const SizedBox.shrink());
         observer.reset();

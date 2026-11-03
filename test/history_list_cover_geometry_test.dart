@@ -11,8 +11,7 @@ import 'package:kikoeru_flutter/src/widgets/work_cover_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LoadedHistory extends HistoryNotifier {
-  _LoadedHistory(super._ref, HistoryRecord record)
-    : super(now: () => DateTime(2026)) {
+  _LoadedHistory(super._ref, HistoryRecord record) {
     state = HistoryState(records: [record], totalCount: 1, hasMore: false);
   }
 

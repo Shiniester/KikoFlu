@@ -1570,6 +1570,24 @@ abstract class S {
   /// **'Playback Queue'**
   String get playlistTitle;
 
+  /// No description provided for @currentPlaybackQueue.
+  ///
+  /// In en, this message translates to:
+  /// **'Current queue'**
+  String get currentPlaybackQueue;
+
+  /// No description provided for @playbackQueueHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback queue history'**
+  String get playbackQueueHistory;
+
+  /// Indicates the current page in the playback queue browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {current} of {total}'**
+  String queueBrowserPagePosition(int current, int total);
+
   /// No description provided for @clearPlaybackQueueTitle.
   ///
   /// In en, this message translates to:

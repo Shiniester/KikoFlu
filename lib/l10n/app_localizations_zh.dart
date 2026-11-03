@@ -786,6 +786,17 @@ class SZh extends S {
   String get playlistTitle => '播放队列';
 
   @override
+  String get currentPlaybackQueue => '当前播放队列';
+
+  @override
+  String get playbackQueueHistory => '历史播放队列';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return '第 $current/$total 页';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => '清空播放队列？';
 
   @override
@@ -5633,6 +5644,17 @@ class SZhHant extends SZh {
 
   @override
   String get playlistTitle => '播放佇列';
+
+  @override
+  String get currentPlaybackQueue => '目前播放佇列';
+
+  @override
+  String get playbackQueueHistory => '歷史播放佇列';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return '第 $current/$total 頁';
+  }
 
   @override
   String get clearPlaybackQueueTitle => '清空播放清單？';

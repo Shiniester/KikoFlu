@@ -9,6 +9,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/artwork_theme_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/playback_session_store.dart';
 import '../../utils/l10n_extensions.dart';
 import '../responsive_dialog.dart';
 import '../animated_menu_anchor.dart';
@@ -56,6 +57,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.dismissDrag,
     this.scrollController,
     this.pageDragCoordinator,
+    this.showTitleBar = true,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
   });
@@ -67,6 +69,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final PlayerVerticalDragCallbacks? dismissDrag;
   final ScrollController? scrollController;
   final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
+  final bool showTitleBar;
   final bool showCloseButton;
   final double horizontalPadding;
 
@@ -109,25 +112,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
           ) ??
           TextStyle(color: colorScheme.onSurfaceVariant),
     );
-    final trackMetadataHeight = _reservedQueueMetadataHeight(
-      context,
-      titleStyle:
-          theme.textTheme.titleMedium?.copyWith(
-            fontSize: 12.5,
-            height: 1.12,
-            fontWeight: FontWeight.w700,
-          ) ??
-          const TextStyle(
-            fontSize: 12.5,
-            height: 1.12,
-            fontWeight: FontWeight.w700,
-          ),
-      artistStyle:
-          theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ) ??
-          TextStyle(color: colorScheme.onSurfaceVariant),
-    );
+    final trackMetadataHeight = _queueTrackMetadataHeight(context);
     final extendsBeyondContent = widget.horizontalPadding == 10;
     final titleSideWidth = extendsBeyondContent ? 78.0 : 68.0;
     final clearButton = TextButton(
@@ -223,79 +208,81 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                 ),
               ),
             ),
-          PlayerVerticalSwipeRegion(
-            key: const ValueKey('player-queue-title-dismiss-surface'),
-            onSwipeDown: widget.onDismissRequested,
-            swipeDownDrag: widget.dismissDrag,
-            pageDragCoordinator: widget.pageDragCoordinator,
-            child: Padding(
-              key: const ValueKey('player-queue-title-bar'),
-              padding: EdgeInsets.fromLTRB(
-                extendsBeyondContent ? 0 : widget.horizontalPadding,
-                8,
-                extendsBeyondContent ? 0 : widget.horizontalPadding,
-                10,
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: titleSideWidth,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        left: extendsBeyondContent ? 10 : 0,
+          if (widget.showTitleBar)
+            PlayerVerticalSwipeRegion(
+              key: const ValueKey('player-queue-title-dismiss-surface'),
+              onSwipeDown: widget.onDismissRequested,
+              swipeDownDrag: widget.dismissDrag,
+              pageDragCoordinator: widget.pageDragCoordinator,
+              child: Padding(
+                key: const ValueKey('player-queue-title-bar'),
+                padding: EdgeInsets.fromLTRB(
+                  extendsBeyondContent ? 0 : widget.horizontalPadding,
+                  8,
+                  extendsBeyondContent ? 0 : widget.horizontalPadding,
+                  10,
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: titleSideWidth,
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: extendsBeyondContent ? 10 : 0,
+                        ),
+                        child: Text(
+                          tracks.isEmpty
+                              ? '0 / 0'
+                              : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
+                          style: queueMetaStyle,
+                        ),
                       ),
+                    ),
+                    Expanded(
                       child: Text(
-                        tracks.isEmpty
-                            ? '0 / 0'
-                            : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
-                        style: queueMetaStyle,
+                        S.of(context).playlistTitle,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      S.of(context).playlistTitle,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: titleSideWidth,
-                    child: tracks.isEmpty || widget.onClear == null
-                        ? const SizedBox.shrink()
-                        : Align(
-                            alignment: Alignment.centerRight,
-                            child: extendsBeyondContent
-                                ? IntrinsicWidth(
-                                    child: SizedBox(
+                    SizedBox(
+                      width: titleSideWidth,
+                      child: tracks.isEmpty || widget.onClear == null
+                          ? const SizedBox.shrink()
+                          : Align(
+                              alignment: Alignment.centerRight,
+                              child: extendsBeyondContent
+                                  ? IntrinsicWidth(
+                                      child: SizedBox(
+                                        height: 36,
+                                        child: clearButton,
+                                      ),
+                                    )
+                                  : SizedBox(
+                                      width: 48,
                                       height: 36,
                                       child: clearButton,
                                     ),
-                                  )
-                                : SizedBox(
-                                    width: 48,
-                                    height: 36,
-                                    child: clearButton,
-                                  ),
-                          ),
-                  ),
-                  if (widget.showCloseButton)
-                    IconButton(
-                      tooltip: MaterialLocalizations.of(
-                        context,
-                      ).closeButtonTooltip,
-                      onPressed: widget.onClose,
-                      icon: const Icon(Icons.close),
+                            ),
                     ),
-                ],
+                    if (widget.showCloseButton)
+                      IconButton(
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                        onPressed: widget.onClose,
+                        icon: const Icon(Icons.close),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
           Expanded(
             child: widget.pageDragCoordinator != null || tracks.isEmpty
                 ? queueList
@@ -328,6 +315,499 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Browse the live queue and saved queue snapshots from the player page.
+class PlayerQueueBrowser extends ConsumerStatefulWidget {
+  const PlayerQueueBrowser({
+    super.key,
+    this.initialQueueHistory = false,
+    this.onInitialHistorySelected,
+    this.onTrackSelected,
+    this.onClear,
+    this.onDismissRequested,
+    this.dismissDrag,
+    this.scrollController,
+    this.pageDragCoordinator,
+    this.showPageButtons = false,
+    this.horizontalPadding = 8,
+  });
+
+  final bool initialQueueHistory;
+  final VoidCallback? onInitialHistorySelected;
+  final VoidCallback? onTrackSelected;
+  final Future<void> Function()? onClear;
+  final VoidCallback? onDismissRequested;
+  final PlayerVerticalDragCallbacks? dismissDrag;
+  final ScrollController? scrollController;
+  final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
+  final bool showPageButtons;
+  final double horizontalPadding;
+
+  @override
+  ConsumerState<PlayerQueueBrowser> createState() => _PlayerQueueBrowserState();
+}
+
+class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
+  final PageController _pageController = PageController();
+  final Map<PlaybackSessionSnapshot, ScrollController>
+  _historyScrollControllers = {};
+  Set<PlaybackSessionSnapshot> _visibleHistory = {};
+  int _currentPage = 0;
+  int? _restoringHistoryIndex;
+  int? _restoringTrackIndex;
+  int _restoreGeneration = 0;
+  bool _initialPageScheduled = false;
+  bool _initialPageSelected = false;
+  bool _pageClampScheduled = false;
+  bool _historyCleanupScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialPageSelected = !widget.initialQueueHistory;
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerQueueBrowser oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.pageDragCoordinator, widget.pageDragCoordinator)) {
+      for (final controller in _historyScrollControllers.values) {
+        controller.dispose();
+      }
+      _historyScrollControllers.clear();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    for (final controller in _historyScrollControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  ScrollController _historyScrollController(PlaybackSessionSnapshot snapshot) =>
+      _historyScrollControllers.putIfAbsent(
+        snapshot,
+        () =>
+            widget.pageDragCoordinator?.createScrollController(
+              debugLabel: 'player-queue-history',
+            ) ??
+            ScrollController(debugLabel: 'player-queue-history'),
+      );
+
+  void _scheduleHistoryControllerCleanup(
+    List<PlaybackSessionSnapshot> history,
+  ) {
+    _visibleHistory = Set<PlaybackSessionSnapshot>.identity()..addAll(history);
+    if (_historyCleanupScheduled) return;
+    _historyCleanupScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _historyCleanupScheduled = false;
+      if (!mounted) return;
+      for (final snapshot in _historyScrollControllers.keys.toList()) {
+        if (!_visibleHistory.contains(snapshot)) {
+          _historyScrollControllers.remove(snapshot)?.dispose();
+        }
+      }
+    });
+  }
+
+  void _scheduleInitialHistoryPage() {
+    if (_initialPageScheduled || _initialPageSelected) return;
+    _initialPageScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialPageScheduled = false;
+      if (!mounted ||
+          !_pageController.hasClients ||
+          _pageController.positions.length != 1) {
+        return;
+      }
+      _initialPageSelected = true;
+      _pageController.jumpToPage(1);
+      widget.onInitialHistorySelected?.call();
+    });
+  }
+
+  void _schedulePageClamp(int page) {
+    if (_pageClampScheduled) return;
+    _pageClampScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pageClampScheduled = false;
+      if (!mounted ||
+          !_pageController.hasClients ||
+          _pageController.positions.length != 1) {
+        return;
+      }
+      _pageController.jumpToPage(page);
+    });
+  }
+
+  Future<void> _goToPage(int page) async {
+    if (!_pageController.hasClients) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pageController.jumpToPage(page);
+      return;
+    }
+    await _pageController.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.ease,
+    );
+  }
+
+  Future<void> _restoreHistoricalTrack(
+    PlaybackSessionSnapshot snapshot,
+    int historyIndex,
+    int trackIndex,
+  ) async {
+    final generation = ++_restoreGeneration;
+    setState(() {
+      _restoringHistoryIndex = historyIndex;
+      _restoringTrackIndex = trackIndex;
+    });
+    try {
+      final restored = await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .restoreHistoricalQueue(snapshot, trackIndex);
+      if (!mounted || generation != _restoreGeneration) return;
+      if (restored) await _goToPage(0);
+    } catch (error) {
+      if (!mounted || generation != _restoreGeneration) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(S.of(context).errorWithMessage(error.toString())),
+        ),
+      );
+    } finally {
+      if (mounted && generation == _restoreGeneration) {
+        setState(() {
+          _restoringHistoryIndex = null;
+          _restoringTrackIndex = null;
+        });
+      }
+    }
+  }
+
+  Widget _buildHeader(
+    BuildContext context, {
+    required int pageCount,
+    required List<AudioTrack> currentQueue,
+    required AudioTrack? currentTrack,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isCurrentQueue = _currentPage == 0;
+    final title = isCurrentQueue
+        ? S.of(context).currentPlaybackQueue
+        : S.of(context).playbackQueueHistory;
+    final position = S
+        .of(context)
+        .queueBrowserPagePosition(_currentPage + 1, pageCount);
+    final currentTrackIndex = currentQueue.indexWhere(
+      (track) => track.id == currentTrack?.id,
+    );
+    final currentQueuePosition = currentQueue.isEmpty
+        ? '0 / 0'
+        : '${currentTrackIndex < 0 ? 0 : currentTrackIndex + 1} / ${currentQueue.length}';
+    final showClearButton =
+        isCurrentQueue && currentQueue.isNotEmpty && widget.onClear != null;
+    final titleSidePadding = widget.horizontalPadding == 10
+        ? 0.0
+        : widget.horizontalPadding;
+    final clearButton = TextButton(
+      key: const ValueKey('player-queue-clear-button'),
+      onPressed: widget.onClear,
+      style: TextButton.styleFrom(
+        foregroundColor: colorScheme.onSurfaceVariant,
+        padding: widget.horizontalPadding == 10
+            ? const EdgeInsets.symmetric(horizontal: 10)
+            : EdgeInsets.zero,
+        minimumSize: widget.horizontalPadding == 10
+            ? Size.zero
+            : const Size(48, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        alignment: widget.horizontalPadding == 10
+            ? Alignment.center
+            : Alignment.centerRight,
+      ),
+      child: Text(
+        S.of(context).clear,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+
+    return PlayerVerticalSwipeRegion(
+      key: const ValueKey('player-queue-title-dismiss-surface'),
+      onSwipeDown: widget.onDismissRequested,
+      swipeDownDrag: widget.dismissDrag,
+      pageDragCoordinator: widget.pageDragCoordinator,
+      child: Padding(
+        key: const ValueKey('player-queue-title-bar'),
+        padding: EdgeInsets.fromLTRB(titleSidePadding, 8, titleSidePadding, 10),
+        child: KeyedSubtree(
+          key: const ValueKey('player-queue-browser-header'),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      children: [
+                        if (isCurrentQueue) ...[
+                          Text(
+                            currentQueuePosition,
+                            key: const ValueKey(
+                              'player-queue-current-track-position',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                        Text(
+                          position,
+                          key: const ValueKey(
+                            'player-queue-browser-page-position',
+                          ),
+                          maxLines: 1,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    if (widget.showPageButtons)
+                      IconButton(
+                        key: const ValueKey(
+                          'player-queue-history-previous-button',
+                        ),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).previousPageTooltip,
+                        onPressed: _currentPage == 0
+                            ? null
+                            : () => _goToPage(_currentPage - 1),
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                    const Spacer(),
+                    if (showClearButton)
+                      widget.horizontalPadding == 10
+                          ? IntrinsicWidth(
+                              child: SizedBox(height: 36, child: clearButton),
+                            )
+                          : SizedBox(width: 48, height: 36, child: clearButton),
+                    if (widget.showPageButtons)
+                      IconButton(
+                        key: const ValueKey('player-queue-history-next-button'),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).nextPageTooltip,
+                        onPressed: _currentPage >= pageCount - 1
+                            ? null
+                            : () => _goToPage(_currentPage + 1),
+                        icon: const Icon(Icons.arrow_forward),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryPage(
+    BuildContext context, {
+    required PlaybackSessionSnapshot snapshot,
+    required int historyIndex,
+    required AudioTrack? currentTrack,
+    required AuthState authState,
+  }) {
+    final nowPlayingMetadataHeight = _reservedQueueMetadataHeight(
+      context,
+      titleStyle:
+          Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontSize: 14,
+            height: 1.15,
+            fontWeight: FontWeight.w700,
+          ) ??
+          const TextStyle(
+            fontSize: 14,
+            height: 1.15,
+            fontWeight: FontWeight.w700,
+          ),
+      artistStyle:
+          Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ) ??
+          TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    );
+    final trackMetadataHeight = _queueTrackMetadataHeight(context);
+    Widget trackList = snapshot.queue.isEmpty
+        ? Center(child: Text(S.of(context).playlistEmpty))
+        : ListView.builder(
+            key: PageStorageKey(snapshot),
+            controller: _historyScrollController(snapshot),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
+            itemCount: snapshot.queue.length,
+            itemBuilder: (context, index) {
+              final track = snapshot.queue[index];
+              return KeyedSubtree(
+                key: ValueKey('player-queue-history-track-${track.id}'),
+                child: _QueueTrackTile(
+                  track: track,
+                  horizontalPadding: widget.horizontalPadding,
+                  coverUrl: _resolveCoverUrl(
+                    track,
+                    host: authState.host,
+                    token: authState.token,
+                  ),
+                  isCurrentTrack: false,
+                  metadataHeight: trackMetadataHeight,
+                  isLoading:
+                      _restoringHistoryIndex == historyIndex &&
+                      _restoringTrackIndex == index,
+                  onTap: () =>
+                      _restoreHistoricalTrack(snapshot, historyIndex, index),
+                  onRemove: null,
+                ),
+              );
+            },
+          );
+    if (snapshot.queue.isNotEmpty && widget.pageDragCoordinator == null) {
+      trackList = PlayerScrollEdgeActions(
+        onPullDownAtTop: widget.onDismissRequested,
+        pullDownDrag: widget.dismissDrag,
+        child: trackList,
+      );
+    }
+
+    return KeyedSubtree(
+      key: ValueKey('player-queue-history-page-$historyIndex'),
+      child: Column(
+        children: [
+          if (currentTrack != null)
+            PlayerVerticalSwipeRegion(
+              onSwipeDown: widget.onDismissRequested,
+              swipeDownDrag: widget.dismissDrag,
+              pageDragCoordinator: widget.pageDragCoordinator,
+              child: _NowPlayingQueueHeader(
+                track: currentTrack,
+                horizontalPadding: widget.horizontalPadding,
+                metadataHeight: nowPlayingMetadataHeight,
+                coverUrl: _resolveCoverUrl(
+                  currentTrack,
+                  host: authState.host,
+                  token: authState.token,
+                ),
+              ),
+            ),
+          Expanded(child: trackList),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final historyAsync = ref.watch(historicalQueuesProvider);
+    final history =
+        historyAsync.valueOrNull ?? const <PlaybackSessionSnapshot>[];
+    _scheduleHistoryControllerCleanup(history);
+    final pageCount = history.length + 1;
+    if (widget.initialQueueHistory && history.isNotEmpty) {
+      _scheduleInitialHistoryPage();
+    }
+    if (_currentPage >= pageCount) _schedulePageClamp(pageCount - 1);
+    final queueAsync = ref.watch(queueProvider);
+    final currentQueue =
+        queueAsync.valueOrNull ?? ref.read(audioPlayerServiceProvider).queue;
+    final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
+    final authState = ref.watch(authProvider);
+
+    return RepaintBoundary(
+      key: const ValueKey('player-queue-browser'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(
+            context,
+            pageCount: pageCount,
+            currentQueue: currentQueue,
+            currentTrack: currentTrack,
+          ),
+          if (widget.initialQueueHistory && historyAsync.isLoading)
+            const LinearProgressIndicator(),
+          if (historyAsync.hasError)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                S.of(context).errorWithMessage(historyAsync.error.toString()),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          Expanded(
+            child: PageView.builder(
+              key: const ValueKey('player-queue-history-page-view'),
+              controller: _pageController,
+              itemCount: pageCount,
+              onPageChanged: (index) => setState(() => _currentPage = index),
+              itemBuilder: (context, index) => index == 0
+                  ? PlayerQueueSurface(
+                      showTitleBar: false,
+                      onTrackSelected: widget.onTrackSelected,
+                      onClear: widget.onClear,
+                      onDismissRequested: widget.onDismissRequested,
+                      dismissDrag: widget.dismissDrag,
+                      scrollController: widget.scrollController,
+                      pageDragCoordinator: widget.pageDragCoordinator,
+                      horizontalPadding: widget.horizontalPadding,
+                    )
+                  : _buildHistoryPage(
+                      context,
+                      snapshot: history[index - 1],
+                      historyIndex: index - 1,
+                      currentTrack: currentTrack,
+                      authState: authState,
+                    ),
             ),
           ),
         ],
@@ -425,6 +905,7 @@ class _QueueTrackTile extends StatelessWidget {
     required this.metadataHeight,
     required this.onTap,
     required this.onRemove,
+    this.isLoading = false,
   });
 
   final AudioTrack track;
@@ -433,7 +914,8 @@ class _QueueTrackTile extends StatelessWidget {
   final double horizontalPadding;
   final double metadataHeight;
   final VoidCallback onTap;
-  final VoidCallback onRemove;
+  final VoidCallback? onRemove;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -539,12 +1021,25 @@ class _QueueTrackTile extends StatelessWidget {
                             )
                           : null,
                     ),
-                    PlayerCompactAction(
-                      tooltip: S.of(context).remove,
-                      onPressed: onRemove,
-                      icon: Icons.remove,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                    if (isLoading)
+                      const SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      )
+                    else if (onRemove != null)
+                      PlayerCompactAction(
+                        tooltip: S.of(context).remove,
+                        onPressed: onRemove,
+                        icon: Icons.remove,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                   ],
                 ),
               ),
@@ -612,6 +1107,30 @@ String? _resolveCoverUrl(
   host: host ?? '',
   token: token ?? '',
 );
+
+double _queueTrackMetadataHeight(BuildContext context) {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  return _reservedQueueMetadataHeight(
+    context,
+    titleStyle:
+        theme.textTheme.titleMedium?.copyWith(
+          fontSize: 12.5,
+          height: 1.12,
+          fontWeight: FontWeight.w700,
+        ) ??
+        const TextStyle(
+          fontSize: 12.5,
+          height: 1.12,
+          fontWeight: FontWeight.w700,
+        ),
+    artistStyle:
+        theme.textTheme.bodySmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+        ) ??
+        TextStyle(color: colorScheme.onSurfaceVariant),
+  );
+}
 
 /// Legacy dialog wrapper kept for non-player entry points.
 class PlaylistDialog extends ConsumerWidget {

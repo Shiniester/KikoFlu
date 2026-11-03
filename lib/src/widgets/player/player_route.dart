@@ -14,6 +14,7 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
+  bool initialQueueHistory = false,
   bool skipInitialTransition = false,
 }) {
   return AudioPlayerPageRoute<T>(
@@ -26,6 +27,7 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,
+      initialQueueHistory: initialQueueHistory,
     ),
   );
 }
@@ -45,12 +47,14 @@ class AudioPlayerOpenConfiguration {
     Key? playerKey,
     bool handoff = false,
     PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
+    bool initialQueueHistory = false,
   }) {
     return createAudioPlayerRoute<void>(
       playerKey: playerKey,
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,
+      initialQueueHistory: initialQueueHistory,
       skipInitialTransition: handoff,
     );
   }
@@ -61,12 +65,14 @@ Future<T?> openAudioPlayer<T>(
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
+  bool initialQueueHistory = false,
 }) {
   return AppNavigationScope.navigatorOf(context).push<T>(
     createAudioPlayerRoute<T>(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,
+      initialQueueHistory: initialQueueHistory,
     ),
   );
 }
