@@ -174,8 +174,11 @@ python tool/performance/summarize_player_profile.py baseline_horizontal candidat
 ## 内部分页交互契约
 
 窄屏横向页为音频详情、封面、字幕，默认封面；纵向页为播放器主体、队列。
-宽屏左栏为音频详情、封面，右栏横向为控制、字幕，纵向为控制／字幕区域、
-队列。左右栏独立，队列期间的左栏操作及滚动位置保留。
+宽屏左栏顶部固定显示标题和“更多”按钮，下方显示封面。
+右栏横向页为音频详情、播放控件、字幕，默认播放控件。
+右栏纵向页为音频详情／播放控件／字幕区域、队列。
+短字幕位于播放控件上方，点击后打开字幕页；无字幕时显示专辑名。
+右栏切页时，左栏保持原位；从队列返回后恢复原页和列表滚动位置。
 
 点击统一使用 `PageController.animateToPage`，时长 300ms、曲线
 `Curves.ease`；减少动态效果时直接定位。拖动和松手使用默认
@@ -198,7 +201,8 @@ python tool/performance/summarize_player_profile.py baseline_horizontal candidat
 
 ## 验收与回归
 
-保留原黄金图。新增 `player_transition_frames_test.dart` 的七张图取自
+保留窄屏和封面过渡黄金图。宽屏黄金图覆盖左栏固定标题和右栏字幕预览。
+新增 `player_transition_frames_test.dart` 的七张图取自
 v4.4.16，覆盖展开、部分切页、拖拽反向和交接。检查 Hero、字幕、手势、
 响应式布局与连续请求测试；旧基线本来失败的测试需单列并比较前后实际输出。
 

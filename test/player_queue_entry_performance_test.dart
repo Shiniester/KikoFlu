@@ -141,7 +141,7 @@ void main() {
     final covers = tester.widgetList<PlayerCompactArtwork>(
       find.byType(PlayerCompactArtwork),
     );
-    expect(covers, hasLength(2));
+    expect(covers, hasLength(1));
     expect(covers.map((cover) => cover.url), everyElement(artworkUrl));
     expect(tester.takeException(), isNull);
   });

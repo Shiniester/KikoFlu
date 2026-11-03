@@ -93,25 +93,6 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
     final queueMetaStyle = theme.textTheme.bodyMedium?.copyWith(
       color: colorScheme.onSurfaceVariant,
     );
-    final nowPlayingMetadataHeight = _reservedQueueMetadataHeight(
-      context,
-      titleStyle:
-          theme.textTheme.titleMedium?.copyWith(
-            fontSize: 14,
-            height: 1.15,
-            fontWeight: FontWeight.w700,
-          ) ??
-          const TextStyle(
-            fontSize: 14,
-            height: 1.15,
-            fontWeight: FontWeight.w700,
-          ),
-      artistStyle:
-          theme.textTheme.bodyMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ) ??
-          TextStyle(color: colorScheme.onSurfaceVariant),
-    );
     final trackMetadataHeight = _queueTrackMetadataHeight(context);
     final extendsBeyondContent = widget.horizontalPadding == 10;
     final titleSideWidth = extendsBeyondContent ? 78.0 : 68.0;
@@ -192,22 +173,6 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (currentTrack != null)
-            PlayerVerticalSwipeRegion(
-              onSwipeDown: widget.onDismissRequested,
-              swipeDownDrag: widget.dismissDrag,
-              pageDragCoordinator: widget.pageDragCoordinator,
-              child: _NowPlayingQueueHeader(
-                track: currentTrack,
-                horizontalPadding: widget.horizontalPadding,
-                metadataHeight: nowPlayingMetadataHeight,
-                coverUrl: _resolveCoverUrl(
-                  currentTrack,
-                  host: authState.host,
-                  token: authState.token,
-                ),
-              ),
-            ),
           if (widget.showTitleBar)
             PlayerVerticalSwipeRegion(
               key: const ValueKey('player-queue-title-dismiss-surface'),
@@ -511,7 +476,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
         : S.of(context).playbackQueueHistory;
     final position = S
         .of(context)
-        .queueBrowserPagePosition(_currentPage + 1, pageCount);
+        .queueBrowserPagePosition(pageCount - _currentPage, pageCount);
     final currentTrackIndex = currentQueue.indexWhere(
       (track) => track.id == currentTrack?.id,
     );
@@ -523,6 +488,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     final titleSidePadding = widget.horizontalPadding == 10
         ? 0.0
         : widget.horizontalPadding;
+    final titleSideWidth = widget.horizontalPadding == 10 ? 78.0 : 68.0;
     final clearButton = TextButton(
       key: const ValueKey('player-queue-clear-button'),
       onPressed: widget.onClear,
@@ -558,92 +524,95 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
         padding: EdgeInsets.fromLTRB(titleSidePadding, 8, titleSidePadding, 10),
         child: KeyedSubtree(
           key: const ValueKey('player-queue-browser-header'),
-          child: Stack(
-            alignment: Alignment.center,
+          child: Row(
             children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 48),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 8,
-                      children: [
-                        if (isCurrentQueue) ...[
-                          Text(
-                            currentQueuePosition,
-                            key: const ValueKey(
-                              'player-queue-current-track-position',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                        Text(
-                          position,
+              if (widget.showPageButtons)
+                IconButton(
+                  key: const ValueKey('player-queue-history-previous-button'),
+                  tooltip: MaterialLocalizations.of(
+                    context,
+                  ).previousPageTooltip,
+                  onPressed: _currentPage >= pageCount - 1
+                      ? null
+                      : () => _goToPage(_currentPage + 1),
+                  icon: const Icon(Icons.arrow_back),
+                ),
+              SizedBox(
+                width: titleSideWidth,
+                child: isCurrentQueue
+                    ? Padding(
+                        padding: EdgeInsets.only(
+                          left: widget.horizontalPadding == 10 ? 10 : 0,
+                        ),
+                        child: Text(
+                          currentQueuePosition,
                           key: const ValueKey(
-                            'player-queue-browser-page-position',
+                            'player-queue-current-track-position',
                           ),
-                          maxLines: 1,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+                      )
+                    : null,
               ),
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    if (widget.showPageButtons)
-                      IconButton(
-                        key: const ValueKey(
-                          'player-queue-history-previous-button',
+              Expanded(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
                         ),
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).previousPageTooltip,
-                        onPressed: _currentPage == 0
-                            ? null
-                            : () => _goToPage(_currentPage - 1),
-                        icon: const Icon(Icons.arrow_back),
                       ),
-                    const Spacer(),
-                    if (showClearButton)
-                      widget.horizontalPadding == 10
-                          ? IntrinsicWidth(
-                              child: SizedBox(height: 36, child: clearButton),
-                            )
-                          : SizedBox(width: 48, height: 36, child: clearButton),
-                    if (widget.showPageButtons)
-                      IconButton(
-                        key: const ValueKey('player-queue-history-next-button'),
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).nextPageTooltip,
-                        onPressed: _currentPage >= pageCount - 1
-                            ? null
-                            : () => _goToPage(_currentPage + 1),
-                        icon: const Icon(Icons.arrow_forward),
+                      Text(
+                        position,
+                        key: const ValueKey(
+                          'player-queue-browser-page-position',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
+              SizedBox(
+                width: titleSideWidth,
+                child: showClearButton
+                    ? Align(
+                        alignment: Alignment.centerRight,
+                        child: widget.horizontalPadding == 10
+                            ? IntrinsicWidth(
+                                child: SizedBox(height: 36, child: clearButton),
+                              )
+                            : SizedBox(
+                                width: 48,
+                                height: 36,
+                                child: clearButton,
+                              ),
+                      )
+                    : null,
+              ),
+              if (widget.showPageButtons)
+                IconButton(
+                  key: const ValueKey('player-queue-history-next-button'),
+                  tooltip: MaterialLocalizations.of(context).nextPageTooltip,
+                  onPressed: _currentPage == 0
+                      ? null
+                      : () => _goToPage(_currentPage - 1),
+                  icon: const Icon(Icons.arrow_forward),
+                ),
             ],
           ),
         ),
@@ -655,28 +624,8 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     BuildContext context, {
     required PlaybackSessionSnapshot snapshot,
     required int historyIndex,
-    required AudioTrack? currentTrack,
     required AuthState authState,
   }) {
-    final nowPlayingMetadataHeight = _reservedQueueMetadataHeight(
-      context,
-      titleStyle:
-          Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontSize: 14,
-            height: 1.15,
-            fontWeight: FontWeight.w700,
-          ) ??
-          const TextStyle(
-            fontSize: 14,
-            height: 1.15,
-            fontWeight: FontWeight.w700,
-          ),
-      artistStyle:
-          Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ) ??
-          TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-    );
     final trackMetadataHeight = _queueTrackMetadataHeight(context);
     Widget trackList = snapshot.queue.isEmpty
         ? Center(child: Text(S.of(context).playlistEmpty))
@@ -722,27 +671,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
 
     return KeyedSubtree(
       key: ValueKey('player-queue-history-page-$historyIndex'),
-      child: Column(
-        children: [
-          if (currentTrack != null)
-            PlayerVerticalSwipeRegion(
-              onSwipeDown: widget.onDismissRequested,
-              swipeDownDrag: widget.dismissDrag,
-              pageDragCoordinator: widget.pageDragCoordinator,
-              child: _NowPlayingQueueHeader(
-                track: currentTrack,
-                horizontalPadding: widget.horizontalPadding,
-                metadataHeight: nowPlayingMetadataHeight,
-                coverUrl: _resolveCoverUrl(
-                  currentTrack,
-                  host: authState.host,
-                  token: authState.token,
-                ),
-              ),
-            ),
-          Expanded(child: trackList),
-        ],
-      ),
+      child: trackList,
     );
   }
 
@@ -785,109 +714,48 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
               ),
             ),
           Expanded(
-            child: PageView.builder(
-              key: const ValueKey('player-queue-history-page-view'),
-              controller: _pageController,
-              itemCount: pageCount,
-              onPageChanged: (index) => setState(() => _currentPage = index),
-              itemBuilder: (context, index) => index == 0
-                  ? PlayerQueueSurface(
-                      showTitleBar: false,
-                      onTrackSelected: widget.onTrackSelected,
-                      onClear: widget.onClear,
-                      onDismissRequested: widget.onDismissRequested,
-                      dismissDrag: widget.dismissDrag,
-                      scrollController: widget.scrollController,
-                      pageDragCoordinator: widget.pageDragCoordinator,
-                      horizontalPadding: widget.horizontalPadding,
-                    )
-                  : _buildHistoryPage(
-                      context,
-                      snapshot: history[index - 1],
-                      historyIndex: index - 1,
-                      currentTrack: currentTrack,
-                      authState: authState,
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NowPlayingQueueHeader extends StatelessWidget {
-  const _NowPlayingQueueHeader({
-    required this.track,
-    required this.coverUrl,
-    required this.horizontalPadding,
-    required this.metadataHeight,
-  });
-
-  final AudioTrack track;
-  final String? coverUrl;
-  final double horizontalPadding;
-  final double metadataHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final titleStyle =
-        theme.textTheme.titleMedium?.copyWith(
-          fontSize: 14,
-          height: 1.15,
-          fontWeight: FontWeight.w700,
-        ) ??
-        const TextStyle(
-          fontSize: 14,
-          height: 1.15,
-          fontWeight: FontWeight.w700,
-        );
-    final artistStyle =
-        theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ) ??
-        TextStyle(color: theme.colorScheme.onSurfaceVariant);
-    return Padding(
-      key: const ValueKey('player-queue-now-playing'),
-      padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 8),
-      child: Row(
-        children: [
-          _QueueArtwork(
-            key: const ValueKey('player-queue-now-playing-artwork'),
-            track: track,
-            url: coverUrl,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SizedBox(
-              key: const ValueKey('player-queue-now-playing-metadata'),
-              height: metadataHeight,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Transform.translate(
-                  offset: const Offset(0, 1),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: titleStyle,
-                      ),
-                      if (track.artist?.trim().isNotEmpty == true)
-                        Text(
-                          track.artist!.trim(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: artistStyle,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const pageGap = 24.0;
+                // Widen the page stride to preserve the queue's content width.
+                final pageWidth = constraints.maxWidth + pageGap;
+                return ClipRect(
+                  child: OverflowBox(
+                    minWidth: pageWidth,
+                    maxWidth: pageWidth,
+                    child: PageView.builder(
+                      key: const ValueKey('player-queue-history-page-view'),
+                      controller: _pageController,
+                      reverse: true,
+                      itemCount: pageCount,
+                      onPageChanged: (index) =>
+                          setState(() => _currentPage = index),
+                      itemBuilder: (context, index) => Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: pageGap / 2,
                         ),
-                    ],
+                        child: index == 0
+                            ? PlayerQueueSurface(
+                                showTitleBar: false,
+                                onTrackSelected: widget.onTrackSelected,
+                                onClear: widget.onClear,
+                                onDismissRequested: widget.onDismissRequested,
+                                dismissDrag: widget.dismissDrag,
+                                scrollController: widget.scrollController,
+                                pageDragCoordinator: widget.pageDragCoordinator,
+                                horizontalPadding: widget.horizontalPadding,
+                              )
+                            : _buildHistoryPage(
+                                context,
+                                snapshot: history[index - 1],
+                                historyIndex: index - 1,
+                                authState: authState,
+                              ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -1003,23 +871,6 @@ class _QueueTrackTile extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ),
-                    SizedBox(
-                      key: ValueKey(
-                        'player-queue-current-indicator-slot-${track.id}',
-                      ),
-                      width: isCurrentTrack ? 36 : 0,
-                      child: isCurrentTrack
-                          ? Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                              ),
-                              child: Icon(
-                                Icons.graphic_eq,
-                                color: colorScheme.primary,
-                              ),
-                            )
-                          : null,
                     ),
                     if (isLoading)
                       const SizedBox(

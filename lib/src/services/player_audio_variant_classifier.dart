@@ -71,6 +71,8 @@ class PlayerAudioVariantFilter {
 class PlayerAudioVariantClassifier {
   const PlayerAudioVariantClassifier();
 
+  static final _noSeJapaneseMarker = RegExp(r'(^|[^a-z])se(?:なし|無)');
+
   List<PlayerAudioVariant> scan(
     List<dynamic> fileTree, {
     String workTitle = '',
@@ -438,11 +440,10 @@ class PlayerAudioVariantClassifier {
   }
 
   PlayerBinaryTrait _seOf(String text) {
+    if (_noSeJapaneseMarker.hasMatch(text)) return PlayerBinaryTrait.absent;
     if (_containsAny(text, const [
       '无se',
       '無se',
-      'seなし',
-      'se無し',
       'secut',
       'se cut',
       'se-cut',
@@ -458,8 +459,11 @@ class PlayerAudioVariantClassifier {
       'without se',
       '无音效',
       '無音效',
+      '不含音效',
+      '去音效',
       '无效果音',
       '無效果音',
+      '無効果音',
       '效果音剪辑',
       '效果音剪輯',
       '音效剪辑',
@@ -467,26 +471,16 @@ class PlayerAudioVariantClassifier {
       '効果音なし',
       '効果音無し',
       '効果音カット',
+      '纯人声',
+      '純人聲',
+      '声のみ',
+      '只有人声',
       'no sound effect',
       'without sound effect',
       'no sfx',
       'without sfx',
     ])) {
       return PlayerBinaryTrait.absent;
-    }
-    if (_containsAny(text, const [
-      '有se',
-      'seあり',
-      'se有り',
-      'se on',
-      'se付き',
-      'with se',
-      '音效',
-      '効果音',
-      'sound effect',
-      'sfx',
-    ])) {
-      return PlayerBinaryTrait.present;
     }
     // Most releases only mark the exceptional "no effects" variant. An
     // unmarked path therefore belongs to the regular, effects-present mix.

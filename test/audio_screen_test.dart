@@ -2827,7 +2827,7 @@ void main() {
         find.byKey(
           ValueKey(
             size.width >= playerWideLayoutBreakpoint
-                ? 'wide-left-pages'
+                ? 'wide-right-pages'
                 : 'compact-player-pages',
           ),
         ),

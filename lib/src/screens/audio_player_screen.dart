@@ -45,23 +45,13 @@ import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
 /// 音频播放器主屏幕
-enum PlayerLeftPane { cover, information }
-
-enum PlayerRightPane { controls, lyrics, queue }
-
-enum PlayerOperatedRegion { left, right }
+enum PlayerRightPane { details, controls, lyrics, queue }
 
 @immutable
 class _PlayerQueueReturnState {
-  const _PlayerQueueReturnState({
-    required this.compactPage,
-    required this.rightPane,
-    required this.lastOperatedRegion,
-  });
+  const _PlayerQueueReturnState({required this.rightPane});
 
-  final int compactPage;
   final PlayerRightPane rightPane;
-  final PlayerOperatedRegion lastOperatedRegion;
 }
 
 const double playerWideLayoutBreakpoint = 840;
@@ -102,15 +92,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   double get _seekValue => _seekPreview.value?.seekValue ?? 0;
   Duration? get _seekingPosition => _seekPreview.value?.position;
   bool _showLyricView = false;
-  PlayerLeftPane _leftPane = PlayerLeftPane.cover;
   PlayerRightPane _rightPane = PlayerRightPane.controls;
   int _compactPage = 1;
-  PlayerOperatedRegion _lastOperatedRegion = PlayerOperatedRegion.right;
   _PlayerQueueReturnState? _queueReturnState;
   late bool _queueHasBeenOpened;
   final PageController _compactPageController = PageController(initialPage: 1);
-  final PageController _wideLeftPageController = PageController(initialPage: 1);
-  final PageController _wideRightPageController = PageController();
+  final PageController _wideRightPageController = PageController(
+    initialPage: 1,
+  );
   final PageController _compactVerticalPageController = PageController();
   final PageController _wideVerticalPageController = PageController();
   late final PlayerScrollDragHandoffCoordinator _compactPageHandoff =
@@ -135,6 +124,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       _compactPageHandoff.createScrollController(
         debugLabel: 'compact-player-queue',
       );
+  late final ScrollController _wideDetailsScrollController = _widePageHandoff
+      .createScrollController(debugLabel: 'wide-player-details');
   late final ScrollController _wideLyricsScrollController = _widePageHandoff
       .createScrollController(debugLabel: 'wide-player-lyrics');
   late final ScrollController _wideControlsScrollController = _widePageHandoff
@@ -283,7 +274,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       );
     }
     _compactPageController.dispose();
-    _wideLeftPageController.dispose();
     _wideRightPageController.dispose();
     _compactPageHandoff.cancelActiveDrags();
     _widePageHandoff.cancelActiveDrags();
@@ -292,6 +282,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _compactDetailsScrollController.dispose();
     _compactLyricsScrollController.dispose();
     _compactQueueScrollController.dispose();
+    _wideDetailsScrollController.dispose();
     _wideLyricsScrollController.dispose();
     _wideControlsScrollController.dispose();
     _wideQueueScrollController.dispose();
@@ -657,17 +648,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       requestedTargets,
       _semanticCompactPage,
     );
-    final oldLeftPage = _pageAfterResize(
-      _wideLeftPageController,
-      dragOrigins,
-      requestedTargets,
-      _leftPane == PlayerLeftPane.information ? 0 : 1,
-    );
     final oldRightPage = _pageAfterResize(
       _wideRightPageController,
       dragOrigins,
       requestedTargets,
-      _rightPane == PlayerRightPane.lyrics ? 1 : 0,
+      _pageForRightPane(
+        _rightPane == PlayerRightPane.queue
+            ? _queueReturnState?.rightPane ?? PlayerRightPane.controls
+            : _rightPane,
+      ),
     );
     final oldVerticalController = oldWide
         ? _wideVerticalPageController
@@ -683,7 +672,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
     if (oldWide) {
       _applyWidePageSemantics(
-        oldLeftPage,
         oldRightPage,
         applyRight: _rightPane != PlayerRightPane.queue,
       );
@@ -693,30 +681,18 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
     final queuePageSelected = !_directQueueEntry && oldVerticalPage == 1;
     if (queuePageSelected && _rightPane != PlayerRightPane.queue) {
-      _captureQueueOrigin(compactOriginPage: oldCompactPage);
+      _captureQueueOrigin();
     }
     if (queuePageSelected) {
       _queueHasBeenOpened = true;
       _rightPane = PlayerRightPane.queue;
     } else if (!_directQueueEntry && _rightPane == PlayerRightPane.queue) {
-      _restoreQueueSemanticFields(wasWide: oldWide);
+      _restoreQueueSemanticFields();
     }
 
     if (queuePageSelected && oldWide && !isWide) {
-      final returnState = _queueReturnState;
-      final returnRight = returnState?.rightPane == PlayerRightPane.lyrics
-          ? PlayerRightPane.lyrics
-          : PlayerRightPane.controls;
-      final compactReturnPage = _compactPageForSemantics(
-        leftPane: _leftPane,
-        rightPane: returnRight,
-        lastRegion: _lastOperatedRegion,
-      );
-      _compactPage = compactReturnPage;
-      _queueReturnState = _PlayerQueueReturnState(
-        compactPage: compactReturnPage,
-        rightPane: returnRight,
-        lastOperatedRegion: _lastOperatedRegion,
+      _compactPage = _pageForRightPane(
+        _queueReturnState?.rightPane ?? PlayerRightPane.controls,
       );
     }
 
@@ -741,17 +717,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       if (!mounted) return;
       if (isWide) {
         _restorePageController(
-          _wideLeftPageController,
-          _leftPane == PlayerLeftPane.information ? 0 : 1,
-        );
-        _restorePageController(
           _wideRightPageController,
-          (_rightPane == PlayerRightPane.queue
-                      ? _queueReturnState?.rightPane
-                      : _rightPane) ==
-                  PlayerRightPane.lyrics
-              ? 1
-              : 0,
+          _pageForRightPane(
+            _rightPane == PlayerRightPane.queue
+                ? _queueReturnState?.rightPane ?? PlayerRightPane.controls
+                : _rightPane,
+          ),
         );
         _restorePageController(
           _wideVerticalPageController,
@@ -777,69 +748,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   void _applyCompactPageSemantics(int page) {
     if (_rightPane == PlayerRightPane.queue || page == _compactPage) return;
-    final previous = _compactPage;
     _compactPage = page.clamp(0, 2).toInt();
-    if (_compactPage == 0) {
-      _leftPane = PlayerLeftPane.information;
-      _lastOperatedRegion = PlayerOperatedRegion.left;
-    } else if (_compactPage == 2) {
-      _rightPane = PlayerRightPane.lyrics;
-      _lastOperatedRegion = PlayerOperatedRegion.right;
-    } else if (previous == 0) {
-      _leftPane = PlayerLeftPane.cover;
-      _lastOperatedRegion = PlayerOperatedRegion.left;
-    } else if (previous == 2) {
-      _rightPane = PlayerRightPane.controls;
-      _lastOperatedRegion = PlayerOperatedRegion.right;
-    }
+    _rightPane = _rightPaneForPage(_compactPage);
   }
 
-  void _applyWidePageSemantics(
-    int leftPage,
-    int rightPage, {
-    required bool applyRight,
-  }) {
-    final leftPane = leftPage == 0
-        ? PlayerLeftPane.information
-        : PlayerLeftPane.cover;
-    if (_leftPane != leftPane) {
-      _leftPane = leftPane;
-      _lastOperatedRegion = PlayerOperatedRegion.left;
-    }
+  void _applyWidePageSemantics(int rightPage, {required bool applyRight}) {
     if (!applyRight) return;
-    final rightPane = rightPage == 1
-        ? PlayerRightPane.lyrics
-        : PlayerRightPane.controls;
-    if (_rightPane != rightPane) {
-      _rightPane = rightPane;
-      _lastOperatedRegion = PlayerOperatedRegion.right;
-    }
+    _rightPane = _rightPaneForPage(rightPage);
+    _compactPage = _pageForRightPane(_rightPane);
   }
 
-  void _restoreQueueSemanticFields({required bool wasWide}) {
-    final restored =
-        _queueReturnState ??
-        const _PlayerQueueReturnState(
-          compactPage: 1,
-          rightPane: PlayerRightPane.controls,
-          lastOperatedRegion: PlayerOperatedRegion.right,
-        );
-    final restoredRight = restored.rightPane == PlayerRightPane.queue
-        ? PlayerRightPane.controls
-        : restored.rightPane;
-    _rightPane = restoredRight;
-    if (wasWide) {
-      _compactPage = _compactPageForSemantics(
-        leftPane: _leftPane,
-        rightPane: restoredRight,
-        lastRegion: _lastOperatedRegion,
-      );
-    } else {
-      _compactPage = restored.compactPage;
-      _lastOperatedRegion = restored.lastOperatedRegion;
-      if (_compactPage == 0) _leftPane = PlayerLeftPane.information;
-      if (_compactPage == 2) _rightPane = PlayerRightPane.lyrics;
+  void _restoreQueueSemanticFields() {
+    _rightPane = _queueReturnState?.rightPane ?? PlayerRightPane.controls;
+    if (_rightPane == PlayerRightPane.queue) {
+      _rightPane = PlayerRightPane.controls;
     }
+    _compactPage = _pageForRightPane(_rightPane);
     _queueReturnState = null;
   }
 
@@ -941,40 +865,30 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     if (identical(controller, _compactPageController)) {
       return _semanticCompactPage;
     }
-    if (identical(controller, _wideLeftPageController)) {
-      return _leftPane == PlayerLeftPane.information ? 0 : 1;
-    }
     if (identical(controller, _wideRightPageController)) {
-      return _rightPane == PlayerRightPane.lyrics ? 1 : 0;
+      return _pageForRightPane(
+        _rightPane == PlayerRightPane.queue
+            ? _queueReturnState?.rightPane ?? PlayerRightPane.controls
+            : _rightPane,
+      );
     }
     return _rightPane == PlayerRightPane.queue ? 1 : 0;
   }
 
-  int get _semanticCompactPage {
-    return _compactPageForSemantics(
-      leftPane: _leftPane,
-      rightPane: _rightPane,
-      lastRegion: _lastOperatedRegion,
-    );
-  }
+  int get _semanticCompactPage => _compactPage;
 
-  int _compactPageForSemantics({
-    required PlayerLeftPane leftPane,
-    required PlayerRightPane rightPane,
-    required PlayerOperatedRegion lastRegion,
-  }) {
-    if (lastRegion == PlayerOperatedRegion.left &&
-        leftPane == PlayerLeftPane.information) {
-      return 0;
-    }
-    if (lastRegion == PlayerOperatedRegion.right &&
-        rightPane == PlayerRightPane.lyrics) {
-      return 2;
-    }
-    if (rightPane == PlayerRightPane.lyrics) return 2;
-    if (leftPane == PlayerLeftPane.information) return 0;
-    return 1;
-  }
+  int _pageForRightPane(PlayerRightPane pane) => switch (pane) {
+    PlayerRightPane.details => 0,
+    PlayerRightPane.controls => 1,
+    PlayerRightPane.lyrics => 2,
+    PlayerRightPane.queue => 1,
+  };
+
+  PlayerRightPane _rightPaneForPage(int page) => switch (page) {
+    0 => PlayerRightPane.details,
+    2 => PlayerRightPane.lyrics,
+    _ => PlayerRightPane.controls,
+  };
 
   Widget _buildWidePlayer(
     BuildContext context, {
@@ -991,6 +905,74 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
     final outerPadding = width >= 1200 ? 48.0 : 24.0;
     final gap = width >= 1200 ? 40.0 : 20.0;
+    final wideRightPageChildren = <Widget>[
+      _withOriginalPlayerGestureSettings(
+        context,
+        _PlayerPageBoundary(
+          key: const ValueKey('wide-details-page-boundary'),
+          pageController: _wideRightPageController,
+          pageIndex: 0,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final detailsWidth = math.min(704.0, constraints.maxWidth * 0.90);
+              return Center(
+                child: SizedBox(
+                  width: detailsWidth,
+                  height: double.infinity,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _semanticPageRevision,
+                    builder: (context, _, __) => PlayerAudioDetailsPanel(
+                      key: const ValueKey('wide-audio-details-pane'),
+                      onOpenWork: _openKnownWork,
+                      scrollController: _wideDetailsScrollController,
+                      isActive:
+                          !_isLyricLocked &&
+                          _rightPane == PlayerRightPane.details,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      _withOriginalPlayerGestureSettings(
+        context,
+        _PlayerPageBoundary(
+          key: const ValueKey('wide-controls-page-boundary'),
+          pageController: _wideRightPageController,
+          pageIndex: 1,
+          child: Column(
+            children: [
+              PlayerVerticalSwipeRegion(
+                key: const ValueKey('wide-controls-lyric-preview-surface'),
+                swipeDownDrag: mainBodyDismissDrag,
+                pageDragCoordinator: _widePageHandoff,
+                child: _buildLyricPreview(track),
+              ),
+              Expanded(
+                child: _buildControlsPane(
+                  context,
+                  track: track,
+                  isWide: true,
+                  showTrackHeader: false,
+                  dismissDrag: mainBodyDismissDrag,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      _withOriginalPlayerGestureSettings(
+        context,
+        _PlayerPageBoundary(
+          key: const ValueKey('wide-lyrics-page-boundary'),
+          pageController: _wideRightPageController,
+          pageIndex: 2,
+          child: _buildLyricsPane(context, isWide: true),
+        ),
+      ),
+    ];
     return SafeArea(
       maintainBottomViewPadding: true,
       minimum: EdgeInsets.fromLTRB(outerPadding, 18, outerPadding, 18),
@@ -998,99 +980,28 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         key: const ValueKey('wide-player-layout'),
         children: [
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final detailsWidth = math.max(
-                  0.0,
-                  (constraints.maxWidth - 24) * 0.90,
-                );
-                return directQueueOnly
-                    ? _buildCoverPane(
-                        context,
-                        track: track,
-                        coverUrl: coverUrl,
-                        isWide: true,
-                        previewPalette: previewPalette,
-                      )
-                    : Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: NotificationListener<ScrollNotification>(
-                          onNotification: (notification) =>
-                              _handlePageScrollNotification(
-                                notification,
-                                _wideLeftPageController,
-                                vertical: false,
-                              ),
-                          child: _withEarlierPlayerPageGestureStart(
-                            context,
-                            PageView(
-                              key: const ValueKey('wide-left-pages'),
-                              controller: _wideLeftPageController,
-                              physics: const PlayerPageScrollPhysics(),
-                              allowImplicitScrolling: true,
-                              onPageChanged: _onWideLeftPageChanged,
-                              children: [
-                                _withOriginalPlayerGestureSettings(
-                                  context,
-                                  _PlayerPageBoundary(
-                                    key: const ValueKey(
-                                      'wide-details-page-boundary',
-                                    ),
-                                    pageController: _wideLeftPageController,
-                                    pageIndex: 0,
-                                    child: Center(
-                                      child: SizedBox(
-                                        width: detailsWidth,
-                                        height: double.infinity,
-                                        child: ValueListenableBuilder<int>(
-                                          valueListenable:
-                                              _semanticPageRevision,
-                                          builder: (context, _, __) =>
-                                              PlayerAudioDetailsPanel(
-                                                key: const ValueKey(
-                                                  'wide-audio-details-pane',
-                                                ),
-                                                onOpenWork: _openKnownWork,
-                                                isActive:
-                                                    !_isLyricLocked &&
-                                                    _leftPane ==
-                                                        PlayerLeftPane
-                                                            .information,
-                                              ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                _withOriginalPlayerGestureSettings(
-                                  context,
-                                  _PlayerPageBoundary(
-                                    key: const ValueKey(
-                                      'wide-cover-page-boundary',
-                                    ),
-                                    pageController: _wideLeftPageController,
-                                    pageIndex: 1,
-                                    child: PlayerVerticalSwipeRegion(
-                                      key: const ValueKey(
-                                        'wide-cover-dismiss-surface',
-                                      ),
-                                      swipeDownDrag: mainBodyDismissDrag,
-                                      child: _buildCoverPane(
-                                        context,
-                                        track: track,
-                                        coverUrl: coverUrl,
-                                        isWide: true,
-                                        previewPalette: previewPalette,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-              },
+            child: Column(
+              children: [
+                _buildWideHeader(
+                  context,
+                  track,
+                  dismissDrag: titleDismissDrag,
+                  allowTitleAnimation: !directQueueOnly,
+                ),
+                Expanded(
+                  child: PlayerVerticalSwipeRegion(
+                    key: const ValueKey('wide-cover-dismiss-surface'),
+                    swipeDownDrag: mainBodyDismissDrag,
+                    child: _buildCoverPane(
+                      context,
+                      track: track,
+                      coverUrl: coverUrl,
+                      isWide: true,
+                      previewPalette: previewPalette,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(width: gap),
@@ -1124,73 +1035,31 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                             key: const ValueKey('wide-right-base-page'),
                             pageController: _wideVerticalPageController,
                             pageIndex: 0,
-                            child: Column(
-                              children: [
-                                _buildWideHeader(
-                                  context,
-                                  track,
-                                  dismissDrag: titleDismissDrag,
-                                  allowTitleAnimation: true,
-                                  pageDragCoordinator: _widePageHandoff,
-                                ),
-                                Expanded(
-                                  child: NotificationListener<ScrollNotification>(
-                                    onNotification: (notification) =>
-                                        _handlePageScrollNotification(
-                                          notification,
-                                          _wideRightPageController,
-                                          vertical: false,
-                                        ),
-                                    child: _withEarlierPlayerPageGestureStart(
-                                      context,
-                                      PageView(
+                            // Match the slider's slop before a rebuild can disable paging.
+                            child: _withOriginalPlayerGestureSettings(
+                              context,
+                              ValueListenableBuilder<bool>(
+                                valueListenable: _progressGestureActive,
+                                builder: (_, progressGestureActive, _) =>
+                                    NotificationListener<ScrollNotification>(
+                                      onNotification: (notification) =>
+                                          _handlePageScrollNotification(
+                                            notification,
+                                            _wideRightPageController,
+                                            vertical: false,
+                                          ),
+                                      child: PageView(
                                         key: const ValueKey('wide-right-pages'),
                                         controller: _wideRightPageController,
-                                        physics:
-                                            const PlayerPageScrollPhysics(),
+                                        physics: progressGestureActive
+                                            ? const NeverScrollableScrollPhysics()
+                                            : const PlayerPageScrollPhysics(),
                                         allowImplicitScrolling: true,
                                         onPageChanged: _onWideRightPageChanged,
-                                        children: [
-                                          _withOriginalPlayerGestureSettings(
-                                            context,
-                                            _PlayerPageBoundary(
-                                              key: const ValueKey(
-                                                'wide-controls-page-boundary',
-                                              ),
-                                              pageController:
-                                                  _wideRightPageController,
-                                              pageIndex: 0,
-                                              child: _buildControlsPane(
-                                                context,
-                                                track: track,
-                                                isWide: true,
-                                                showTrackHeader: false,
-                                                dismissDrag:
-                                                    mainBodyDismissDrag,
-                                              ),
-                                            ),
-                                          ),
-                                          _withOriginalPlayerGestureSettings(
-                                            context,
-                                            _PlayerPageBoundary(
-                                              key: const ValueKey(
-                                                'wide-lyrics-page-boundary',
-                                              ),
-                                              pageController:
-                                                  _wideRightPageController,
-                                              pageIndex: 1,
-                                              child: _buildLyricsPane(
-                                                context,
-                                                isWide: true,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                        children: wideRightPageChildren,
                                       ),
                                     ),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                           _queueHasBeenOpened
@@ -1218,12 +1087,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     AudioTrack track, {
     required PlayerVerticalDragCallbacks dismissDrag,
     required bool allowTitleAnimation,
-    required PlayerScrollDragHandoffCoordinator pageDragCoordinator,
   }) {
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('wide-header-dismiss-surface'),
       swipeDownDrag: dismissDrag,
-      pageDragCoordinator: pageDragCoordinator,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 704),
@@ -1690,16 +1557,20 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               },
             ),
           ),
-          InkWell(
-            key: const ValueKey('player-cover-lyric-preview'),
-            borderRadius: BorderRadius.circular(12),
-            onTap: _showLyrics,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: LyricDisplay(albumName: track.album),
-            ),
-          ),
+          if (!isWide) _buildLyricPreview(track),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLyricPreview(AudioTrack track) {
+    return InkWell(
+      key: const ValueKey('player-lyric-preview'),
+      borderRadius: BorderRadius.circular(12),
+      onTap: _showLyrics,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: LyricDisplay(albumName: track.album),
       ),
     );
   }
@@ -1942,7 +1813,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         _rightPane == PlayerRightPane.queue) {
       return false;
     }
-    return isWide ? _leftPane == PlayerLeftPane.cover : _compactPage == 1;
+    return isWide || _compactPage == 1;
   }
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
@@ -1996,40 +1867,18 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         index == _compactPage) {
       return;
     }
-    final previous = _compactPage;
     _commitSemanticPage(() {
       _compactPage = index;
-      if (index == 0) {
-        _leftPane = PlayerLeftPane.information;
-        _lastOperatedRegion = PlayerOperatedRegion.left;
-      } else if (index == 2) {
-        _rightPane = PlayerRightPane.lyrics;
-        _lastOperatedRegion = PlayerOperatedRegion.right;
-      } else if (previous == 0) {
-        _leftPane = PlayerLeftPane.cover;
-        _lastOperatedRegion = PlayerOperatedRegion.left;
-      } else if (previous == 2) {
-        _rightPane = PlayerRightPane.controls;
-        _lastOperatedRegion = PlayerOperatedRegion.right;
-      }
-    });
-  }
-
-  void _onWideLeftPageChanged(int index) {
-    final pane = index == 0 ? PlayerLeftPane.information : PlayerLeftPane.cover;
-    if (_leftPane == pane) return;
-    _commitSemanticPage(() {
-      _leftPane = pane;
-      _lastOperatedRegion = PlayerOperatedRegion.left;
+      _rightPane = _rightPaneForPage(index);
     });
   }
 
   void _onWideRightPageChanged(int index) {
-    final pane = index == 0 ? PlayerRightPane.controls : PlayerRightPane.lyrics;
+    final pane = _rightPaneForPage(index);
     if (_rightPane == PlayerRightPane.queue || _rightPane == pane) return;
     _commitSemanticPage(() {
       _rightPane = pane;
-      _lastOperatedRegion = PlayerOperatedRegion.right;
+      _compactPage = _pageForRightPane(pane);
     });
   }
 
@@ -2092,11 +1941,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   void _showLyrics() {
     _commitSemanticPage(() {
       _rightPane = PlayerRightPane.lyrics;
-      _lastOperatedRegion = PlayerOperatedRegion.right;
+      _compactPage = 2;
     });
     _animateSemanticPage(
       wideController: _wideRightPageController,
-      widePage: 1,
+      widePage: 2,
       compactPage: 2,
     );
   }
@@ -2150,10 +1999,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     });
   }
 
-  void _showQueue({int? compactOriginPage}) {
+  void _showQueue() {
     if (_directQueueEntry || _rightPane == PlayerRightPane.queue) return;
     _semanticTransitionGeneration++;
-    _captureQueueOrigin(compactOriginPage: compactOriginPage);
+    _captureQueueOrigin();
     final mountQueue = !_queueHasBeenOpened;
     _commitSemanticPage(() {
       _queueHasBeenOpened = true;
@@ -2237,20 +2086,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     });
   }
 
-  void _captureQueueOrigin({int? compactOriginPage}) {
+  void _captureQueueOrigin() {
     if (_rightPane == PlayerRightPane.queue) return;
-    final controllerPage = _compactPageController.hasClients
-        ? _compactPageController.page?.round()
-        : null;
-    final resolvedCompactPage =
-        (compactOriginPage ?? controllerPage ?? _compactPage)
-            .clamp(0, 2)
-            .toInt();
-    _queueReturnState = _PlayerQueueReturnState(
-      compactPage: resolvedCompactPage,
-      rightPane: _rightPane,
-      lastOperatedRegion: _lastOperatedRegion,
-    );
+    _queueReturnState = _PlayerQueueReturnState(rightPane: _rightPane);
   }
 
   void _closeQueue() {
@@ -2268,8 +2106,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     if (_rightPane != PlayerRightPane.queue && _queueReturnState == null) {
       return;
     }
-    final wasWide = _lastWasWide == true;
-    _commitSemanticPage(() => _restoreQueueSemanticFields(wasWide: wasWide));
+    _commitSemanticPage(_restoreQueueSemanticFields);
     final restoredRight = _rightPane;
     final compactPage = _compactPage;
     _dismissCoordinator.scheduleVisualModeSync(context);
@@ -2277,9 +2114,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       if (!mounted) return;
       if (usesWidePlayerLayout(MediaQuery.sizeOf(context).width)) {
         if (_wideRightPageController.hasClients) {
-          _wideRightPageController.jumpToPage(
-            restoredRight == PlayerRightPane.lyrics ? 1 : 0,
-          );
+          _wideRightPageController.jumpToPage(_pageForRightPane(restoredRight));
         }
       } else if (_compactPageController.hasClients) {
         _compactPageController.jumpToPage(compactPage);
@@ -2877,9 +2712,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   }
 
   bool _isPlayerCoverVisible({required bool isWide}) {
-    if (isWide) {
-      return _leftPane == PlayerLeftPane.cover;
-    }
+    if (isWide) return true;
     return !_queueTransitionActive &&
         _rightPane != PlayerRightPane.queue &&
         _compactPage == 1;

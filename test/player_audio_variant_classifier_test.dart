@@ -166,13 +166,29 @@ void main() {
       'SE off',
       'SE-off',
       'SEoff',
+      'SE_OFF',
       'SEなし',
       'SE無し',
+      'SE無',
+      '01SE無',
+      '本編SE無',
+      'noise無_SE無',
       'SEカット',
       'SEオフ',
+      '无音效',
+      '不含音效',
+      '去音效',
+      '無音效',
+      '無SE',
+      '無効果音',
       '効果音なし',
       '効果音無し',
       '効果音カット',
+      '纯人声',
+      '純人聲',
+      '音声のみ',
+      '声のみ',
+      '只有人声',
       '效果音剪辑',
       '效果音剪輯',
       '音效剪辑',
@@ -189,6 +205,32 @@ void main() {
         expect(variant.se, PlayerBinaryTrait.absent, reason: variant.fullPath);
         expect(variant.ejaculation, PlayerBinaryTrait.present);
       }
+    }
+  });
+
+  test('SE無 and SEなし do not match the end of English words', () {
+    for (final name in const [
+      'noise無',
+      'NOISE無',
+      'ＮＯＩＳＥ無',
+      'noise無し',
+      'noiseなし',
+    ]) {
+      final variants = classifier.scan([
+        _audio('$name.wav', 'filename'),
+        _folder(name, [_audio('track.wav', 'directory')]),
+      ]);
+      expect(variants, hasLength(2));
+      for (final variant in variants) {
+        expect(variant.se, PlayerBinaryTrait.present, reason: variant.fullPath);
+      }
+      expect(
+        classifier.applyFilter(
+          variants,
+          const PlayerAudioVariantFilter(seValues: {PlayerBinaryTrait.absent}),
+        ),
+        isEmpty,
+      );
     }
   });
 
@@ -253,6 +295,7 @@ void main() {
     final variants = classifier.scan([
       _folder('SEなし_射精音なし', [_audio('SEあり_射精音あり.wav', 'negative-directory')]),
       _folder('効果音あり_射精音あり', [_audio('SECut_絶頂なし.wav', 'negative-filename')]),
+      _folder('効果音あり_射精音あり', [_audio('纯人声_絶頂なし.wav', 'negative-voice')]),
       _audio('効果音あり_射精音あり.wav', 'positive'),
     ]);
     const preference = AudioFormatPreference(
@@ -263,6 +306,7 @@ void main() {
     expect(best.map((variant) => variant.source['hash']).toSet(), {
       'negative-directory',
       'negative-filename',
+      'negative-voice',
     });
     expect(
       classifier.applyFilter(

@@ -57,9 +57,27 @@ void main() {
       final actions = _QueueActions();
       await _pumpQueue(tester, size: size, actions: actions);
 
+      expect(
+        find.byKey(const ValueKey('player-queue-now-playing')),
+        findsNothing,
+      );
+      expect(find.text(_liveTrack.title).hitTestable(), findsOneWidget);
+      final header = tester.getRect(
+        find.byKey(const ValueKey('player-queue-browser-header')),
+      );
+      final trackPosition = tester.getRect(
+        find.byKey(const ValueKey('player-queue-current-track-position')),
+      );
+      final clear = tester.getRect(find.text('Clear'));
+      expect(trackPosition.right, lessThan(header.center.dx));
+      expect(clear.left, greaterThan(header.center.dx));
+      expect(trackPosition.center.dy, closeTo(clear.center.dy, .01));
+      final labels = S.of(tester.element(find.byType(PlayerQueueBrowser)));
+      expect(find.text(labels.queueBrowserPagePosition(2, 2)), findsOneWidget);
+
       await tester.drag(
         find.byKey(const ValueKey('player-queue-history-page-view')),
-        Offset(-size.width * .8, 0),
+        Offset(size.width * .8, 0),
       );
       await tester.pumpAndSettle();
 
@@ -83,6 +101,12 @@ void main() {
         ),
         findsNothing,
       );
+      expect(find.text(_liveTrack.title).hitTestable(), findsNothing);
+      expect(
+        find.byKey(const ValueKey('player-queue-now-playing')),
+        findsNothing,
+      );
+      expect(find.text(labels.queueBrowserPagePosition(1, 2)), findsOneWidget);
       final container = ProviderScope.containerOf(
         tester.element(find.byType(PlayerQueueBrowser)),
       );
@@ -90,6 +114,73 @@ void main() {
       expect(container.read(queueProvider).valueOrNull, [_liveTrack]);
       expect(actions.restored, isEmpty);
       expect(actions.skipped, isEmpty);
+
+      await tester.drag(
+        find.byKey(const ValueKey('player-queue-history-page-view')),
+        Offset(-size.width * .8, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(_liveTrack.title).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('queue pages retain their gap during swipes at $size', (
+      tester,
+    ) async {
+      final histories = StreamController<List<PlaybackSessionSnapshot>>();
+      addTearDown(histories.close);
+      final olderHistory = PlaybackSessionSnapshot(
+        queue: [_historyTracks.last],
+        currentIndex: 0,
+        position: Duration.zero,
+        ownerKey: _history.ownerKey,
+        markingQueueId: 'older-queue',
+      );
+      await _pumpQueue(
+        tester,
+        size: size,
+        actions: _QueueActions(),
+        historyStream: histories.stream,
+        screen: const AudioPlayerScreen(
+          initialSurface: PlayerInitialSurface.queue,
+        ),
+      );
+      histories.add([_history, olderHistory]);
+      await tester.pumpAndSettle();
+
+      final pagerFinder = find.byKey(
+        const ValueKey('player-queue-history-page-view'),
+      );
+      final pager = tester.widget<PageView>(pagerFinder);
+      final queueWidth = tester.getSize(find.byType(PlayerQueueSurface)).width;
+      for (var page = 0; page < 2; page++) {
+        final outgoingPage = page == 0
+            ? find.byType(PlayerQueueSurface)
+            : find.byKey(const ValueKey('player-queue-history-page-0'));
+        final incomingPage = find.byKey(
+          ValueKey('player-queue-history-page-$page'),
+        );
+        final gesture = await tester.startGesture(
+          tester.getCenter(pagerFinder),
+        );
+        await gesture.moveBy(const Offset(24, 0));
+        await tester.pump();
+        for (var step = 0; step < 3; step++) {
+          await gesture.moveBy(
+            Offset(pager.controller!.position.viewportDimension / 4, 0),
+          );
+          await tester.pump();
+
+          final outgoing = tester.getRect(outgoingPage);
+          final incoming = tester.getRect(incomingPage);
+          expect(outgoing.width, closeTo(queueWidth, .01));
+          expect(incoming.width, closeTo(queueWidth, .01));
+          expect(outgoing.left - incoming.right, closeTo(24, .01));
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(pager.controller!.page, page + 1);
+      }
       expect(tester.takeException(), isNull);
     });
   }
@@ -144,8 +235,16 @@ void main() {
     final actions = _QueueActions();
     await _pumpQueue(tester, size: const Size(1100, 800), actions: actions);
 
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('player-queue-history-next-button')),
+          )
+          .onPressed,
+      isNull,
+    );
     await tester.tap(
-      find.byKey(const ValueKey('player-queue-history-next-button')),
+      find.byKey(const ValueKey('player-queue-history-previous-button')),
     );
     await tester.pumpAndSettle();
     expect(
@@ -154,9 +253,17 @@ void main() {
           .hitTestable(),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('player-queue-history-previous-button')),
+          )
+          .onPressed,
+      isNull,
+    );
 
     await tester.tap(
-      find.byKey(const ValueKey('player-queue-history-previous-button')),
+      find.byKey(const ValueKey('player-queue-history-next-button')),
     );
     await tester.pumpAndSettle();
     expect(find.text(_liveTrack.title).hitTestable(), findsWidgets);
