@@ -3223,20 +3223,14 @@ void main() {
     final routeTranslationFinder = find.byKey(
       const ValueKey('player-route-vertical-translation'),
     );
-    final outward = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final outward = tester.getTopLeft(routeTranslationFinder).dy;
     expect(outward, greaterThan(80));
 
     for (var index = 0; index < 7; index++) {
       await gesture.moveBy(const Offset(0, -16));
       await tester.pump();
     }
-    expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
-      lessThan(outward),
-    );
+    expect(tester.getTopLeft(routeTranslationFinder).dy, lessThan(outward));
     await gesture.up();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
@@ -3954,6 +3948,101 @@ void main() {
       findsOneWidget,
     );
   });
+
+  for (final config in const [
+    (name: 'compact', size: Size(390, 844), isWide: false),
+    (name: 'wide', size: Size(1280, 720), isWide: true),
+  ]) {
+    testWidgets(
+      'keyboard preserves player safe-area geometry (${config.name})',
+      (tester) async {
+        final safePadding = FakeViewPadding(
+          top: 24,
+          bottom: 34,
+          left: config.isWide ? 44 : 0,
+          right: config.isWide ? 12 : 0,
+        );
+        tester.view.padding = safePadding;
+        tester.view.viewPadding = safePadding;
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        addTearDown(tester.view.resetViewInsets);
+        await _pumpPlayer(
+          tester,
+          config.size,
+          pushedRoute: true,
+          lyrics: List.generate(
+            80,
+            (index) => LyricLine(
+              startTime: Duration(seconds: index),
+              endTime: Duration(seconds: index + 1),
+              text: 'safe area lyric $index',
+            ),
+          ),
+        );
+        final pages = tester.widget<PageView>(
+          find.byKey(
+            ValueKey(
+              config.isWide ? 'wide-right-pages' : 'compact-player-pages',
+            ),
+          ),
+        );
+        pages.controller!.jumpToPage(config.isWide ? 1 : 2);
+        await tester.pumpAndSettle();
+        final surface = find.byKey(
+          ValueKey('player-lyrics-surface-${config.isWide}'),
+        );
+        final viewport = find.byKey(
+          const ValueKey('lyric-keyboard-safe-viewport'),
+        );
+        final line = find.descendant(
+          of: surface,
+          matching: find.text('safe area lyric 0'),
+        );
+        final surfaceBefore = tester.getRect(surface);
+        final lineBefore = tester.getRect(line);
+        final viewportBefore = tester.getRect(viewport);
+        final scroll = tester
+            .state<ScrollableState>(
+              find
+                  .descendant(
+                    of: find.byKey(const ValueKey('full-lyric-list')),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            )
+            .position;
+        final offsetBefore = scroll.pixels;
+        await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+        await tester.pumpAndSettle();
+        for (final inset in const [80.0, 160.0, 280.0]) {
+          tester.view.viewInsets = FakeViewPadding(bottom: inset);
+          tester.view.padding = FakeViewPadding(
+            top: 24,
+            left: safePadding.left,
+            right: safePadding.right,
+          );
+          await tester.pumpAndSettle();
+          expect(tester.getRect(surface), surfaceBefore);
+          expect(tester.getRect(line), lineBefore);
+          expect(scroll.pixels, closeTo(offsetBefore, 0.01));
+          expect(tester.getRect(viewport).top, viewportBefore.top);
+          expect(
+            tester.getRect(viewport).height,
+            lessThan(viewportBefore.height),
+          );
+        }
+        await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+        tester.view.resetViewInsets();
+        tester.view.padding = safePadding;
+        await tester.pumpAndSettle();
+        expect(tester.getRect(surface), surfaceBefore);
+        expect(tester.getRect(line), lineBefore);
+        expect(tester.getRect(viewport), viewportBefore);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'keyboard lifts only lyric controls and clips the lyric viewport',

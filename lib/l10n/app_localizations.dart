@@ -790,6 +790,36 @@ abstract class S {
   /// **'Search History'**
   String get searchHistory;
 
+  /// Shown while previous search results remain visible during an update.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating search results…'**
+  String get searchUpdating;
+
+  /// Explains that visible results are from the previous search after an update failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed. Showing previous search results.'**
+  String get searchUpdateFailedShowingPrevious;
+
+  /// Labels old video search history that did not record its original scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Older searches (scope unknown)'**
+  String get searchLegacyHistory;
+
+  /// Warns that search history storage is unavailable and new entries are temporary.
+  ///
+  /// In en, this message translates to:
+  /// **'Search history cannot be saved. New entries remain only until the app closes.'**
+  String get searchHistoryNotSaved;
+
+  /// Confirmation when clearing search history for the current scope and source.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search history for this scope?'**
+  String get clearCurrentSearchHistoryConfirm;
+
   /// No description provided for @clearSearchHistory.
   ///
   /// In en, this message translates to:
@@ -1875,6 +1905,18 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Search online/downloads first, then subtitle library'**
   String get subtitlePriorityLowestDesc;
+
+  /// Preference for automatically opening text preview search with the last keyword.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically search the last keyword'**
+  String get autoSearchLastSubtitleQuery;
+
+  /// Explains when text preview search opens automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for the last keyword when opening a text preview.'**
+  String get autoSearchLastSubtitleQueryDesc;
 
   /// No description provided for @translationSourceSettings.
   ///
@@ -7852,6 +7894,24 @@ abstract class S {
   /// **'Search videos'**
   String get videoSearchHint;
 
+  /// Explains that video directory suggestions only match pages already loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Matches are limited to loaded directory pages.'**
+  String get videoSearchLoadedDirectoryPagesHint;
+
+  /// Shown when a video directory query has not been selected as a filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a directory suggestion first.'**
+  String get videoSearchSelectFilterBeforeSearch;
+
+  /// Opens the paginated video filter directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse the full directory.'**
+  String get videoSearchBrowseAllDirectory;
+
   /// No description provided for @videoSourceAccount.
   ///
   /// In en, this message translates to:
@@ -8877,6 +8937,42 @@ abstract class S {
   /// In en, this message translates to:
   /// **'{endpoint}: {action}'**
   String audioSliceEndpointAction(String endpoint, String action);
+
+  /// Automatically mark audio works
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically mark audio works'**
+  String get automaticWorkMarking;
+
+  /// Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified.'**
+  String get automaticWorkMarkingDescription;
+
+  /// Clear completed audio history
+  ///
+  /// In en, this message translates to:
+  /// **'Clear completed audio history'**
+  String get clearAudioCompletionHistory;
+
+  /// Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged.'**
+  String get clearAudioCompletionHistoryDescription;
+
+  /// Completed audio history cleared
+  ///
+  /// In en, this message translates to:
+  /// **'Completed audio history cleared'**
+  String get audioCompletionHistoryCleared;
+
+  /// An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.
+  ///
+  /// In en, this message translates to:
+  /// **'An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.'**
+  String get automaticMarkingConflict;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

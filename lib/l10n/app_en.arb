@@ -159,6 +159,16 @@
   },
 
   "searchHistory": "Search History",
+  "searchUpdating": "Updating search results…",
+  "@searchUpdating": { "description": "Shown while previous search results remain visible during an update." },
+  "searchUpdateFailedShowingPrevious": "Update failed. Showing previous search results.",
+  "@searchUpdateFailedShowingPrevious": { "description": "Explains that visible results are from the previous search after an update failed." },
+  "searchLegacyHistory": "Older searches (scope unknown)",
+  "@searchLegacyHistory": { "description": "Labels old video search history that did not record its original scope." },
+  "searchHistoryNotSaved": "Search history cannot be saved. New entries remain only until the app closes.",
+  "@searchHistoryNotSaved": { "description": "Warns that search history storage is unavailable and new entries are temporary." },
+  "clearCurrentSearchHistoryConfirm": "Clear search history for this scope?",
+  "@clearCurrentSearchHistoryConfirm": { "description": "Confirmation when clearing search history for the current scope and source." },
   "clearSearchHistory": "Clear Search History",
   "clearSearchHistoryConfirm": "Are you sure you want to clear all search history?",
   "clear": "Clear",
@@ -472,6 +482,14 @@
   "selectSubtitlePriority": "Select subtitle library priority for auto-loading:",
   "subtitlePriorityHighestDesc": "Search subtitle library first, then online/downloads",
   "subtitlePriorityLowestDesc": "Search online/downloads first, then subtitle library",
+  "autoSearchLastSubtitleQuery": "Automatically search the last keyword",
+  "@autoSearchLastSubtitleQuery": {
+    "description": "Preference for automatically opening text preview search with the last keyword."
+  },
+  "autoSearchLastSubtitleQueryDesc": "Search for the last keyword when opening a text preview.",
+  "@autoSearchLastSubtitleQueryDesc": {
+    "description": "Explains when text preview search opens automatically."
+  },
   "translationSourceSettings": "Translation Source Settings",
   "selectTranslationProvider": "Select translation service provider:",
   "translationTargetLanguage": "Target Language",
@@ -1864,6 +1882,18 @@
     "description": "Combined heading for linked studios, labels, and series on video details"
   },
   "videoSearchHint": "Search videos",
+  "videoSearchLoadedDirectoryPagesHint": "Matches are limited to loaded directory pages.",
+  "@videoSearchLoadedDirectoryPagesHint": {
+    "description": "Explains that video directory suggestions only match pages already loaded."
+  },
+  "videoSearchSelectFilterBeforeSearch": "Select a directory suggestion first.",
+  "@videoSearchSelectFilterBeforeSearch": {
+    "description": "Shown when a video directory query has not been selected as a filter."
+  },
+  "videoSearchBrowseAllDirectory": "Browse the full directory.",
+  "@videoSearchBrowseAllDirectory": {
+    "description": "Opens the paginated video filter directory."
+  },
   "videoSourceAccount": "MissAV account",
   "videoCatalog": "Browse videos",
   "videoContent": "Content",
@@ -2242,5 +2272,29 @@
         "example": "+0.2 s"
       }
     }
+  },
+  "automaticWorkMarking": "Automatically mark audio works",
+  "@automaticWorkMarking": {
+    "description": "Automatically mark audio works"
+  },
+  "automaticWorkMarkingDescription": "Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified.",
+  "@automaticWorkMarkingDescription": {
+    "description": "Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified."
+  },
+  "clearAudioCompletionHistory": "Clear completed audio history",
+  "@clearAudioCompletionHistory": {
+    "description": "Clear completed audio history"
+  },
+  "clearAudioCompletionHistoryDescription": "Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged.",
+  "@clearAudioCompletionHistoryDescription": {
+    "description": "Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged."
+  },
+  "audioCompletionHistoryCleared": "Completed audio history cleared",
+  "@audioCompletionHistoryCleared": {
+    "description": "Completed audio history cleared"
+  },
+  "automaticMarkingConflict": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.",
+  "@automaticMarkingConflict": {
+    "description": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept."
   }
 }

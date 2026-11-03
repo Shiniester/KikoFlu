@@ -28,7 +28,17 @@ class PreparedSubtitleName {
 }
 
 class SubtitleMatcher {
-  static const _subtitleExtensions = ['.vtt', '.srt', '.txt', '.lrc'];
+  static const _subtitleExtensions = [
+    '.vtt',
+    '.srt',
+    '.txt',
+    '.lrc',
+    '.ass',
+    '.ssa',
+    '.sbv',
+    '.dfxp',
+    '.ttml',
+  ];
   static const _audioExtensions = [
     '.mp3',
     '.wav',

@@ -7,6 +7,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/player_buttons_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
 import 'package:kikoeru_flutter/src/providers/theme_provider.dart';
 import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
 import 'package:kikoeru_flutter/src/screens/audio_format_settings_screen.dart';
@@ -15,6 +16,7 @@ import 'package:kikoeru_flutter/src/screens/player_buttons_settings_screen.dart'
 import 'package:kikoeru_flutter/src/screens/player_lyric_style_screen.dart';
 import 'package:kikoeru_flutter/src/screens/ui_settings_screen.dart';
 import 'package:kikoeru_flutter/src/screens/theme_settings_screen.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,8 +41,11 @@ Future<void> _pumpPreferences() async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
   });
 
   testWidgets('settings subpage puts restore defaults in the app bar', (
@@ -263,6 +268,53 @@ void main() {
     expect(
       prefs.getString(AudioTapPlaylistModeNotifier.preferenceKey),
       AudioTapPlaylistMode.replaceQueue.name,
+    );
+  });
+
+  testWidgets('preferences persist the automatic subtitle search setting', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      _testApp(const PreferencesScreen(), container: container),
+    );
+    await tester.runAsync(_pumpPreferences);
+    await tester.pump();
+
+    final title = S
+        .of(tester.element(find.byType(PreferencesScreen)))
+        .autoSearchLastSubtitleQuery;
+    final tile = find.ancestor(
+      of: find.text(title),
+      matching: find.byType(SwitchListTile),
+    );
+    await tester.ensureVisible(tile);
+    await tester.pump();
+    expect(tile, findsOneWidget);
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+
+    await tester.tap(tile);
+    await tester.pump();
+    await tester.runAsync(_pumpPreferences);
+    expect(container.read(autoSearchLastSubtitleQueryProvider), isFalse);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool(AutoSearchLastSubtitleQueryNotifier.preferenceKey),
+      isFalse,
+    );
+
+    final restoredContainer = ProviderContainer();
+    addTearDown(restoredContainer.dispose);
+    expect(
+      restoredContainer.read(autoSearchLastSubtitleQueryProvider),
+      isFalse,
     );
   });
 

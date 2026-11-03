@@ -232,8 +232,6 @@ class VideoDetails {
     required this.video,
     this.description = '',
     this.metadata = const {},
-    this.actors = const [],
-    this.tags = const [],
     this.related = const [],
     this.streams = const [],
     this.sourceId,
@@ -243,8 +241,6 @@ class VideoDetails {
   final VideoItem video;
   final String description;
   final Map<String, String> metadata;
-  final List<VideoLink> actors;
-  final List<VideoLink> tags;
   final List<VideoItem> related;
   final List<VideoStream> streams;
   final String? sourceId;

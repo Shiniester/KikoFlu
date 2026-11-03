@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/automatic_work_marking_provider.dart';
 
 import '../models/playlist.dart';
 import '../providers/auth_provider.dart';
@@ -180,10 +183,22 @@ class _AddToPlaylistDialogState extends ConsumerState<AddToPlaylistDialog> {
 
     try {
       final apiService = ref.read(kikoeruApiServiceProvider);
+      final automaticWorkMarking = ref.read(automaticWorkMarkingProvider);
+      final owner = automaticWorkMarking.account();
+      final workId = widget.workId;
       await apiService.addWorksToPlaylist(
         playlistId: playlist.id,
-        works: ['RJ${widget.workId}'],
+        works: ['RJ$workId'],
       );
+      if (owner != null && automaticWorkMarking.account() == owner) {
+        unawaited(
+          automaticWorkMarking.addedToPlaylist(workId).catchError(
+            (Object error) {
+              _log.captureOutput('[AutomaticWorkMarking] $error');
+            },
+          ),
+        );
+      }
 
       if (mounted) {
         // 刷新播放列表详情（如果正在查看该播放列表）

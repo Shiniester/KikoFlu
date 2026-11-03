@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
 import '../../utils/string_utils.dart';
+import 'work_extra_sections.dart';
 
 class WorkStatsSection extends StatelessWidget {
   const WorkStatsSection({
@@ -13,6 +14,7 @@ class WorkStatsSection extends StatelessWidget {
     this.showPrice = true,
     this.showDuration = true,
     this.showSales = true,
+    this.showReleaseDate = true,
     this.onShowRatingDetails,
     this.onShowProgress,
   });
@@ -23,6 +25,7 @@ class WorkStatsSection extends StatelessWidget {
   final bool showPrice;
   final bool showDuration;
   final bool showSales;
+  final bool showReleaseDate;
   final VoidCallback? onShowRatingDetails;
   final VoidCallback? onShowProgress;
 
@@ -43,6 +46,8 @@ class WorkStatsSection extends StatelessWidget {
           _buildDuration(context),
         if (showSales && work.dlCount != null && work.dlCount! > 0)
           _buildSales(context),
+        if (showReleaseDate && work.release?.isNotEmpty == true)
+          WorkReleaseDateSection(release: work.release),
       ],
     );
   }

@@ -150,15 +150,35 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   final KikoeruApiService _apiService;
   final Ref _ref;
   final PagedRequestGate _requestGate = PagedRequestGate();
+  int? _pendingPage;
   final _layoutPreference = PersistentEnumPreference<SearchLayoutType>(
     key: layoutPreferenceKey,
     values: SearchLayoutType.values,
     fallback: SearchLayoutType.bigGrid,
   );
 
-  SearchResultNotifier(this._apiService, this._ref, {int initialPageSize = 20})
-    : super(SearchResultState(basePageSize: initialPageSize)) {
+  SearchResultNotifier(
+    this._apiService,
+    this._ref, {
+    int initialPageSize = 20,
+    SearchResultState? initialState,
+  }) : super(initialState ?? SearchResultState(basePageSize: initialPageSize)) {
     _loadLayoutPreference();
+  }
+
+  int? cancelPendingPage() {
+    final page = _pendingPage;
+    if (page == null) return null;
+    _requestGate.invalidate();
+    _pendingPage = null;
+    state = state.copyWith(
+      isLoading: false,
+      isRefreshing: false,
+      isLoadingMore: false,
+      error: state.error,
+      loadMoreError: state.loadMoreError,
+    );
+    return page;
   }
 
   Future<void> _loadLayoutPreference() async {
@@ -176,13 +196,20 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   Future<void> initializeSearch({
     required String keyword,
     Map<String, dynamic>? searchParams,
+    bool preserveResults = false,
+    SortOrder? sortOption,
+    SortDirection? sortDirection,
+    int? subtitleFilter,
   }) async {
     state = state.copyWith(
       keyword: keyword,
       searchParams: searchParams,
       currentPage: 1,
-      works: [],
-      rawWorks: [],
+      sortOption: sortOption,
+      sortDirection: sortDirection,
+      subtitleFilter: subtitleFilter,
+      works: preserveResults ? null : [],
+      rawWorks: preserveResults ? null : [],
     );
     await loadResults(targetPage: 1, supersede: true);
   }
@@ -205,6 +232,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     if (requestToken == null) return;
 
     final page = targetPage ?? state.currentPage;
+    _pendingPage = page;
     state = state.copyWith(
       isLoading: true,
       isRefreshing: !append,
@@ -314,6 +342,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
         loadMoreError: append ? message : null,
       );
     } finally {
+      if (_requestGate.isCurrent(requestToken)) _pendingPage = null;
       _requestGate.complete(requestToken);
     }
   }
@@ -333,7 +362,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   void onSourceChanged() {
     if (!hasActiveQuery) return;
     if (_isPinnedJapaneseQuery) return;
-    state = state.copyWith(currentPage: 1, works: [], rawWorks: []);
+    state = state.copyWith(currentPage: 1);
     loadResults(targetPage: 1, supersede: true);
   }
 
@@ -438,12 +467,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     final newFilterMode = oldFilterMode.next;
     final newFilter = newFilterMode.value;
 
-    state = state.copyWith(
-      subtitleFilter: newFilter,
-      currentPage: 1,
-      works: [],
-      rawWorks: [],
-    );
+    state = state.copyWith(subtitleFilter: newFilter, currentPage: 1);
     loadResults(targetPage: 1, supersede: true);
   }
 
@@ -452,8 +476,6 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       sortOption: option,
       sortDirection: direction,
       currentPage: 1,
-      works: [],
-      rawWorks: [],
     );
     refresh();
   }

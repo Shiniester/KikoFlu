@@ -367,6 +367,24 @@ class SEn extends S {
   String get searchHistory => 'Search History';
 
   @override
+  String get searchUpdating => 'Updating search results…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious =>
+      'Update failed. Showing previous search results.';
+
+  @override
+  String get searchLegacyHistory => 'Older searches (scope unknown)';
+
+  @override
+  String get searchHistoryNotSaved =>
+      'Search history cannot be saved. New entries remain only until the app closes.';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm =>
+      'Clear search history for this scope?';
+
+  @override
   String get clearSearchHistory => 'Clear Search History';
 
   @override
@@ -969,6 +987,14 @@ class SEn extends S {
   @override
   String get subtitlePriorityLowestDesc =>
       'Search online/downloads first, then subtitle library';
+
+  @override
+  String get autoSearchLastSubtitleQuery =>
+      'Automatically search the last keyword';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc =>
+      'Search for the last keyword when opening a text preview.';
 
   @override
   String get translationSourceSettings => 'Translation Source Settings';
@@ -4410,6 +4436,17 @@ class SEn extends S {
   String get videoSearchHint => 'Search videos';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint =>
+      'Matches are limited to loaded directory pages.';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch =>
+      'Select a directory suggestion first.';
+
+  @override
+  String get videoSearchBrowseAllDirectory => 'Browse the full directory.';
+
+  @override
   String get videoSourceAccount => 'MissAV account';
 
   @override
@@ -4961,4 +4998,25 @@ class SEn extends S {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint: $action';
   }
+
+  @override
+  String get automaticWorkMarking => 'Automatically mark audio works';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      'Mark works when added, played, or completed. Requires a signed-in account. Offline updates are discarded if safe syncing cannot be verified.';
+
+  @override
+  String get clearAudioCompletionHistory => 'Clear completed audio history';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      'Clear only this account’s local record of completed audio. Online marks and playback history stay unchanged.';
+
+  @override
+  String get audioCompletionHistoryCleared => 'Completed audio history cleared';
+
+  @override
+  String get automaticMarkingConflict =>
+      'An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.';
 }

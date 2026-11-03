@@ -365,6 +365,21 @@ class SZh extends S {
   String get searchHistory => '搜索历史';
 
   @override
+  String get searchUpdating => '正在更新搜索结果…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新失败，显示上一次的搜索结果。';
+
+  @override
+  String get searchLegacyHistory => '旧搜索历史（范围未知）';
+
+  @override
+  String get searchHistoryNotSaved => '搜索历史无法保存，新增内容只保留到应用关闭。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '确定清除当前范围的搜索历史吗？';
+
+  @override
   String get clearSearchHistory => '清除搜索历史';
 
   @override
@@ -949,6 +964,12 @@ class SZh extends S {
 
   @override
   String get subtitlePriorityLowestDesc => '优先查找在线/下载，再查找字幕库';
+
+  @override
+  String get autoSearchLastSubtitleQuery => '自动搜索上次关键词';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc => '打开文本预览时搜索上次使用的关键词。';
 
   @override
   String get translationSourceSettings => '翻译源设置';
@@ -4269,6 +4290,15 @@ class SZh extends S {
   String get videoSearchHint => '搜索视频';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint => '仅匹配已加载的目录页';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '请先选择目录候选项';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '浏览完整目录';
+
+  @override
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
@@ -4801,6 +4831,26 @@ class SZh extends S {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '自动标记音声作品';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      '根据加入列表、播放和完成状态更新标记。需要登录账号。离线更新无法确认安全同步时会被放弃。';
+
+  @override
+  String get clearAudioCompletionHistory => '清除音频完成记录';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      '仅清除此账号在本机的音频完成记录，保留在线标记和播放历史。';
+
+  @override
+  String get audioCompletionHistoryCleared => '已清除音频完成记录';
+
+  @override
+  String get automaticMarkingConflict => '自动标记无法安全同步，已放弃此更新并保留账号在线标记。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5162,6 +5212,21 @@ class SZhHant extends SZh {
 
   @override
   String get searchHistory => '搜尋歷史';
+
+  @override
+  String get searchUpdating => '正在更新搜尋結果…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新失敗，顯示上一次的搜尋結果。';
+
+  @override
+  String get searchLegacyHistory => '舊搜尋歷史（範圍未知）';
+
+  @override
+  String get searchHistoryNotSaved => '搜尋歷史無法儲存，新增內容只保留到應用程式關閉。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '確定清除目前範圍的搜尋歷史嗎？';
 
   @override
   String get clearSearchHistory => '清除搜尋歷史';
@@ -5748,6 +5813,12 @@ class SZhHant extends SZh {
 
   @override
   String get subtitlePriorityLowestDesc => '優先查找線上/下載，再查找字幕庫';
+
+  @override
+  String get autoSearchLastSubtitleQuery => '自動搜尋上次關鍵字';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc => '開啟文字預覽時搜尋上次使用的關鍵字。';
 
   @override
   String get translationSourceSettings => '翻譯源設定';
@@ -9068,6 +9139,15 @@ class SZhHant extends SZh {
   String get videoSearchHint => '搜尋影片';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint => '僅比對已載入的目錄頁面。';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '請先選取目錄候選項。';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '瀏覽完整目錄。';
+
+  @override
   String get videoSourceAccount => 'MissAV 帳號';
 
   @override
@@ -9600,4 +9680,24 @@ class SZhHant extends SZh {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '自動標記音聲作品';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      '根據加入清單、播放和完成狀態更新標記。需要登入帳號。離線更新無法確認安全同步時會被放棄。';
+
+  @override
+  String get clearAudioCompletionHistory => '清除音訊完成記錄';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      '僅清除此帳號在本機的音訊完成記錄，保留線上標記和播放歷史。';
+
+  @override
+  String get audioCompletionHistoryCleared => '已清除音訊完成記錄';
+
+  @override
+  String get automaticMarkingConflict => '自動標記無法安全同步，已放棄此更新並保留帳號線上標記。';
 }

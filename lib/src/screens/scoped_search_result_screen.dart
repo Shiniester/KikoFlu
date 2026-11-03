@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -37,10 +38,14 @@ class ScopedSearchResultScreen extends ConsumerStatefulWidget {
     super.key,
     required this.query,
     required this.session,
+    this.embedded = false,
+    this.queryRevision = 0,
   });
 
   final SearchQuery query;
   final SearchScopeSession session;
+  final bool embedded;
+  final int queryRevision;
 
   @override
   ConsumerState<ScopedSearchResultScreen> createState() =>
@@ -51,9 +56,11 @@ class _ScopedSearchResultScreenState
     extends ConsumerState<ScopedSearchResultScreen> {
   final Map<int, ScopedSearchEntry> _allEntries = {};
   final Map<int, ScopedSearchEntry> _matchingEntries = {};
+  final Map<int, ScopedSearchEntry> _previousMatchingEntries = {};
   final Map<int, ScopedSearchEntry> _unresolvedEntries = {};
   CancelToken? _cancelToken;
   int _generation = 0;
+  int _collectionGeneration = 0;
   bool _isSearching = false;
   bool _hasSourceFailure = false;
   final Map<int, Future<String?>> _downloadCoverPathFutures = {};
@@ -72,7 +79,49 @@ class _ScopedSearchResultScreenState
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant ScopedSearchResultScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.queryRevision == widget.queryRevision &&
+        _sameQuery(oldWidget.query, widget.query)) {
+      return;
+    }
+    final entriesToPreserve = Map<int, ScopedSearchEntry>.of(
+      _previousMatchingEntries.isNotEmpty
+          ? _previousMatchingEntries
+          : _matchingEntries,
+    );
+    _previousMatchingEntries
+      ..clear()
+      ..addAll(entriesToPreserve);
+    _collectionGeneration++;
+    unawaited(_runSearch());
+  }
+
+  bool _sameQuery(SearchQuery left, SearchQuery right) {
+    if (left.scope != right.scope ||
+        left.progressFilter != right.progressFilter ||
+        left.minRate != right.minRate ||
+        left.ageRating != right.ageRating ||
+        left.salesRange != right.salesRange ||
+        left.conditions.length != right.conditions.length) {
+      return false;
+    }
+    for (var index = 0; index < left.conditions.length; index++) {
+      final leftCondition = left.conditions[index];
+      final rightCondition = right.conditions[index];
+      if (leftCondition.type != rightCondition.type ||
+          leftCondition.value != rightCondition.value ||
+          leftCondition.isExclude != rightCondition.isExclude ||
+          leftCondition.sourcePath != rightCondition.sourcePath) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void _restartForAccountChange() {
+    _previousMatchingEntries.clear();
     _runSearch();
   }
 
@@ -157,6 +206,9 @@ class _ScopedSearchResultScreenState
       }
     } finally {
       if (_isCurrent(generation, cancelToken)) {
+        if (!_hasSourceFailure && _unresolvedEntries.isEmpty) {
+          _previousMatchingEntries.clear();
+        }
         setState(() => _isSearching = false);
       }
     }
@@ -518,7 +570,9 @@ class _ScopedSearchResultScreenState
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                s.scopedSearchInProgress,
+                _previousMatchingEntries.isNotEmpty
+                    ? s.searchUpdating
+                    : s.scopedSearchInProgress,
                 style: TextStyle(color: color),
               ),
             ),
@@ -527,6 +581,17 @@ class _ScopedSearchResultScreenState
       );
     }
     if (_hasSourceFailure || _unresolvedEntries.isNotEmpty) {
+      if (_previousMatchingEntries.isNotEmpty) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Row(
+            children: [
+              Expanded(child: Text(s.searchUpdateFailedShowingPrevious)),
+              TextButton(onPressed: _retry, child: Text(s.retry)),
+            ],
+          ),
+        );
+      }
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
         child: Row(
@@ -694,8 +759,93 @@ class _ScopedSearchResultScreenState
       ),
     );
     final layoutType = _currentLayout();
-    final entries = _matchingEntries.values.toList(growable: false);
+    final keepPrevious =
+        _previousMatchingEntries.isNotEmpty &&
+        (_isSearching || _hasSourceFailure || _unresolvedEntries.isNotEmpty);
+    final displayedEntries =
+        (keepPrevious ? _previousMatchingEntries : _matchingEntries).values
+            .toList(growable: false);
 
+    final body = LayoutBuilder(
+      builder: (context, constraints) {
+        final metrics = resolveCollectionGridMetrics(
+          context,
+          layoutType: layoutType,
+          availableWidth: constraints.maxWidth,
+          availableHeight: constraints.maxHeight,
+        );
+        final listCoverSize = layoutType == LayoutType.list
+            ? collectionListCoverSizeForTitle(
+                context,
+                titleStyle: widget.query.scope == SearchScope.history
+                    ? historyWorkCardTitleStyle(context)
+                    : enhancedWorkCardListTitleStyle(context),
+              )
+            : null;
+        final listCoverCacheWidth = listCoverSize == null
+            ? null
+            : resolveWorkCoverCacheWidth(
+                context,
+                crossAxisCount: 1,
+                listCoverWidth: listCoverSize.width,
+              );
+        return WorkCoverPrefetchScope(
+          sourceKey: (
+            auth,
+            widget.query.scope,
+            widget.query.progressFilter,
+            listCoverCacheWidth,
+          ),
+          builder: (context, coverPrefetch) => VirtualizedSliverCollection(
+            retainedItemCount: 100,
+            key: ValueKey((widget.query.scope, _collectionGeneration)),
+            items: displayedEntries,
+            itemId: (entry) => entry.work.id,
+            layout: layoutType == LayoutType.list
+                ? VirtualizedCollectionLayout.list
+                : VirtualizedCollectionLayout.masonry,
+            masonryCrossAxisCount: layoutType == LayoutType.list
+                ? null
+                : metrics.crossAxisCount,
+            masonryMainAxisSpacing: metrics.spacing,
+            masonryCrossAxisSpacing: metrics.spacing,
+            padding: metrics.padding,
+            physics: ScrollOptimization.physics,
+            sliversBefore: [SliverToBoxAdapter(child: _status(context))],
+            isInitialLoading: _isSearching && displayedEntries.isEmpty,
+            isLoadingMore: _isSearching && displayedEntries.isNotEmpty,
+            hasMore: _isSearching,
+            onRetry: _retry,
+            onPrefetch: (items) => coverPrefetch.prefetch(
+              context,
+              items.map((entry) => entry.work),
+              host: auth.$1,
+              token: auth.$2,
+              crossAxisCount: metrics.crossAxisCount,
+              listCoverWidth: listCoverSize?.width,
+              isListCard: layoutType == LayoutType.list,
+            ),
+            prefetchKey: listCoverCacheWidth,
+            itemBuilder: (context, entry, index) =>
+                _buildEntryCard(context, entry, metrics, layoutType),
+            emptyBuilder: (context) {
+              if (_isSearching ||
+                  _hasSourceFailure ||
+                  _unresolvedEntries.isNotEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Center(
+                child: Text(
+                  S.of(context).scopedSearchNoResults,
+                  textAlign: TextAlign.center,
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: ScrollableAppBar(
         title: Text(
@@ -709,85 +859,7 @@ class _ScopedSearchResultScreenState
         ),
         automaticallyImplyLeading: false,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final metrics = resolveCollectionGridMetrics(
-            context,
-            layoutType: layoutType,
-            availableWidth: constraints.maxWidth,
-            availableHeight: constraints.maxHeight,
-          );
-          final listCoverSize = layoutType == LayoutType.list
-              ? collectionListCoverSizeForTitle(
-                  context,
-                  titleStyle: widget.query.scope == SearchScope.history
-                      ? historyWorkCardTitleStyle(context)
-                      : enhancedWorkCardListTitleStyle(context),
-                )
-              : null;
-          final listCoverCacheWidth = listCoverSize == null
-              ? null
-              : resolveWorkCoverCacheWidth(
-                  context,
-                  crossAxisCount: 1,
-                  listCoverWidth: listCoverSize.width,
-                );
-          return WorkCoverPrefetchScope(
-            sourceKey: (
-              auth,
-              widget.query.scope,
-              widget.query.progressFilter,
-              listCoverCacheWidth,
-            ),
-            builder: (context, coverPrefetch) => VirtualizedSliverCollection(
-              retainedItemCount: 100,
-              key: ValueKey(widget.query.scope),
-              items: entries,
-              itemId: (entry) => entry.work.id,
-              layout: layoutType == LayoutType.list
-                  ? VirtualizedCollectionLayout.list
-                  : VirtualizedCollectionLayout.masonry,
-              masonryCrossAxisCount: layoutType == LayoutType.list
-                  ? null
-                  : metrics.crossAxisCount,
-              masonryMainAxisSpacing: metrics.spacing,
-              masonryCrossAxisSpacing: metrics.spacing,
-              padding: metrics.padding,
-              physics: ScrollOptimization.physics,
-              sliversBefore: [SliverToBoxAdapter(child: _status(context))],
-              isInitialLoading: _isSearching && entries.isEmpty,
-              isLoadingMore: _isSearching && entries.isNotEmpty,
-              hasMore: _isSearching,
-              onRetry: _retry,
-              onPrefetch: (items) => coverPrefetch.prefetch(
-                context,
-                items.map((entry) => entry.work),
-                host: auth.$1,
-                token: auth.$2,
-                crossAxisCount: metrics.crossAxisCount,
-                listCoverWidth: listCoverSize?.width,
-                isListCard: layoutType == LayoutType.list,
-              ),
-              prefetchKey: listCoverCacheWidth,
-              itemBuilder: (context, entry, index) =>
-                  _buildEntryCard(context, entry, metrics, layoutType),
-              emptyBuilder: (context) {
-                if (_isSearching ||
-                    _hasSourceFailure ||
-                    _unresolvedEntries.isNotEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return Center(
-                  child: Text(
-                    S.of(context).scopedSearchNoResults,
-                    textAlign: TextAlign.center,
-                  ),
-                );
-              },
-            ),
-          );
-        },
-      ),
+      body: body,
     );
   }
 }

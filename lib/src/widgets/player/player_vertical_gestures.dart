@@ -40,6 +40,8 @@ bool shouldCompletePlayerDismissDrag({
 /// route without introducing a circular dependency between the route and the
 /// player screen.
 abstract interface class PlayerInteractiveDismissRoute {
+  Animation<double> get visualAnimation;
+
   void setDismissVisualMode(PlayerDismissVisualMode mode);
 
   bool beginVerticalDismissGesture(PlayerDismissVisualMode mode);

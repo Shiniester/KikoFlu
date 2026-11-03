@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/unified_search_history_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
@@ -101,7 +102,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   VideoCatalogPage? _page;
   bool _loading = false;
   bool _verifyingAccess = false;
-  String? _error;
+  Object? _error;
   MissavVerificationRequiredException? _verificationError;
   Future<void> Function()? _retryRequest;
   int _request = 0;
@@ -318,9 +319,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
     final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered && !sessionChanged && !recommendationsActive) {
-      return;
-    }
     _request++;
     _loadingUrl = null;
     final activeBrowseCancelToken = _activeBrowseCancelToken;
@@ -749,6 +747,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       builder: (_) => GlobalAudioPlayerWrapper(
         child: VideoSearchScreen(
           title: s.search,
+          historyContext: UnifiedSearchHistoryContext(
+            contentType: 'video',
+            entryScope:
+                collectionKey == 'favorites' || collectionKey == 'history'
+                ? collectionKey!
+                : 'source-directory',
+            source: 'missav',
+          ),
           search: (query, filters, isCurrent) async {
             if (collectionKey != null &&
                 (collectionKey == 'favorites' || collectionKey == 'history')) {
@@ -791,7 +797,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _recordError(Object error) {
-    _error = error.toString();
+    _error = error;
     _verificationError = error is MissavVerificationRequiredException
         ? error
         : null;
@@ -1515,9 +1521,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   String _errorMessage(S s) {
-    if (_error == null) return s.videoLoadFailed;
+    final error = _error;
+    if (error == null) return s.videoLoadFailed;
     if (_verificationError != null) return s.videoVerificationRequired;
-    final normalized = _error!.toLowerCase();
+    if (error is MissavAuthenticationException) return s.videoLoginRequired;
+    final normalized = error.toString().toLowerCase();
     if (normalized.contains('login') || normalized.contains('authentication')) {
       return s.videoLoginRequired;
     }

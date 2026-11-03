@@ -4,7 +4,7 @@ import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
 
 void main() {
-  testWidgets('card padding follows the window and preserves vertical insets', (
+  testWidgets('card metrics follow window size and preserve card insets', (
     tester,
   ) async {
     for (final size in [const Size(390, 844), const Size(1280, 800)]) {
@@ -26,8 +26,8 @@ void main() {
                     resolveCollectionGridMetrics(
                       context,
                       layoutType: layout,
-                      availableWidth: 300,
-                      availableHeight: 500,
+                      availableWidth: size.width,
+                      availableHeight: size.height,
                     ),
                   );
                 }
@@ -43,6 +43,7 @@ void main() {
       for (final metric in metrics) {
         expect(metric.padding.left, horizontal);
         expect(metric.padding.right, horizontal);
+        expect(metric.spacing, horizontal);
       }
     }
   });

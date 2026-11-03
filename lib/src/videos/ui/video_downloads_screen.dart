@@ -8,6 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/unified_search_history_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
@@ -310,6 +311,11 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
       builder: (_) => GlobalAudioPlayerWrapper(
         child: VideoSearchScreen(
           title: s.videoDownloads,
+          historyContext: const UnifiedSearchHistoryContext(
+            contentType: 'video',
+            entryScope: 'downloads',
+            source: 'missav',
+          ),
           search: (query, filters, _) async {
             assert(filters.isEmpty);
             final normalized = query.toLowerCase();

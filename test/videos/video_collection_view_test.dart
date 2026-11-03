@@ -144,6 +144,103 @@ void main() {
     }
   });
 
+  testWidgets('video card common information precedes source fields', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      for (final field in VideoCardField.values)
+        'video_card_display_${field.name}': true,
+    });
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final video = _richVideo();
+    final variants = [
+      (layout: LayoutType.smallGrid, width: 120.0),
+      (layout: LayoutType.bigGrid, width: 180.0),
+      (layout: LayoutType.list, width: 320.0),
+    ];
+    for (final variant in variants) {
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: variant.width,
+              child: VideoCard(
+                video: video,
+                layoutType: variant.layout,
+                subtitle: 'Card subtitle',
+                onTap: null,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final duration = find.byKey(const ValueKey('video-duration-rich'));
+      final durationTop = tester.getRect(duration).top;
+      final informationStart = variant.layout == LayoutType.list
+          ? tester
+                .getRect(find.byKey(const ValueKey('video-cover-rich')))
+                .bottom
+          : tester.getRect(find.text(video.title)).bottom;
+      expect(
+        durationTop - informationStart,
+        collectionCardInfoSpacing,
+        reason: '${variant.layout}',
+      );
+
+      final actor = find.text('Actress A');
+      final tag = find.text('Tag 1');
+      final strings = S.of(tester.element(actor));
+      final subtitle = find.text('Card subtitle');
+      final maker = find.text('${strings.videoCardMakers}: Studio A');
+      final label = find.text('${strings.videoCardLabels}: Label A');
+      final series = find.text('${strings.series}: Series A');
+      final director = find.text('${strings.videoCardDirectors}: Director A');
+      final informationTops = [
+        durationTop,
+        tester.getRect(actor).top,
+        tester.getRect(tag).top,
+        tester.getRect(subtitle).top,
+        tester.getRect(maker).top,
+        tester.getRect(label).top,
+        tester.getRect(series).top,
+        tester.getRect(director).top,
+      ];
+      for (var index = 0; index < informationTops.length - 1; index++) {
+        expect(
+          informationTops[index],
+          lessThan(informationTops[index + 1]),
+          reason: '${variant.layout}',
+        );
+      }
+
+      final actorMaterial = tester.widget<Material>(
+        find.ancestor(of: actor, matching: find.byType(Material)).first,
+      );
+      expect(actorMaterial.borderRadius, BorderRadius.circular(6));
+      final actorPadding = tester.widget<Padding>(
+        find.ancestor(of: actor, matching: find.byType(Padding)).first,
+      );
+      expect(
+        actorPadding.padding,
+        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      );
+      expect(
+        tester.getSize(find.byType(Card).first).height,
+        greaterThan(
+          tester.getSize(find.byKey(const ValueKey('video-cover-rich'))).height,
+        ),
+      );
+      expect(tester.takeException(), isNull, reason: '${variant.layout}');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   testWidgets('video cover decode stays within its physical display width', (
     tester,
   ) async {
@@ -154,9 +251,17 @@ void main() {
     final sourceBytes = Uint8List.fromList(
       img.encodePng(img.Image(width: sourceWidth, height: sourceHeight)),
     );
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    final responseBody = Completer<List<int>>();
+    final requestStarted = Completer<void>();
+    final imageClient = _VideoCoverHttpClient(
+      responseBody.future,
+      contentLength: sourceBytes.length,
+      requestStarted: requestStarted,
+    );
     final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
-    debugNetworkImageHttpClientProvider = () =>
-        _VideoCoverHttpClient(sourceBytes);
+    debugNetworkImageHttpClientProvider = () => imageClient;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       PaintingBinding.instance.imageCache.clear();
@@ -192,20 +297,34 @@ void main() {
         tester.getSize(cover),
         const Size(displayWidth, displayWidth * 3 / 4),
       );
+      await tester.runAsync(
+        () => requestStarted.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Cover request did not start.'),
+        ),
+      );
+      expect(imageClient.requestCount, 1);
+
       final image = find.descendant(of: cover, matching: find.byType(RawImage));
-      ui.Image? decodedImage;
-      for (var frame = 0; frame < 10 && decodedImage == null; frame++) {
+      await tester.runAsync(() async {
+        responseBody.complete(sourceBytes);
+      });
+      for (
+        var attempt = 0;
+        attempt < 10 && tester.widget<RawImage>(image).image == null;
+        attempt++
+      ) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump();
-        decodedImage = tester.widget<RawImage>(image).image;
       }
-      expect(decodedImage, isNotNull);
+      final decodedFrame = tester.widget<RawImage>(image).image;
+      expect(decodedFrame, isNotNull, reason: 'Cover image did not decode.');
       final targetWidth = (displayWidth * devicePixelRatio).round();
-      final decodedBytes = decodedImage!.width * decodedImage.height * 4;
-      expect(decodedImage.width, targetWidth);
-      expect(decodedImage.height, targetWidth * sourceHeight ~/ sourceWidth);
+      final decodedBytes = decodedFrame!.width * decodedFrame.height * 4;
+      expect(decodedFrame.width, targetWidth);
+      expect(decodedFrame.height, targetWidth * sourceHeight ~/ sourceWidth);
       expect(decodedBytes, lessThan(sourceWidth * sourceHeight * 4 ~/ 40));
     } finally {
       debugNetworkImageHttpClientProvider = previousHttpClientProvider;
@@ -524,7 +643,7 @@ void main() {
   );
 
   testWidgets(
-    'duration follows other information and precedes actors in every layout',
+    'duration, actors and tags precede source information in every layout',
     (tester) async {
       SharedPreferences.setMockInitialValues({
         for (final field in [
@@ -560,14 +679,14 @@ void main() {
         final strings = S.of(tester.element(find.byType(VideoCard)));
         final rows = [
           find.text(video.title),
+          find.byKey(const ValueKey('video-duration-rich')),
+          find.text('Actress A'),
+          find.text('Tag 1'),
           find.text('Source note'),
           find.text('${strings.videoCardMakers}: Studio A'),
           find.text('${strings.videoCardLabels}: Label A'),
           find.text('${strings.series}: Series A'),
           find.text('${strings.videoCardDirectors}: Director A'),
-          find.byKey(const ValueKey('video-duration-rich')),
-          find.text('Actress A'),
-          find.text('Tag 1'),
         ];
         for (var index = 1; index < rows.length; index++) {
           expect(
@@ -887,31 +1006,43 @@ Widget _app(
 );
 
 class _VideoCoverHttpClient implements HttpClient {
-  _VideoCoverHttpClient(this._body);
+  _VideoCoverHttpClient(
+    this._body, {
+    required this.contentLength,
+    required this.requestStarted,
+  });
 
-  final Uint8List _body;
+  final Future<List<int>> _body;
+  final int contentLength;
+  final Completer<void> requestStarted;
+  int requestCount = 0;
 
   @override
   bool autoUncompress = false;
 
   @override
-  Future<HttpClientRequest> getUrl(Uri url) async =>
-      _VideoCoverHttpRequest(_body);
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    requestCount++;
+    if (!requestStarted.isCompleted) requestStarted.complete();
+    return _VideoCoverHttpRequest(_body, contentLength);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 class _VideoCoverHttpRequest implements HttpClientRequest {
-  _VideoCoverHttpRequest(this._body);
+  _VideoCoverHttpRequest(this._body, this._contentLength);
 
-  final Uint8List _body;
+  final Future<List<int>> _body;
+  final int _contentLength;
 
   @override
   final HttpHeaders headers = _VideoCoverHttpHeaders();
 
   @override
-  Future<HttpClientResponse> close() async => _VideoCoverHttpResponse(_body);
+  Future<HttpClientResponse> close() async =>
+      _VideoCoverHttpResponse(_body, _contentLength);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -919,19 +1050,20 @@ class _VideoCoverHttpRequest implements HttpClientRequest {
 
 class _VideoCoverHttpResponse extends Stream<List<int>>
     implements HttpClientResponse {
-  _VideoCoverHttpResponse(this._body)
+  _VideoCoverHttpResponse(this._body, this._contentLength)
     : headers = _VideoCoverHttpHeaders({
         HttpHeaders.contentTypeHeader: 'image/png',
-        HttpHeaders.contentLengthHeader: _body.length.toString(),
+        HttpHeaders.contentLengthHeader: _contentLength.toString(),
       });
 
-  final Uint8List _body;
+  final Future<List<int>> _body;
+  final int _contentLength;
 
   @override
   final HttpHeaders headers;
 
   @override
-  int get contentLength => _body.length;
+  int get contentLength => _contentLength;
 
   @override
   bool get isRedirect => false;
@@ -958,7 +1090,7 @@ class _VideoCoverHttpResponse extends Stream<List<int>>
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => Stream<List<int>>.value(_body).listen(
+  }) => Stream<List<int>>.fromFuture(_body).listen(
     onData,
     onError: onError,
     onDone: onDone,

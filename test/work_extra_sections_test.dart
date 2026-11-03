@@ -38,7 +38,7 @@ const _editions = [
 ];
 
 void main() {
-  testWidgets('WorkReleaseDateSection renders localized title and date',
+  testWidgets('WorkReleaseDateSection renders localized label and date',
       (tester) async {
     await tester.pumpWidget(
       _testApp(
@@ -48,29 +48,27 @@ void main() {
       ),
     );
 
+    expect(find.byTooltip('Release Date'), findsOneWidget);
     expect(find.text('Release Date'), findsOneWidget);
     expect(find.text('2024-01-02'), findsOneWidget);
+    expect(find.byIcon(Icons.calendar_today_outlined), findsNothing);
+    expect(
+      tester.getCenter(find.text('Release Date')).dy,
+      closeTo(tester.getCenter(find.text('2024-01-02')).dy, 0.1),
+    );
+    expect(
+      tester.getTopRight(find.text('Release Date')).dx,
+      lessThan(tester.getTopLeft(find.text('2024-01-02')).dx),
+    );
   });
 
-  testWidgets('WorkReleaseDateSection hides when disabled or missing release',
+  testWidgets('WorkReleaseDateSection hides when release is missing',
       (tester) async {
-    await tester.pumpWidget(
-      _testApp(
-        const WorkReleaseDateSection(
-          release: '2024-01-02',
-          visible: false,
-        ),
-      ),
-    );
-
-    expect(find.text('Release Date'), findsNothing);
-    expect(find.text('2024-01-02'), findsNothing);
-
     await tester.pumpWidget(
       _testApp(const WorkReleaseDateSection()),
     );
 
-    expect(find.text('Release Date'), findsNothing);
+    expect(find.byTooltip('Release Date'), findsNothing);
   });
 
   testWidgets('OtherLanguageEditionsSection renders chips and handles taps',

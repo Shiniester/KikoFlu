@@ -803,8 +803,6 @@ class MissavClient extends ChangeNotifier {
       video: video,
       description: _parseDescription(document),
       metadata: metadata,
-      actors: video.actors,
-      tags: video.tags,
       related: related,
       streams: _parseStreams(document, uri, userAgent: _userAgent).map((
         stream,
@@ -896,8 +894,6 @@ class MissavClient extends ChangeNotifier {
         initialDetails.metadata,
         detailedVideo,
       ),
-      actors: detailedVideo.actors,
-      tags: detailedVideo.tags,
       related: enriched.skip(1).toList(),
       streams: initialDetails.streams,
       sourceId: sourceId,
@@ -1152,6 +1148,23 @@ class MissavClient extends ChangeNotifier {
     }
     _checkGeneration(generation, uri);
     final document = _parsePage(body, uri);
+    final responseStatus = document.querySelector(
+      '#kiko-missav-response-status',
+    );
+    if (responseStatus != null) {
+      final status = int.tryParse(responseStatus.text);
+      responseStatus.remove();
+      if (status == HttpStatus.unauthorized) {
+        _updateAccountFromSource(null);
+        throw MissavAuthenticationException(sourceUrl: uri.toString());
+      }
+      if (status != null && status >= 400) {
+        throw MissavException(
+          'MissAV returned HTTP $status.',
+          sourceUrl: uri.toString(),
+        );
+      }
+    }
     final context = document.querySelector(
       '#kiko-missav-recommendation-context',
     );
@@ -1264,6 +1277,9 @@ class MissavClient extends ChangeNotifier {
         continue;
       }
       if (status == HttpStatus.unauthorized) {
+        if (!uri.path.endsWith('/api/login')) {
+          _updateAccountFromSource(null);
+        }
         throw MissavAuthenticationException(sourceUrl: requestUri.toString());
       }
       if (status < 200 || status >= 300) {

@@ -79,10 +79,10 @@ class StreamingZipExtractor {
       p.join(request.targetPath, '.nested_archives'),
     );
 
-    InputFileStream? input;
+    _Utf8TolerantInputFileStream? input;
     try {
-      input = InputFileStream(request.sourcePath);
-      final archive = ZipDecoder().decodeBuffer(input, verify: false);
+      input = _Utf8TolerantInputFileStream(request.sourcePath);
+      final archive = _decodeZipArchive(input);
 
       var relativePath = '';
       if (SubtitleLibraryRules.matchesWorkFolderName(request.archiveName) &&
@@ -134,7 +134,7 @@ class StreamingZipExtractor {
         continue;
       }
 
-      final decodedName = _decodeArchiveName(file.name);
+      final decodedName = file.name;
       final fileName = decodedName.split('/').last;
       if (fileName.isEmpty || file.size <= 0) {
         state.skippedCount++;
@@ -230,14 +230,11 @@ class StreamingZipExtractor {
       '${depth + 1}_${state.nextNestedArchiveId++}.zip',
     );
 
-    InputFileStream? nestedInput;
+    _Utf8TolerantInputFileStream? nestedInput;
     try {
       _writeArchiveEntry(file, nestedPath);
-      nestedInput = InputFileStream(nestedPath);
-      final nestedArchive = ZipDecoder().decodeBuffer(
-        nestedInput,
-        verify: false,
-      );
+      nestedInput = _Utf8TolerantInputFileStream(nestedPath);
+      final nestedArchive = _decodeZipArchive(nestedInput);
 
       final zipNameWithoutExtension = decodedName.replaceAll(
         RegExp(r'\.zip$', caseSensitive: false),
@@ -283,7 +280,31 @@ class StreamingZipExtractor {
     }
   }
 
-  static String _decodeArchiveName(String name) {
+  static Archive _decodeZipArchive(_Utf8TolerantInputFileStream input) {
+    final decoder = ZipDecoder();
+    final archive = decoder.decodeBuffer(input, verify: false);
+    final localHeaderOffsets = <String, int>{};
+    for (final header in decoder.directory.fileHeaders) {
+      localHeaderOffsets[header.filename.replaceAll('\\', '/')] =
+          header.localHeaderOffset!;
+    }
+
+    for (final file in archive.files) {
+      final archiveName = file.name.replaceAll('\\', '/');
+      final localHeaderOffset = localHeaderOffsets[archiveName];
+      if (localHeaderOffset == null) continue;
+
+      // ZIP local filenames start 30 bytes after their fixed-size header.
+      final rawName = input.invalidUtf8Names[localHeaderOffset + 30];
+      if (rawName != null && rawName.replaceAll('\\', '/') == archiveName) {
+        file.name = _decodeLegacyArchiveName(rawName).replaceAll('\\', '/');
+      }
+    }
+
+    return archive;
+  }
+
+  static String _decodeLegacyArchiveName(String name) {
     try {
       return gbk_bytes.decode(latin1.encode(name));
     } catch (_) {
@@ -377,6 +398,30 @@ class StreamingZipExtractor {
       hash = (hash * 0x01000193) & 0xffffffff;
     }
     return hash;
+  }
+}
+
+class _Utf8TolerantInputFileStream extends InputFileStream {
+  _Utf8TolerantInputFileStream(String path)
+    : super.withFileHandle(FileHandle(path));
+
+  final invalidUtf8Names = <int, String>{};
+
+  @override
+  String readString({int? size, bool utf8 = true}) {
+    if (size == null || !utf8) {
+      return super.readString(size: size, utf8: utf8);
+    }
+
+    final namePosition = position;
+    final bytes = readBytes(size).toUint8List();
+    try {
+      return const Utf8Decoder().convert(bytes);
+    } on FormatException {
+      final name = String.fromCharCodes(bytes);
+      invalidUtf8Names[namePosition] = name;
+      return name;
+    }
   }
 }
 

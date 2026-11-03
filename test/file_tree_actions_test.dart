@@ -32,39 +32,50 @@ FileTreeEntry _entry({
 
 void main() {
   group('FileTreeActions', () {
-    testWidgets('renders audio playback action and passes parent path',
-        (tester) async {
-      String? playedTitle;
-      String? playedParent;
-
+    testWidgets('does not render an audio playback action', (tester) async {
       await tester.pumpWidget(
         _testApp(
           FileTreeActions(
             entry: _entry(
-              item: {
-                'type': 'audio',
-                'title': 'track01.mp3',
-                'hash': 'audio',
-              },
+              item: {'type': 'audio', 'title': 'track01.mp3', 'hash': 'audio'},
             ),
-            onPlayAudio: (item, parentPath) {
-              playedTitle = item['title'] as String;
-              playedParent = parentPath;
-            },
           ),
         ),
       );
 
-      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.byIcon(Icons.visibility), findsNothing);
-
-      await tester.tap(find.byIcon(Icons.play_arrow));
-      expect(playedTitle, 'track01.mp3');
-      expect(playedParent, 'Disc 1');
     });
 
-    testWidgets('renders subtitle and preview actions for lyric text',
-        (tester) async {
+    testWidgets('does not render video or image playback actions', (
+      tester,
+    ) async {
+      for (final item in [
+        {'type': 'video', 'title': 'clip.mp4'},
+        {'type': 'image', 'title': 'cover.jpg'},
+      ]) {
+        await tester.pumpWidget(
+          _testApp(FileTreeActions(entry: _entry(item: item))),
+        );
+        expect(find.byIcon(Icons.video_library), findsNothing);
+        expect(find.byIcon(Icons.visibility), findsNothing);
+
+        await tester.pumpWidget(
+          _testApp(
+            FileTreeActions(
+              entry: _entry(item: item),
+              showDeleteAction: true,
+              onDelete: (_, __) {},
+            ),
+          ),
+        );
+        expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      }
+    });
+
+    testWidgets('renders subtitle and preview actions for lyric text', (
+      tester,
+    ) async {
       var loadedSubtitle = false;
       var previewedText = false;
 
@@ -72,11 +83,7 @@ void main() {
         _testApp(
           FileTreeActions(
             entry: _entry(
-              item: {
-                'type': 'text',
-                'title': 'track01.srt',
-                'hash': 'lyric',
-              },
+              item: {'type': 'text', 'title': 'track01.srt', 'hash': 'lyric'},
             ),
             onLoadSubtitle: (_, __) {
               loadedSubtitle = true;
@@ -98,35 +105,69 @@ void main() {
       expect(previewedText, isTrue);
     });
 
-    testWidgets('offline mode renders delete without preview for generic files',
-        (tester) async {
-      String? deletedTitle;
+    testWidgets(
+      'offline mode renders delete without preview for generic files',
+      (tester) async {
+        String? deletedTitle;
 
-      await tester.pumpWidget(
-        _testApp(
-          FileTreeActions(
-            entry: _entry(
-              item: {
-                'type': 'file',
-                'title': 'archive.zip',
-                'hash': 'archive',
+        await tester.pumpWidget(
+          _testApp(
+            FileTreeActions(
+              entry: _entry(
+                item: {
+                  'type': 'file',
+                  'title': 'archive.zip',
+                  'hash': 'archive',
+                },
+              ),
+              showPreviewActions: false,
+              showDeleteAction: true,
+              onDelete: (item, _) {
+                deletedTitle = item['title'] as String;
               },
             ),
-            showPlaybackActions: false,
-            showPreviewActions: false,
-            showDeleteAction: true,
-            onDelete: (item, _) {
-              deletedTitle = item['title'] as String;
-            },
           ),
+        );
+
+        expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+        expect(find.byIcon(Icons.visibility), findsNothing);
+
+        await tester.tap(find.byIcon(Icons.delete_outline));
+        expect(deletedTitle, 'archive.zip');
+      },
+    );
+  });
+
+  testWidgets('video and image resource rows remain tappable', (tester) async {
+    final tapped = <(String, String)>[];
+    await tester.pumpWidget(
+      _testApp(
+        CustomScrollView(
+          slivers: [
+            FileTreeView(
+              items: const [
+                {
+                  'type': 'folder',
+                  'title': 'Disc 1',
+                  'children': [
+                    {'type': 'video', 'title': 'clip.mp4'},
+                    {'type': 'image', 'title': 'cover.jpg'},
+                  ],
+                },
+              ],
+              expandedFolders: const {'Disc 1'},
+              onToggleFolder: (_) {},
+              onFileTap: (item, _, parentPath) =>
+                  tapped.add((item['title'] as String, parentPath)),
+              trailingBuilder: (_, entry) => FileTreeActions(entry: entry),
+            ),
+          ],
         ),
-      );
+      ),
+    );
 
-      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
-      expect(find.byIcon(Icons.visibility), findsNothing);
-
-      await tester.tap(find.byIcon(Icons.delete_outline));
-      expect(deletedTitle, 'archive.zip');
-    });
+    await tester.tap(find.text('clip.mp4'));
+    await tester.tap(find.text('cover.jpg'));
+    expect(tapped, [('clip.mp4', 'Disc 1'), ('cover.jpg', 'Disc 1')]);
   });
 }

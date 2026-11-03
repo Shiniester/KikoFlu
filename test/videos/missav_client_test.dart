@@ -2852,19 +2852,19 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.description, 'A sanitized sample description');
       expect(details.metadata['配信開始日'], '2024-03-02');
       expect(details.video.releaseDate, '2024-03-02');
-      expect(details.video.actors, details.actors);
-      expect(details.video.tags, details.tags);
       expect(details.video.hasSubtitles, isTrue);
       expect(details.video.isUncensored, isTrue);
       expect(details.metadata.containsKey('メーカー'), isFalse);
-      expect(details.actors.map((actor) => actor.label), ['Sample actor']);
-      expect(details.tags.map((tag) => tag.label), [
+      expect(details.video.actors.map((actor) => actor.label), [
+        'Sample actor',
+      ]);
+      expect(details.video.tags.map((tag) => tag.label), [
         'Sample genre',
         'Sample maker',
         'Sample director',
         'Sample label',
       ]);
-      expect(details.tags.last.kind, VideoLinkKind.category);
+      expect(details.video.tags.last.kind, VideoLinkKind.category);
       expect(details.related.map((video) => video.id), ['open-related-002']);
       expect(details.related.single.releaseDate, isNull);
       expect(details.related.single.actors, isEmpty);
@@ -2966,7 +2966,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.metadata['Maker note'], 'Acme licensed');
       expect(details.metadata['Unclassified'], 'Drama source detail');
       expect(details.metadata['Duration'], '128 minutes');
-      expect(details.tags.map((tag) => tag.label), [
+      expect(details.video.tags.map((tag) => tag.label), [
         'Plain genre',
         'Drama',
         'Action',
@@ -2976,7 +2976,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.video.labels, ['Plain label']);
       expect(details.video.series, ['Plain series']);
       expect(details.video.directors, ['Plain director']);
-      expect(details.actors.single.label, 'Plain actor');
+      expect(details.video.actors.single.label, 'Plain actor');
     },
   );
 
@@ -3055,7 +3055,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       ),
     );
 
-    expect(details.tags.single.label, 'Source genre');
+    expect(details.video.tags.single.label, 'Source genre');
     expect(details.metadata['Genres'], 'Cached genre');
   });
 
@@ -3101,7 +3101,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.metadata.containsKey('Genre'), isFalse);
       expect(details.metadata.containsKey('Maker'), isFalse);
       expect(
-        details.tags.map((tag) => tag.url),
+        details.video.tags.map((tag) => tag.url),
         unorderedEquals([
           'https://missav.ai/cn/genres/shared',
           'https://missav.ai/cn/makers/shared',
@@ -3170,6 +3170,52 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       ]);
     },
   );
+
+  for (final failingLogin in [false, true]) {
+    test(
+      'authentication failure updates account state (login=$failingLogin)',
+      () async {
+        var loginRequests = 0;
+        final adapter = _Adapter((options) {
+          if (options.uri.path.endsWith('/api/login') && ++loginRequests == 1) {
+            return _response('{"user":{"name":"Saved account"}}');
+          }
+          return _response('{}', statusCode: HttpStatus.unauthorized);
+        });
+        final storage = _MemorySecureStorage()..cookie = 'clearance=verified';
+        final client = MissavClient(
+          metadataDio: _emptyMetadataDio(),
+          dio: Dio()..httpClientAdapter = adapter,
+          secureStorage: storage,
+        );
+        addTearDown(client.dispose);
+        await client.login(email: 'viewer@example.test', password: 'sample');
+        expect(client.isLoggedIn, isTrue);
+
+        final operation = failingLogin
+            ? client.login(email: 'other@example.test', password: 'wrong')
+            : client.setVideoFavorite(
+                const VideoDetails(
+                  video: VideoItem(
+                    id: 'sample',
+                    title: 'Sample',
+                    pageUrl: 'https://missav.ai/cn/sample',
+                  ),
+                  sourceId: 'source-123',
+                ),
+                true,
+              );
+        await expectLater(
+          operation,
+          throwsA(isA<MissavAuthenticationException>()),
+        );
+
+        expect(client.isLoggedIn, failingLogin);
+        expect(client.accountName, failingLogin ? 'Saved account' : isNull);
+        expect(storage.cookie, 'clearance=verified');
+      },
+    );
+  }
 
   test(
     'updates video favorites through the observed source endpoint',

@@ -11,6 +11,7 @@ import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
+import '../../widgets/work_detail/work_detail_date.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/system_ui_style.dart';
@@ -19,7 +20,9 @@ import '../../services/storage_service.dart';
 import 'comic_search_screen.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
+import '../comic_source.dart';
 import '../comic_providers.dart';
+import '../eh_tag_translations.dart';
 import 'comic_widgets.dart';
 import 'comic_reader_screen.dart';
 import 'comic_page_preview.dart';
@@ -47,6 +50,7 @@ class ComicDetailScreen extends ConsumerStatefulWidget {
 class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   late Comic _comic = widget.comic;
   late List<ComicChapter> _chapters = widget.comic.chapters;
+  late bool? _remoteFavorite = _sourceFavorite(widget.comic);
   final _chapterPreviewPages = <String, Future<List<ComicPage>>>{};
   final Stopwatch _loadTime = Stopwatch()..start();
   final Completer<void> _initialContentReady = Completer<void>();
@@ -59,15 +63,36 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   bool _chaptersLoading = true;
   Object? _metadataError;
   Object? _chaptersError;
+  bool _localFavorite = false;
+  bool _favoriteReady = false;
+  int _favoriteGeneration = 0;
+  int _favoriteVersion = 0;
   bool _busy = false;
   Object? _favoriteError;
+  bool? _favoriteRetryValue;
+  bool _favoriteRetryRequiresSource = false;
   ComicProgress? _lastProgress;
   int _progressGeneration = 0;
   MediaQueryData? _readerWindow;
   bool _readerReturning = false;
   Comic get _readyComic => _comic.withChapters(_chapters);
+  bool get _isFavorite => _localFavorite || _remoteFavorite == true;
+
+  static bool? _sourceFavorite(Comic comic) {
+    if (comic.extra['favoriteId'] != null) return true;
+    return comic.extra['isFavorite'] is bool
+        ? comic.extra['isFavorite'] as bool
+        : null;
+  }
+
+  static Comic _withSourceFavorite(Comic comic, bool value) {
+    final extra = {...comic.extra, 'isFavorite': value};
+    if (!value) extra.remove('favoriteId');
+    return Comic.fromJson({...comic.toJson(), 'extra': extra});
+  }
 
   Future<void> _load() async {
+    final favoriteVersion = _favoriteVersion;
     final downloads = ref.read(comicDownloadsProvider);
     await downloads.ready;
     if (!mounted) return;
@@ -78,8 +103,20 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       await _initialContentReady.future;
       if (!mounted) return;
       setState(() {
-        _comic = saved;
+        final extra = {...saved.extra};
+        if (_remoteFavorite != null) {
+          extra['isFavorite'] = _remoteFavorite;
+          if (_remoteFavorite == false) {
+            extra.remove('favoriteId');
+          } else if (_comic.extra['favoriteId'] != null) {
+            extra['favoriteId'] = _comic.extra['favoriteId'];
+          }
+        }
+        _comic = Comic.fromJson({...saved.toJson(), 'extra': extra});
         _chapters = saved.chapters;
+        if (_favoriteVersion == favoriteVersion) {
+          _remoteFavorite = _sourceFavorite(_comic);
+        }
         _metadataLoading = false;
         _chaptersLoading = false;
       });
@@ -96,6 +133,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   );
 
   Future<void> _loadMetadata() async {
+    final favoriteVersion = _favoriteVersion;
     final generation = ++_metadataGeneration;
     setState(() {
       _metadataLoading = true;
@@ -120,21 +158,32 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     if (!mounted || generation != _metadataGeneration) return;
     try {
       if (response != null) {
-        setState(
-          () => _comic = Comic.fromJson({
-            ...response!.toJson(),
-            'extra': {
-              ...response.extra,
-              if (response.coverDate == null && _comic.coverDate != null)
-                'sourceDate': _comic.extra['sourceDate'],
-              if (response.publishedDate == null &&
-                  _comic.publishedDate != null)
-                'publishedAt': _comic.extra['publishedAt'],
-              if (response.updatedDate == null && _comic.updatedDate != null)
-                'updatedAt': _comic.extra['updatedAt'],
-            },
-          }),
-        );
+        final updated = Comic.fromJson({
+          ...response.toJson(),
+          'extra': {
+            ...response.extra,
+            if (!response.extra.containsKey('isFavorite') &&
+                _comic.extra['isFavorite'] == true)
+              'isFavorite': true,
+            if (response.extra['favoriteId'] == null &&
+                _comic.extra['favoriteId'] != null)
+              'favoriteId': _comic.extra['favoriteId'],
+            if (response.coverDate == null && _comic.coverDate != null)
+              'sourceDate': _comic.extra['sourceDate'],
+            if (response.publishedDate == null && _comic.publishedDate != null)
+              'publishedAt': _comic.extra['publishedAt'],
+            if (response.updatedDate == null && _comic.updatedDate != null)
+              'updatedAt': _comic.extra['updatedAt'],
+          },
+        });
+        setState(() {
+          _comic = updated;
+          if (_favoriteVersion == favoriteVersion) {
+            _remoteFavorite = _sourceFavorite(updated);
+          } else {
+            _comic = _withSourceFavorite(updated, _remoteFavorite == true);
+          }
+        });
       } else {
         setState(() => _metadataError = loadError);
       }
@@ -186,7 +235,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.comic.source == 'ehentai') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) retryEhTagTranslations(ref);
+      });
+    }
     _load();
+    unawaited(_refreshFavorite());
     unawaited(_refreshProgress());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _logTiming('first visible');
@@ -203,6 +258,21 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     }
     if (!mounted || generation != _progressGeneration) return;
     setState(() => _lastProgress = progress);
+  }
+
+  Future<void> _refreshFavorite() async {
+    final generation = ++_favoriteGeneration;
+    var favorite = false;
+    try {
+      favorite = await ref.read(comicLibraryProvider).isFavorite(_comic);
+    } catch (_) {
+      // The source favorite marker still works if the local library is unavailable.
+    }
+    if (!mounted || generation != _favoriteGeneration) return;
+    setState(() {
+      _localFavorite = favorite;
+      _favoriteReady = true;
+    });
   }
 
   ComicChapter? _lastReadChapter(ComicProgress progress) =>
@@ -314,7 +384,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             (progress?.chapterId == chapter.id ? progress!.page : 0),
       ),
     );
-    await Navigator.of(context).push(route);
+    await AppNavigationScope.navigatorOf(context).push(route);
     await route.completed;
     if (mounted) {
       setState(() => _readerReturning = true);
@@ -322,17 +392,104 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     }
   }
 
-  Future<void> _favorite(Comic comic) async {
-    if (_busy) return;
+  Future<Comic?> _findRemoteFavorite(ComicSource source, Comic comic) async {
+    String? cursor;
+    do {
+      final page = await source.favorites(cursor: cursor);
+      final favorite = page.items
+          .where((item) => item.id == comic.id)
+          .firstOrNull;
+      if (favorite != null) return favorite;
+      cursor = page.next;
+    } while (cursor != null);
+    return null;
+  }
+
+  Future<void> _favorite(Comic comic, {bool? value}) async {
+    if (_busy || !_favoriteReady) return;
+    final favorite = value ?? !_isFavorite;
+    var requiresSource =
+        _favoriteRetryRequiresSource && favorite == _favoriteRetryValue;
     setState(() {
       _busy = true;
       _favoriteError = null;
     });
     try {
-      await saveComicFavorite(ref, comic);
-      if (mounted) SnackBarUtil.showSuccess(context, S.of(context).comicSaved);
+      final source = ref
+          .read(comicSourcesProvider)
+          .firstWhere((s) => s.key == comic.source);
+      final library = ref.read(comicLibraryProvider);
+      final remoteFavoritesRevision = ref.read(
+        comicRemoteFavoritesRevisionProvider.notifier,
+      );
+      var sourceComic = comic;
+      final canWriteSource = source.hasRemoteFavorites && source.isLoggedIn;
+      if (requiresSource && !canWriteSource) {
+        throw ComicSourceException(
+          S.of(context).comicLoginRequired,
+          loginRequired: true,
+        );
+      }
+      var remoteFavorite = _remoteFavorite == true;
+      if (!favorite && canWriteSource && _remoteFavorite == null) {
+        requiresSource = true;
+        final existing = await _findRemoteFavorite(source, comic);
+        requiresSource = false;
+        remoteFavorite = existing != null;
+        if (existing != null) {
+          sourceComic = Comic.fromJson({
+            ...comic.toJson(),
+            'extra': {...comic.extra, ...existing.extra},
+          });
+        }
+        if (mounted) {
+          setState(() {
+            _remoteFavorite = remoteFavorite;
+            _comic = _withSourceFavorite(_comic, remoteFavorite);
+          });
+        }
+        _favoriteVersion++;
+      }
+      if (canWriteSource && remoteFavorite != favorite) {
+        requiresSource = true;
+        await source.setFavorite(sourceComic, favorite);
+        requiresSource = false;
+        remoteFavoritesRevision.state++;
+        _favoriteVersion++;
+        _remoteFavorite = favorite;
+        if (mounted) {
+          setState(() => _comic = _withSourceFavorite(_comic, favorite));
+        }
+      }
+      if (!favorite && !canWriteSource && _remoteFavorite == true) {
+        _remoteFavorite = false;
+        if (mounted) {
+          setState(() => _comic = _withSourceFavorite(_comic, false));
+        }
+      }
+      final localComic = favorite && _remoteFavorite == true
+          ? _withSourceFavorite(_readyComic, true)
+          : _readyComic;
+      await library.favorite(localComic, favorite);
+      if (mounted) {
+        setState(() {
+          _localFavorite = favorite;
+          _favoriteError = null;
+          _favoriteRetryValue = null;
+          _favoriteRetryRequiresSource = false;
+        });
+        if (favorite) {
+          SnackBarUtil.showSuccess(context, S.of(context).comicSaved);
+        }
+      }
     } catch (e) {
-      if (mounted) setState(() => _favoriteError = e);
+      if (mounted) {
+        setState(() {
+          _favoriteError = e;
+          _favoriteRetryValue = favorite;
+          _favoriteRetryRequiresSource = requiresSource;
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -359,6 +516,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget build(BuildContext context) {
     ref.listen(comicLibraryProvider, (_, __) {
       unawaited(_refreshProgress());
+      unawaited(_refreshFavorite());
+    });
+    ref.listen(comicRemoteFavoritesRevisionProvider, (_, __) {
+      if (!_busy && _remoteFavorite == false) {
+        _remoteFavorite = null;
+        _favoriteVersion++;
+      }
     });
     ref.watch(comicSettingsRevisionProvider);
     final current = MediaQuery.of(context);
@@ -398,6 +562,8 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
         appBar: ScrollableAppBar(
+          centerTitle: false,
+          titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
           systemOverlayStyle: transparentSystemBarsForBrightness(
             Theme.of(context).brightness,
           ),
@@ -416,14 +582,23 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             IconButton(
               tooltip: s.download,
               icon: const Icon(Icons.download),
+              visualDensity: const VisualDensity(horizontal: -2),
               onPressed: !_initialContentVisible || _chapters.isEmpty
                   ? null
                   : () => _download(_readyComic),
             ),
             IconButton(
               tooltip: s.comicFavorites,
-              icon: const Icon(Icons.bookmark_add_outlined),
-              onPressed: _busy ? null : () => _favorite(_readyComic),
+              visualDensity: const VisualDensity(horizontal: -2),
+              icon: Icon(
+                _isFavorite ? Icons.bookmark : Icons.bookmark_add_outlined,
+                color: _isFavorite
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
+              ),
+              onPressed: _busy || !_favoriteReady
+                  ? null
+                  : () => _favorite(_readyComic),
             ),
           ],
         ),
@@ -435,6 +610,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _buildBody(BuildContext context) {
     final s = S.of(context);
     final comic = _readyComic;
+    final tagTranslations =
+        comic.source == 'ehentai' &&
+            Localizations.localeOf(context).languageCode == 'zh'
+        ? ref.watch(ehTagTranslationsProvider).valueOrNull
+        : null;
     final showThumbnails =
         StorageService.getBool('comic_chapter_thumbnails') ?? true;
     final hasComments = ref
@@ -488,8 +668,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
         final info = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            WorkTitleHeader(title: comic.title, showTranslateButton: false),
-            const SizedBox(height: 8),
             Text(
               ref
                   .read(comicSourcesProvider)
@@ -505,6 +683,25 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                   Text('${comic.extra['likes']}'),
                 ],
               ),
+            if (comic.publishedDate != null || comic.updatedDate != null) ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  if (comic.publishedDate != null)
+                    WorkDetailDate(
+                      label: s.releaseDate,
+                      date: comic.publishedDate!,
+                    ),
+                  if (comic.updatedDate != null)
+                    WorkDetailDate(
+                      label: s.lastUpdated,
+                      date: comic.updatedDate!,
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) => Align(
@@ -606,6 +803,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                 ],
                               ),
                             const SizedBox(height: 16),
+                            WorkTitleHeader(
+                              title: comic.title,
+                              showTranslateButton: false,
+                            ),
+                            const SizedBox(height: 16),
                             if (_busy)
                               const RepaintBoundary(
                                 child: LinearProgressIndicator(),
@@ -613,7 +815,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                             if (_favoriteError != null)
                               _retryBanner(
                                 _favoriteError!,
-                                () => _favorite(comic),
+                                () => _favorite(
+                                  comic,
+                                  value: _favoriteRetryValue,
+                                ),
                               ),
                             if (_metadataLoading)
                               const RepaintBoundary(
@@ -720,62 +925,41 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                     children: comic.tags
                                         .toSet()
                                         .map(
-                                          (tag) => MetadataSearchChip(
-                                            label: tag,
-                                            searchKeyword: tag,
-                                            searchTypeLabel: s.tagLabel,
-                                            searchParams: const {},
-                                            chipTone: MetadataChipTone.primary,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            borderRadius: 6,
-                                            onTap: () => pushBottomDockRoute(
-                                              context,
-                                              builder: (_) => ComicSearchScreen(
-                                                initialSource: comic.source,
-                                                initialQuery: tag,
-                                              ),
-                                            ),
+                                          (tag) => buildEhTagLabel(
+                                            context: context,
+                                            tag: tag,
+                                            translations: tagTranslations,
+                                            builder: (label) =>
+                                                MetadataSearchChip(
+                                                  label: label,
+                                                  searchKeyword: tag,
+                                                  searchTypeLabel: s.tagLabel,
+                                                  searchParams: const {},
+                                                  chipTone:
+                                                      MetadataChipTone.primary,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
+                                                  borderRadius: 6,
+                                                  onTap: () =>
+                                                      pushBottomDockRoute(
+                                                        context,
+                                                        builder: (_) =>
+                                                            ComicSearchScreen(
+                                                              initialSource:
+                                                                  comic.source,
+                                                              initialQuery: tag,
+                                                            ),
+                                                      ),
+                                                ),
                                           ),
                                         )
                                         .toList(),
                                   ),
-                                  const SizedBox(height: 16),
-                                ],
-                                if (comic.publishedDate != null ||
-                                    comic.updatedDate != null) ...[
-                                  if (comic.publishedDate != null &&
-                                      comic.updatedDate != null)
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _comicDateColumn(
-                                            s.releaseDate,
-                                            comic.publishedDate!,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: _comicDateColumn(
-                                            s.lastUpdated,
-                                            comic.updatedDate!,
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  else
-                                    _comicDateColumn(
-                                      comic.publishedDate != null
-                                          ? s.releaseDate
-                                          : s.lastUpdated,
-                                      comic.publishedDate ?? comic.updatedDate!,
-                                    ),
                                   const SizedBox(height: 16),
                                 ],
                               ],
@@ -836,18 +1020,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _retryBanner(Object error, VoidCallback retry) => MaterialBanner(
     content: Text('$error'),
     actions: [TextButton(onPressed: retry, child: Text(S.of(context).retry))],
-  );
-
-  Widget _comicDateColumn(String title, String date) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      WorkDetailSectionTitle(title),
-      const SizedBox(height: 8),
-      Text(
-        date.split('T').first,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14),
-      ),
-    ],
   );
 }
 

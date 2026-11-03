@@ -424,9 +424,11 @@ const _documentMarkupScript = '''
   }, true);
   const visitorCookie = document.cookie.split(';').map(value => value.trim())
     .find(value => value.startsWith('user_uuid='));
+  const navigation = performance.getEntriesByType('navigation')[0];
   return JSON.stringify({
     url:location.href,
     html:root.outerHTML,
+    responseStatus: navigation && navigation.responseStatus,
     recommendationContext: {
       userId: window.user_uuid || (visitorCookie ? decodeURIComponent(visitorCookie.substring('user_uuid='.length)) : null),
       scenario: root.clientWidth >= 1024 ? 'desktop-home-recommended' : 'mobile-home-recommended',
@@ -498,6 +500,11 @@ Future<String> navigateMissavDocument(
     }
     documentRead = true;
     final html = document['html'] as String;
+    final status = document['responseStatus'];
+    if (status is int && status >= 400) {
+      return '$html<script id="kiko-missav-response-status" '
+          'type="application/json">$status</script>';
+    }
     final recommendationContext = document['recommendationContext'];
     if (recommendationContext is! Map ||
         recommendationContext['userId'] is! String) {

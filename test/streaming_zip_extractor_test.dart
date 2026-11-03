@@ -1,0 +1,319 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:gbk_codec/gbk_codec.dart';
+import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
+import 'package:path/path.dart' as p;
+
+void main() {
+  late Directory tempDirectory;
+  late String targetPath;
+
+  setUp(() {
+    tempDirectory = Directory.systemTemp.createTempSync(
+      'streaming-zip-extractor-',
+    );
+    targetPath = p.join(tempDirectory.path, 'output');
+  });
+
+  tearDown(() {
+    if (tempDirectory.existsSync()) {
+      tempDirectory.deleteSync(recursive: true);
+    }
+  });
+
+  StreamingZipExtractionResult extract(List<int> zipBytes, String workId) {
+    final archivePath = p.join(tempDirectory.path, '$workId.zip');
+    File(archivePath).writeAsBytesSync(zipBytes);
+    return StreamingZipExtractor.extractSynchronously(
+      StreamingZipExtractionRequest(
+        sourcePath: archivePath,
+        targetPath: targetPath,
+        archiveName: workId,
+      ),
+    );
+  }
+
+  test(
+    'extracts GBK names with Japanese and Chinese without changing LRC bytes',
+    () {
+      const workId = 'RJ01015800';
+      const entryName = '日本字幕.lrc';
+      final lrcBytes = utf8.encode('[00:00.00]駅で再会：你好\n');
+      final zipBytes = _patchZipFilename(
+        _zipWithFile('ABCDEFGH.lrc', lrcBytes),
+        expectedName: ascii.encode('ABCDEFGH.lrc'),
+        replacementName: gbk_bytes.encode(entryName),
+        utf8Flag: false,
+      );
+
+      final result = extract(zipBytes, workId);
+
+      expect(result.decodedRootArchive, isTrue);
+      expect(result.extractedCount, 1);
+      expect(result.errorCount, 0);
+      expect(result.decodeErrorCount, 0);
+      expect(
+        File(p.join(targetPath, workId, entryName)).readAsBytesSync(),
+        lrcBytes,
+      );
+    },
+  );
+
+  test('preserves UTF-8 names with Japanese, Chinese, and accented Latin', () {
+    const workId = 'RJ01015801';
+    const entryName = '日本語字幕-é.lrc';
+    final lrcBytes = utf8.encode('[00:00.00]UTF-8の歌詞：中文\n');
+
+    final result = extract(_zipWithFile(entryName, lrcBytes), workId);
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, entryName)).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test('preserves valid UTF-8 names when the UTF-8 flag is clear', () {
+    const workId = 'RJ01015802';
+    const entryName = '字幕-日本-é.lrc';
+    final lrcBytes = utf8.encode('[00:00.00]本来のUTF-8本文\n');
+    final zipBytes = _patchZipFilename(
+      _zipWithFile(entryName, lrcBytes),
+      expectedName: utf8.encode(entryName),
+      replacementName: utf8.encode(entryName),
+      utf8Flag: false,
+    );
+
+    final result = extract(zipBytes, workId);
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, entryName)).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test('preserves flag-off UTF-8 names made only of Latin-1 characters', () {
+    const workId = 'RJ01015805';
+    const entryName = 'éñ.lrc';
+    final lrcBytes = utf8.encode('[00:00.00]Latin-1 name, UTF-8 bytes\n');
+    final zipBytes = _patchZipFilename(
+      _zipWithFile(entryName, lrcBytes),
+      expectedName: utf8.encode(entryName),
+      replacementName: utf8.encode(entryName),
+      utf8Flag: false,
+    );
+
+    final result = extract(zipBytes, workId);
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, entryName)).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test('decodes GBK names at both nested ZIP levels into the work folder', () {
+    const workId = 'RJ01015803';
+    const nestedArchiveName = '日本字幕.zip';
+    const entryName = '日本字幕.lrc';
+    final lrcBytes = utf8.encode('[00:00.00]nested content：内容\n');
+    final nestedZip = _patchZipFilename(
+      _zipWithFile('INNER123.lrc', lrcBytes),
+      expectedName: ascii.encode('INNER123.lrc'),
+      replacementName: gbk_bytes.encode(entryName),
+      utf8Flag: false,
+    );
+    final outerZip = _patchZipFilename(
+      _zipWithFile('OUTER123.zip', nestedZip),
+      expectedName: ascii.encode('OUTER123.zip'),
+      replacementName: gbk_bytes.encode(nestedArchiveName),
+      utf8Flag: false,
+    );
+
+    final result = extract(outerZip, workId);
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.nestedArchiveCount, 1);
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(result.decodeErrorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, '日本字幕', entryName)).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test(
+    'uses the last matching ZIP header after duplicate names are replaced',
+    () {
+      const workId = 'RJ01015806';
+      const entryName = '日本字幕.lrc';
+      final lrcBytes = utf8.encode('[00:00.00]after duplicate entries\n');
+      var zipBytes = _zipWithFiles({
+        'FIRST123.lrc': utf8.encode('[00:00.00]old duplicate\n'),
+        'SECOND12.lrc': utf8.encode('[00:00.00]current duplicate\n'),
+        'GBKFILE1.lrc': lrcBytes,
+      });
+      zipBytes = _patchZipFilename(
+        zipBytes,
+        expectedName: ascii.encode('FIRST123.lrc'),
+        replacementName: ascii.encode('DUPENAME.lrc'),
+        utf8Flag: false,
+      );
+      zipBytes = _patchZipFilename(
+        zipBytes,
+        expectedName: ascii.encode('SECOND12.lrc'),
+        replacementName: ascii.encode('DUPENAME.lrc'),
+        utf8Flag: false,
+      );
+      zipBytes = _patchZipFilename(
+        zipBytes,
+        expectedName: ascii.encode('GBKFILE1.lrc'),
+        replacementName: gbk_bytes.encode(entryName),
+        utf8Flag: false,
+      );
+
+      final result = extract(zipBytes, workId);
+
+      expect(result.extractedCount, 2);
+      expect(
+        File(p.join(targetPath, workId, entryName)).readAsBytesSync(),
+        lrcBytes,
+      );
+    },
+  );
+
+  test('decodes GBK trail bytes before normalizing backslash paths', () {
+    const workId = 'RJ01015807';
+    const rawEntryName = r'字幕\乗.lrc';
+    final lrcBytes = utf8.encode('[00:00.00]backslash path\n');
+    final zipBytes = _patchZipFilename(
+      _zipWithFile('ABCD/DE.lrc', lrcBytes),
+      expectedName: ascii.encode('ABCD/DE.lrc'),
+      replacementName: gbk_bytes.encode(rawEntryName),
+      utf8Flag: false,
+    );
+
+    final result = extract(zipBytes, workId);
+
+    expect(result.extractedCount, 1);
+    expect(
+      File(p.join(targetPath, workId, '字幕', '乗.lrc')).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test(
+    'continues extracting other entries when one nested ZIP cannot decode',
+    () {
+      const workId = 'RJ01015804';
+      final lrcBytes = utf8.encode('[00:00.00]kept\n');
+      final archive = Archive()
+        ..addFile(ArchiveFile('bad.zip', 4, <int>[1, 2, 3, 4]))
+        ..addFile(ArchiveFile('track.lrc', lrcBytes.length, lrcBytes));
+
+      final result = extract(
+        Uint8List.fromList(ZipEncoder().encode(archive)!),
+        workId,
+      );
+
+      expect(result.extractedCount, 1);
+      expect(result.errorCount, 1);
+      expect(result.decodeErrorCount, 1);
+      expect(
+        File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(),
+        lrcBytes,
+      );
+    },
+  );
+}
+
+Uint8List _zipWithFile(String fileName, List<int> contents) {
+  return _zipWithFiles({fileName: contents});
+}
+
+Uint8List _zipWithFiles(Map<String, List<int>> files) {
+  final archive = Archive();
+  for (final file in files.entries) {
+    archive.addFile(ArchiveFile(file.key, file.value.length, file.value));
+  }
+  return Uint8List.fromList(ZipEncoder().encode(archive)!);
+}
+
+Uint8List _patchZipFilename(
+  List<int> zipBytes, {
+  required List<int> expectedName,
+  required List<int> replacementName,
+  required bool utf8Flag,
+}) {
+  if (expectedName.length != replacementName.length) {
+    throw ArgumentError('ZIP fixture names must have equal byte lengths');
+  }
+
+  final bytes = Uint8List.fromList(zipBytes);
+  var patchedHeaders = 0;
+  for (var offset = 0; offset <= bytes.length - 4; offset++) {
+    final isLocalHeader = _hasSignature(bytes, offset, 0x04034b50);
+    final isCentralHeader = _hasSignature(bytes, offset, 0x02014b50);
+    if (!isLocalHeader && !isCentralHeader) continue;
+
+    final flagsOffset = offset + (isLocalHeader ? 6 : 8);
+    final nameLengthOffset = offset + (isLocalHeader ? 26 : 28);
+    final extraLengthOffset = offset + (isLocalHeader ? 28 : 30);
+    final nameOffset = offset + (isLocalHeader ? 30 : 46);
+    final nameLength = _readUint16(bytes, nameLengthOffset);
+    if (nameLength != expectedName.length ||
+        !_matchesAt(bytes, nameOffset, expectedName)) {
+      continue;
+    }
+
+    bytes.setRange(nameOffset, nameOffset + nameLength, replacementName);
+    var flags = _readUint16(bytes, flagsOffset);
+    flags = utf8Flag ? flags | 0x800 : flags & ~0x800;
+    _writeUint16(bytes, flagsOffset, flags);
+    patchedHeaders++;
+    offset =
+        nameOffset + nameLength + _readUint16(bytes, extraLengthOffset) - 1;
+  }
+
+  if (patchedHeaders != 2) {
+    throw StateError(
+      'Expected both ZIP filename headers, found $patchedHeaders',
+    );
+  }
+  return bytes;
+}
+
+bool _hasSignature(List<int> bytes, int offset, int signature) {
+  return _readUint32(bytes, offset) == signature;
+}
+
+bool _matchesAt(List<int> bytes, int offset, List<int> expected) {
+  for (var index = 0; index < expected.length; index++) {
+    if (bytes[offset + index] != expected[index]) return false;
+  }
+  return true;
+}
+
+int _readUint16(List<int> bytes, int offset) =>
+    bytes[offset] | (bytes[offset + 1] << 8);
+
+int _readUint32(List<int> bytes, int offset) =>
+    _readUint16(bytes, offset) | (_readUint16(bytes, offset + 2) << 16);
+
+void _writeUint16(List<int> bytes, int offset, int value) {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >> 8) & 0xff;
+}

@@ -36,6 +36,7 @@ import '../widgets/player/player_scroll_drag_handoff.dart';
 import '../widgets/player/player_page_scroll_physics.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
+import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/cover_preview_dialog.dart';
 import '../widgets/responsive_dialog.dart';
@@ -88,6 +89,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   static const Curve _pageTransitionCurve = Curves.ease;
 
   final ValueNotifier<String?> _workProgress = ValueNotifier(null);
+  String? _onlineWorkProgress;
   String? get _currentProgress => _workProgress.value;
   int? _currentRating;
   int? _currentWorkId;
@@ -330,7 +332,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
       if (mounted && _currentWorkId == workId) {
         _currentRating = work.userRating;
-        _workProgress.value = work.progress;
+        _onlineWorkProgress = work.progress;
+        _workProgress.value = ref
+            .read(automaticWorkMarkingProvider)
+            .progressFor(workId, work.progress);
       }
     } catch (e) {
       debugPrint('Failed to load progress for work $workId: $e');
@@ -386,6 +391,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(automaticWorkMarkingRevisionProvider, (_, __) {
+      final workId = _currentWorkId;
+      if (workId != null) {
+        _workProgress.value = ref
+            .read(automaticWorkMarkingProvider)
+            .progressFor(workId, _onlineWorkProgress);
+      }
+    });
     final currentTrack = ref.watch(currentTrackProvider);
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
@@ -448,6 +461,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentWorkId == track.workId) return;
       _currentWorkId = track.workId;
+      _onlineWorkProgress = null;
       _currentRating = null;
       _workProgress.value = null;
       _loadCurrentProgress(track.workId!);
@@ -946,6 +960,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final outerPadding = width >= 1200 ? 48.0 : 24.0;
     final gap = width >= 1200 ? 40.0 : 20.0;
     return SafeArea(
+      maintainBottomViewPadding: true,
       minimum: EdgeInsets.fromLTRB(outerPadding, 18, outerPadding, 18),
       child: Row(
         key: const ValueKey('wide-player-layout'),
@@ -1215,6 +1230,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required PlayerVisualPalette previewPalette,
   }) {
     return SafeArea(
+      maintainBottomViewPadding: true,
       minimum: const EdgeInsets.fromLTRB(0, 10, 0, 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -2352,11 +2368,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   Future<void> _openKnownWork(Work work) {
     final initialCover = _initialWorkDetailCover(work);
-    return pushWorkDetailRoute(
-      context,
-      builder: (context) =>
-          WorkDetailScreen(work: work, initialCoverImageProvider: initialCover),
-    );
+    Widget builder(BuildContext context) =>
+        WorkDetailScreen(work: work, initialCoverImageProvider: initialCover);
+    return pushAudioPlayerHandoffRoute(context, builder: builder);
   }
 
   ImageProvider<Object>? _initialWorkDetailCover(Work work) {
@@ -3110,6 +3124,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         if (mounted && _currentWorkId == workId) {
           _currentRating = newRating;
           _workProgress.value = newProgress;
+          _onlineWorkProgress = newProgress;
         }
       },
     );
@@ -3445,13 +3460,23 @@ class _PlayerPageBoundaryState extends State<_PlayerPageBoundary>
 Widget _withEarlierPlayerPageGestureStart(BuildContext context, Widget child) {
   final mediaQuery = MediaQuery.of(context);
   final touchSlop = mediaQuery.gestureSettings.touchSlop ?? kTouchSlop;
-  return MediaQuery(
-    data: mediaQuery.copyWith(
-      gestureSettings: DeviceGestureSettings(touchSlop: touchSlop * 0.85),
+  // Gesture overrides must retain the padding already consumed by SafeArea.
+  return Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        gestureSettings: DeviceGestureSettings(touchSlop: touchSlop * 0.85),
+      ),
+      child: child,
     ),
-    child: child,
   );
 }
 
-Widget _withOriginalPlayerGestureSettings(BuildContext context, Widget child) =>
-    MediaQuery(data: MediaQuery.of(context), child: child);
+Widget _withOriginalPlayerGestureSettings(BuildContext context, Widget child) {
+  final gestureSettings = MediaQuery.gestureSettingsOf(context);
+  return Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(gestureSettings: gestureSettings),
+      child: child,
+    ),
+  );
+}

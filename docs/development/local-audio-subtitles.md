@@ -8,8 +8,8 @@
 
 - 覆盖 Android、iOS、Windows、macOS、Linux，保留现有 iOS 13 下限和 Linux
   x64、ARM64 发布目标。
-- 首版识别日语，生成字幕支持 MP3、WAV、FLAC。其他音频格式显示暂不支持生成
-  字幕，不改变其现有播放行为；批量任务记录这些文件并继续处理支持的文件。
+- 音频字幕生成识别日语，支持 MP3、WAV、FLAC、AAC、M4A、Ogg 和 Opus。
+  其他音频格式显示暂不支持生成字幕；批量任务记录这些文件并继续处理支持的文件。
 - 模型首次按需下载，后续复用本地模型。原始音频只在当前设备上识别。
 - 保存带时间轴的日文 SRT 后，自动通过现有翻译源翻译字幕文字。
   翻译源使用设置中选中的源，失败时沿用现有备用源。目标语言跟随全局翻译目标。
@@ -82,12 +82,15 @@
 
 ## 本地识别路径
 
-使用 sherpa_onnx 官方 Flutter FFI 和日语专用 ReazonSpeech 模型；共享的
-miniaudio C 解码桥把本地音频分块转换成识别所需的单声道 PCM。模型初始化
-与解码、推理在专用工作 isolate 中运行，播放器交互不等待同步 native 推理。
+使用 sherpa_onnx 官方 Flutter FFI 和日语专用 ReazonSpeech 模型。miniaudio
+优先解码本地音频；无法打开时，独立的 libmpv 实例通过有界本地管道输出 PCM。
+两条路径都分块提供单声道 PCM。模型初始化、解码和推理在专用工作 isolate 中运行，
+播放器交互不等待同步 native 推理。
 
 依赖固定为 `sherpa_onnx 1.13.8`、本项目的 `local_audio_decoder` 插件及其
-内置 `miniaudio 0.11.25`。首次下载 ReazonSpeech-k2-v2 混合精度模型、
+内置 `miniaudio 0.11.25`；新增格式复用应用已有的 `media_kit` 和 libmpv。
+Linux 需要系统 libmpv 包含 PCM 输出和对应的音频解码器。
+首次下载 ReazonSpeech-k2-v2 混合精度模型、
 tokens 和 Silero VAD，共约 170 MB。encoder、joiner 使用 int8，decoder 使用 fp32。
 模型保存在应用支持目录的
 `local_audio_subtitles/ja_reazonspeech_int8_fp32`。完成的模型文件可重复使用；失败或取消
@@ -136,13 +139,23 @@ Windows x64 使用模型公开的 13.433 秒日语 WAV 样本及转换得到的 
   ONNX Runtime DLL。当前 CMake 4.3.1 与已有 `smtc_windows 0.1.3` 的符号链接
   目录解压不兼容，打包验证使用 CMake 3.22.1 解压该依赖后执行 INSTALL。
 - Android Debug APK 构建通过，包中包含 ARM64、ARMv7、x86_64 的解码、Sherpa
-  和 ONNX Runtime 库；新增的三类 64 位 native 库均验证为 16 KB ELF 对齐。
+  和 ONNX Runtime 库；新增的三类 64 位 native 库的 ELF 加载段均符合 16 KB 边界。
+
+## 扩展格式验证记录
+
+- Windows x64 使用同一日语样本及转换得到的 AAC、M4A、Ogg Vorbis 和 Opus，
+  完成解码、识别、SRT 生成及解析。四种格式均生成非空日文字幕，首条字幕在
+  两秒内，末条字幕结束时间不超过 14 秒。
+- Android 16 x86_64 模拟器通过 10 项解码测试。测试覆盖上述格式、Ogg Opus、
+  链式 Vorbis、Unicode 路径、独立 isolate、无效输入和取消。
+- Ubuntu 22.04 的 x86_64 和 ARM64 用户态均通过解码测试。两者使用 Dart 3.12.1、
+  系统 libmpv 0.34.1 和项目中的解码器源码，覆盖相同格式、独立 isolate、
+  无效输入和取消。测试运行在 Android 模拟器内核上，ARM64 用户态使用 QEMU。
 
 ## 已知限制与后续验证
 
-iOS 13、macOS、Linux x64/ARM64 的配置已接入，当前 Windows 环境未执行这些
-目标的构建与运行。Android 目前完成打包验证，尚未在实际手机上测量内存、
-耗时和后台暂停行为。
+iOS 13 和 macOS 尚未执行格式解码运行测试。Linux x64 和 ARM64 尚未在独立
+Linux 系统上测试完整应用。Android 尚未在实际手机上测量内存、耗时和后台暂停行为。
 
 公开日语语音片段的结果证明本地识别和字幕流程可运行，不能替代真实音声的
 准确率评估。耳语、气声和长时间音频的文本与时间轴仍需在实际设备试听校对；

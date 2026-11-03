@@ -7,6 +7,7 @@ class ScrollableAppBar extends StatefulWidget implements PreferredSizeWidget {
     super.key,
     this.title,
     this.leading,
+    this.leadingWidth,
     this.actions,
     this.backgroundColor,
     this.foregroundColor,
@@ -23,6 +24,7 @@ class ScrollableAppBar extends StatefulWidget implements PreferredSizeWidget {
 
   final Widget? title;
   final Widget? leading;
+  final double? leadingWidth;
   final List<Widget>? actions;
   final Color? backgroundColor;
   final Color? foregroundColor;
@@ -96,6 +98,7 @@ class _ScrollableAppBarState extends State<ScrollableAppBar> {
     return AppBar(
       title: widget.title,
       leading: widget.leading,
+      leadingWidth: widget.leadingWidth,
       actions: widget.actions,
       backgroundColor: widget.backgroundColor,
       foregroundColor: widget.foregroundColor,

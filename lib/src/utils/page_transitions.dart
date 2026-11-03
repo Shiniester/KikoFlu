@@ -4,6 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/app_navigation_scope.dart';
+
 /// Slides the foreground page with source parallax; shared elements use overlays.
 class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
@@ -174,6 +176,50 @@ class _PageTransitionState extends State<_PageTransition>
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final navigation = AppNavigationScope.maybeOf(context);
+    final routeName = widget.route.settings.name;
+    final landscapeInsets =
+        navigation != null &&
+            MediaQuery.orientationOf(context) == Orientation.landscape &&
+            identical(widget.route.navigator, navigation.navigator) &&
+            navigation.isBelowAudioPlayer(widget.route) &&
+            !navigation.playerLaunchPreviewActive &&
+            !navigation.navigationVisible &&
+            routeName != appImmersiveRouteSettings.name &&
+            routeName != appAudioPlayerRouteSettings.name
+        ? navigation.audioPlayerLandscapeInsets
+        : null;
+    final page = landscapeInsets == null
+        ? widget.child
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final size = MediaQuery.sizeOf(context);
+              // Gesture handoff can still lay out this route in its old viewport.
+              final horizontal =
+                  (constraints.maxWidth -
+                          (size.width - landscapeInsets.horizontal))
+                      .clamp(0.0, landscapeInsets.horizontal);
+              final vertical =
+                  (constraints.maxHeight -
+                          (size.height - landscapeInsets.vertical))
+                      .clamp(0.0, landscapeInsets.vertical);
+              return MediaQuery.removePadding(
+                context: context,
+                removeLeft: true,
+                removeRight: true,
+                removeBottom: true,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    math.min(landscapeInsets.left, horizontal),
+                    math.min(landscapeInsets.top, vertical),
+                    math.max(0, horizontal - landscapeInsets.left),
+                    math.max(0, vertical - landscapeInsets.top),
+                  ),
+                  child: widget.child,
+                ),
+              );
+            },
+          );
     if (reduceMotion && !_completionScheduled) {
       _completionScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -204,7 +250,7 @@ class _PageTransitionState extends State<_PageTransition>
             controller: _snapshotController,
             mode: SnapshotMode.permissive,
             autoresize: true,
-            child: RepaintBoundary(child: widget.child),
+            child: RepaintBoundary(child: page),
           ),
           builder: (context, child) {
             _snapshotController.allowSnapshotting =

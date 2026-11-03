@@ -194,8 +194,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           _downloadedTask = task;
           _details = VideoDetails(
             video: task!.video,
-            actors: task.video.actors,
-            tags: task.video.tags,
             metadata: {
               if (task.video.releaseDate != null)
                 S.of(context).releaseDateInfo: task.video.releaseDate!,
@@ -486,7 +484,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     final makers = <VideoLink>[];
     final labels = <VideoLink>[];
     final series = <VideoLink>[];
-    for (final link in [...details.tags, ...details.video.tags]) {
+    for (final link in details.video.tags) {
       switch (link.cardMetadataRoute) {
         case 'makers':
           makers.add(link);
@@ -524,7 +522,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       _VideoMetadataSection(
         s.videoDetailActors,
         _VideoMetadataTone.tertiary,
-        entries([...details.actors, ...details.video.actors]),
+        entries(details.video.actors),
         isActors: true,
       ),
       _VideoMetadataSection(
@@ -733,37 +731,26 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         appBar: _fullscreen
             ? null
             : AppBar(
+                centerTitle: false,
+                titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
                 title: Text(
-                  details?.video.title ?? widget.video.title,
+                  details?.video.catalogNumber ??
+                      widget.video.catalogNumber ??
+                      (_loading
+                          ? ''
+                          : details?.video.title ?? widget.video.title),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
                 actions: [
                   if (!_isOffline)
                     IconButton(
-                      tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
-                      onPressed:
-                          details == null ||
-                              _loading ||
-                              _savingFavorite ||
-                              (_client.isLoggedIn && details.isFavorite == null)
-                          ? null
-                          : _toggleFavorite,
-                      icon: Icon(
-                        _favorite ? Icons.bookmark : Icons.bookmark_outline,
-                      ),
-                    ),
-                  if (!_isOffline)
-                    IconButton(
-                      tooltip: s.videoAddToPlaylist,
-                      onPressed: details == null || _loading
-                          ? null
-                          : _showPlaylists,
-                      icon: const Icon(Icons.playlist_add),
-                    ),
-                  if (!_isOffline)
-                    IconButton(
                       tooltip: s.download,
+                      visualDensity: const VisualDensity(horizontal: -2),
                       onPressed: _loading || _selectedStream == null
                           ? null
                           : _download,
@@ -773,8 +760,36 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                             : Icons.download_outlined,
                       ),
                     ),
+                  if (!_isOffline)
+                    IconButton(
+                      tooltip: s.videoAddToPlaylist,
+                      visualDensity: const VisualDensity(horizontal: -2),
+                      onPressed: details == null || _loading
+                          ? null
+                          : _showPlaylists,
+                      icon: const Icon(Icons.playlist_add),
+                    ),
+                  if (!_isOffline)
+                    IconButton(
+                      tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
+                      visualDensity: const VisualDensity(horizontal: -2),
+                      onPressed:
+                          details == null ||
+                              _loading ||
+                              _savingFavorite ||
+                              (_client.isLoggedIn && details.isFavorite == null)
+                          ? null
+                          : _toggleFavorite,
+                      icon: Icon(
+                        _favorite ? Icons.bookmark : Icons.bookmark_outline,
+                        color: _favorite
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                      ),
+                    ),
                   IconButton(
                     tooltip: s.videoOpenSource,
+                    visualDensity: const VisualDensity(horizontal: -2),
                     onPressed: () => _openSource(),
                     icon: const Icon(Icons.open_in_new),
                   ),

@@ -15,10 +15,13 @@ import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:kikoeru_flutter/src/utils/string_utils.dart';
 import 'package:kikoeru_flutter/src/widgets/cached_image_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:kikoeru_flutter/src/widgets/file_tree_view.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 
 List<dynamic> _files({bool images = false}) => [
@@ -90,6 +93,7 @@ Future<void> _pumpResources(
   WidgetTester tester,
   ValueNotifier<List<dynamic>> tree, {
   ResourceAudioAction? onPlay,
+  ResourceVideoAction? onPlayVideo,
   void Function(dynamic, String, String)? onFileTap,
   ValueChanged<dynamic>? onImageTap,
   Future<PreviewFileItem?> Function(dynamic)? resolveImage,
@@ -98,10 +102,14 @@ Future<void> _pumpResources(
   ValueChanged<List<String>>? onVisibleNamesChanged,
   ScrollController? controller,
   bool disableAnimations = false,
+  bool videoBeforeAudio = true,
+  double textScale = 1,
   int recommendationCount = 0,
   WidgetBuilder? recommendationBuilder,
   Widget? introSliver,
   Widget? resourceSliver,
+  FileTreeMetadataBuilder? audioMetadataBuilder,
+  FileTreeMetadataBuilder? audioDurationBuilder,
   String? progressMessage,
   Locale locale = const Locale('en'),
   WorkResourceTab initialTab = WorkResourceTab.audio,
@@ -123,9 +131,10 @@ Future<void> _pumpResources(
     home: Builder(
       builder: (context) => Scaffold(
         body: MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(disableAnimations: disableAnimations),
+          data: MediaQuery.of(context).copyWith(
+            disableAnimations: disableAnimations,
+            textScaler: TextScaler.linear(textScale),
+          ),
           child: ValueListenableBuilder<List<dynamic>>(
             valueListenable: tree,
             builder: (context, files, _) => CustomScrollView(
@@ -147,7 +156,11 @@ Future<void> _pumpResources(
                   recommendationBuilder: recommendation,
                   progressMessage: progressMessage,
                   initialTab: initialTab,
+                  videoBeforeAudio: videoBeforeAudio,
                   onPlayAudio: onPlay ?? (_, __, ___) {},
+                  audioMetadataBuilder: audioMetadataBuilder,
+                  audioDurationBuilder: audioDurationBuilder,
+                  onPlayVideo: onPlayVideo,
                   onFileTap: onFileTap ?? (_, __, ___) {},
                   onImageTap: onImageTap ?? (_) {},
                   resolveImage: resolveImage ?? (_) async => null,
@@ -216,6 +229,164 @@ Future<void> _tapWithoutPump(WidgetTester tester, Finder finder) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets(
+    'video resources are conditional, ordered, recursive, and keyed by path',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 540));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tree = ValueNotifier<List<dynamic>>(_files(images: true));
+      addTearDown(tree.dispose);
+      final played = <(dynamic, String)>[];
+      var recommendationsCreated = 0;
+      final recommendations = _RecommendationProbe(
+        onCreate: () => recommendationsCreated++,
+      );
+      final withVideos = [
+        {'type': 'video', 'title': 'root.mp4', 'hash': 'root'},
+        ..._files(images: true),
+        {
+          'type': 'folder',
+          'title': 'A',
+          'children': [
+            {'type': 'video', 'title': 'shared.mp4', 'hash': 'same'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'B',
+          'children': [
+            {'type': 'file', 'title': 'shared.mp4', 'hash': 'same'},
+            {'type': 'audio', 'title': 'track03.wav', 'hash': 'other'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'C',
+          'children': [
+            {'type': 'audio', 'title': 'audio-container.mp4', 'hash': 'audio'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'D',
+          'children': [
+            {'type': 'video', 'title': 'video-container.mp3', 'hash': 'video'},
+          ],
+        },
+      ];
+
+      await _pumpResources(
+        tester,
+        tree,
+        textScale: 1.3,
+        recommendationBuilder: (_) => recommendations,
+        onPlayVideo: (file, parentPath) => played.add((file, parentPath)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('work-resource-videos-tab')),
+        findsNothing,
+      );
+      expect(recommendationsCreated, 0);
+
+      tree.value = withVideos;
+      await tester.pumpAndSettle();
+
+      final tabs = tester.widget<TabBar>(find.byType(TabBar));
+      expect(tabs.tabs, hasLength(5));
+      expect(
+        find.byKey(const ValueKey('work-resource-videos-tab')),
+        findsOneWidget,
+      );
+      expect(find.text('Resources'), findsOneWidget);
+      expect(find.text('Related Works'), findsOneWidget);
+      expect(recommendationsCreated, 0);
+      await tester.tap(find.byKey(const ValueKey('work-resource-videos-tab')));
+      await tester.pumpAndSettle();
+
+      const first = ValueKey('work-video-A/shared.mp4');
+      const second = ValueKey('work-video-B/shared.mp4');
+      expect(find.byKey(first), findsOneWidget);
+      expect(find.byKey(second), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('work-video-C/audio-container.mp4')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('work-video-D/video-container.mp3')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('work-video-root.mp4')),
+          matching: find.text('Root'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(first), matching: find.text('A')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byKey(second), matching: find.text('B')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(first));
+      await tester.pump();
+      await tester.tap(find.byKey(second));
+      await tester.pump();
+      expect(played.map((entry) => entry.$2), ['A', 'B']);
+      expect(played[0].$1['hash'], played[1].$1['hash']);
+
+      tree.value = _files(images: true);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('work-resource-videos-tab')),
+        findsNothing,
+      );
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
+
+      tree.value = withVideos;
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('work-resource-videos-tab')));
+      await tester.pumpAndSettle();
+      await tester.dragFrom(
+        tester.getCenter(find.byKey(first)),
+        const Offset(-260, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 4);
+      expect(recommendationsCreated, 1);
+      expect(tester.takeException(), isNull);
+
+      tree.value = _files(images: true);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('work-resource-videos-tab')),
+        findsNothing,
+      );
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 3);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('offline video tabs follow audio-first tap resolution', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {'type': 'audio', 'title': 'audio-container.mp4', 'hash': 'audio'},
+      {'type': 'video', 'title': 'video-container.mp3', 'hash': 'video'},
+    ]);
+    addTearDown(tree.dispose);
+    await _pumpResources(tester, tree, videoBeforeAudio: false);
+
+    expect(
+      find.byKey(const ValueKey('work-resource-videos-tab')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('unvisited resource tabs start at the section top', (
     tester,
@@ -2088,6 +2259,7 @@ void main() {
       expect(find.text('track01.lrc'), findsNothing);
       expect(find.text('track01.srt'), findsNothing);
       expect(find.byIcon(Icons.subtitles_outlined), findsNothing);
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.text('notes.txt'), findsNothing);
       expect(find.text('whole resource tree'), findsNothing);
       expect(
@@ -2196,16 +2368,14 @@ void main() {
       expect(resourceTab.left, 16);
       expect(resourceTab.width, closeTo((width - 32) / 2, 1));
       expect(find.text('Resources'), findsOneWidget);
-      final play = find.descendant(
-        of: audio,
-        matching: find.byIcon(Icons.play_arrow),
+      expect(
+        find.descendant(of: audio, matching: find.byIcon(Icons.play_arrow)),
+        findsNothing,
       );
       final eye = find.descendant(
         of: audio,
         matching: find.byIcon(Icons.visibility),
       );
-      expect(tester.widget<Icon>(play).color, Colors.green);
-      expect(tester.getRect(eye).left, greaterThan(tester.getRect(play).left));
       expect(
         tester
             .widget<IconButton>(
@@ -2218,6 +2388,79 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
+  });
+
+  testWidgets('audio duration follows subtitle preview and stays optional', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'audio',
+        'title': 'voice.wav',
+        'hash': 'voice',
+        'duration': 3661,
+      },
+      {'type': 'audio', 'title': 'unknown.wav', 'hash': 'unknown'},
+      {'type': 'text', 'title': 'voice.lrc', 'hash': 'voice-subtitle'},
+    ]);
+    addTearDown(tree.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      audioMetadataBuilder: (_, entry) =>
+          Text('12 KB', key: ValueKey('audio-size-${entry.itemPath}')),
+      audioDurationBuilder: (_, entry) {
+        final value = formatDurationSeconds(
+          FileTreeUtils.property(entry.item, 'duration'),
+          padHours: false,
+        );
+        return value.isEmpty
+            ? null
+            : Text(value, key: ValueKey('audio-duration-${entry.itemPath}'));
+      },
+    );
+    await tester.pumpAndSettle();
+
+    final tile = find.byKey(const ValueKey('work-audio-voice.wav'));
+    expect(
+      find.byKey(const ValueKey('audio-duration-voice.wav')),
+      findsOneWidget,
+    );
+    expect(find.text('1:01:01'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('work-audio-subtitle-voice.wav')),
+      findsOneWidget,
+    );
+    final trailing = tester.widget<ListTile>(tile).trailing! as Row;
+    expect(trailing.children.map((child) => child.runtimeType), [
+      Text,
+      IconButton,
+      Text,
+    ]);
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('work-audio-subtitle-voice.wav')))
+          .right,
+      lessThanOrEqualTo(tester.getRect(find.text('1:01:01')).left),
+    );
+
+    tree.value = [
+      {'type': 'audio', 'title': 'unknown.wav', 'hash': 'unknown'},
+    ];
+    await tester.pumpAndSettle();
+    final missingDuration =
+        tester
+                .widget<ListTile>(
+                  find.byKey(const ValueKey('work-audio-unknown.wav')),
+                )
+                .trailing!
+            as Row;
+    expect(missingDuration.children.map((child) => child.runtimeType), [Text]);
+    expect(
+      find.byKey(const ValueKey('audio-duration-unknown.wav')),
+      findsNothing,
+    );
   });
 
   testWidgets('empty audio tab stays available', (tester) async {
@@ -2233,6 +2476,49 @@ void main() {
     );
     expect(find.text('No playable audio files found'), findsOneWidget);
   });
+
+  test(
+    'same-directory video selection preserves tree order and classification',
+    () {
+      final tree = [
+        {'type': 'video', 'title': 'first.mp4'},
+        {
+          'type': 'folder',
+          'title': 'Disc 1',
+          'children': [
+            {'type': 'video', 'title': 'inside.mkv'},
+            {'type': 'audio', 'title': 'audio.mp4'},
+            {'type': 'video', 'title': 'misclassified.mp3'},
+            {'type': 'video', 'title': 'last.webm'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'folder.mp4',
+          'children': [
+            {'type': 'video', 'title': 'not-direct.mp4'},
+          ],
+        },
+        {'type': 'video', 'title': 'second.avi'},
+      ];
+
+      expect(
+        FileTreeUtils.videoFilesInDirectory(
+          tree,
+          '',
+        ).map((video) => FileTreeUtils.itemPath(video.parentPath, video.file)),
+        ['first.mp4', 'second.avi'],
+      );
+      expect(
+        FileTreeUtils.videoFilesInDirectory(
+          tree,
+          'Disc 1',
+          videoBeforeAudio: false,
+        ).map((video) => FileTreeUtils.itemPath(video.parentPath, video.file)),
+        ['Disc 1/inside.mkv', 'Disc 1/last.webm'],
+      );
+    },
+  );
 
   testWidgets(
     'images use all resource images and fall back to audio after refresh',

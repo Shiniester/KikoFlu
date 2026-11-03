@@ -181,6 +181,7 @@ class _OfflineWorkDetailScreenState
       if (!mounted) return;
       showDialog(
         context: context,
+        useRootNavigator: false,
         barrierDismissible: false,
         builder: (context) => PopScope(
           canPop: false,
@@ -362,6 +363,8 @@ class _OfflineWorkDetailScreenState
         child: Scaffold(
           floatingActionButton: const DownloadFab(),
           appBar: ScrollableAppBar(
+            centerTitle: false,
+            titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
             systemOverlayStyle: systemOverlayStyle,
             actions: [
               IconButton(
@@ -467,6 +470,10 @@ class _OfflineWorkDetailScreenState
                     onCopy: (title) =>
                         _copyToClipboard(title, S.of(context).titleLabel),
                   ),
+                  if (work.release?.isNotEmpty == true) ...[
+                    const SizedBox(height: 8),
+                    WorkReleaseDateSection(release: work.release),
+                  ],
                   const SizedBox(height: 16),
                   WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
                   WorkTagChipsSection(
@@ -474,7 +481,6 @@ class _OfflineWorkDetailScreenState
                     onTagLongPress: (tag) =>
                         _copyToClipboard(tag.name, S.of(context).tagLabel),
                   ),
-                  WorkReleaseDateSection(release: work.release),
                 ],
               ),
             ),
@@ -512,7 +518,7 @@ class _OfflineWorkDetailScreenState
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
           onTap: () {
-            Navigator.of(context).push(
+            AppNavigationScope.navigatorOf(context).push(
               MaterialPageRoute(
                 settings: appImmersiveRouteSettings,
                 builder: (context) => WorkImageReader(

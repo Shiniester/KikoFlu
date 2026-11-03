@@ -9,8 +9,11 @@ import '../providers/update_provider.dart';
 import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
 import 'mini_player.dart';
+import 'responsive_dialog.dart';
 
-class AppNavigationShell extends StatelessWidget {
+const _offlineBannerHeight = 30.0;
+
+class AppNavigationShell extends StatefulWidget {
   const AppNavigationShell({
     super.key,
     required this.controller,
@@ -21,9 +24,129 @@ class AppNavigationShell extends StatelessWidget {
   final Widget child;
 
   @override
+  State<AppNavigationShell> createState() => _AppNavigationShellState();
+}
+
+class _AppNavigationShellState extends State<AppNavigationShell>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _navigationMotion;
+  late bool _navigationVisible;
+  late bool _playerLaunchPreviewActive;
+  bool _keepAudioRailStationary = false;
+  bool _landscapeInsetsScheduled = false;
+  double _audioMiniPlayerHeight = 0;
+  EdgeInsets? _lastPlayerPadding;
+  bool? _lastPlayerOffline;
+  bool? _lastPlayerHasTrack;
+  bool _animateNavigation = false;
+  bool _reduceMotion = false;
+  final _dockClipKey = GlobalKey();
+  final _railKey = GlobalKey();
+  final _miniPlayerKey = GlobalKey();
+
+  AppNavigationController get controller => widget.controller;
+  Widget get child => widget.child;
+
+  @override
+  void initState() {
+    super.initState();
+    _navigationVisible = controller.navigationVisible;
+    _playerLaunchPreviewActive = controller.playerLaunchPreviewActive;
+    _keepAudioRailStationary =
+        _playerLaunchPreviewActive ||
+        controller.audioPlayerNavigationTransition != null;
+    _navigationMotion = AnimationController(
+      vsync: this,
+      value: _navigationVisible ? 0 : 1,
+      duration: const Duration(milliseconds: 240),
+    );
+    controller.addListener(_syncNavigation);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppNavigationShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.removeListener(_syncNavigation);
+      controller.addListener(_syncNavigation);
+      _playerLaunchPreviewActive = controller.playerLaunchPreviewActive;
+      _syncNavigation();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _navigationMotion.value = controller.navigationVisible ? 0 : 1;
+    }
+    _reduceMotion = reduceMotion;
+  }
+
+  void _syncNavigation() {
+    final visible = controller.navigationVisible;
+    final previewActive = controller.playerLaunchPreviewActive;
+    if (_navigationVisible &&
+        !visible &&
+        (previewActive || controller.audioPlayerNavigationTransition != null)) {
+      final dock = _dockClipKey.currentContext?.findRenderObject();
+      final miniPlayer = _miniPlayerKey.currentContext?.findRenderObject();
+      final bottomInset = controller.audioPlayerLandscapeInsets?.bottom;
+      _audioMiniPlayerHeight = miniPlayer is RenderBox && miniPlayer.hasSize
+          ? miniPlayer.size.height
+          : dock is RenderBox && dock.hasSize
+          ? (dock.size.height - AppBottomDock.layoutExtent(context)).clamp(
+              0.0,
+              double.infinity,
+            )
+          : ((bottomInset ?? MediaQuery.paddingOf(context).bottom) -
+                    MediaQuery.paddingOf(context).bottom)
+                .clamp(0.0, double.infinity);
+    }
+    if (!visible) {
+      _keepAudioRailStationary =
+          previewActive || controller.audioPlayerNavigationTransition != null;
+    }
+    final handoffCompleted =
+        _playerLaunchPreviewActive &&
+        !previewActive &&
+        !visible &&
+        controller.fullscreenTransition == null;
+    _playerLaunchPreviewActive = previewActive;
+    if (handoffCompleted) {
+      _navigationVisible = visible;
+      _animateNavigation = true;
+      _navigationMotion.value = 1;
+      return;
+    }
+    if (_navigationVisible == visible) return;
+    _navigationVisible = visible;
+    if (!visible) {
+      _animateNavigation =
+          previewActive || controller.fullscreenTransition == null;
+    }
+    final target = visible ? 0.0 : 1.0;
+    if (_reduceMotion || !_animateNavigation) {
+      _navigationMotion.value = target;
+    } else {
+      _navigationMotion.animateTo(target, curve: Curves.easeOutCubic);
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_syncNavigation);
+    _navigationMotion.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Overlay.wrap(
     child: AppNavigationScope(
       controller: controller,
+      mediaQuery: MediaQuery.of(context),
+      navigationMotion: _navigationMotion,
       child: ListenableBuilder(
         listenable: controller,
         builder: (context, _) =>
@@ -68,23 +191,37 @@ class AppNavigationShell extends StatelessWidget {
     ];
     final auth = ref.watch(authProvider);
     final offline =
-        visible &&
         controller.selectedIndex == 0 &&
         auth.currentUser != null &&
         !auth.isLoggedIn &&
         auth.error != null;
     final transition = controller.fullscreenTransition;
-    final layoutVisible =
-        visible || (transition != null && transition.value < 1);
-    final miniPlayer = layoutVisible
-        ? ref
-              .watch(currentTrackProvider)
-              .when<Widget?>(
-                data: (track) => track == null ? null : const MiniPlayer(),
-                loading: () => null,
-                error: (_, __) => null,
-              )
+    final playerTransition = isLandscape
+        ? controller.audioPlayerNavigationTransition
         : null;
+    final miniPlayer = ref
+        .watch(currentTrackProvider)
+        .when<Widget?>(
+          data: (track) => track == null ? null : const MiniPlayer(),
+          loading: () => null,
+          error: (_, __) => null,
+        );
+    if (playerTransition != null) {
+      final padding = MediaQuery.paddingOf(context);
+      if (controller.audioPlayerLandscapeInsets == null ||
+          _lastPlayerPadding != padding ||
+          _lastPlayerOffline != offline ||
+          _lastPlayerHasTrack != (miniPlayer != null)) {
+        _lastPlayerPadding = padding;
+        _lastPlayerOffline = offline;
+        _lastPlayerHasTrack = miniPlayer != null;
+        _scheduleAudioLandscapeInsets();
+      }
+    } else {
+      _lastPlayerPadding = null;
+      _lastPlayerOffline = null;
+      _lastPlayerHasTrack = null;
+    }
     void selectTab(int index) {
       if (index == controller.selectedIndex) return;
       controller.selectTab(index);
@@ -93,22 +230,73 @@ class AppNavigationShell extends StatelessWidget {
       }
     }
 
-    final safePadding = MediaQuery.paddingOf(context);
-    Widget buildFrame(BuildContext context) => _buildShellFrame(
-      context,
-      isLandscape: isLandscape,
-      offline: offline,
-      miniPlayer: miniPlayer,
+    final explicitTransition = !_animateNavigation && transition != null;
+    final dock = AppBottomDock(
+      selectedIndex: controller.selectedIndex,
+      onDestinationSelected: selectTab,
       destinations: destinations,
-      selectTab: selectTab,
-      ref: ref,
-      progress: transition?.value ?? 0,
-      safePadding: safePadding,
+      miniPlayer: miniPlayer,
     );
+    final sheets = controller.sheetRoutes
+        .whereType<ResponsiveBottomSheetRoute<dynamic>>()
+        .toList();
+    final rail = isLandscape
+        ? _protectNavigation(
+            _buildNavigationRail(context, destinations, selectTab),
+            enabled: visible,
+          )
+        : null;
     return AnimatedBuilder(
-      animation: transition ?? const AlwaysStoppedAnimation<double>(0),
-      builder: (context, _) => buildFrame(context),
+      animation: Listenable.merge([
+        _navigationMotion,
+        transition,
+        playerTransition,
+      ]),
+      builder: (context, _) => _buildShellFrame(
+        context,
+        isLandscape: isLandscape,
+        offline: offline,
+        miniPlayer: miniPlayer,
+        dock: dock,
+        rail: rail,
+        sheets: sheets,
+        ref: ref,
+        progress: explicitTransition
+            ? transition.value
+            : _navigationMotion.value,
+        explicitTransition: explicitTransition,
+        playerTransition: playerTransition,
+        safePadding: MediaQuery.paddingOf(context),
+      ),
     );
+  }
+
+  void _scheduleAudioLandscapeInsets() {
+    if (_landscapeInsetsScheduled) return;
+    _landscapeInsetsScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _landscapeInsetsScheduled = false;
+      if (!mounted ||
+          MediaQuery.orientationOf(context) != Orientation.landscape ||
+          controller.audioPlayerNavigationTransition == null) {
+        return;
+      }
+      final rail = _railKey.currentContext?.findRenderObject();
+      if (rail is! RenderBox || !rail.hasSize) return;
+      final miniPlayer = _miniPlayerKey.currentContext?.findRenderObject();
+      _audioMiniPlayerHeight = miniPlayer is RenderBox && miniPlayer.hasSize
+          ? miniPlayer.size.height
+          : 0;
+      final padding = MediaQuery.paddingOf(context);
+      controller.setAudioPlayerLandscapeInsets(
+        EdgeInsets.fromLTRB(
+          rail.size.width + 1 + padding.left,
+          _lastPlayerOffline == true ? _offlineBannerHeight : 0,
+          padding.right,
+          padding.bottom + _audioMiniPlayerHeight,
+        ),
+      );
+    });
   }
 
   Widget _buildShellFrame(
@@ -116,90 +304,139 @@ class AppNavigationShell extends StatelessWidget {
     required bool isLandscape,
     required bool offline,
     required Widget? miniPlayer,
-    required List<NavigationDestination> destinations,
-    required ValueChanged<int> selectTab,
+    required Widget dock,
+    required Widget? rail,
+    required List<ResponsiveBottomSheetRoute<dynamic>> sheets,
     required WidgetRef ref,
     required double progress,
+    required bool explicitTransition,
+    required Animation<double>? playerTransition,
     required EdgeInsets safePadding,
   }) {
     final visible = controller.navigationVisible;
     final layoutVisible =
-        visible || (controller.fullscreenTransition != null && progress < 1);
+        visible ||
+        (isLandscape && controller.playerLaunchPreviewActive) ||
+        (explicitTransition && progress < 1);
+    final navigationOnstage =
+        visible || progress < 1 || controller.playerLaunchPreviewActive;
+    final railOnstage = navigationOnstage || playerTransition != null
+        ? rail
+        : null;
+    final railTop =
+        isLandscape &&
+            !visible &&
+            _keepAudioRailStationary &&
+            offline &&
+            !controller.playerLaunchPreviewActive
+        ? _offlineBannerHeight
+        : 0.0;
+    final railWithDivider = railOnstage == null
+        ? null
+        : Padding(
+            padding: EdgeInsets.only(top: railTop),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                railOnstage,
+                const VerticalDivider(thickness: 1, width: 1),
+              ],
+            ),
+          );
     final showOffline = offline && visible;
-    Widget content = child;
+    final keyboardVisible =
+        isLandscape && MediaQuery.viewInsetsOf(context).bottom > 0;
+    // An immersive route keeps its viewport while the Dock slides out.
+    Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
+    final measuredMiniPlayer = miniPlayer == null
+        ? null
+        : NotificationListener<SizeChangedLayoutNotification>(
+            onNotification: (_) {
+              if (playerTransition != null) _scheduleAudioLandscapeInsets();
+              return false;
+            },
+            child: SizeChangedLayoutNotifier(
+              key: _miniPlayerKey,
+              child: miniPlayer,
+            ),
+          );
+    final playback = measuredMiniPlayer == null
+        ? null
+        : _protectNavigation(
+            ClipRect(
+              child: explicitTransition
+                  ? Align(
+                      alignment: Alignment.bottomCenter,
+                      heightFactor: 1 - progress,
+                      child: measuredMiniPlayer,
+                    )
+                  : FractionalTranslation(
+                      translation: Offset(0, progress),
+                      child: measuredMiniPlayer,
+                    ),
+            ),
+            enabled: visible,
+          );
     if (layoutVisible && isLandscape) {
-      final showRail = progress < 1;
+      final showRail = !explicitTransition || progress < 1;
+      final paddingFactor = explicitTransition ? 1 - progress : 1.0;
       content = Row(
         children: [
-          if (showRail)
+          if (showRail && railOnstage != null)
             ClipRect(
               child: Align(
                 alignment: AlignmentDirectional.centerStart,
-                widthFactor: 1 - progress,
-                child: _protectNavigation(
-                  SafeArea(
-                    child: SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight:
-                              MediaQuery.sizeOf(context).height -
-                              MediaQuery.paddingOf(context).vertical,
-                        ),
-                        child: IntrinsicHeight(
-                          child: NavigationRail(
-                            selectedIndex: controller.selectedIndex,
-                            onDestinationSelected: selectTab,
-                            labelType: NavigationRailLabelType.selected,
-                            destinations: [
-                              for (final destination in destinations)
-                                NavigationRailDestination(
-                                  icon: destination.icon,
-                                  selectedIcon: destination.selectedIcon,
-                                  label: Text(destination.label),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+                widthFactor: explicitTransition ? 1 - progress : 1,
+                child: FractionalTranslation(
+                  translation: Offset(
+                    explicitTransition || _keepAudioRailStationary
+                        ? 0
+                        : -progress,
+                    0,
                   ),
-                  enabled: visible,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: railTop),
+                    child: railOnstage,
+                  ),
                 ),
               ),
             ),
           if (showRail)
-            SizedBox(
-              width: 1 - progress,
-              child: const VerticalDivider(thickness: 1, width: 1),
+            Padding(
+              padding: EdgeInsets.only(top: railTop),
+              child: SizedBox(
+                width: explicitTransition ? 1 - progress : 1,
+                child: const VerticalDivider(thickness: 1, width: 1),
+              ),
             ),
           Expanded(
-            child: MediaQuery.removePadding(
-              context: context,
-              removeLeft: true,
-              removeRight: true,
-              removeBottom: true,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  safePadding.left * (1 - progress),
-                  0,
-                  safePadding.right * (1 - progress),
-                  safePadding.bottom * (1 - progress),
-                ),
-                child: Column(
-                  children: [
-                    Expanded(child: child),
-                    if (miniPlayer != null)
-                      _protectNavigation(
-                        ClipRect(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            heightFactor: 1 - progress,
-                            child: miniPlayer,
+            child: Builder(
+              builder: (context) => MediaQuery.removePadding(
+                context: context,
+                removeLeft: true,
+                removeRight: true,
+                removeBottom: true,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    0,
+                    0,
+                    safePadding.right * paddingFactor,
+                    safePadding.bottom * paddingFactor,
+                  ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            left: safePadding.left * paddingFactor,
                           ),
+                          child: child,
                         ),
-                        enabled: visible,
                       ),
-                  ],
+                      if (playback != null)
+                        keyboardVisible ? Offstage(child: playback) : playback,
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -221,15 +458,72 @@ class AppNavigationShell extends StatelessWidget {
         },
       );
     }
-
     return Scaffold(
       extendBody: !isLandscape,
+      resizeToAvoidBottomInset: visible,
       body: Stack(
         children: [
           Padding(
-            padding: EdgeInsets.only(top: showOffline ? 30 : 0),
+            padding: EdgeInsets.only(
+              top:
+                  showOffline ||
+                      (isLandscape &&
+                          offline &&
+                          controller.playerLaunchPreviewActive)
+                  ? _offlineBannerHeight
+                  : 0,
+            ),
             child: content,
           ),
+          if (!layoutVisible && railOnstage != null)
+            Positioned.fill(
+              child: Row(
+                children: [
+                  if (playerTransition != null)
+                    Align(
+                      alignment: Alignment.topLeft,
+                      widthFactor: 1,
+                      // The shell paints above the route, so clip at the player edge.
+                      child: ClipRect(
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          widthFactor: 1,
+                          heightFactor: _reduceMotion
+                              ? 0
+                              : (1 - playerTransition.value).clamp(0.0, 1.0),
+                          child: railWithDivider,
+                        ),
+                      ),
+                    )
+                  else
+                    FractionalTranslation(
+                      translation: Offset(
+                        _keepAudioRailStationary ? 0 : -progress,
+                        0,
+                      ),
+                      child: railWithDivider,
+                    ),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        0,
+                        0,
+                        safePadding.right,
+                        safePadding.bottom,
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: navigationOnstage
+                            ? playback
+                            : playerTransition != null
+                            ? Offstage(child: playback)
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (showOffline)
             Positioned(
               top: 0,
@@ -239,25 +533,64 @@ class AppNavigationShell extends StatelessWidget {
             ),
         ],
       ),
-      bottomNavigationBar: layoutVisible && !isLandscape
-          ? _protectNavigation(
-              ClipRect(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  heightFactor: 1 - progress,
-                  child: AppBottomDock(
-                    selectedIndex: controller.selectedIndex,
-                    onDestinationSelected: selectTab,
-                    destinations: destinations,
-                    miniPlayer: miniPlayer,
-                  ),
+      bottomNavigationBar: navigationOnstage && !isLandscape
+          ? ClipPath(
+              key: _dockClipKey,
+              clipBehavior: sheets.isEmpty ? Clip.none : Clip.hardEdge,
+              clipper: _DockSheetClipper(_dockClipKey, sheets),
+              child: _protectNavigation(
+                ClipRect(
+                  child: explicitTransition
+                      ? Align(
+                          alignment: Alignment.bottomCenter,
+                          heightFactor: 1 - progress,
+                          child: dock,
+                        )
+                      : FractionalTranslation(
+                          translation: Offset(0, progress),
+                          child: dock,
+                        ),
                 ),
+                enabled: visible,
               ),
-              enabled: visible,
             )
           : null,
     );
   }
+
+  Widget _buildNavigationRail(
+    BuildContext context,
+    List<NavigationDestination> destinations,
+    ValueChanged<int> selectTab,
+  ) => SafeArea(
+    key: _railKey,
+    right: false,
+    child: SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight:
+              MediaQuery.sizeOf(context).height -
+              MediaQuery.paddingOf(context).vertical,
+        ),
+        child: IntrinsicHeight(
+          child: NavigationRail(
+            selectedIndex: controller.selectedIndex,
+            onDestinationSelected: selectTab,
+            labelType: NavigationRailLabelType.selected,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            destinations: [
+              for (final destination in destinations)
+                NavigationRailDestination(
+                  icon: destination.icon,
+                  selectedIcon: destination.selectedIcon,
+                  label: Text(destination.label),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _protectNavigation(Widget navigation, {bool enabled = true}) {
     final popup = controller.popupRoute;
@@ -282,7 +615,7 @@ class AppNavigationShell extends StatelessWidget {
               ),
               dismissible: popup.barrierDismissible,
               onDismiss: () {
-                if (popup.isCurrent) controller.navigator?.maybePop();
+                if (popup.isCurrent) popup.navigator?.maybePop();
               },
               semanticsLabel: popup.barrierLabel,
             ),
@@ -328,4 +661,39 @@ class AppNavigationShell extends StatelessWidget {
       ],
     ),
   );
+}
+
+class _DockSheetClipper extends CustomClipper<Path> {
+  _DockSheetClipper(this.dockKey, this.sheets)
+    : super(
+        reclip: Listenable.merge([
+          for (final sheet in sheets) sheet.animation,
+          for (final sheet in sheets) sheet.panelSizeChanges,
+        ]),
+      );
+
+  final GlobalKey dockKey;
+  final List<ResponsiveBottomSheetRoute<dynamic>> sheets;
+
+  @override
+  Path getClip(Size size) {
+    var visible = Path()..addRect(Offset.zero & size);
+    final dock = dockKey.currentContext?.findRenderObject();
+    if (dock is! RenderBox || !dock.attached || !dock.hasSize) return visible;
+    final origin = dock.localToGlobal(Offset.zero);
+    for (final sheet in sheets) {
+      final panelPath = sheet.panelPath;
+      if (panelPath == null) continue;
+      // The Navigator paints before the Dock, so expose the sheet beneath it.
+      visible = Path.combine(
+        PathOperation.difference,
+        visible,
+        panelPath.shift(-origin),
+      );
+    }
+    return visible;
+  }
+
+  @override
+  bool shouldReclip(_DockSheetClipper oldClipper) => true;
 }

@@ -8,31 +8,31 @@ class WorkReleaseDateSection extends StatelessWidget {
   const WorkReleaseDateSection({
     super.key,
     this.release,
-    this.visible = true,
   });
 
   final String? release;
-  final bool visible;
 
   @override
   Widget build(BuildContext context) {
-    if (!visible || release == null || release!.isEmpty) {
+    if (release == null || release!.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        WorkDetailSectionTitle(S.of(context).releaseDate),
-        const SizedBox(height: 8),
-        Text(
-          release!.split('T').first,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
-              ),
-        ),
-        const SizedBox(height: 16),
-      ],
+    final label = S.of(context).releaseDate;
+    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: Colors.grey[600],
+          fontSize: 12,
+        );
+    return Tooltip(
+      message: label,
+      child: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(label, style: style),
+          Text(release!.split('T').first, style: style),
+        ],
+      ),
     );
   }
 }

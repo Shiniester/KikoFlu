@@ -1,11 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail_route_readiness.dart';
 
 class _ReadinessProbe extends StatefulWidget {
-  const _ReadinessProbe({required this.readiness, super.key});
+  const _ReadinessProbe({
+    required this.readiness,
+    this.navigationMotion,
+    super.key,
+  });
 
   final WorkDetailRouteReadiness readiness;
+  final Animation<double>? navigationMotion;
 
   @override
   State<_ReadinessProbe> createState() => _ReadinessProbeState();
@@ -18,6 +25,7 @@ class _ReadinessProbeState extends State<_ReadinessProbe> {
     widget.readiness.bind(
       route: ModalRoute.of(context),
       navigator: Navigator.maybeOf(context),
+      navigationMotion: widget.navigationMotion,
     );
   }
 
@@ -32,6 +40,58 @@ class _ReadinessProbeState extends State<_ReadinessProbe> {
 }
 
 void main() {
+  testWidgets('waits until the navigation return animation settles', (
+    tester,
+  ) async {
+    final readiness = WorkDetailRouteReadiness();
+    final navigator = GlobalKey<NavigatorState>();
+    final navigationMotion = AnimationController(
+      vsync: tester,
+      duration: const Duration(milliseconds: 240),
+      value: 1,
+    );
+    addTearDown(navigationMotion.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        home: const Scaffold(body: Text('Home')),
+      ),
+    );
+    navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => _ReadinessProbe(
+          readiness: readiness,
+          navigationMotion: navigationMotion,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    var completed = false;
+    final wait = readiness.waitForIdle().then((value) => completed = value);
+    unawaited(navigationMotion.animateTo(0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(completed, isFalse);
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pumpAndSettle();
+    expect(completed, isTrue);
+    await wait;
+    expect(navigationMotion.status, AnimationStatus.completed);
+
+    navigationMotion.value = 1;
+    completed = false;
+    final reducedMotionWait = readiness.waitForIdle().then(
+      (value) => completed = value,
+    );
+    await tester.pump();
+    expect(completed, isFalse);
+    navigationMotion.value = 0;
+    await tester.pumpAndSettle();
+    expect(completed, isTrue);
+    await reducedMotionWait;
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('waits for entry animation and its final painted frame', (
     tester,
   ) async {
@@ -162,11 +222,13 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('popping or disposing releases a pending wait as false', (
+  testWidgets('popping releases a wait blocked by navigation motion', (
     tester,
   ) async {
     final readiness = WorkDetailRouteReadiness();
     final navigator = GlobalKey<NavigatorState>();
+    final navigationMotion = AnimationController(vsync: tester, value: 1);
+    addTearDown(navigationMotion.dispose);
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: navigator,
@@ -175,11 +237,13 @@ void main() {
     );
     navigator.currentState!.push(
       MaterialPageRoute<void>(
-        builder: (_) => _ReadinessProbe(readiness: readiness),
+        builder: (_) => _ReadinessProbe(
+          readiness: readiness,
+          navigationMotion: navigationMotion,
+        ),
       ),
     );
-    await tester.pump();
-    navigator.currentState!.userGestureInProgressNotifier.value = true;
+    await tester.pumpAndSettle();
     final wait = readiness.waitForIdle();
     navigator.currentState!.pop();
     await tester.pump();

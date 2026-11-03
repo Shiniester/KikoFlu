@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_subtitle_generation_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
@@ -245,6 +246,84 @@ void main() {
       },
     );
   }
+
+  test(
+    'restored Japanese ASMR chapter loads chapter metadata without login',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical();
+      const playlistUrl = 'https://jp.example/audio.m3u8';
+      const track = AudioTrack(
+        id: 'jp-151342-chapter-5000',
+        title: '01 - Chapter.aac',
+        url: playlistUrl,
+        album: 'Japanese ASMR work',
+        workId: -151342,
+        hash: 'jp-151342-chapter-5000',
+        startTimeMs: 5000,
+        endTimeMs: 12000,
+      );
+      final loadedTracks = <AudioTrack>[];
+      final captured = Completer<AudioSubtitleRequest>();
+      final service = _DelayedGenerationService((request, _, __) async {
+        captured.complete(request);
+        return (status: AudioSubtitleGenerationStatus.completed, path: null);
+      });
+      final container = ProviderContainer(
+        overrides: [
+          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+          audioSubtitleGenerationServiceProvider.overrideWithValue(service),
+          playerWorkDetailsProvider.overrideWith((ref) async => null),
+          playbackLyricFileTreeLoaderProvider.overrideWithValue((
+            loadedTrack,
+          ) async {
+            loadedTracks.add(loadedTrack);
+            return [
+              {
+                'type': 'audio',
+                'title': '01 - Chapter.aac',
+                'hash': 'jp-151342-chapter-5000',
+                'mediaStreamUrl': playlistUrl,
+                'mediaDownloadUrl': playlistUrl,
+                'startTimeMs': 5000,
+                'endTimeMs': 12000,
+              },
+              {
+                'type': 'audio',
+                'title': '02 - Next chapter.aac',
+                'hash': 'jp-151342-chapter-12000',
+                'mediaStreamUrl': playlistUrl,
+                'mediaDownloadUrl': playlistUrl,
+                'startTimeMs': 12000,
+              },
+            ];
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(currentTrackProvider.future);
+      await container.read(playerWorkDetailsProvider.future);
+      expect(container.read(authProvider).isLoggedIn, isFalse);
+      expect(container.read(fileListControllerProvider).files, isEmpty);
+
+      expect(
+        await container.read(audioSubtitleActionsProvider).startCurrentTrack(),
+        isTrue,
+      );
+      final request = await captured.future;
+
+      expect(loadedTracks, hasLength(1));
+      expect(identical(loadedTracks.single, track), isTrue);
+      expect(request.track, same(track));
+      expect(request.track.workId, -151342);
+      expect(request.track.hash, 'jp-151342-chapter-5000');
+      expect(request.track.startTimeMs, 5000);
+      expect(request.track.endTimeMs, 12000);
+      expect(request.downloadUrl, playlistUrl);
+      expect(request.fileTree, hasLength(2));
+      expect(request.workMetadata!['id'], -151342);
+    },
+  );
 
   test(
     'deduplicates, runs serially, continues after failure, and retries',

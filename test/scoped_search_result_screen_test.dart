@@ -30,7 +30,9 @@ class _ScopeApi extends KikoeruApiService {
   bool returnMetadataAfterRefresh = false;
   bool singleMark = false;
   int failMarkCalls = 0;
+  int? failMarkPage;
   int failGetWorkCalls = 0;
+  String firstMarkTitle = 'Need page one';
 
   @override
   Future<Map<String, dynamic>> getMyReviews({
@@ -47,13 +49,16 @@ class _ScopeApi extends KikoeruApiService {
       failMarkCalls--;
       return Future.error(StateError('mark source unavailable'));
     }
+    if (page == failMarkPage) {
+      return Future.error(StateError('mark page unavailable'));
+    }
     if (pendingMarks != null) {
       pendingMarkToken = cancelToken;
       return pendingMarks!.future;
     }
     return Future.value({
       'works': [
-        if (page == 1) {'id': 1, 'title': 'Need page one'},
+        if (page == 1) {'id': 1, 'title': firstMarkTitle},
         if (!singleMark && page == 2) {'id': 2, 'title': 'Need page two'},
       ],
       'pagination': {
@@ -199,6 +204,155 @@ SearchQuery _query(
 );
 
 void main() {
+  testWidgets('rapid scope changes keep the last completed results', (
+    tester,
+  ) async {
+    final api = _ScopeApi()..singleMark = true;
+    final session = SearchScopeSession();
+    SearchQuery query(String progress) => _query(
+      SearchScope.onlineMarks,
+      SearchType.keyword,
+      'Need',
+      progressFilter: progress,
+    );
+
+    final activeQuery = ValueNotifier(query('listening'));
+    addTearDown(activeQuery.dispose);
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: activeQuery.value,
+      home: Scaffold(
+        body: ValueListenableBuilder<SearchQuery>(
+          valueListenable: activeQuery,
+          builder: (_, current, __) => ScopedSearchResultScreen(
+            query: current,
+            session: session,
+            embedded: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'initial results');
+
+    final pending = Completer<Map<String, dynamic>>();
+    api.pendingMarks = pending;
+    activeQuery.value = query('listened');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Need page one'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'first update');
+
+    activeQuery.value = query('on_hold');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Need page one'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'second update');
+
+    pending.complete({
+      'works': <Map<String, dynamic>>[],
+      'pagination': {'currentPage': 1, 'pageSize': 1, 'totalCount': 0},
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsNothing);
+  });
+
+  testWidgets('a partial update failure keeps the last completed results', (
+    tester,
+  ) async {
+    final api = _ScopeApi();
+    final session = SearchScopeSession();
+    SearchQuery query(String progress) => _query(
+      SearchScope.onlineMarks,
+      SearchType.keyword,
+      'Need',
+      progressFilter: progress,
+    );
+
+    final activeQuery = ValueNotifier(query('listening'));
+    addTearDown(activeQuery.dispose);
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: activeQuery.value,
+      home: Scaffold(
+        body: ValueListenableBuilder<SearchQuery>(
+          valueListenable: activeQuery,
+          builder: (_, current, __) => ScopedSearchResultScreen(
+            query: current,
+            session: session,
+            embedded: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsOneWidget);
+
+    api.firstMarkTitle = 'Need new partial';
+    api.failMarkPage = 2;
+    activeQuery.value = query('listened');
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text('Need page one'), findsOneWidget);
+    expect(find.text('Need new partial'), findsNothing);
+    expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsOneWidget);
+
+    api.failMarkPage = null;
+    await tester.tap(find.text(l10n.retry));
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsNothing);
+    expect(find.text('Need new partial'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editing after failed updates keeps the last completed results', (
+    tester,
+  ) async {
+    final api = _ScopeApi()..singleMark = true;
+    final session = SearchScopeSession();
+    final activeQuery = ValueNotifier(
+      _query(SearchScope.onlineMarks, SearchType.keyword, 'Need'),
+    );
+    addTearDown(activeQuery.dispose);
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: activeQuery.value,
+      home: Scaffold(
+        body: ValueListenableBuilder<SearchQuery>(
+          valueListenable: activeQuery,
+          builder: (_, current, __) => ScopedSearchResultScreen(
+            query: current,
+            session: session,
+            embedded: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsOneWidget);
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    for (final tag in ['Sleep', 'Relaxing']) {
+      api.failGetWorkCalls = 1;
+      activeQuery.value = _query(SearchScope.onlineMarks, SearchType.tag, tag);
+      await tester.pumpAndSettle();
+      expect(find.text('Need page one'), findsOneWidget);
+      expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsOneWidget);
+    }
+
+    api.returnMetadataAfterRefresh = true;
+    await tester.tap(find.text(l10n.retry));
+    await tester.pumpAndSettle();
+    expect(find.text('Need page one'), findsNothing);
+    expect(find.text('Need metadata'), findsOneWidget);
+    expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('online scoped results pass their displayed cover to details', (
     tester,
   ) async {

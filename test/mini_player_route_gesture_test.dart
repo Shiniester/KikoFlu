@@ -8,10 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -98,15 +100,12 @@ void main() {
       const ValueKey('player-route-vertical-translation'),
       skipOffstage: false,
     );
-    final openingOffset = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final openingOffset = tester.getTopLeft(routeTranslationFinder).dy;
     expect(openingOffset, lessThan(844));
     await cancelledGesture.moveBy(const Offset(0, 60));
     await tester.pump();
     expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
+      tester.getTopLeft(routeTranslationFinder).dy,
       greaterThan(openingOffset),
     );
     await cancelledGesture.cancel();
@@ -131,14 +130,14 @@ void main() {
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-        final interactiveTranslation = tester.widget<Transform>(
+        final interactiveTranslation = tester.getTopLeft(
           find.byKey(
             const ValueKey('player-route-vertical-translation'),
             skipOffstage: false,
           ),
         );
-        expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
-        expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
+        expect(interactiveTranslation.dy, greaterThan(0));
+        expect(interactiveTranslation.dy, lessThan(844));
       }
     }
     final previewState = tester.state(find.byType(AudioPlayerScreen));
@@ -397,6 +396,210 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final scale in [1.0, 1.5, 2.0]) {
+    for (final withLyrics in [false, true]) {
+      for (final largeLyrics in withLyrics ? [false, true] : [false]) {
+        testWidgets(
+          'landscape mini player fits scaled track info at $scale lyrics=$withLyrics largeLyrics=$largeLyrics',
+          (tester) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = const Size(640, 360);
+            addTearDown(tester.view.reset);
+            if (largeLyrics) {
+              final preferences = await SharedPreferences.getInstance();
+              await preferences.setDouble('player_lyric_miniFontSize', 20);
+              await preferences.setDouble('player_lyric_miniLineHeight', 2);
+            }
+
+            const track = AudioTrack(
+              id: 'landscape-scaled-track',
+              title: '夜空に咲く花',
+              artist: '月島あかり',
+              url: 'https://example.invalid/landscape.mp3',
+            );
+            await tester.pumpWidget(
+              ProviderScope(
+                overrides: [
+                  currentTrackProvider.overrideWith(
+                    (ref) => Stream.value(track),
+                  ),
+                  isTrackLoadingProvider.overrideWith(
+                    (ref) => Stream.value(false),
+                  ),
+                  positionProvider.overrideWith(
+                    (ref) => Stream.value(Duration.zero),
+                  ),
+                  durationProvider.overrideWith(
+                    (ref) => Stream.value(const Duration(minutes: 4)),
+                  ),
+                  playerStateProvider.overrideWith(
+                    (ref) => Stream.value(
+                      PlayerState(withLyrics, ProcessingState.ready),
+                    ),
+                  ),
+                  queueProvider.overrideWith((ref) => Stream.value([track])),
+                  manualSkipAvailabilityProvider.overrideWith(
+                    (ref) => Stream.value(ManualSkipAvailability.unavailable),
+                  ),
+                  audioSliceStateProvider.overrideWith(
+                    (ref) => const Stream.empty(),
+                  ),
+                  lyricControllerProvider.overrideWith(
+                    (ref) => LyricController(
+                      ref,
+                      initialState: LyricState(
+                        lyrics: withLyrics
+                            ? [
+                                LyricLine(
+                                  startTime: Duration.zero,
+                                  endTime: const Duration(minutes: 1),
+                                  text: '遠くの街明かりが揺れている',
+                                ),
+                              ]
+                            : const [],
+                      ),
+                    ),
+                  ),
+                  lyricAutoLoaderProvider.overrideWith((ref) {}),
+                ],
+                child: MaterialApp(
+                  theme: AppTheme.lightTheme(null),
+                  localizationsDelegates: S.localizationsDelegates,
+                  supportedLocales: S.supportedLocales,
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(textScaler: TextScaler.linear(scale)),
+                    child: child!,
+                  ),
+                  home: const Scaffold(bottomNavigationBar: MiniPlayer()),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+
+            final miniPlayer = find.byKey(
+              const ValueKey('mini-player-content'),
+            );
+            final baseHeight = withLyrics ? 88.0 : 72.0;
+            final playerHeight = tester.getSize(miniPlayer).height;
+            if (scale == 1.0 && !largeLyrics) {
+              expect(playerHeight, baseHeight);
+            } else {
+              expect(playerHeight, greaterThan(baseHeight));
+            }
+            expect(find.text(track.title), findsOneWidget);
+            expect(find.text(track.artist!), findsOneWidget);
+            if (withLyrics) {
+              expect(find.text('遠くの街明かりが揺れている'), findsOneWidget);
+            }
+            expect(
+              find
+                  .byKey(const ValueKey('mini-player-play-button'))
+                  .hitTestable(),
+              findsOneWidget,
+            );
+            expect(
+              tester
+                  .getSize(
+                    find.byKey(const ValueKey('mini-player-play-button')),
+                  )
+                  .height,
+              greaterThanOrEqualTo(48),
+            );
+            expect(
+              find
+                  .byKey(const ValueKey('mini-player-queue-button'))
+                  .hitTestable(),
+              findsOneWidget,
+            );
+            expect(
+              tester
+                  .getSize(
+                    find.byKey(const ValueKey('mini-player-queue-button')),
+                  )
+                  .height,
+              greaterThanOrEqualTo(48),
+            );
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('scaled mini player fits both tracks during a transition', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(640, 360);
+    addTearDown(tester.view.reset);
+    const first = AudioTrack(
+      id: 'first',
+      title: '夜空に咲く花',
+      artist: '月島あかり',
+      url: 'https://example.invalid/first.mp3',
+    );
+    const second = AudioTrack(
+      id: 'second',
+      title: '次の曲',
+      url: 'https://example.invalid/second.mp3',
+    );
+    final tracks = StreamController<AudioTrack?>.broadcast();
+    addTearDown(tracks.close);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentTrackProvider.overrideWith((ref) => tracks.stream),
+          playerTrackChangePresentationProvider.overrideWith((ref) {
+            final track = ref.watch(currentTrackProvider).valueOrNull;
+            return track?.id == second.id
+                ? const PlayerTrackChangePresentation(
+                    trackId: 'second',
+                    direction: PlayerTrackChangeDirection.next,
+                    revision: 1,
+                  )
+                : null;
+          }),
+          isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+          durationProvider.overrideWith(
+            (ref) => Stream.value(const Duration(minutes: 4)),
+          ),
+          playerStateProvider.overrideWith(
+            (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+          ),
+          queueProvider.overrideWith((ref) => Stream.value([first, second])),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => Stream.value(ManualSkipAvailability.unavailable),
+          ),
+          lyricAutoLoaderProvider.overrideWith((ref) {}),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: const Scaffold(bottomNavigationBar: MiniPlayer()),
+        ),
+      ),
+    );
+    tracks.add(first);
+    await tester.pumpAndSettle();
+    tracks.add(second);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(find.text(first.artist!), findsOneWidget);
+    expect(find.text(second.title), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('mini player alignment stays finite at a narrow width', (
     tester,

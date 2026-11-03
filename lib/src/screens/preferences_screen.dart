@@ -9,6 +9,9 @@ import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../providers/proxy_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/automatic_work_marking_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/subtitle_search_query_provider.dart';
 import '../services/proxy_config.dart';
 import '../utils/l10n_extensions.dart';
 import '../utils/snackbar_util.dart';
@@ -142,7 +145,7 @@ class PreferencesScreen extends ConsumerWidget {
                         final navigator = Navigator.of(configContext);
                         navigator.pop();
                         navigator.pop();
-                        await navigator.push(
+                        await Navigator.of(pageContext).push(
                           MaterialPageRoute(
                             builder: (context) => const LLMSettingsScreen(),
                           ),
@@ -273,6 +276,9 @@ class PreferencesScreen extends ConsumerWidget {
     final autoTranslateWorkDetails = ref.watch(
       autoTranslateWorkDetailsProvider,
     );
+    final autoSearchLastSubtitleQuery = ref.watch(
+      autoSearchLastSubtitleQueryProvider,
+    );
     final preloadSettings = ref.watch(preloadNextSettingsProvider);
     final audioTapPlaylistMode = ref.watch(audioTapPlaylistModeProvider);
 
@@ -339,6 +345,15 @@ class PreferencesScreen extends ConsumerWidget {
                     .currentSettingLabel(priority.localizedName(context)),
                 onTap: () => _showSubtitleLibraryPriorityDialog(context, ref),
               ),
+              SettingsSwitchTile(
+                icon: Icons.search,
+                title: S.of(context).autoSearchLastSubtitleQuery,
+                subtitle: S.of(context).autoSearchLastSubtitleQueryDesc,
+                value: autoSearchLastSubtitleQuery,
+                onChanged: (enabled) => ref
+                    .read(autoSearchLastSubtitleQueryProvider.notifier)
+                    .setEnabled(enabled),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -353,6 +368,49 @@ class PreferencesScreen extends ConsumerWidget {
                       audioTapPlaylistMode.localizedName(context),
                     ),
                 onTap: () => _showAudioTapPlaylistModeDialog(context, ref),
+              ),
+              SettingsSwitchTile(
+                icon: Icons.bookmark_added_outlined,
+                title: S.of(context).automaticWorkMarking,
+                subtitle: S.of(context).automaticWorkMarkingDescription,
+                value: ref.watch(automaticWorkMarkingEnabledProvider),
+                onChanged: (value) =>
+                    setAutomaticWorkMarkingEnabled(ref, value),
+              ),
+              SettingsNavigationTile(
+                icon: Icons.delete_outline,
+                title: S.of(context).clearAudioCompletionHistory,
+                subtitle: S.of(context).clearAudioCompletionHistoryDescription,
+                onTap: () async {
+                  final owner = automaticMarkingAccountKey(
+                    ref.read(authProvider),
+                  );
+                  if (owner == null) {
+                    SnackBarUtil.showWarning(
+                      context,
+                      S.of(context).selectAccount,
+                    );
+                    return;
+                  }
+                  final confirmed = await showSettingsResetConfirmation(
+                    context: context,
+                    title: S.of(context).clearAudioCompletionHistory,
+                    message: S
+                        .of(context)
+                        .clearAudioCompletionHistoryDescription,
+                    confirmLabel: S.of(context).confirmClear,
+                  );
+                  if (!confirmed || !context.mounted) return;
+                  await ref
+                      .read(automaticWorkMarkingProvider)
+                      .clearCompletionHistory(owner: owner);
+                  if (context.mounted) {
+                    SnackBarUtil.showSuccess(
+                      context,
+                      S.of(context).audioCompletionHistoryCleared,
+                    );
+                  }
+                },
               ),
               SettingsSwitchTile(
                 icon: Icons.translate,

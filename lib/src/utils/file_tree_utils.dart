@@ -1,6 +1,8 @@
 import '../providers/settings_provider.dart';
 import '../utils/file_icon_utils.dart';
 
+typedef FileTreeVideoFile = ({dynamic file, String parentPath});
+
 class FileTreeFolderStats {
   const FileTreeFolderStats({
     required this.audioCount,
@@ -52,11 +54,7 @@ class FileTreeUtils {
     return lowerCompare != 0 ? lowerCompare : a.compareTo(b);
   }
 
-  static dynamic property(
-    dynamic item,
-    String key, {
-    dynamic defaultValue,
-  }) {
+  static dynamic property(dynamic item, String key, {dynamic defaultValue}) {
     if (item == null) return defaultValue;
 
     if (item is Map) {
@@ -119,6 +117,17 @@ class FileTreeUtils {
     final type = typeOf(item);
     final title = titleOf(item).toLowerCase();
     return type == 'image' || FileIconUtils.inferFileType(title) == 'image';
+  }
+
+  static bool isVideo(dynamic item, {bool videoBeforeAudio = true}) {
+    final type = typeOf(item);
+    final title = titleOf(item).toLowerCase();
+    final inferredType = FileIconUtils.inferFileType(title);
+    if (!videoBeforeAudio && (type == 'audio' || inferredType == 'audio')) {
+      return false;
+    }
+    if (type == 'video') return true;
+    return inferredType == 'video';
   }
 
   static bool isText(dynamic item) {
@@ -207,10 +216,7 @@ class FileTreeUtils {
       }
     }
 
-    return FileTreeFolderStats(
-      audioCount: audioCount,
-      textCount: textCount,
-    );
+    return FileTreeFolderStats(audioCount: audioCount, textCount: textCount);
   }
 
   static FileTreeMainFolder? identifyMainFolder(
@@ -365,6 +371,39 @@ class FileTreeUtils {
     collect(rootItems);
     return imageFiles;
   }
+
+  static List<FileTreeVideoFile> videoFilesRecursive(
+    List<dynamic> rootItems, {
+    bool videoBeforeAudio = true,
+  }) {
+    final videoFiles = <FileTreeVideoFile>[];
+
+    void collect(List<dynamic> items, String parentPath) {
+      for (final item in items) {
+        if (isFolder(item)) {
+          final children = childrenOf(item);
+          if (children != null) {
+            collect(children, itemPath(parentPath, item));
+          }
+        } else if (isVideo(item, videoBeforeAudio: videoBeforeAudio)) {
+          videoFiles.add((file: item, parentPath: parentPath));
+        }
+      }
+    }
+
+    collect(rootItems, '');
+    return videoFiles;
+  }
+
+  static List<FileTreeVideoFile> videoFilesInDirectory(
+    List<dynamic> rootItems,
+    String parentPath, {
+    bool videoBeforeAudio = true,
+  }) => [
+    for (final file in findFolderChildren(rootItems, parentPath))
+      if (!isFolder(file) && isVideo(file, videoBeforeAudio: videoBeforeAudio))
+        (file: file, parentPath: parentPath),
+  ];
 
   static String? relativePathForHash(
     List<dynamic> rootItems,

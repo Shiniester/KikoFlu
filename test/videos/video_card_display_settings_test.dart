@@ -5,6 +5,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
+import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
@@ -144,10 +145,10 @@ void main() {
               ),
               Center(
                 child: SizedBox(
-                  width: 320,
+                  width: 120,
                   child: VideoCard(
                     video: video,
-                    layoutType: LayoutType.bigGrid,
+                    layoutType: LayoutType.smallGrid,
                     onTap: () {},
                   ),
                 ),
@@ -173,12 +174,21 @@ void main() {
     expect(find.text('Maker'), findsNothing);
     expect(find.text('Actor'), findsOneWidget);
     expect(find.text('Tag 8'), findsOneWidget);
+    final titleRect = tester.getRect(find.text(video.title));
+    final durationRect = tester.getRect(
+      find.byKey(const ValueKey('video-duration-settings-card')),
+    );
+    expect(durationRect.top - titleRect.bottom, collectionCardInfoSpacing);
 
     await tester.tap(find.byKey(const ValueKey('hide-duration')));
     await tester.pump();
     expect(
       find.byKey(const ValueKey('video-duration-settings-card')),
       findsNothing,
+    );
+    expect(
+      tester.getRect(find.text('Actor')).top,
+      closeTo(titleRect.bottom + collectionCardInfoSpacing + 1, 0.1),
     );
 
     await tester.tap(find.byKey(const ValueKey('hide-releaseDate')));

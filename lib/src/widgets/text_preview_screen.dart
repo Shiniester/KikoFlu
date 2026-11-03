@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show CharacterBoundary;
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -69,6 +71,10 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   String? _translationTargetKey;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _scrollViewportKey = GlobalKey();
+  final GlobalKey _previewContentKey = GlobalKey();
+  final GlobalKey _searchHighlightPaintKey = GlobalKey();
+  final GlobalKey _editContentKey = GlobalKey();
   final ScrollThrottler _scrollThrottler = ScrollThrottler();
   double _scrollProgress = 0.0;
   bool _showTranslation = false;
@@ -78,8 +84,22 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   bool _isSearchMode = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _editFocusNode = FocusNode();
   List<_TextSearchMatch> _searchMatches = const [];
+  List<_TextSearchMarker> _searchMarkers = const [];
+  List<_TextSearchMarker> _pendingSearchMarkers = [];
   int _currentSearchMatchIndex = -1;
+  bool _searchMarkerLayoutScheduled = false;
+  bool _searchMarkerLayoutComplete = false;
+  int _searchMarkerLayoutGeneration = 0;
+  int _nextSearchMarkerIndex = 0;
+  double _previousSearchMarkerOffset = double.negativeInfinity;
+  double? _lastSearchMarkerContentExtent;
+  double? _lastSearchMarkerViewportDimension;
+  Size? _lastSearchViewportSize;
+  TextScaler? _lastTextScaler;
+  TextDirection? _lastTextDirection;
+  Locale? _lastTextLocale;
   bool _hasLoadedContent = false;
   bool _initialSaveOptionsShown = false;
   bool _autoTranslationStarted = false;
@@ -120,6 +140,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     _translatedTextController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _editFocusNode.dispose();
     super.dispose();
   }
 
@@ -340,7 +361,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     }
   }
 
-  void _openSearch() {
+  void _openSearch({bool requestFocus = true}) {
     final rememberedQuery = ref.read(subtitleSearchQueryProvider);
     _searchController.value = TextEditingValue(
       text: rememberedQuery,
@@ -350,18 +371,33 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       _isSearchMode = true;
     });
     _updateSearchResults(_searchController.text);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _searchFocusNode.requestFocus();
-      }
-    });
+    if (requestFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _searchFocusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _maybeAutoOpenSearchFromPreference() {
+    if (_content == null ||
+        _isSearchMode ||
+        !ref.read(autoSearchLastSubtitleQueryProvider) ||
+        ref.read(subtitleSearchQueryProvider).trim().isEmpty) {
+      return;
+    }
+
+    _openSearch(requestFocus: false);
   }
 
   void _closeSearch() {
     _searchController.clear();
+    _invalidateSearchMarkerLayout();
     setState(() {
       _isSearchMode = false;
       _searchMatches = const [];
+      _searchMarkers = const [];
       _currentSearchMatchIndex = -1;
     });
   }
@@ -392,15 +428,18 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _updateSearchResults(String query) {
+    _invalidateSearchMarkerLayout();
     final content = _getCurrentContent() ?? '';
     final matches = _findTextMatches(content, query);
 
     setState(() {
       _searchMatches = matches;
+      _searchMarkers = const [];
       _currentSearchMatchIndex = matches.isEmpty ? -1 : 0;
     });
 
     if (matches.isNotEmpty) {
+      _scheduleSearchMarkerLayout();
       _scheduleScrollToCurrentMatch();
     }
   }
@@ -410,10 +449,199 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
     final nextIndex =
         (_currentSearchMatchIndex + offset) % _searchMatches.length;
-    setState(() {
-      _currentSearchMatchIndex = nextIndex;
-    });
+    if (nextIndex != _currentSearchMatchIndex) {
+      _invalidateSearchMarkerLayout();
+      setState(() {
+        _currentSearchMatchIndex = nextIndex;
+      });
+      _scheduleSearchMarkerLayout();
+    }
     _scheduleScrollToCurrentMatch();
+  }
+
+  void _selectSearchMatch(int index) {
+    if (index < 0 || index >= _searchMatches.length) return;
+
+    if (_currentSearchMatchIndex != index) {
+      _invalidateSearchMarkerLayout();
+      setState(() {
+        _currentSearchMatchIndex = index;
+      });
+      _scheduleSearchMarkerLayout();
+    }
+
+    if (_isEditMode) {
+      final match = _searchMatches[index];
+      final controller = _showTranslation && _translatedContent != null
+          ? _translatedTextController
+          : _textController;
+      controller.selection = TextSelection(
+        baseOffset: match.start,
+        extentOffset: match.end,
+      );
+      _editFocusNode.requestFocus();
+    }
+
+    _scheduleScrollToCurrentMatch();
+  }
+
+  void _selectNearestSearchMarker(double y) {
+    if (!_searchMarkerLayoutComplete ||
+        _searchMarkers.isEmpty ||
+        !_scrollController.hasClients) {
+      return;
+    }
+
+    final viewportHeight = _scrollController.position.viewportDimension;
+    if (viewportHeight <= 0) return;
+
+    var nearestMarker = _searchMarkers.first;
+    var nearestDistance =
+        (_searchMarkerCenterY(nearestMarker.position, viewportHeight) - y)
+            .abs();
+    for (final marker in _searchMarkers.skip(1)) {
+      final distance =
+          (_searchMarkerCenterY(marker.position, viewportHeight) - y).abs();
+      if (distance < nearestDistance) {
+        nearestMarker = marker;
+        nearestDistance = distance;
+      }
+    }
+
+    _selectSearchMatch(nearestMarker.firstMatchIndex);
+  }
+
+  void _scheduleSearchMarkerLayout() {
+    if (!_isSearchMode ||
+        _searchMatches.isEmpty ||
+        _searchMarkerLayoutScheduled ||
+        _searchMarkerLayoutComplete) {
+      return;
+    }
+
+    _searchMarkerLayoutScheduled = true;
+    _scheduleSearchMarkerLayoutChunk(_searchMarkerLayoutGeneration);
+  }
+
+  void _invalidateSearchMarkerLayout() {
+    _searchMarkerLayoutGeneration++;
+    _searchMarkerLayoutScheduled = false;
+    _searchMarkerLayoutComplete = false;
+    _searchMarkers = const [];
+    _pendingSearchMarkers = [];
+    _nextSearchMarkerIndex = 0;
+    _previousSearchMarkerOffset = double.negativeInfinity;
+  }
+
+  void _scheduleSearchMarkerLayoutChunk(int generation) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          generation != _searchMarkerLayoutGeneration ||
+          !_isSearchMode ||
+          _searchMatches.isEmpty) {
+        return;
+      }
+
+      final position = _scrollController.hasClients
+          ? _scrollController.position
+          : null;
+      if (position == null || position.viewportDimension <= 0) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
+
+      final renderEditable = _findDescendantRenderObject<RenderEditable>(
+        (_isEditMode ? _editContentKey : _previewContentKey).currentContext,
+      );
+      final viewport = _findDescendantRenderObject<RenderAbstractViewport>(
+        _scrollViewportKey.currentContext,
+      );
+      if (renderEditable == null || viewport == null) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
+
+      final contentExtent =
+          position.maxScrollExtent + position.viewportDimension;
+      if (contentExtent <= 0) {
+        _searchMarkerLayoutScheduled = false;
+        return;
+      }
+      _lastSearchMarkerContentExtent = contentExtent;
+      _lastSearchMarkerViewportDimension = position.viewportDimension;
+
+      final textLength = (_getCurrentContent() ?? '').length;
+      const maxMatchesPerFrame = 64;
+      const frameBudget = Duration(milliseconds: 4);
+      final geometryTimer = Stopwatch()..start();
+      var processedMatches = 0;
+      while (_nextSearchMarkerIndex < _searchMatches.length &&
+          processedMatches < maxMatchesPerFrame &&
+          (processedMatches == 0 || geometryTimer.elapsed < frameBudget)) {
+        final index = _nextSearchMarkerIndex;
+        final match = _searchMatches[index];
+        if (match.start < 0 || match.end > textLength) {
+          _nextSearchMarkerIndex++;
+          processedMatches++;
+          continue;
+        }
+
+        final caretRect = renderEditable.getLocalRectForCaret(
+          TextPosition(offset: match.start),
+        );
+        final revealOffset = viewport
+            .getOffsetToReveal(renderEditable, 0, rect: caretRect)
+            .offset;
+        if (!revealOffset.isFinite) {
+          _nextSearchMarkerIndex++;
+          processedMatches++;
+          continue;
+        }
+
+        final markerPosition = (revealOffset / contentExtent)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        if (_pendingSearchMarkers.isNotEmpty &&
+            (revealOffset - _previousSearchMarkerOffset).abs() < 1) {
+          final previousMarker = _pendingSearchMarkers.removeLast();
+          _pendingSearchMarkers.add(
+            _TextSearchMarker(
+              position: previousMarker.position,
+              firstMatchIndex: previousMarker.firstMatchIndex,
+              lastMatchIndex: index,
+            ),
+          );
+        } else {
+          _pendingSearchMarkers.add(
+            _TextSearchMarker(
+              position: markerPosition,
+              firstMatchIndex: index,
+              lastMatchIndex: index,
+            ),
+          );
+        }
+        _previousSearchMarkerOffset = revealOffset;
+        _nextSearchMarkerIndex++;
+        processedMatches++;
+      }
+
+      if (generation != _searchMarkerLayoutGeneration) return;
+      if (_nextSearchMarkerIndex == _searchMatches.length) {
+        final completedMarkers = List<_TextSearchMarker>.unmodifiable(
+          _pendingSearchMarkers,
+        );
+        setState(() {
+          _searchMarkers = completedMarkers;
+          _searchMarkerLayoutComplete = true;
+          _searchMarkerLayoutScheduled = false;
+        });
+        return;
+      }
+
+      _scheduleSearchMarkerLayoutChunk(generation);
+      WidgetsBinding.instance.ensureVisualUpdate();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _scheduleScrollToCurrentMatch() {
@@ -422,6 +650,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       if (!mounted || scheduledIndex != _currentSearchMatchIndex) return;
       _scrollToCurrentMatch();
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _scrollToCurrentMatch() {
@@ -431,16 +660,26 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       return;
     }
 
-    final content = _getCurrentContent() ?? '';
-    if (content.isEmpty) return;
+    final renderEditable = _findDescendantRenderObject<RenderEditable>(
+      (_isEditMode ? _editContentKey : _previewContentKey).currentContext,
+    );
+    final viewport = _findDescendantRenderObject<RenderAbstractViewport>(
+      _scrollViewportKey.currentContext,
+    );
+    if (renderEditable == null || viewport == null) return;
 
     final match = _searchMatches[_currentSearchMatchIndex];
     final position = _scrollController.position;
-    final matchProgress = match.start / content.length;
-    final centeredOffset =
-        position.maxScrollExtent * matchProgress -
-        position.viewportDimension * 0.25;
-    final targetOffset = centeredOffset
+    final textLength = (_getCurrentContent() ?? '').length;
+    if (match.start < 0 || match.end > textLength) {
+      return;
+    }
+    final caretRect = renderEditable.getLocalRectForCaret(
+      TextPosition(offset: match.start),
+    );
+    final targetOffset = viewport
+        .getOffsetToReveal(renderEditable, 0.25, rect: caretRect)
+        .offset
         .clamp(0.0, position.maxScrollExtent)
         .toDouble();
 
@@ -531,46 +770,101 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         .where((match) => match.start >= 0 && match.end <= content.length)
         .toList(growable: false);
     if (!_isSearchMode || validMatches.isEmpty) {
-      return SelectableText(
-        content,
-        key: const ValueKey('text-preview-content'),
-        style: _contentTextStyle,
-      );
-    }
-
-    final colorScheme = Theme.of(context).colorScheme;
-    final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (var index = 0; index < validMatches.length; index++) {
-      final match = validMatches[index];
-      if (match.start > cursor) {
-        spans.add(TextSpan(text: content.substring(cursor, match.start)));
-      }
-
-      final isCurrent = index == _currentSearchMatchIndex;
-      spans.add(
-        TextSpan(
-          text: content.substring(match.start, match.end),
-          style: TextStyle(
-            backgroundColor: isCurrent
-                ? colorScheme.primaryContainer
-                : colorScheme.tertiaryContainer.withValues(alpha: 0.7),
-            color: isCurrent ? colorScheme.onPrimaryContainer : null,
-            fontWeight: isCurrent ? FontWeight.w700 : null,
-          ),
+      return KeyedSubtree(
+        key: _previewContentKey,
+        child: SelectableText(
+          content,
+          key: const ValueKey('text-preview-content'),
+          style: _contentTextStyle,
         ),
       );
-      cursor = match.end;
     }
 
-    if (cursor < content.length) {
-      spans.add(TextSpan(text: content.substring(cursor)));
+    final currentMatchIndex = _currentSearchMatchIndex
+        .clamp(0, validMatches.length - 1)
+        .toInt();
+    final currentMatch = validMatches[currentMatchIndex];
+    final colorScheme = Theme.of(context).colorScheme;
+    final spans = <InlineSpan>[];
+    if (currentMatch.start > 0) {
+      spans.add(TextSpan(text: content.substring(0, currentMatch.start)));
+    }
+    spans.add(
+      TextSpan(
+        text: content.substring(currentMatch.start, currentMatch.end),
+        style: TextStyle(
+          backgroundColor: colorScheme.primaryContainer,
+          color: colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+    if (currentMatch.end < content.length) {
+      spans.add(TextSpan(text: content.substring(currentMatch.end)));
     }
 
-    return SelectableText.rich(
-      TextSpan(children: spans),
-      key: const ValueKey('text-preview-content'),
-      style: _contentTextStyle,
+    return KeyedSubtree(
+      key: _previewContentKey,
+      child: CustomPaint(
+        key: _searchHighlightPaintKey,
+        painter: _TextSearchHighlightPainter(
+          matches: validMatches,
+          currentMatchIndex: currentMatchIndex,
+          content: content,
+          markers: _searchMarkerLayoutComplete ? _searchMarkers : const [],
+          editableContext: () => _previewContentKey.currentContext,
+          viewportContext: () => _scrollViewportKey.currentContext,
+          paintContext: () => _searchHighlightPaintKey.currentContext,
+          viewportSize: _lastSearchViewportSize,
+          textScaler: _lastTextScaler ?? MediaQuery.textScalerOf(context),
+          textDirection: _lastTextDirection ?? Directionality.of(context),
+          locale: _lastTextLocale ?? Localizations.localeOf(context),
+          otherColor: colorScheme.tertiaryContainer.withValues(alpha: 0.7),
+          scrollController: _scrollController,
+        ),
+        child: SelectableText.rich(
+          TextSpan(children: spans),
+          key: const ValueKey('text-preview-content'),
+          style: _contentTextStyle,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchMarkerRail() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final currentResult = _currentSearchMatchIndex + 1;
+    final label =
+        '${S.of(context).search}: $currentResult/${_searchMatches.length}';
+
+    return SizedBox(
+      key: const ValueKey('text-preview-search-marker-rail'),
+      width: 32,
+      child: Semantics(
+        button: true,
+        label: S.of(context).search,
+        value: '$currentResult/${_searchMatches.length}',
+        onTap: () => _selectSearchMatch(_currentSearchMatchIndex),
+        child: Tooltip(
+          message: label,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) =>
+                _selectNearestSearchMarker(details.localPosition.dy),
+            child: CustomPaint(
+              painter: _TextSearchMarkerPainter(
+                markers: _searchMarkerLayoutComplete
+                    ? _searchMarkers
+                    : const [],
+                currentMatchIndex: _currentSearchMatchIndex,
+                currentColor: colorScheme.primary,
+                otherColor: colorScheme.tertiary,
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -639,6 +933,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             _showTranslation = translated != null;
             _isLoading = false;
           });
+          _maybeAutoOpenSearchFromPreference();
           _showInitialSaveOptionsIfNeeded();
           _maybeAutoTranslateContent();
           return;
@@ -668,6 +963,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             _textController.text = cachedContent;
             _isLoading = false;
           });
+          _maybeAutoOpenSearchFromPreference();
           _showInitialSaveOptionsIfNeeded();
           _maybeAutoTranslateContent();
           return;
@@ -703,6 +999,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         _textController.text = remote.text;
         _isLoading = false;
       });
+      _maybeAutoOpenSearchFromPreference();
       _showInitialSaveOptionsIfNeeded();
       _maybeAutoTranslateContent();
     } catch (e) {
@@ -852,6 +1149,19 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final textScaler = MediaQuery.textScalerOf(context);
+    final textDirection = Directionality.of(context);
+    final locale = Localizations.localeOf(context);
+    if (_lastTextScaler != textScaler ||
+        _lastTextDirection != textDirection ||
+        _lastTextLocale != locale) {
+      _lastTextScaler = textScaler;
+      _lastTextDirection = textDirection;
+      _lastTextLocale = locale;
+      _invalidateSearchMarkerLayout();
+      _scheduleSearchMarkerLayout();
+    }
+
     ref.listen(effectiveTranslationTargetLocaleProvider, (_, next) {
       final target = next.valueOrNull;
       if (target == null ||
@@ -997,50 +1307,107 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
             ),
           ),
         Expanded(
-          child: Scrollbar(
-            controller: _scrollController,
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              child: _isEditMode
-                  ? TextField(
-                      controller: _showTranslation && _translatedContent != null
-                          ? _translatedTextController
-                          : _textController,
-                      maxLines: null,
-                      style: _contentTextStyle,
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        hintText: S.of(context).editTextContentHint,
-                      ),
-                      onChanged: (value) {
-                        if (!(_showTranslation && _translatedContent != null)) {
-                          _translationGeneration++;
-                          final updateScreen =
-                              _translatedContent != null ||
-                              _showTranslation ||
-                              _isTranslating ||
-                              _translationProgress.isNotEmpty ||
-                              (_content?.isEmpty ?? true) != value.isEmpty;
-                          if (updateScreen) {
-                            setState(() {
-                              _content = value;
-                              _translatedContent = null;
-                              _translatedTextController.clear();
-                              _showTranslation = false;
-                              _isTranslating = false;
-                              _translationProgress = '';
-                            });
-                          } else {
-                            _content = value;
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportSize = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+              if (_lastSearchViewportSize != viewportSize) {
+                _lastSearchViewportSize = viewportSize;
+                _invalidateSearchMarkerLayout();
+                _scheduleSearchMarkerLayout();
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      child: NotificationListener<ScrollMetricsNotification>(
+                        onNotification: (notification) {
+                          final metrics = notification.metrics;
+                          final contentExtent =
+                              metrics.maxScrollExtent +
+                              metrics.viewportDimension;
+                          if (_lastSearchMarkerContentExtent != contentExtent ||
+                              _lastSearchMarkerViewportDimension !=
+                                  metrics.viewportDimension) {
+                            _lastSearchMarkerContentExtent = contentExtent;
+                            _lastSearchMarkerViewportDimension =
+                                metrics.viewportDimension;
+                            _invalidateSearchMarkerLayout();
+                            _scheduleSearchMarkerLayout();
                           }
-                        }
-                        _refreshSearchResults();
-                      },
-                    )
-                  : _buildPreviewContent(_getCurrentContent() ?? ''),
-            ),
+                          return false;
+                        },
+                        child: SingleChildScrollView(
+                          key: _scrollViewportKey,
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16),
+                          child: _isEditMode
+                              ? KeyedSubtree(
+                                  key: _editContentKey,
+                                  child: TextField(
+                                    key: const ValueKey(
+                                      'text-preview-edit-field',
+                                    ),
+                                    controller:
+                                        _showTranslation &&
+                                            _translatedContent != null
+                                        ? _translatedTextController
+                                        : _textController,
+                                    focusNode: _editFocusNode,
+                                    maxLines: null,
+                                    style: _contentTextStyle,
+                                    decoration: InputDecoration(
+                                      border: const OutlineInputBorder(),
+                                      hintText: S
+                                          .of(context)
+                                          .editTextContentHint,
+                                    ),
+                                    onChanged: (value) {
+                                      if (!(_showTranslation &&
+                                          _translatedContent != null)) {
+                                        _translationGeneration++;
+                                        final updateScreen =
+                                            _translatedContent != null ||
+                                            _showTranslation ||
+                                            _isTranslating ||
+                                            _translationProgress.isNotEmpty ||
+                                            (_content?.isEmpty ?? true) !=
+                                                value.isEmpty;
+                                        if (updateScreen) {
+                                          setState(() {
+                                            _content = value;
+                                            _translatedContent = null;
+                                            _translatedTextController.clear();
+                                            _showTranslation = false;
+                                            _isTranslating = false;
+                                            _translationProgress = '';
+                                          });
+                                        } else {
+                                          _content = value;
+                                        }
+                                      }
+                                      _refreshSearchResults();
+                                    },
+                                  ),
+                                )
+                              : _buildPreviewContent(
+                                  _getCurrentContent() ?? '',
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_isSearchMode && _searchMatches.isNotEmpty)
+                    _buildSearchMarkerRail(),
+                ],
+              );
+            },
           ),
         ),
       ],
@@ -1053,6 +1420,274 @@ class _TextSearchMatch {
 
   final int start;
   final int end;
+}
+
+class _TextSearchMarker {
+  const _TextSearchMarker({
+    required this.position,
+    required this.firstMatchIndex,
+    required this.lastMatchIndex,
+  });
+
+  final double position;
+  final int firstMatchIndex;
+  final int lastMatchIndex;
+}
+
+double _searchMarkerCenterY(double position, double height) =>
+    (position * height).clamp(2.0, height - 2.0).toDouble();
+
+class _TextSearchMarkerPainter extends CustomPainter {
+  const _TextSearchMarkerPainter({
+    required this.markers,
+    required this.currentMatchIndex,
+    required this.currentColor,
+    required this.otherColor,
+  });
+
+  final List<_TextSearchMarker> markers;
+  final int currentMatchIndex;
+  final Color currentColor;
+  final Color otherColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    bool isCurrent(_TextSearchMarker marker) =>
+        currentMatchIndex >= marker.firstMatchIndex &&
+        currentMatchIndex <= marker.lastMatchIndex;
+
+    void paintMarker(_TextSearchMarker marker, Color color) {
+      final centerY = _searchMarkerCenterY(marker.position, size.height);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(size.width / 2, centerY),
+            width: 8,
+            height: 4,
+          ),
+          const Radius.circular(2),
+        ),
+        Paint()..color = color,
+      );
+    }
+
+    for (final marker in markers) {
+      if (!isCurrent(marker)) paintMarker(marker, otherColor);
+    }
+    for (final marker in markers) {
+      if (isCurrent(marker)) paintMarker(marker, currentColor);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TextSearchMarkerPainter oldDelegate) =>
+      oldDelegate.markers != markers ||
+      oldDelegate.currentMatchIndex != currentMatchIndex ||
+      oldDelegate.currentColor != currentColor ||
+      oldDelegate.otherColor != otherColor;
+}
+
+class _TextSearchHighlightPainter extends CustomPainter {
+  _TextSearchHighlightPainter({
+    required this.matches,
+    required this.currentMatchIndex,
+    required this.content,
+    required this.markers,
+    required this.editableContext,
+    required this.viewportContext,
+    required this.paintContext,
+    required this.viewportSize,
+    required this.textScaler,
+    required this.textDirection,
+    required this.locale,
+    required this.otherColor,
+    required ScrollController scrollController,
+  }) : scrollController = scrollController,
+       super(repaint: scrollController);
+
+  final List<_TextSearchMatch> matches;
+  final int currentMatchIndex;
+  final String content;
+  final List<_TextSearchMarker> markers;
+  final BuildContext? Function() editableContext;
+  final BuildContext? Function() viewportContext;
+  final BuildContext? Function() paintContext;
+  final Size? viewportSize;
+  final TextScaler textScaler;
+  final TextDirection textDirection;
+  final Locale locale;
+  final Color otherColor;
+  final ScrollController scrollController;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final renderEditable = _findDescendantRenderObject<RenderEditable>(
+      editableContext(),
+    );
+    final viewport = viewportContext()?.findRenderObject();
+    final paintRenderObject = paintContext()?.findRenderObject();
+    if (renderEditable == null ||
+        viewport is! RenderBox ||
+        paintRenderObject is! RenderBox ||
+        matches.length < 2) {
+      return;
+    }
+
+    final viewportPosition = scrollController.hasClients
+        ? scrollController.position
+        : null;
+    final hasCompleteMarkers = markers.isNotEmpty && viewportPosition != null;
+    var firstVisibleMatch = 0;
+    var afterLastVisibleMatch = matches.length;
+    if (hasCompleteMarkers) {
+      final scrollPosition = viewportPosition;
+      final contentExtent =
+          scrollPosition.maxScrollExtent + scrollPosition.viewportDimension;
+      final visibleTop = scrollPosition.pixels;
+      final visibleBottom = visibleTop + scrollPosition.viewportDimension;
+
+      var firstMarkerAtOrAfterTop = 0;
+      var limit = markers.length;
+      while (firstMarkerAtOrAfterTop < limit) {
+        final middle = (firstMarkerAtOrAfterTop + limit) >> 1;
+        if (markers[middle].position * contentExtent < visibleTop) {
+          firstMarkerAtOrAfterTop = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+
+      var afterLastMarkerInView = 0;
+      limit = markers.length;
+      while (afterLastMarkerInView < limit) {
+        final middle = (afterLastMarkerInView + limit) >> 1;
+        if (markers[middle].position * contentExtent <= visibleBottom) {
+          afterLastMarkerInView = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+      if (afterLastMarkerInView == 0) {
+        firstVisibleMatch = 0;
+        afterLastVisibleMatch = 0;
+      } else {
+        final firstMarker = (firstMarkerAtOrAfterTop - 1)
+            .clamp(0, afterLastMarkerInView - 1)
+            .toInt();
+        firstVisibleMatch = markers[firstMarker].firstMatchIndex;
+        afterLastVisibleMatch =
+            markers[afterLastMarkerInView - 1].lastMatchIndex + 1;
+      }
+    } else {
+      final viewportTopLeft = viewport.localToGlobal(Offset.zero);
+      final viewportBottom = viewport
+          .localToGlobal(Offset(0, viewport.size.height))
+          .dy;
+      final sampleX = viewportTopLeft.dx + viewport.size.width / 2;
+      final firstVisiblePosition = renderEditable.getPositionForPoint(
+        Offset(sampleX, viewportTopLeft.dy + 1),
+      );
+      final lastVisiblePosition = renderEditable.getPositionForPoint(
+        Offset(sampleX, viewportBottom - 1),
+      );
+      final firstVisibleLine = renderEditable.getLineAtOffset(
+        firstVisiblePosition,
+      );
+      final lastVisibleLine = renderEditable.getLineAtOffset(
+        lastVisiblePosition,
+      );
+
+      var limit = matches.length;
+      while (firstVisibleMatch < limit) {
+        final middle = (firstVisibleMatch + limit) >> 1;
+        if (matches[middle].end <= firstVisibleLine.baseOffset) {
+          firstVisibleMatch = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+
+      afterLastVisibleMatch = firstVisibleMatch;
+      limit = matches.length;
+      while (afterLastVisibleMatch < limit) {
+        final middle = (afterLastVisibleMatch + limit) >> 1;
+        if (matches[middle].start <= lastVisibleLine.extentOffset) {
+          afterLastVisibleMatch = middle + 1;
+        } else {
+          limit = middle;
+        }
+      }
+    }
+
+    final paint = Paint()..color = otherColor;
+    CharacterBoundary? characterBoundary;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    for (
+      var index = firstVisibleMatch;
+      index < afterLastVisibleMatch;
+      index++
+    ) {
+      if (index == currentMatchIndex) continue;
+      final match = matches[index];
+      final boundary = characterBoundary ??= CharacterBoundary(content);
+      final expandedStart = boundary.getLeadingTextBoundaryAt(match.start);
+      final expandedEnd = boundary.getTrailingTextBoundaryAt(match.end - 1);
+      if (expandedStart == null ||
+          expandedEnd == null ||
+          expandedStart >= expandedEnd) {
+        continue;
+      }
+
+      final boxes = renderEditable.getBoxesForSelection(
+        TextSelection(baseOffset: expandedStart, extentOffset: expandedEnd),
+      );
+      for (final box in boxes) {
+        final rect = box.toRect();
+        final topLeft = paintRenderObject.globalToLocal(
+          renderEditable.localToGlobal(rect.topLeft),
+        );
+        final bottomRight = paintRenderObject.globalToLocal(
+          renderEditable.localToGlobal(rect.bottomRight),
+        );
+        final paintRect = Rect.fromPoints(topLeft, bottomRight);
+        if (paintRect.overlaps(Offset.zero & size)) {
+          canvas.drawRect(paintRect, paint);
+        }
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_TextSearchHighlightPainter oldDelegate) =>
+      !identical(oldDelegate.matches, matches) ||
+      !identical(oldDelegate.markers, markers) ||
+      oldDelegate.currentMatchIndex != currentMatchIndex ||
+      oldDelegate.otherColor != otherColor ||
+      oldDelegate.viewportSize != viewportSize ||
+      oldDelegate.textScaler != textScaler ||
+      oldDelegate.textDirection != textDirection ||
+      oldDelegate.locale != locale;
+}
+
+T? _findDescendantRenderObject<T extends RenderObject>(BuildContext? context) {
+  final root = context?.findRenderObject();
+  if (root == null) return null;
+
+  T? result;
+  void visit(RenderObject renderObject) {
+    if (renderObject is T) {
+      result = renderObject;
+      return;
+    }
+    renderObject.visitChildren((child) {
+      if (result == null) visit(child);
+    });
+  }
+
+  visit(root);
+  return result;
 }
 
 List<_TextSearchMatch> _findTextMatches(String content, String query) {

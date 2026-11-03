@@ -6,6 +6,9 @@ import 'responsive_grid_helper.dart';
 const double collectionCoverAspectRatio = 4 / 3;
 const double comicListCoverWidth = 112;
 const int collectionCardTitleMaxLines = 4;
+const double collectionGridInfoPadding = 8;
+const double collectionCardInfoSpacing = 4;
+const double collectionListCardVerticalMargin = 4;
 
 Size collectionListCoverSizeForTitle(
   BuildContext context, {

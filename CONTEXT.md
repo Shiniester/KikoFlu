@@ -13,6 +13,8 @@ _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
 The primary app navigation containing Audio, Comics, Videos, and Settings.
+Audio, Comics, and Videos each retain their browsing history when another entry
+is selected.
 _Avoid_: Player navigation, bottom menu
 
 **Video Screen (视频页)**:
@@ -71,6 +73,8 @@ _Avoid_: Video account login
 **Video Details Screen (视频详情页)**:
 The app page containing one video's inline Video Player, information, and related
 recommendations.
+Switching to another App Tab Bar entry pauses the Video Player. The Video Player
+remains paused on return until playback is resumed manually.
 _Avoid_: Video Screen, source website
 
 **Video Basic Information (视频基础信息)**:
@@ -101,6 +105,10 @@ _Avoid_: Video card settings
 The Video Player's title bar, progress control, and playback actions shown over
 the viewing surface.
 _Avoid_: Video picture, Video Playback Settings
+
+**Video Playback Feedback (视频播放操作提示)**:
+A temporary indication inside the Video Player describing an operation, such as
+seeking or adjusting volume or brightness. It is separate from Video Controls.
 
 **Video Side Bars (视频左右黑边)**:
 The areas to the left and right of the video picture inside the Video Player
@@ -140,6 +148,10 @@ A provider of audio works for independent browsing, search and playback, such as
 ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
 _Avoid_: Playback fallback, mirror server
 
+**Automatic Work Marking (作品自动标记)**:
+根据收听和安排播放的行为，自动更新音声作品在音声源账号中的在线标记。
+作品自动标记仅适用于支持在线标记的音声源。
+
 **Audio Source Verification (音声源验证)**:
 The website check required before an Audio Source permits access from the current
 network. It is separate from signing in to an audio account.
@@ -157,8 +169,9 @@ measure for a chosen period. It is separate from Related Recommendations.
 _Avoid_: Recommended works
 
 **Works Sort (作品排序)**:
-The field and direction that determine the order of a works feed.
-Age Rating Filter independently determines which works appear in the feed.
+The field and direction that determine the order of an Audio Source's works feed.
+Each Audio Source has a separate Works Sort. Age Rating Filter independently
+determines which works appear in the feed.
 
 **Age Rating Filter (年龄分级筛选)**:
 A restriction of a works feed to the selected Audio Source's age classification.
@@ -183,8 +196,9 @@ _Avoid_: scoped search
 
 **Scoped Search (范围搜索)**:
 The shared search interface opened from a library page. Its results are limited
-to that page's complete collection, such as one online-mark state, history,
-playlists, or completed downloads.
+to that page's complete collection, such as an audio online-mark state, history,
+playlists, or completed downloads; comic favorites; or video downloads. The
+collection remains the search scope until the search closes.
 _Avoid_: global works search
 
 **Audio Search Catalog (音声搜索目录)**:
@@ -200,6 +214,10 @@ _避免_：低愿力标签、低票数标签
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
+Opening a Work Details Screen from the full-screen audio player closes the
+full-screen player, shows the Mini Player, and switches to Audio.
+Returning from a Work Details Screen to a search started in the player preserves
+the search's filters, page, and scroll position.
 _Avoid_: Player details page, audio details page
 
 **Work Audio Chapter (作品音频章节)**:
@@ -207,10 +225,23 @@ An individually playable, named section of an audio work, bounded within the
 complete work's timeline. It is distinct from a separately supplied audio file
 and from a comic chapter.
 
+**Completed Audio (已听完音频)**:
+播放到末尾并结束的单段作品音频。拖动到末尾后结束也算已听完。
+_避免_：作品“听过”标记
+
+**Audio Completion Record (音频完成记录)**:
+本机保存的某个音声源账号听完某段音频的记录。清除播放历史不会清除此记录。
+_避免_：播放历史
+
+**Work Queue Completion (作品队列完成情况)**:
+当前播放队列中一部作品的各段音频，在该队列内的听完情况。
+其他队列的完成情况不计入。
+_避免_：音频完成记录
+
 **Related Recommendations (相关推荐)**:
 Works shown in the rightmost resource tab of an online Work Details Screen,
 ranked using subject tags,
-personal preferences, voice actors, circles, subtitle availability and public
+personal preferences, voice actors, circles, and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
 traditional Chinese and other languages in recommendations.
@@ -222,7 +253,8 @@ _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:
 A preference signal from an account's ratings, replay or marked status, and
-playlist membership. Device playback history is a separate, weaker signal.
+playlist membership. Marks set by Automatic Work Marking are included. Device
+playback history is a separate, weaker signal.
 _Avoid_: Listening history, public rating
 
 **Exploration Recommendation (探索推荐)**:
@@ -231,12 +263,15 @@ candidates to add variety while keeping the same detail visit stable.
 _Avoid_: Random recommendation, refresh result
 
 **Work Resource Tabs (作品资源标签)**:
-The Resources, Audio, Images and Related Recommendations views within a Work
-Details Screen. Related Recommendations is the rightmost tab of online details
-when enabled; Images is present only when the work has resource images. Audio
+The Resources, Audio, Images, Videos, and Related Recommendations views within a
+Work Details Screen. Related Recommendations is the rightmost tab of online
+details when enabled; Images and Videos are present only when the work has
+resource images or videos, respectively. Videos follows Images and precedes
+Related Recommendations. Audio
 contains preferred audio files and their best matching work subtitles, with
 locally generated subtitles available through the same per-audio preview action; Images
-contains the work's resource images, separate from its cover.
+contains the work's resource images, separate from its cover. Videos contains the
+work's resource videos.
 For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapters
 in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
@@ -244,6 +279,14 @@ visit; an unvisited tab starts at the resource section's top.
 Swiping before the tab bar pins preserves its position on screen.
 Pages slide out and in at their own browsing positions throughout the transition.
 _Avoid_: App Tab Bar, Works Home Tab
+
+**Work Resource Video (作品资源视频)**:
+A video file supplied among an audio work's resources, separate from videos
+cataloged by a Video Source.
+
+**Same-folder Work Videos (同文件夹作品视频)**:
+Work Resource Videos directly contained in the same resource folder. Videos in
+child folders belong to their own folder.
 
 **Work Image Viewing (作品图片查看)**:
 Viewing a work's resource images or cover with shared reader controls and settings.
@@ -286,6 +329,11 @@ Each text whose resolved source matches the effective translation target stays
 original while other texts in the same work can be translated. Manual translation
 uses the same policy.
 
+**Text Preview (文本预览)**:
+The reading and editing view for a work's subtitle or other text file, also used
+for subtitles opened from the subtitle library or player. It is distinct from
+the synchronized display in the Player Lyrics Page.
+
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
 Translation is active. Otherwise, work subtitle previews show the original text.
@@ -302,7 +350,12 @@ A two-image spread requires choosing one visible image before saving.
 **Bottom Dock (底部 Dock)**:
 The persistent Mini Player and app navigation shared by browsing pages.
 App navigation stays below the content in portrait and on the left in landscape.
-Full-screen audio playback, comic reading, and full-screen video hide this surface.
+Full-screen audio playback, comic reading, and full-screen video hide this surface
+when fully open. During landscape audio player transitions, the player covers or
+uncovers the stationary left navigation. Navigation becomes interactive after
+the player finishes closing. The Bottom Dock stays hidden while the full-screen
+audio player is fully open, including when Cover Preview or a lyric text preview
+is open.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:
@@ -323,6 +376,8 @@ _Avoid_: Playlist Add Mode, 播放列表添加模式
 **Player Audio Details Page (播放器音频详情页)**:
 The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.
+Opening a metadata search closes the player, shows the Mini Player, and switches
+to Audio.
 _Avoid_: Player details page, work details page
 
 **Audio Subtitle Language (音频字幕语言)**:
@@ -538,6 +593,10 @@ One built-in provider of comic metadata, chapter images and optional account
 features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.
 Credentials, capabilities, and network parsing belong to the source.
 _Avoid_: audio server, custom script
+
+**Comic Tag (漫画标签)**:
+A source-provided classification of a comic. A translated name refers to the
+same Comic Tag; searches use the name supplied by the Comic Source.
 
 **Local Favorite (本地收藏)**:
 A comic saved in the device's comic database, independent of all accounts.

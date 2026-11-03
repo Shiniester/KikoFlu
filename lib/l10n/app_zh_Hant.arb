@@ -133,6 +133,11 @@
   "minRatingStars": "{stars} 星",
 
   "searchHistory": "搜尋歷史",
+  "searchUpdating": "正在更新搜尋結果…",
+  "searchUpdateFailedShowingPrevious": "更新失敗，顯示上一次的搜尋結果。",
+  "searchLegacyHistory": "舊搜尋歷史（範圍未知）",
+  "searchHistoryNotSaved": "搜尋歷史無法儲存，新增內容只保留到應用程式關閉。",
+  "clearCurrentSearchHistoryConfirm": "確定清除目前範圍的搜尋歷史嗎？",
   "clearSearchHistory": "清除搜尋歷史",
   "clearSearchHistoryConfirm": "確定要清除所有搜尋歷史嗎？",
   "clear": "清除",
@@ -332,6 +337,8 @@
   "selectSubtitlePriority": "選擇字幕庫在自動載入中的優先順序：",
   "subtitlePriorityHighestDesc": "優先查找字幕庫，再查找線上/下載",
   "subtitlePriorityLowestDesc": "優先查找線上/下載，再查找字幕庫",
+  "autoSearchLastSubtitleQuery": "自動搜尋上次關鍵字",
+  "autoSearchLastSubtitleQueryDesc": "開啟文字預覽時搜尋上次使用的關鍵字。",
   "translationSourceSettings": "翻譯源設定",
   "selectTranslationProvider": "選擇翻譯服務提供商：",
   "translationTargetLanguage": "目標語言",
@@ -1483,6 +1490,9 @@
   "videoDetailActors": "演員",
   "videoDetailCreators": "廠商 | 品牌 | 系列",
   "videoSearchHint": "搜尋影片",
+  "videoSearchLoadedDirectoryPagesHint": "僅比對已載入的目錄頁面。",
+  "videoSearchSelectFilterBeforeSearch": "請先選取目錄候選項。",
+  "videoSearchBrowseAllDirectory": "瀏覽完整目錄。",
   "videoSourceAccount": "MissAV 帳號",
   "videoCatalog": "影片目錄",
   "videoContent": "內容",
@@ -1653,5 +1663,11 @@
   "audioSlicePosition": "播放位置",
   "audioSliceCurrent": "目前切片",
   "audioSliceSelected": "選取的切片",
-  "audioSliceEndpointAction": "{endpoint}：{action}"
+  "audioSliceEndpointAction": "{endpoint}：{action}",
+  "automaticWorkMarking": "自動標記音聲作品",
+  "automaticWorkMarkingDescription": "根據加入清單、播放和完成狀態更新標記。需要登入帳號。離線更新無法確認安全同步時會被放棄。",
+  "clearAudioCompletionHistory": "清除音訊完成記錄",
+  "clearAudioCompletionHistoryDescription": "僅清除此帳號在本機的音訊完成記錄，保留線上標記和播放歷史。",
+  "audioCompletionHistoryCleared": "已清除音訊完成記錄",
+  "automaticMarkingConflict": "自動標記無法安全同步，已放棄此更新並保留帳號線上標記。"
 }

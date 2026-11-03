@@ -67,26 +67,6 @@ void main() {
     expect(copiedTitle, 'Translated Title');
   });
 
-  testWidgets('renders external link action when enabled', (tester) async {
-    var openCount = 0;
-
-    await tester.pumpWidget(
-      _host(
-        WorkTitleHeader(
-          title: 'Original Title',
-          showExternalLink: true,
-          onOpenExternalLink: () => openCount++,
-        ),
-      ),
-    );
-
-    expect(find.byIcon(Icons.open_in_new), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.open_in_new));
-
-    expect(openCount, 1);
-  });
-
   testWidgets('can hide translate button', (tester) async {
     await tester.pumpWidget(
       _host(

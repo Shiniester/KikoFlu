@@ -80,6 +80,173 @@ void main() {
     },
   );
 
+  test('accepts supported audio extensions at the generation gate', () async {
+    final audioPath = p.join(temporaryDirectory.path, 'voice.data');
+    await File(audioPath).writeAsBytes([1, 2, 3]);
+    final transcriber = _FakeTranscriber();
+    final service = AudioSubtitleGenerationService(
+      modelStore: _FakeModelStore(),
+      transcriber: transcriber,
+      subtitleStore: _FakeGeneratedSubtitleStore(),
+      candidateRepository: _candidateRepository(const []),
+    );
+    const extensions = [
+      '.mp3',
+      '.wav',
+      '.flac',
+      '.aac',
+      '.m4a',
+      '.ogg',
+      '.opus',
+    ];
+
+    for (final extension in extensions) {
+      final result = await service.generate(
+        _request(audioPath: audioPath, title: 'voice$extension'),
+        CancelToken(),
+        (_, _) {},
+      );
+      expect(
+        result.status,
+        AudioSubtitleGenerationStatus.completed,
+        reason: '$extension must pass the extension gate',
+      );
+    }
+
+    expect(transcriber.audioPaths, List.filled(extensions.length, audioPath));
+  });
+
+  test('rejects invalid formats, including standalone HLS playlists', () async {
+    var downloadCalls = 0;
+    final modelStore = _FakeModelStore();
+    final transcriber = _FakeTranscriber();
+    final service = AudioSubtitleGenerationService(
+      modelStore: modelStore,
+      transcriber: transcriber,
+      subtitleStore: _FakeGeneratedSubtitleStore(),
+      candidateRepository: _candidateRepository(const []),
+      audioDownloader:
+          ({
+            required request,
+            required fileName,
+            required relativePath,
+            required downloadUrl,
+            required hash,
+            required totalBytes,
+            required cancelToken,
+            required onProgress,
+          }) async {
+            downloadCalls++;
+            return '/unexpected/$fileName';
+          },
+    );
+
+    for (final extension in ['.m3u8', '.txt']) {
+      final result = await service.generate(
+        _request(
+          title: 'voice$extension',
+          downloadUrl: 'https://example.test/voice$extension',
+        ),
+        CancelToken(),
+        (_, _) {},
+      );
+      expect(result.status, AudioSubtitleGenerationStatus.unsupported);
+    }
+
+    expect(downloadCalls, 0);
+    expect(modelStore.calls, 0);
+    expect(transcriber.audioPaths, isEmpty);
+  });
+
+  test(
+    'passes Japanese ASMR chapter playlist bounds to the download path',
+    () async {
+      const playlistUrl = 'https://jp.example/audio.m3u8';
+      const chapterTrack = AudioTrack(
+        id: 'jp-151342-chapter-5000',
+        title: '01 - Chapter.aac',
+        url: playlistUrl,
+        album: 'Japanese ASMR work',
+        workId: -151342,
+        hash: 'jp-151342-chapter-5000',
+        startTimeMs: 5000,
+        endTimeMs: 12000,
+      );
+      final downloads =
+          <
+            ({
+              AudioTrack track,
+              String fileName,
+              String downloadUrl,
+              String? hash,
+            })
+          >[];
+      final fileTree = <dynamic>[
+        {
+          'type': 'audio',
+          'title': '01 - Chapter.aac',
+          'hash': 'jp-151342-chapter-5000',
+          'mediaStreamUrl': playlistUrl,
+          'mediaDownloadUrl': playlistUrl,
+          'startTimeMs': 5000,
+          'endTimeMs': 12000,
+        },
+        {
+          'type': 'audio',
+          'title': '02 - Next chapter.aac',
+          'hash': 'jp-151342-chapter-12000',
+          'mediaStreamUrl': playlistUrl,
+          'mediaDownloadUrl': playlistUrl,
+          'startTimeMs': 12000,
+        },
+      ];
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: _FakeTranscriber(),
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((
+                track: request.track,
+                fileName: fileName,
+                downloadUrl: downloadUrl,
+                hash: hash,
+              ));
+              return '/input/$fileName';
+            },
+      );
+
+      final result = await service.generate(
+        AudioSubtitleRequest(
+          track: chapterTrack,
+          fileTree: fileTree,
+          downloadUrl: playlistUrl,
+        ),
+        CancelToken(),
+        (_, _) {},
+      );
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, hasLength(1));
+      expect(identical(downloads.single.track, chapterTrack), isTrue);
+      expect(downloads.single.fileName, '01 - Chapter.aac');
+      expect(downloads.single.downloadUrl, playlistUrl);
+      expect(downloads.single.hash, 'jp-151342-chapter-5000');
+      expect(downloads.single.track.startTimeMs, 5000);
+      expect(downloads.single.track.endTimeMs, 12000);
+    },
+  );
+
   test(
     'reuses the complete original file before considering an MP3 alternative',
     () async {

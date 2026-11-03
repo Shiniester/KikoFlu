@@ -233,16 +233,28 @@ class HtSource extends ComicSource {
         data: {'favc_id': folder},
       );
     } else {
-      final record = comic.extra['favoriteId'];
+      final record = await _favoriteRecord(comic.id);
       if (record == null) {
-        throw const ComicSourceException(
-          'Remove this item from its online favorites list.',
-        );
+        return;
       }
       await http.request(
         '$website/users-fav_del-id-$record.html?ajax=true',
         headers: headers,
       );
     }
+  }
+
+  Future<String?> _favoriteRecord(String comicId) async {
+    String? cursor;
+    do {
+      final page = await favorites(cursor: cursor);
+      final record = page.items
+          .where((comic) => comic.id == comicId)
+          .firstOrNull
+          ?.extra['favoriteId'];
+      if (record != null) return record.toString();
+      cursor = page.next;
+    } while (cursor != null);
+    return null;
   }
 }

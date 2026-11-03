@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,11 +21,13 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/work_detail_display_provider.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/widgets/add_to_playlist_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
@@ -32,7 +35,6 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_stats_section.dart'
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_progress_action_button.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_extra_sections.dart';
 
 class _Api extends KikoeruApiService {
   _Api({this.events});
@@ -98,9 +100,19 @@ class _RefreshApi extends KikoeruApiService {
 }
 
 class _Auth extends AuthNotifier {
-  _Auth() : super(_Api()) {
-    state = const AuthState(host: 'https://detail.invalid');
+  _Auth({String host = 'https://detail.invalid'}) : super(_Api()) {
+    state = AuthState(host: host);
   }
+}
+
+class _PlaylistApi extends _Api {
+  @override
+  Future<Map<String, dynamic>> getUserPlaylists({
+    int page = 1,
+    int pageSize = 20,
+    String filterBy = 'all',
+    CancelToken? cancelToken,
+  }) async => {'playlists': []};
 }
 
 class _EmptyAuth extends AuthNotifier {
@@ -189,6 +201,22 @@ Future<void> _pumpFrames(WidgetTester tester, {int count = 4}) async {
 }
 
 void main() {
+  setUpAll(() async {
+    final fonts =
+        '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';
+    final fontBytes = await Directory(fonts)
+        .listSync()
+        .whereType<File>()
+        .singleWhere(
+          (file) =>
+              file.uri.pathSegments.last.toLowerCase() == 'roboto-bold.ttf',
+        )
+        .readAsBytes();
+    await (FontLoader(
+      'DetailHeaderRoboto',
+    )..addFont(Future.value(ByteData.sublistView(fontBytes)))).load();
+  });
+
   setUp(() {
     CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
     addTearDown(() {
@@ -196,6 +224,302 @@ void main() {
       PaintingBinding.instance.imageCache.clearLiveImages();
     });
   });
+  for (final scenario in [
+    (
+      size: const Size(320, 640),
+      id: 12345678,
+      initialUrl: null,
+      progress: 'listening',
+    ),
+    (
+      size: const Size(320, 640),
+      id: 12345678,
+      initialUrl: 'https://example.test/initial',
+      progress: null,
+    ),
+    (
+      size: const Size(1000, 600),
+      id: 12345678,
+      initialUrl: 'https://example.test/initial',
+      progress: 'listening',
+    ),
+    (
+      size: const Size(320, 640),
+      id: -99,
+      initialUrl: 'https://example.test/initial',
+      progress: null,
+    ),
+  ]) {
+    testWidgets('detail source action follows its URL for $scenario', (
+      tester,
+    ) async {
+      tester.view.physicalSize = scenario.size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({
+        'server_host': 'https://api.asmr.one',
+      });
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final api = _Api();
+      final navigator = GlobalKey<NavigatorState>();
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(
+            (ref) => _Auth(host: 'https://api.asmr.one'),
+          ),
+          kikoeruApiServiceProvider.overrideWithValue(api),
+          currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+        ],
+      );
+      const channel = MethodChannel('plugins.flutter.io/url_launcher');
+      final launchedUrls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        if (call.method == 'launch') {
+          launchedUrls.add((call.arguments as Map)['url'] as String);
+          return true;
+        }
+        return null;
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        container.dispose();
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        );
+      });
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            theme: ThemeData(fontFamily: 'DetailHeaderRoboto'),
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: const Scaffold(),
+          ),
+        ),
+      );
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => WorkDetailScreen(
+            work: Work(
+              id: scenario.id,
+              title: 'Source work',
+              sourceUrl: scenario.initialUrl,
+              progress: scenario.progress,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 450));
+      await tester.pump();
+      final s = S.of(tester.element(find.byType(WorkDetailScreen)));
+      expect(find.byType(BackButton), findsOneWidget);
+      final source = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byTooltip(s.openInBrowser),
+      );
+      final previousAction = scenario.id < 0
+          ? find.byTooltip(s.download)
+          : find.byType(WorkProgressActionButton);
+      final actions = [
+        find.byTooltip(s.download),
+        if (scenario.id > 0) find.byTooltip(s.addToPlaylist),
+        if (scenario.id > 0)
+          find.descendant(
+            of: find.byType(WorkProgressActionButton),
+            matching: find.byType(IconButton),
+          ),
+        if (scenario.initialUrl != null) source,
+      ];
+      if (scenario.id > 0) {
+        final title = find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('RJ${scenario.id}'),
+        );
+        expect(title, findsOneWidget);
+        expect(tester.widget<Text>(title).style?.fontSize, 18);
+        expect(
+          tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
+          isFalse,
+        );
+        expect(
+          tester.getRect(title).width,
+          closeTo(tester.getSize(title).width, 0.1),
+        );
+        final titleRect = tester.getRect(title);
+        expect(
+          titleRect.left - tester.getRect(find.byType(BackButton)).right,
+          closeTo(0, 0.1),
+        );
+        expect(
+          titleRect.right,
+          lessThanOrEqualTo(tester.getRect(actions.first).left),
+        );
+      }
+      for (final action in actions) {
+        final button = find.ancestor(
+          of: action,
+          matching: find.byType(IconButton),
+          matchRoot: true,
+        );
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        final icon = find.descendant(of: button, matching: find.byType(Icon));
+        expect(tester.getSize(icon), const Size(24, 24));
+      }
+      for (var index = 1; index < actions.length; index++) {
+        expect(
+          tester.getCenter(actions[index]).dx -
+              tester.getCenter(actions[index - 1]).dx,
+          closeTo(40, 0.1),
+        );
+      }
+      if (scenario.initialUrl == null) {
+        expect(source, findsNothing);
+      } else {
+        expect(source, findsOneWidget);
+        expect(
+          tester.getCenter(source).dx,
+          greaterThan(tester.getCenter(previousAction).dx),
+        );
+        expect(
+          tester.getRect(source).right,
+          lessThanOrEqualTo(scenario.size.width),
+        );
+        await tester.tap(source);
+        await tester.pump();
+        expect(launchedUrls.last, scenario.initialUrl);
+      }
+      expect(tester.takeException(), isNull);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      await _pumpUntil(tester, () => api.workRequests > 0);
+      expect(api.workRequests, 1);
+      api.metadata.complete({
+        'id': scenario.id,
+        'title': 'Updated source work',
+        'source_url': 'https://example.test/updated',
+        'progress': 'listened',
+      });
+      api.tracks.complete([]);
+      final updatedTitle = find.byWidgetPredicate(
+        (widget) =>
+            widget is WorkTitleHeader && widget.title == 'Updated source work',
+      );
+      await _pumpUntil(
+        tester,
+        () => updatedTitle.evaluate().isNotEmpty,
+        maxFrames: 100,
+      );
+      expect(updatedTitle, findsOneWidget);
+      expect(source, findsOneWidget);
+      expect(
+        tester.getCenter(source).dx,
+        greaterThan(tester.getCenter(previousAction).dx),
+      );
+      expect(
+        tester.getRect(source).right,
+        lessThanOrEqualTo(scenario.size.width),
+      );
+      await tester.tap(source);
+      await tester.pump();
+      expect(launchedUrls.last, 'https://example.test/updated');
+      expect(
+        find.descendant(
+          of: find.byType(WorkTitleHeader),
+          matching: find.byIcon(Icons.open_in_new),
+        ),
+        findsNothing,
+      );
+
+      await container
+          .read(workDetailDisplayProvider.notifier)
+          .toggleExternalLinks();
+      await tester.pump();
+      expect(source, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final scenario in [
+    (host: 'https://api.asmr.one', workId: 99, available: true),
+    (host: 'https://detail.invalid', workId: 99, available: false),
+    (host: 'https://api.asmr.one', workId: -99, available: false),
+  ]) {
+    testWidgets('detail playlist action for $scenario', (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      });
+      SharedPreferences.setMockInitialValues({'server_host': scenario.host});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final api = _PlaylistApi();
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authProvider.overrideWith((ref) => _Auth(host: scenario.host)),
+            kikoeruApiServiceProvider.overrideWithValue(api),
+            currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+          ],
+          child: MaterialApp(
+            navigatorKey: navigator,
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: const Scaffold(),
+          ),
+        ),
+      );
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => WorkDetailScreen(
+            work: Work(
+              id: scenario.workId,
+              title: 'Playlist work',
+              progress: 'postponed',
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      final s = S.of(tester.element(find.byType(WorkDetailScreen)));
+      final playlist = find.byTooltip(s.addToPlaylist);
+      if (scenario.available) {
+        expect(playlist, findsOneWidget);
+        expect(
+          tester.getCenter(playlist).dx,
+          lessThan(tester.getCenter(find.byType(WorkProgressActionButton)).dx),
+        );
+        await tester.tap(playlist);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        final dialog = tester.widget<AddToPlaylistDialog>(
+          find.byType(AddToPlaylistDialog),
+        );
+        expect(dialog.workId, scenario.workId);
+        expect(dialog.workTitle, 'Playlist work');
+      } else {
+        expect(playlist, findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('detail keeps the list cover until its entrance finishes', (
     tester,
   ) async {
@@ -1458,6 +1782,13 @@ void main() {
     expect(find.text('Known circle'), findsOneWidget);
     expect(find.text('Known VA'), findsOneWidget);
     expect(find.text('Known tag'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(WorkStatsSection),
+        matching: find.text('2026-09-30'),
+      ),
+      findsOneWidget,
+    );
     await _pumpUntil(tester, () => api.workRequests == 1);
     api.metadata.complete({
       'id': 660,
@@ -1478,12 +1809,7 @@ void main() {
           .name,
       isNull,
     );
-    expect(
-      tester
-          .widget<WorkReleaseDateSection>(find.byType(WorkReleaseDateSection))
-          .release,
-      isNull,
-    );
+    expect(find.text('2026-09-30'), findsNothing);
     expect(api.workRequests, 1);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

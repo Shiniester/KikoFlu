@@ -10,27 +10,19 @@ class FileTreeActions extends StatelessWidget {
   const FileTreeActions({
     super.key,
     required this.entry,
-    this.onPlayAudio,
-    this.onPlayVideo,
     this.onLoadSubtitle,
-    this.onPreviewImage,
     this.onPreviewText,
     this.onPreviewPdf,
     this.onDelete,
-    this.showPlaybackActions = true,
     this.showPreviewActions = true,
     this.showDeleteAction = false,
   });
 
   final FileTreeEntry entry;
-  final FileTreeActionHandler? onPlayAudio;
-  final FileTreeActionHandler? onPlayVideo;
   final FileTreeActionHandler? onLoadSubtitle;
-  final FileTreeActionHandler? onPreviewImage;
   final FileTreeActionHandler? onPreviewText;
   final FileTreeActionHandler? onPreviewPdf;
   final FileTreeActionHandler? onDelete;
-  final bool showPlaybackActions;
   final bool showPreviewActions;
   final bool showDeleteAction;
 
@@ -39,11 +31,6 @@ class FileTreeActions extends StatelessWidget {
     if (entry.isFolder) return const SizedBox.shrink();
 
     final item = entry.item;
-
-    if (showPlaybackActions) {
-      final playbackAction = _buildPlaybackAction(item);
-      if (playbackAction != null) return playbackAction;
-    }
 
     final actions = <Widget>[
       if (_canLoadAsSubtitle(item))
@@ -74,32 +61,7 @@ class FileTreeActions extends StatelessWidget {
 
     if (actions.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: actions,
-    );
-  }
-
-  Widget? _buildPlaybackAction(dynamic item) {
-    if (FileIconUtils.isAudioFile(item) && onPlayAudio != null) {
-      return IconButton(
-        onPressed: () => onPlayAudio?.call(item, entry.parentPath),
-        icon: const Icon(Icons.play_arrow),
-        color: Colors.green,
-        iconSize: 20,
-      );
-    }
-
-    if (FileIconUtils.isVideoFile(item) && onPlayVideo != null) {
-      return IconButton(
-        onPressed: () => onPlayVideo?.call(item, entry.parentPath),
-        icon: const Icon(Icons.video_library),
-        color: Colors.blue,
-        iconSize: 20,
-      );
-    }
-
-    return null;
+    return Row(mainAxisSize: MainAxisSize.min, children: actions);
   }
 
   bool _canLoadAsSubtitle(dynamic item) {
@@ -109,15 +71,11 @@ class FileTreeActions extends StatelessWidget {
   }
 
   bool _isPreviewable(dynamic item) {
-    return FileIconUtils.isImageFile(item) ||
-        FileIconUtils.isTextFile(item) ||
-        FileIconUtils.isPdfFile(item);
+    return FileIconUtils.isTextFile(item) || FileIconUtils.isPdfFile(item);
   }
 
   void _preview(dynamic item) {
-    if (FileIconUtils.isImageFile(item)) {
-      onPreviewImage?.call(item, entry.parentPath);
-    } else if (FileIconUtils.isPdfFile(item)) {
+    if (FileIconUtils.isPdfFile(item)) {
       onPreviewPdf?.call(item, entry.parentPath);
     } else {
       onPreviewText?.call(item, entry.parentPath);

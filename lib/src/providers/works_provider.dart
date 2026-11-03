@@ -9,6 +9,7 @@ import '../models/japanese_asmr_browse.dart';
 import '../models/search_type.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
+import '../services/storage_service.dart';
 import 'auth_provider.dart';
 import 'settings_provider.dart';
 import '../models/sort_options.dart';
@@ -240,6 +241,10 @@ class WorksState extends Equatable {
 // Works notifier
 class WorksNotifier extends StateNotifier<WorksState> {
   static const String layoutPreferenceKey = 'works_layout_type';
+  static String _sortOptionPreferenceKey(AudioSource source) =>
+      'works_sort_option_${source.name}';
+  static String _sortDirectionPreferenceKey(AudioSource source) =>
+      'works_sort_direction_${source.name}';
 
   final KikoeruApiService _apiService;
   final Ref _ref;
@@ -254,7 +259,66 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   WorksNotifier(this._apiService, this._ref, {int initialPageSize = 40})
     : super(WorksState(basePageSize: initialPageSize)) {
+    _loadSortPreferences();
     _loadLayoutPreference();
+  }
+
+  void _loadSortPreferences() {
+    final asmrOneSortOption = SortOrder.values.firstWhere(
+      (option) =>
+          option.name ==
+          StorageService.getString(
+            _sortOptionPreferenceKey(AudioSource.asmrOne),
+          ),
+      orElse: () => SortOrder.release,
+    );
+    final asmrOneSortDirection = SortDirection.values.firstWhere(
+      (direction) =>
+          direction.name ==
+          StorageService.getString(
+            _sortDirectionPreferenceKey(AudioSource.asmrOne),
+          ),
+      orElse: () => SortDirection.desc,
+    );
+    final japaneseAsmrSortOption = JapaneseAsmrSortOption.values.firstWhere(
+      (option) =>
+          option.name ==
+          StorageService.getString(
+            _sortOptionPreferenceKey(AudioSource.jpAsmr),
+          ),
+      orElse: () => JapaneseAsmrSortOption.date,
+    );
+    final japaneseAsmrSortDirection = SortDirection.values.firstWhere(
+      (direction) =>
+          direction.name ==
+          StorageService.getString(
+            _sortDirectionPreferenceKey(AudioSource.jpAsmr),
+          ),
+      orElse: () => SortDirection.desc,
+    );
+
+    state = state.copyWith(
+      sortOption: _normalizedSortOption(asmrOneSortOption),
+      sortDirection: asmrOneSortDirection,
+      japaneseAsmrSortOption: japaneseAsmrSortOption,
+      japaneseAsmrDirection: japaneseAsmrSortDirection,
+    );
+  }
+
+  void _saveSortPreference(
+    AudioSource source,
+    Enum option,
+    SortDirection direction,
+  ) {
+    unawaited(
+      StorageService.setString(_sortOptionPreferenceKey(source), option.name),
+    );
+    unawaited(
+      StorageService.setString(
+        _sortDirectionPreferenceKey(source),
+        direction.name,
+      ),
+    );
   }
 
   Future<void> _loadLayoutPreference() async {
@@ -569,6 +633,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
     final normalizedAgeRating = option == SortOrder.nsfw
         ? AgeRating.general
         : ageRating;
+    final sortChanged =
+        state.sortOption != normalizedOption ||
+        state.sortDirection != direction;
     if (state.sortOption == normalizedOption &&
         state.sortDirection == direction &&
         state.asmrOneAgeRating == normalizedAgeRating) {
@@ -579,6 +646,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
       sortDirection: direction,
       asmrOneAgeRating: normalizedAgeRating,
     );
+    if (sortChanged) {
+      _saveSortPreference(AudioSource.asmrOne, normalizedOption, direction);
+    }
     refresh(resetPage: true);
   }
 
@@ -595,6 +665,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
     SortDirection direction,
     AgeRating ageRating,
   ) {
+    final sortChanged =
+        state.japaneseAsmrSortOption != option ||
+        state.japaneseAsmrDirection != direction;
     if (state.japaneseAsmrSortOption == option &&
         state.japaneseAsmrDirection == direction &&
         state.japaneseAsmrAgeRating == ageRating) {
@@ -605,6 +678,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
       japaneseAsmrDirection: direction,
       japaneseAsmrAgeRating: ageRating,
     );
+    if (sortChanged) {
+      _saveSortPreference(AudioSource.jpAsmr, option, direction);
+    }
     refresh(resetPage: true);
   }
 

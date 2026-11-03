@@ -1,21 +1,23 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/work.dart';
+import '../models/download_task.dart';
 import '../services/download_path_service.dart';
 import '../services/download_service.dart';
 import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_match_loader.dart';
+import '../services/subtitle_library_service.dart';
 import '../services/audio_playback_plan_builder.dart';
 import '../services/file_preview_resolver.dart';
 import '../services/file_size_resolver.dart';
 import '../services/audio_file_url_resolver.dart';
-import '../services/video_file_opener.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/file_name_translation_service.dart';
@@ -24,10 +26,12 @@ import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../providers/audio_provider.dart';
 import '../providers/audio_subtitle_generation_provider.dart';
+import '../providers/download_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/snackbar_util.dart';
+import '../utils/string_utils.dart';
 import 'app_navigation_scope.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
@@ -37,12 +41,13 @@ import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
+import 'app_bottom_dock_transition.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
-import 'video_open_failure_dialog.dart';
 import 'responsive_dialog.dart';
 import '../../l10n/app_localizations.dart';
+import '../videos/ui/work_video_playback_screen.dart';
 
 final _log = LogService.instance;
 
@@ -84,7 +89,10 @@ class _OfflineFileExplorerWidgetState
   bool _audioVariantsReady = false;
   int _preferenceUpdateGeneration = 0;
   late final FileListController _fileListController;
+  StreamSubscription<void>? _subtitleUpdates;
   int _loadGeneration = 0;
+  bool _subtitleScanRequested = false;
+  Future<bool>? _subtitleScanTask;
   String? _workDirPath;
   List<String> _visibleNames = const [];
 
@@ -111,7 +119,6 @@ class _OfflineFileExplorerWidgetState
     resolveCachedAudioPath: (_) async => null,
   );
 
-  final VideoFileOpener _videoFileOpener = VideoFileOpener();
   final SubtitleMatchLoader _subtitleMatchLoader = const SubtitleMatchLoader();
   final FileExplorerTapResolver _tapResolver = const FileExplorerTapResolver(
     videoBeforeAudio: false,
@@ -129,6 +136,11 @@ class _OfflineFileExplorerWidgetState
     _fileListController = ref.read(fileListControllerProvider.notifier);
     ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
       unawaited(_syncPreferredExpandedFolders(preference));
+    });
+    _subtitleUpdates = SubtitleLibraryService.onCacheUpdated.listen((_) {
+      if (_workDirPath != null) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
     });
     _loadLocalFiles();
   }
@@ -153,6 +165,7 @@ class _OfflineFileExplorerWidgetState
   void dispose() {
     _loadGeneration++;
     _translationController.dispose();
+    unawaited(_subtitleUpdates?.cancel());
     // 离线页面关闭时清空文件列表，避免影响其他作品
     // 使用 Future.microtask 延迟执行，避免在 dispose 中直接修改 provider
     Future.microtask(() => _fileListController.clear(workId: widget.work.id));
@@ -253,31 +266,88 @@ class _OfflineFileExplorerWidgetState
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕
-  Future<bool> _checkLibrarySubtitles(int generation) async {
+  Future<bool> _checkLibrarySubtitles(int generation) {
+    _subtitleScanRequested = true;
+    final running = _subtitleScanTask;
+    if (running != null) {
+      return running.then(
+        (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+      );
+    }
+    final task = _drainLibrarySubtitleScans();
+    _subtitleScanTask = task;
+    return task.then(
+      (scanSucceeded) => scanSucceeded && _isCurrentLoad(generation),
+    );
+  }
+
+  Future<bool> _drainLibrarySubtitleScans() async {
+    var scanLoadGeneration = _loadGeneration;
+    var workId = widget.work.id;
     try {
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
-      final matches = await _subtitleMatchLoader.loadMatches(
-        workId: widget.work.id,
-        fileTree: _localFiles,
-      );
-      if (!_isCurrentLoad(generation)) return false;
-      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
-        return false;
-      }
+      while (mounted && _subtitleScanRequested) {
+        _subtitleScanRequested = false;
+        scanLoadGeneration = _loadGeneration;
+        workId = widget.work.id;
+        final fileTree = List<dynamic>.of(_localFiles);
+        bool requestIsCurrent() => !_subtitleScanRequested;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _audioWithLibrarySubtitles
-        ..clear()
-        ..addAll(matches);
+        final Set<String> matches;
+        try {
+          matches = await _subtitleMatchLoader.loadMatches(
+            workId: workId,
+            fileTree: fileTree,
+          );
+        } catch (e) {
+          _log.captureOutput('[OfflineFileExplorer] 检查字幕库失败: $e');
+          if (!requestIsCurrent()) continue;
+          return true;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
+        if (!await _waitForLoadReady()) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!_isCurrentLoad(scanLoadGeneration) || workId != widget.work.id) {
+          if (!requestIsCurrent()) continue;
+          return false;
+        }
+        if (!requestIsCurrent()) continue;
 
-      _log.captureOutput(
-        '[OfflineFileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
-      );
+        if (!setEquals(_audioWithLibrarySubtitles, matches)) {
+          setState(() {
+            _audioWithLibrarySubtitles
+              ..clear()
+              ..addAll(matches);
+          });
+        }
+
+        _log.captureOutput(
+          '[OfflineFileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
+        );
+      }
       return true;
     } catch (e) {
       _log.captureOutput('[OfflineFileExplorer] 检查字幕库失败: $e');
-      return _isCurrentLoad(generation);
+      return _isCurrentLoad(scanLoadGeneration) && workId == widget.work.id;
+    } finally {
+      _subtitleScanTask = null;
+      if (mounted && _subtitleScanRequested) {
+        unawaited(_checkLibrarySubtitles(_loadGeneration));
+      }
     }
   }
 
@@ -564,7 +634,7 @@ class _OfflineFileExplorerWidgetState
     switch (result.status) {
       case PreviewImageGalleryStatus.ready:
         final target = result.requireTarget;
-        Navigator.of(context).push(
+        AppNavigationScope.navigatorOf(context).push(
           MaterialPageRoute(
             settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
@@ -658,9 +728,46 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  Future<void> _playVideoWithSystemPlayer(dynamic videoFile) async {
-    final l10n = S.of(context);
+  Future<void> _playVideo(dynamic videoFile, String parentPath) async {
+    WorkVideoPlaybackSource? source;
+    try {
+      source = await _resolveVideoPlaybackSource(
+        context,
+        videoFile,
+        parentPath,
+      );
+    } on WorkVideoPlaybackResolutionError catch (error) {
+      if (mounted) SnackBarUtil.showError(context, error.message);
+      return;
+    }
+    if (!mounted || source == null) return;
+    final resolvedSource = source;
+    final siblingVideos = FileTreeUtils.videoFilesInDirectory(
+      _localFiles,
+      parentPath,
+      videoBeforeAudio: false,
+    );
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => WorkVideoPlaybackScreen(
+        videoId: resolvedSource.videoId,
+        fileIdentity: resolvedSource.fileIdentity,
+        fileName: resolvedSource.fileName,
+        folderPath: resolvedSource.folderPath,
+        localPath: resolvedSource.localPath,
+        siblingVideos: siblingVideos,
+        resolveSibling: (context, video) =>
+            _resolveVideoPlaybackSource(context, video.file, video.parentPath),
+      ),
+    );
+  }
 
+  Future<WorkVideoPlaybackSource?> _resolveVideoPlaybackSource(
+    BuildContext targetContext,
+    dynamic videoFile,
+    String parentPath,
+  ) async {
+    final l10n = S.of(targetContext);
     final targetResult = await _previewResolver.resolveOfflineVideoTarget(
       file: videoFile,
       fileTree: _localFiles,
@@ -668,57 +775,54 @@ class _OfflineFileExplorerWidgetState
       workDirPath: _workDirPath,
     );
 
-    if (!mounted) return;
+    if (!mounted || !targetContext.mounted) return null;
 
     switch (targetResult.status) {
       case PreviewVideoTargetStatus.ready:
         final target = targetResult.requireTarget;
-        final result = await _videoFileOpener.open(target.source);
-        if (!mounted) return;
-
-        _handleLocalVideoOpenResult(result, fallbackPath: target.localPath);
-        return;
-      case PreviewVideoTargetStatus.missingId:
-        SnackBarUtil.showError(context, l10n.cannotPlayVideoMissingId);
-        return;
-      case PreviewVideoTargetStatus.missingPath:
-        SnackBarUtil.showError(context, l10n.cannotFindFilePath);
-        return;
-      case PreviewVideoTargetStatus.missingFile:
-        SnackBarUtil.showError(context, l10n.videoFileNotExist);
-        return;
-      case PreviewVideoTargetStatus.missingParams:
-        return;
-    }
-  }
-
-  void _handleLocalVideoOpenResult(
-    VideoOpenResult result, {
-    required String? fallbackPath,
-  }) {
-    final l10n = S.of(context);
-
-    switch (result.type) {
-      case VideoOpenResultType.success:
-        return;
-      case VideoOpenResultType.localOpenFailed:
-        showDialog(
-          context: context,
-          builder: (context) => VideoOpenFailureDialog.local(
-            errorMessage: result.message ?? '',
-            filePath: result.path ?? fallbackPath ?? '',
+        final title = FileTreeUtils.titleOf(
+          videoFile,
+          defaultValue: l10n.unknown,
+        );
+        final downloadTask = ref
+            .read(downloadServiceProvider)
+            .taskById(
+              DownloadTask.createId(
+                workId: widget.work.id,
+                hash: FileTreeUtils.property(videoFile, 'hash')?.toString(),
+                fileName: FileTreeUtils.localRelativePathOf(
+                  videoFile,
+                  parentPath,
+                ),
+              ),
+            );
+        final sourceIdentity = workVideoSourceIdentity(
+          workId: widget.work.id,
+          localPath: target.localPath,
+          downloadUrl: downloadTask?.status == DownloadStatus.completed
+              ? downloadTask?.downloadUrl
+              : null,
+        );
+        final fileIdentity = FileTreeUtils.itemPath(parentPath, videoFile);
+        return WorkVideoPlaybackSource(
+          videoId: workVideoPlaybackId(
+            sourceIdentity: sourceIdentity,
+            workId: widget.work.id,
+            fileIdentity: fileIdentity,
           ),
+          fileIdentity: fileIdentity,
+          fileName: title,
+          folderPath: parentPath,
+          localPath: target.localPath,
         );
-        return;
-      case VideoOpenResultType.localOpenError:
-        SnackBarUtil.showError(
-          context,
-          l10n.openVideoFileError(result.message ?? ''),
-        );
-        return;
-      case VideoOpenResultType.remoteCannotLaunch:
-      case VideoOpenResultType.remoteOpenError:
-        return;
+      case PreviewVideoTargetStatus.missingId:
+        throw WorkVideoPlaybackResolutionError(l10n.cannotPlayVideoMissingId);
+      case PreviewVideoTargetStatus.missingPath:
+        throw WorkVideoPlaybackResolutionError(l10n.cannotFindFilePath);
+      case PreviewVideoTargetStatus.missingFile:
+        throw WorkVideoPlaybackResolutionError(l10n.videoFileNotExist);
+      case PreviewVideoTargetStatus.missingParams:
+        return null;
     }
   }
 
@@ -741,6 +845,9 @@ class _OfflineFileExplorerWidgetState
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioMetadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildAudioDuration,
+      videoBeforeAudio: false,
       trailingBuilder: _buildFileActions,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       showHeader: false,
@@ -753,6 +860,7 @@ class _OfflineFileExplorerWidgetState
     }
     return WorkResourceTabs(
       workId: widget.work.id,
+      videoBeforeAudio: false,
       fileTree: _localFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
@@ -762,10 +870,14 @@ class _OfflineFileExplorerWidgetState
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
+      audioMetadataBuilder: _buildFileMetadata,
+      audioDurationBuilder: _buildAudioDuration,
       audioTrailingBuilder: _buildFileActions,
       onAudioLongPress: _showAudioActionMenu,
+      onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
+      audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final items = await _previewResolver.buildOfflineImageItems(
@@ -794,10 +906,7 @@ class _OfflineFileExplorerWidgetState
         final fileSize = snapshot.hasData
             ? FileSizeResolver.formatBytes(snapshot.data)
             : '';
-        if (fileSize.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
+        if (fileSize.isEmpty) return const SizedBox.shrink();
         return Text(
           fileSize,
           style: TextStyle(fontSize: 11, color: Colors.grey[600]),
@@ -806,10 +915,19 @@ class _OfflineFileExplorerWidgetState
     );
   }
 
+  Widget? _buildAudioDuration(BuildContext context, FileTreeEntry entry) {
+    final duration = FileTreeUtils.property(entry.item, 'duration');
+    final durationText = formatDurationSeconds(duration, padHours: false);
+    if (durationText.isEmpty) return null;
+    return Text(
+      durationText,
+      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+    );
+  }
+
   Widget? _buildFileActions(BuildContext context, FileTreeEntry entry) {
     return FileTreeActions(
       entry: entry,
-      showPlaybackActions: false,
       showPreviewActions: false,
       showDeleteAction: true,
       onLoadSubtitle: (item, _) => _loadLyricManually(item),
@@ -885,7 +1003,7 @@ class _OfflineFileExplorerWidgetState
         _playAudioFile(file, parentPath);
         return;
       case FileExplorerTapAction.video:
-        _playVideoWithSystemPlayer(file);
+        unawaited(_playVideo(file, parentPath));
         return;
       case FileExplorerTapAction.image:
         _previewImageFile(file);
@@ -925,9 +1043,12 @@ class _OfflineFileExplorerWidgetState
       if (mounted) {
         showDialog(
           context: context,
+          useRootNavigator: false,
           barrierDismissible: false,
-          builder: (context) =>
-              const Center(child: CircularProgressIndicator()),
+          builder: (context) => const Center(
+            key: ValueKey('offline-file-delete-progress'),
+            child: CircularProgressIndicator(),
+          ),
         );
       }
 

@@ -87,7 +87,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
        _prepareInitialFrame =
            !skipInitialTransition &&
            initialDismissVisualMode == PlayerDismissVisualMode.secondary,
-       super(settings: appImmersiveRouteSettings);
+       super(settings: appAudioPlayerRouteSettings);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
@@ -105,6 +105,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   late final Animation<double> _controllerAnimation;
   late final CurvedAnimation _automaticVisualAnimation;
   late final ProxyAnimation _visualAnimation;
+
+  @override
+  Animation<double> get visualAnimation => _visualAnimation;
 
   bool get _compactQueueEntry {
     final routeNavigator = navigator;
@@ -449,29 +452,23 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       child: child,
       builder: (context, mode, child) => HeroMode(
         enabled: !reduceMotion && mode == PlayerDismissVisualMode.main,
-        child: _buildVerticalSlide(context, routeAnimation, child!),
+        child: _buildVerticalSlide(routeAnimation, child!),
       ),
     );
   }
 
-  Widget _buildVerticalSlide(
-    BuildContext context,
-    Animation<double> animation,
-    Widget child,
-  ) {
+  Widget _buildVerticalSlide(Animation<double> animation, Widget child) {
     return ClipRect(
-      child: AnimatedBuilder(
-        animation: animation,
-        child: RepaintBoundary(child: child),
-        builder: (context, child) {
-          final height = MediaQuery.sizeOf(context).height;
-          return Transform.translate(
-            key: const ValueKey('player-route-vertical-translation'),
-            offset: Offset(0, height * (1 - animation.value)),
-            transformHitTests: false,
-            child: child,
-          );
-        },
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).animate(animation),
+        transformHitTests: false,
+        child: RepaintBoundary(
+          key: const ValueKey('player-route-vertical-translation'),
+          child: child,
+        ),
       ),
     );
   }

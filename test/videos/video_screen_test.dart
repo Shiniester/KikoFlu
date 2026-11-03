@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,7 +16,9 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
+import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
@@ -1565,18 +1568,23 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
+      await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
+      await tester.pumpAndSettle();
+      final genreType = find.byKey(const ValueKey('video-search-type-genre'));
+      await tester.ensureVisible(genreType);
+      await tester.tap(genreType);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Drama'));
       await tester.pumpAndSettle();
       expect(client.filterOptionKinds, [VideoSearchFilterKind.genre]);
-      expect(client.combinedSearchRequests.last.query, isEmpty);
-      expect(
-        client.combinedSearchRequests.last.filters.single.url,
-        'https://missav.ai/en/genres/drama',
-      );
-      expect(client.combinedSearchRequests.last.current, isTrue);
+      expect(client.combinedSearchRequests, isEmpty);
 
+      final keywordType = find.byKey(
+        const ValueKey('video-search-type-keyword'),
+      );
+      await tester.ensureVisible(keywordType);
+      await tester.tap(keywordType);
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('video-search-input')),
         'keyword',
@@ -1585,6 +1593,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(client.combinedSearchRequests.last.query, 'keyword');
       expect(client.combinedSearchRequests.last.filters.single.label, 'Drama');
+      expect(
+        client.combinedSearchRequests.last.filters.single.url,
+        'https://missav.ai/en/genres/drama',
+      );
       expect(client.combinedSearchRequests.last.current, isTrue);
     },
   );
@@ -2187,6 +2199,127 @@ void main() {
     });
   }
 
+  for (final (path, kind, previousAccount)
+      in <(String, VideoLinkKind?, String?)>[
+        ('saved', null, null),
+        ('saved/actresses', VideoLinkKind.actor, null),
+        ('playlists', VideoLinkKind.playlist, null),
+        ('history', null, null),
+        ('saved', null, 'Previous account'),
+      ]) {
+    testWidgets('account confirmation refreshes an in-flight $path '
+        '(previous account: $previousAccount)', (tester) async {
+      final url = 'https://missav.ai/en/$path';
+      final stalePage = VideoCatalogPage(
+        title: 'Account collection',
+        url: url,
+        videos: previousAccount == null
+            ? const []
+            : const [
+                VideoItem(
+                  id: 'old-video',
+                  title: 'Previous account item',
+                  pageUrl: 'https://missav.ai/en/old-video',
+                ),
+              ],
+      );
+      final freshPage = VideoCatalogPage(
+        title: 'Account collection',
+        url: url,
+        videos: kind == null
+            ? const [
+                VideoItem(
+                  id: 'saved-video',
+                  title: 'Account item',
+                  pageUrl: 'https://missav.ai/en/saved-video',
+                ),
+              ]
+            : const [],
+        links: kind == null
+            ? const []
+            : [
+                VideoLink(
+                  label: 'Account item',
+                  url: kind == VideoLinkKind.actor
+                      ? 'https://missav.ai/en/actresses/example'
+                      : 'https://missav.ai/en/playlists/example',
+                  kind: kind,
+                ),
+              ],
+      );
+      final firstStarted = Completer<void>();
+      final firstResult = Completer<VideoCatalogPage>();
+      var requests = 0;
+      final client = _TestMissavClient(
+        catalog: stalePage,
+        loggedIn: previousAccount != null,
+        accountName: previousAccount,
+        browseHandler: (_, _) {
+          requests++;
+          if (requests == 1) {
+            firstStarted.complete();
+            return firstResult.future;
+          }
+          return Future.value(freshPage);
+        },
+      );
+      addTearDown(() {
+        if (!firstResult.isCompleted) firstResult.complete(stalePage);
+      });
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(client, library, downloads, VideoScreen.catalog(url: url)),
+      );
+      await tester.runAsync(() => firstStarted.future);
+
+      client.confirmAccount('Saved account');
+      expect(requests, 2);
+      await tester.pumpAndSettle();
+      expect(find.text('Account item'), findsOneWidget);
+
+      firstResult.complete(stalePage);
+      await tester.pumpAndSettle();
+
+      expect(client.isLoggedIn, isTrue);
+      expect(find.text('Account item'), findsOneWidget);
+      expect(find.text('Previous account item'), findsNothing);
+    });
+  }
+
+  testWidgets('account confirmed by a collection page reloads once', (
+    tester,
+  ) async {
+    const url = 'https://missav.ai/en/saved/actresses';
+    var requests = 0;
+    final adapter = MissavBrowserAdapter(
+      runJavaScript: (_) async {},
+      currentUrl: () async => 'https://missav.ai/en',
+      navigateDocument: (uri, _) async {
+        requests++;
+        return '''
+<html><body x-data="{user: {name: 'Saved account'}}">
+<main><a href="/en/actresses/example">Account actor</a></main>
+</body></html>
+''';
+      },
+      disposeBrowser: () async {},
+    );
+    final client = MissavClient(secureStorage: _EmptyVideoSecureStorage())
+      ..useVerifiedBrowserTransport(adapter);
+    addTearDown(client.dispose);
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen.catalog(url: url)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(client.isLoggedIn, isTrue);
+    expect(find.text('Account actor'), findsOneWidget);
+    expect(requests, 2);
+  });
+
   testWidgets('logout clears and reloads an account catalog on return', (
     tester,
   ) async {
@@ -2376,6 +2509,65 @@ void main() {
     expect(find.text(l10n.videoOpenSource), findsOneWidget);
   });
 
+  testWidgets('account collection authentication failure prompts login', (
+    tester,
+  ) async {
+    const url = 'https://missav.ai/en/saved';
+    final client = _TestMissavClient(
+      browseError: const MissavAuthenticationException(sourceUrl: url),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen.catalog(url: url)),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoLoginRequired), findsOneWidget);
+  });
+
+  testWidgets('expired browser collection session returns to login', (
+    tester,
+  ) async {
+    const url = 'https://missav.ai/en/saved';
+    var requests = 0;
+    final adapter = MissavBrowserAdapter(
+      runJavaScript: (_) async {},
+      currentUrl: () async => 'https://missav.ai/en',
+      navigateDocument: (uri, cancelled) => navigateMissavDocument(
+        uri,
+        cancelled,
+        navigate: (_) async {
+          requests++;
+        },
+        read: (_) async => {
+          'url': uri.toString(),
+          'html': requests == 1
+              ? '<html><body x-data="{user: {name: \'viewer\'}}"></body></html>'
+              : '<html><body><main></main></body></html>',
+          'responseStatus': requests == 1 ? 200 : 401,
+        },
+        stop: () async {},
+      ),
+      disposeBrowser: () async {},
+    );
+    final client = MissavClient(secureStorage: _EmptyVideoSecureStorage())
+      ..useVerifiedBrowserTransport(adapter);
+    addTearDown(client.dispose);
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen.catalog(url: url)),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(client.isLoggedIn, isFalse);
+    expect(find.text(l10n.videoLoginRequired), findsOneWidget);
+    expect(requests, 3);
+  });
+
   testWidgets('ordinary error does not offer browser verification', (
     tester,
   ) async {
@@ -2483,7 +2675,7 @@ void main() {
 }
 
 Widget _app(
-  _TestMissavClient client,
+  MissavClient client,
   VideoLibrary library,
   VideoDownloads downloads,
   Widget home, {
@@ -2520,6 +2712,14 @@ Widget _app(
 Future<VideoLibrary> _testLibrary() async {
   SharedPreferences.setMockInitialValues({});
   return VideoLibrary(preferences: await SharedPreferences.getInstance());
+}
+
+class _EmptyVideoSecureStorage implements FlutterSecureStorage {
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #read) return Future<String?>.value();
+    return Future<void>.value();
+  }
 }
 
 class _TestMissavClient extends MissavClient {

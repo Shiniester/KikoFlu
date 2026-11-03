@@ -366,6 +366,21 @@ class SJa extends S {
   String get searchHistory => '検索履歴';
 
   @override
+  String get searchUpdating => '検索結果を更新中…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新に失敗しました。前回の検索結果を表示しています。';
+
+  @override
+  String get searchLegacyHistory => '以前の検索（範囲不明）';
+
+  @override
+  String get searchHistoryNotSaved => '検索履歴を保存できません。新しい履歴はアプリを閉じるまで保持されます。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '現在の範囲の検索履歴を消去しますか？';
+
+  @override
   String get clearSearchHistory => '検索履歴をクリア';
 
   @override
@@ -950,6 +965,13 @@ class SJa extends S {
 
   @override
   String get subtitlePriorityLowestDesc => 'オンライン/ダウンロードを優先して検索';
+
+  @override
+  String get autoSearchLastSubtitleQuery => '前回のキーワードを自動検索';
+
+  @override
+  String get autoSearchLastSubtitleQueryDesc =>
+      'テキストプレビューを開くと、前回使用したキーワードを検索します。';
 
   @override
   String get translationSourceSettings => '翻訳ソース設定';
@@ -4291,6 +4313,15 @@ class SJa extends S {
   String get videoSearchHint => '動画を検索';
 
   @override
+  String get videoSearchLoadedDirectoryPagesHint => '読み込み済みの一覧ページのみを検索します。';
+
+  @override
+  String get videoSearchSelectFilterBeforeSearch => '先に一覧の候補を選択してください。';
+
+  @override
+  String get videoSearchBrowseAllDirectory => '一覧をすべて見る。';
+
+  @override
   String get videoSourceAccount => 'MissAV アカウント';
 
   @override
@@ -4828,4 +4859,25 @@ class SJa extends S {
   String audioSliceEndpointAction(String endpoint, String action) {
     return '$endpoint：$action';
   }
+
+  @override
+  String get automaticWorkMarking => '音声作品を自動でマーク';
+
+  @override
+  String get automaticWorkMarkingDescription =>
+      'リストへの追加、再生、再生完了に応じてマークを更新します。ログインが必要です。安全な同期を確認できないオフライン更新は破棄します。';
+
+  @override
+  String get clearAudioCompletionHistory => '音声の再生完了記録を消去';
+
+  @override
+  String get clearAudioCompletionHistoryDescription =>
+      'このアカウントの端末内の再生完了記録だけを消去します。オンラインのマークと再生履歴は保持します。';
+
+  @override
+  String get audioCompletionHistoryCleared => '音声の再生完了記録を消去しました';
+
+  @override
+  String get automaticMarkingConflict =>
+      '自動マークを安全に同期できないため、更新を破棄しました。アカウントのオンラインのマークは保持しました。';
 }

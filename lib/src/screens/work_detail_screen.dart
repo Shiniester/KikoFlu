@@ -19,6 +19,8 @@ import '../services/cache_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../utils/system_ui_style.dart';
 import '../utils/audio_source_headers.dart';
+import '../utils/server_utils.dart';
+import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
 import '../widgets/app_bottom_dock_transition.dart';
@@ -41,6 +43,7 @@ import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/work_detail/work_detail_responsive_layout.dart';
 import '../widgets/work_detail/work_detail_error_banner.dart';
 import '../widgets/work_detail/work_progress_action_button.dart';
+import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/work_detail_route_readiness.dart';
 
 import '../widgets/work_image_reader.dart';
@@ -126,8 +129,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _translationSourceLanguage.value =
-        TranslationService.sourceLanguageForWork(widget.work.lang);
+    _translationSourceLanguage.value = TranslationService.sourceLanguageForWork(
+      widget.work.lang,
+    );
     // 初始化收藏状态（从传入的work中获取）
     _currentProgress = widget.work.progress;
     _currentRating = widget.work.userRating;
@@ -142,9 +146,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       _hdImageProvider.value = null;
     }
     _hdPixelSize = size;
+    final navigator = Navigator.maybeOf(context);
+    final navigation = AppNavigationScope.maybeOf(context);
     _routeReadiness.bind(
       route: ModalRoute.of(context),
-      navigator: Navigator.maybeOf(context),
+      navigator: navigator,
+      navigationMotion:
+          identical(navigator, navigation?.tabNavigator(appAudioTabIndex))
+          ? AppNavigationScope.navigationMotionOf(context)
+          : null,
     );
     final animation = ModalRoute.of(context)?.animation;
     if (_routeAnimation != animation) {
@@ -765,6 +775,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
       final apiService = ref.read(kikoeruApiServiceProvider);
 
+      final marking = ref.read(automaticWorkMarkingProvider);
+      final markingSnapshot = marking.refreshSnapshot(widget.work.id);
       // 元数据、文件树和封面都必须完成验证后再报告刷新成功。
       final refreshResults = await Future.wait<dynamic>([
         apiService.getWork(widget.work.id, forceRefresh: true),
@@ -786,6 +798,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       }
       final response = refreshResults.first as Map<String, dynamic>;
       final detailedWork = _workFromDetailResponse(response);
+      marking.refreshedProgress(
+        detailedWork.id,
+        detailedWork.progress,
+        snapshot: markingSnapshot,
+      );
       final sourceChanged =
           TranslationService.sourceLanguageForWork(_currentWork.lang) !=
           TranslationService.sourceLanguageForWork(detailedWork.lang);
@@ -904,11 +921,22 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     // 根据主题亮度设置状态栏图标颜色
     final brightness = Theme.of(context).brightness;
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
+    final isOfficialServer = ServerUtils.isOfficialServer(
+      ref.watch(authProvider.select((state) => state.host)),
+    );
+    final showExternalLinks = ref.watch(
+      workDetailDisplayProvider.select(
+        (settings) => settings.showExternalLinks,
+      ),
+    );
 
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
+          centerTitle: false,
+          leadingWidth: 48,
+          titleSpacing: ModalRoute.of(context)?.canPop == true ? 0 : null,
           systemOverlayStyle: systemOverlayStyle,
           // 作品编号作为标题,支持长按复制
           title: GestureDetector(
@@ -918,6 +946,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             ),
             child: Text(
               widget.work.displayId,
+              maxLines: 1,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
@@ -932,15 +961,48 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               icon: const Icon(Icons.download),
               onPressed: _showFileSelectionDialog,
               tooltip: S.of(context).download,
+              visualDensity: const VisualDensity(horizontal: -2),
             ),
+            if (!widget.work.isJapaneseAsmr && isOfficialServer)
+              IconButton(
+                icon: const Icon(Icons.playlist_add),
+                tooltip: S.of(context).addToPlaylist,
+                visualDensity: const VisualDensity(horizontal: -2),
+                onPressed: () => AddToPlaylistDialog.show(
+                  context: context,
+                  workId: widget.work.id,
+                  workTitle: _currentWork.title,
+                ),
+              ),
             if (!widget.work.isJapaneseAsmr)
               ListenableBuilder(
                 listenable: _metadataChanges,
-                builder: (context, _) => WorkProgressActionButton(
-                  progress: _currentProgress,
-                  isLoading: _isUpdatingProgress,
-                  onPressed: _showProgressDialog,
+                builder: (context, _) => Consumer(
+                  builder: (context, ref, _) {
+                    ref.watch(automaticWorkMarkingRevisionProvider);
+                    return WorkProgressActionButton(
+                      progress: ref
+                          .read(automaticWorkMarkingProvider)
+                          .progressFor(widget.work.id, _currentProgress),
+                      isLoading: _isUpdatingProgress,
+                      onPressed: _showProgressDialog,
+                    );
+                  },
                 ),
+              ),
+            if (showExternalLinks)
+              ListenableBuilder(
+                listenable: _metadataChanges,
+                builder: (context, _) {
+                  final sourceUrl = _currentWork.sourceUrl;
+                  if (sourceUrl == null) return const SizedBox.shrink();
+                  return IconButton(
+                    icon: const Icon(Icons.open_in_new),
+                    tooltip: S.of(context).openInBrowser,
+                    visualDensity: const VisualDensity(horizontal: -2),
+                    onPressed: () => _openSourceUrl(sourceUrl),
+                  );
+                },
               ),
           ],
         ),
@@ -1013,7 +1075,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             showAgeRating: displaySettings.showAgeRating,
             age: _currentWork.age,
             onTap: () {
-              Navigator.of(context).push(
+              AppNavigationScope.navigatorOf(context).push(
                 MaterialPageRoute(
                   settings: appImmersiveRouteSettings,
                   builder: (context) => WorkImageReader(
@@ -1092,12 +1154,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               showTranslation: _showTranslation,
               showTranslateButton: displaySettings.showTranslateButton,
               isTranslating: _isTranslating,
-              showExternalLink:
-                  displaySettings.showExternalLinks && work.sourceUrl != null,
               onTranslate: _toggleTranslation,
-              onOpenExternalLink: work.sourceUrl == null
-                  ? null
-                  : () => _openSourceUrl(work.sourceUrl!),
               onCopy: (title) =>
                   _copyToClipboard(title, S.of(context).titleLabel),
             );
@@ -1105,7 +1162,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         ),
         const SizedBox(height: 8),
         WorkDetailErrorBanner(message: _errorMessage, onRetry: _loadWorkDetail),
-        // 评分信息、价格、时长和销量
+        // 评分信息、价格、时长、销量和发售日
         Consumer(
           builder: (context, ref, _) {
             final displaySettings = ref.watch(workDetailDisplayProvider);
@@ -1116,6 +1173,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               showPrice: displaySettings.showPrice,
               showDuration: displaySettings.showDuration,
               showSales: displaySettings.showSales,
+              showReleaseDate: displaySettings.showReleaseDate,
               onShowRatingDetails: () => _showRatingDetailDialog(work),
               onShowProgress: work.isJapaneseAsmr ? null : _showProgressDialog,
             );
@@ -1128,15 +1186,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           onTagLongPress: work.isJapaneseAsmr ? null : _showTagInfo,
           onTagSecondaryTap: work.isJapaneseAsmr ? null : _showTagInfo,
           onAddTag: work.isJapaneseAsmr ? null : _showAddTagDialog,
-        ),
-        Consumer(
-          builder: (context, ref, _) {
-            final displaySettings = ref.watch(workDetailDisplayProvider);
-            return WorkReleaseDateSection(
-              release: work.release,
-              visible: displaySettings.showReleaseDate,
-            );
-          },
         ),
         Builder(
           builder: (context) => OtherLanguageEditionsSection(
