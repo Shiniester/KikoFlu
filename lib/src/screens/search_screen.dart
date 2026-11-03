@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -976,6 +977,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
         ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
     final theme = Theme.of(context);
+    final resultLayoutType = _watchResultLayoutType();
     return GestureDetector(
       // 点击任何地方（包括 AppBar）都取消焦点，关闭下拉框
       onTap: () {
@@ -983,49 +985,196 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       },
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
-        appBar: ScrollableAppBar(
-          title: Text(
-            widget.scope == null || widget.scope == SearchScope.globalWorks
-                ? S.of(context).search
-                : S.of(context).searchInScope(_searchScopeLabel(context)),
-            style: UiTextStyles.pageTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          leading: widget.showBackButton
-              ? IconButton(
-                  tooltip: S.of(context).back,
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.of(context).maybePop(),
-                )
-              : null,
-          automaticallyImplyLeading: false,
-          clipBehavior: Clip.none,
-          actions: [
-            if (_hasSubmittedSearch)
-              IconButton(
-                tooltip: S.of(context).searchHistory,
-                icon: const Icon(Icons.history),
-                onPressed: () => setState(() => _showHistory = !_showHistory),
-              ),
-            if (!isJapaneseGlobalSearch)
-              SearchOptionsButton(
-                icon: Icons.tune,
-                tooltip: S.of(context).advancedFilter,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: _buildAdvancedFilterSections(),
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final title =
+                  widget.scope == null ||
+                      widget.scope == SearchScope.globalWorks
+                  ? S.of(context).search
+                  : S.of(context).searchInScope(_searchScopeLabel(context));
+              final titleWidth = TextPainter.computeWidth(
+                text: TextSpan(
+                  text: title,
+                  style:
+                      (theme.appBarTheme.titleTextStyle ??
+                              theme.textTheme.titleLarge)
+                          ?.merge(UiTextStyles.pageTitle),
                 ),
-              ),
-            SearchOptionsButton(
-              icon: Icons.view_comfy_outlined,
-              tooltip: S.of(context).feedSettings,
-              child: _buildDisplaySettings(
-                _watchResultLayoutType(),
-                isJapaneseGlobalSearch: isJapaneseGlobalSearch,
-              ),
-            ),
-          ],
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context),
+                locale: Localizations.maybeLocaleOf(context),
+                maxLines: 1,
+              );
+              final titleSpacing = widget.showBackButton
+                  ? 0.0
+                  : theme.appBarTheme.titleSpacing ??
+                        NavigationToolbar.kMiddleSpacing;
+              final availableWidth =
+                  (constraints.maxWidth -
+                          MediaQuery.paddingOf(context).horizontal -
+                          (widget.showBackButton ? 48 : 0) -
+                          titleSpacing * 2)
+                      .clamp(0.0, constraints.maxWidth);
+              final minActionsWidth = availableWidth < 40
+                  ? availableWidth
+                  : 40.0;
+              final maxActionsWidth =
+                  (availableWidth - titleWidth.ceilToDouble() - 8).clamp(
+                    minActionsWidth,
+                    availableWidth,
+                  );
+              final scrollBehavior = ScrollConfiguration.of(context);
+              return FocusTraversalGroup(
+                policy: ReadingOrderTraversalPolicy(
+                  requestFocusCallback:
+                      (node, {alignment, alignmentPolicy, duration, curve}) =>
+                          FocusTraversalPolicy.defaultTraversalRequestFocusCallback(
+                            node,
+                            alignment: 0.5,
+                            alignmentPolicy:
+                                ScrollPositionAlignmentPolicy.explicit,
+                            duration: duration,
+                            curve: curve,
+                          ),
+                ),
+                child: ScrollableAppBar(
+                  centerTitle: false,
+                  leadingWidth: 48,
+                  titleSpacing: widget.showBackButton ? 0 : null,
+                  title: Text(
+                    title,
+                    style: UiTextStyles.pageTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  leading: widget.showBackButton
+                      ? IconButton(
+                          tooltip: S.of(context).back,
+                          icon: const Icon(Icons.arrow_back),
+                          visualDensity: const VisualDensity(horizontal: -2),
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        )
+                      : null,
+                  automaticallyImplyLeading: false,
+                  clipBehavior: Clip.none,
+                  actions: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxActionsWidth),
+                      child: ScrollConfiguration(
+                        behavior: scrollBehavior.copyWith(
+                          dragDevices: {
+                            ...scrollBehavior.dragDevices,
+                            PointerDeviceKind.mouse,
+                          },
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                key: const ValueKey(
+                                  'audio-search-layout-toggle',
+                                ),
+                                tooltip: _layoutActionLabel(resultLayoutType),
+                                icon: Icon(_layoutIcon(resultLayoutType)),
+                                visualDensity: const VisualDensity(
+                                  horizontal: -2,
+                                ),
+                                onPressed: _toggleResultLayoutType,
+                              ),
+                              if ((widget.scope == null ||
+                                      widget.scope ==
+                                          SearchScope.globalWorks) &&
+                                  !isJapaneseGlobalSearch) ...[
+                                IconButton(
+                                  key: const ValueKey(
+                                    'audio-search-subtitle-toggle',
+                                  ),
+                                  tooltip: SubtitleFilterMode.fromValue(
+                                    _activeSubtitleFilter,
+                                  ).localizedTooltip(context),
+                                  icon: Icon(
+                                    _activeSubtitleFilter ==
+                                            SubtitleFilterMode
+                                                .withSubtitles
+                                                .value
+                                        ? Icons.closed_caption
+                                        : Icons.closed_caption_disabled,
+                                  ),
+                                  visualDensity: const VisualDensity(
+                                    horizontal: -2,
+                                  ),
+                                  onPressed: () =>
+                                      _onResultSubtitleFilterRequested(
+                                        SubtitleFilterMode.fromValue(
+                                          _activeSubtitleFilter,
+                                        ).next.value,
+                                      ),
+                                ),
+                                IconButton(
+                                  key: const ValueKey(
+                                    'audio-search-sort-button',
+                                  ),
+                                  tooltip: S.of(context).sort,
+                                  icon: const Icon(Icons.sort),
+                                  visualDensity: const VisualDensity(
+                                    horizontal: -2,
+                                  ),
+                                  onPressed: _showResultSortDialog,
+                                ),
+                              ],
+                              if (!isJapaneseGlobalSearch)
+                                SearchOptionsButton(
+                                  key: const ValueKey(
+                                    'audio-search-advanced-filter',
+                                  ),
+                                  icon: Icons.tune,
+                                  tooltip: S.of(context).advancedFilter,
+                                  contentBuilder: (_, setDialogState) =>
+                                      Consumer(
+                                        builder: (context, ref, _) => Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: _buildAdvancedFilterSections(
+                                            setDialogState,
+                                            isOfficialServer:
+                                                ServerUtils.isOfficialServer(
+                                                  ref.watch(authProvider).host,
+                                                ),
+                                          ),
+                                        ),
+                                      ),
+                                ),
+                              if (_hasSubmittedSearch)
+                                IconButton(
+                                  key: const ValueKey(
+                                    'audio-search-history-toggle',
+                                  ),
+                                  tooltip: _showHistory
+                                      ? S.of(context).close
+                                      : S.of(context).searchHistory,
+                                  icon: const Icon(Icons.history),
+                                  visualDensity: const VisualDensity(
+                                    horizontal: -2,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _showHistory = !_showHistory,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
         resizeToAvoidBottomInset: true, // 自动调整以避免键盘遮挡
         body: LayoutBuilder(
@@ -1048,7 +1197,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                           child: Row(
                             children: [
                               Expanded(child: _buildSearchInput()),
-                              IconButton.filled(
+                              IconButton(
                                 key: const ValueKey('audio-search-submit'),
                                 tooltip: S.of(context).search,
                                 onPressed: () => _performSearch(manual: true),
@@ -1313,7 +1462,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   IconData _layoutIcon(LayoutType layoutType) => switch (layoutType) {
     LayoutType.bigGrid => Icons.grid_view,
-    LayoutType.smallGrid => Icons.grid_on,
+    LayoutType.smallGrid => Icons.apps,
     LayoutType.list => Icons.view_list,
   };
 
@@ -1322,45 +1471,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     LayoutType.smallGrid => S.of(context).switchToList,
     LayoutType.list => S.of(context).switchToLargeGrid,
   };
-
-  Widget _buildDisplaySettings(
-    LayoutType layoutType, {
-    required bool isJapaneseGlobalSearch,
-  }) {
-    final isGlobalSearch =
-        widget.scope == null || widget.scope == SearchScope.globalWorks;
-    final subtitleMode = SubtitleFilterMode.fromValue(_activeSubtitleFilter);
-    return Column(
-      children: [
-        ListTile(
-          key: const ValueKey('audio-search-layout-setting'),
-          leading: Icon(_layoutIcon(layoutType)),
-          title: Text(_layoutActionLabel(layoutType)),
-          onTap: _toggleResultLayoutType,
-        ),
-        if (isGlobalSearch && !isJapaneseGlobalSearch) ...[
-          ListTile(
-            key: const ValueKey('audio-search-subtitle-setting'),
-            leading: Icon(
-              subtitleMode == SubtitleFilterMode.withSubtitles
-                  ? Icons.closed_caption
-                  : Icons.closed_caption_disabled,
-            ),
-            title: Text(subtitleMode.localizedTooltip(context)),
-            selected: subtitleMode.isActive,
-            onTap: () =>
-                _onResultSubtitleFilterRequested(subtitleMode.next.value),
-          ),
-          ListTile(
-            key: const ValueKey('audio-search-sort-setting'),
-            leading: const Icon(Icons.sort),
-            title: Text(S.of(context).sort),
-            onTap: _showResultSortDialog,
-          ),
-        ],
-      ],
-    );
-  }
 
   void _showResultSortDialog() {
     showDialog(
@@ -1701,20 +1811,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
-  void _handleFilterChange(VoidCallback change) {
+  void _handleFilterChange(VoidCallback change, StateSetter setDialogState) {
     setState(change);
+    setDialogState(() {});
     _updateConditionsReveal();
     _performSearch(manual: !_hasSubmittedSearch);
   }
 
-  List<Widget> _buildAdvancedFilterSections() {
+  List<Widget> _buildAdvancedFilterSections(
+    StateSetter setDialogState, {
+    required bool isOfficialServer,
+  }) {
     final theme = Theme.of(context);
     final filterValueStyle = theme.textTheme.labelLarge?.copyWith(
       color: theme.colorScheme.onSurface,
       fontWeight: FontWeight.w500,
     );
-    final authState = ref.watch(authProvider);
-    final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
     final supportsScopeFiltering =
         widget.scope != null && widget.scope != SearchScope.globalWorks;
     final supportsAdvancedFilters = isOfficialServer || supportsScopeFiltering;
@@ -1739,9 +1851,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     max: 5,
                     divisions: 20,
                     label: _minRate.toStringAsFixed(2),
-                    onChanged: (value) => setState(() => _minRate = value),
-                    onChangeEnd: (value) =>
-                        _handleFilterChange(() => _minRate = value),
+                    onChanged: (value) {
+                      setState(() => _minRate = value);
+                      setDialogState(() {});
+                    },
+                    onChangeEnd: (value) => _handleFilterChange(
+                      () => _minRate = value,
+                      setDialogState,
+                    ),
                   ),
                 ],
               ),
@@ -1778,8 +1895,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               .toList(),
           style: filterValueStyle,
           menuMaxHeight: 300,
-          onChanged: (value) =>
-              _handleFilterChange(() => _ageRating = value ?? AgeRating.all),
+          onChanged: (value) => _handleFilterChange(
+            () => _ageRating = value ?? AgeRating.all,
+            setDialogState,
+          ),
         ),
       ),
       if (supportsAdvancedFilters) ...[
@@ -1811,6 +1930,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             menuMaxHeight: 300,
             onChanged: (value) => _handleFilterChange(
               () => _salesRange = value ?? SalesRange.all,
+              setDialogState,
             ),
           ),
         ),

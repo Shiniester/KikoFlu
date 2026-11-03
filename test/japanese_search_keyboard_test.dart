@@ -220,13 +220,21 @@ void main() {
       '/tag/%e8%80%b3%e3%81%8b%e3%81%8d/',
     );
     expect(find.byIcon(Icons.expand_less), findsNothing);
-    final displaySettingsButton = find.byIcon(Icons.view_comfy_outlined);
-    expect(displaySettingsButton, findsOneWidget);
-    await tester.tap(displaySettingsButton);
-    await tester.pumpAndSettle();
+    final layoutButton = find.byKey(
+      const ValueKey('audio-search-layout-toggle'),
+    );
+    expect(layoutButton, findsOneWidget);
     expect(
-      find.byKey(const ValueKey('audio-search-layout-setting')),
-      findsOneWidget,
+      find.byKey(const ValueKey('audio-search-subtitle-toggle')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('audio-search-sort-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('audio-search-advanced-filter')),
+      findsNothing,
     );
     expect(tester.takeException(), isNull);
   });

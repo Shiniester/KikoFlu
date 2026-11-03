@@ -943,6 +943,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     final pageSize = ref.watch(comicPageSizeProvider);
     final layoutType = ref.watch(comicLayoutProvider);
     final s = S.of(context);
+    final canPop = ModalRoute.of(context)?.canPop == true;
     final sources = ref.watch(enabledComicSourcesProvider);
     final searchHistory = ref.watch(unifiedSearchHistoryProvider);
     final historyContext = _historyContext;
@@ -1081,124 +1082,143 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       onPressed: _submitSearch,
       icon: const Icon(Icons.search),
     );
-    Widget displaySettingsButton() => SearchOptionsButton(
-      icon: Icons.settings_outlined,
-      tooltip: s.feedSettings,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(s.layout, style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
+    Widget layoutButton() => IconButton(
+      key: const ValueKey('comic-search-layout-toggle'),
+      tooltip: s.layout,
+      icon: Icon(switch (layoutType) {
+        LayoutType.bigGrid => Icons.grid_view,
+        LayoutType.smallGrid => Icons.apps,
+        LayoutType.list => Icons.view_list,
+      }),
+      visualDensity: const VisualDensity(horizontal: -2),
+      onPressed: () => ref.read(comicLayoutProvider.notifier).cycle(),
+    );
+    Widget sortButton() => SearchOptionsButton(
+      key: const ValueKey('comic-search-sort-button'),
+      icon: Icons.sort,
+      tooltip: s.sort,
+      contentBuilder: (_, setDialogState) => Consumer(
+        builder: (context, ref, _) {
+          final selected = ref
+              .watch(enabledComicSourcesProvider)
+              .where((source) => source.key == _source)
+              .firstOrNull;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final (layout, label) in [
-                (LayoutType.bigGrid, s.layoutBigGrid),
-                (LayoutType.smallGrid, s.layoutSmallGrid),
-                (LayoutType.list, s.layoutList),
-              ])
-                _filterChoiceChip(
-                  label: label,
-                  selected: layoutType == layout,
-                  onSelected: (_) =>
-                      ref.read(comicLayoutProvider.notifier).set(layout),
+              if (_mode == ComicSearchMode.single &&
+                  (selected?.searchSorts.isNotEmpty ?? false))
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    for (final sort in selected!.searchSorts)
+                      _filterChoiceChip(
+                        label: _sortLabel(sort),
+                        selected: sort == (_sort ?? selected.searchSorts.first),
+                        onSelected: (_) {
+                          setState(() => _sort = sort);
+                          setDialogState(() {});
+                          _onFilterChanged();
+                        },
+                      ),
+                  ],
                 ),
             ],
-          ),
-          if (_mode == ComicSearchMode.single &&
-              (selected?.searchSorts.isNotEmpty ?? false)) ...[
-            const SizedBox(height: 16),
-            Text(s.comicSort, style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                for (final sort in selected!.searchSorts)
-                  _filterChoiceChip(
-                    label: _sortLabel(sort),
-                    selected: sort == (_sort ?? selected.searchSorts.first),
-                    onSelected: (_) {
-                      setState(() => _sort = sort);
+          );
+        },
+      ),
+    );
+    Widget advancedFiltersButton() => SearchOptionsButton(
+      key: const ValueKey('comic-search-advanced-filter'),
+      icon: Icons.tune,
+      tooltip: s.advancedFilter,
+      contentBuilder: (_, setDialogState) => Consumer(
+        builder: (context, ref, _) {
+          final sources = ref.watch(enabledComicSourcesProvider);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final mode in ComicSearchMode.values)
+                    _filterChoiceChip(
+                      label: [
+                        s.comicSearchSingle,
+                        s.comicSearchGrouped,
+                        s.comicSearchMerged,
+                      ][mode.index],
+                      selected: _mode == mode,
+                      onSelected: (_) {
+                        setState(() {
+                          if (_mode == ComicSearchMode.single &&
+                              mode != ComicSearchMode.single) {
+                            _selectedSourceKeys = null;
+                          }
+                          _mode = mode;
+                        });
+                        setDialogState(() {});
+                        _onFilterChanged();
+                      },
+                    ),
+                ],
+              ),
+              if (_mode != ComicSearchMode.single && sources.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  s.librarySources,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                for (final source in sources)
+                  CheckboxListTile(
+                    value:
+                        _selectedSourceKeys == null ||
+                        _selectedSourceKeys!.contains(source.key),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      source.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onChanged: (selected) {
+                      final selectedKeys = Set<String>.of(
+                        _selectedSourceKeys ??
+                            sources.map((source) => source.key),
+                      );
+                      if (selected == true) {
+                        selectedKeys.add(source.key);
+                      } else {
+                        selectedKeys.remove(source.key);
+                      }
+                      setState(() => _selectedSourceKeys = selectedKeys);
+                      setDialogState(() {});
                       _onFilterChanged();
                     },
                   ),
               ],
-            ),
-          ],
-        ],
-      ),
-    );
-    Widget advancedFiltersButton() => SearchOptionsButton(
-      icon: Icons.tune,
-      tooltip: s.advancedFilter,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final mode in ComicSearchMode.values)
-                _filterChoiceChip(
-                  label: [
-                    s.comicSearchSingle,
-                    s.comicSearchGrouped,
-                    s.comicSearchMerged,
-                  ][mode.index],
-                  selected: _mode == mode,
-                  onSelected: (_) {
-                    setState(() {
-                      if (_mode == ComicSearchMode.single &&
-                          mode != ComicSearchMode.single) {
-                        _selectedSourceKeys = null;
-                      }
-                      _mode = mode;
-                    });
-                    _onFilterChanged();
-                  },
-                ),
             ],
-          ),
-          if (_mode != ComicSearchMode.single && sources.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              s.librarySources,
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            for (final source in sources)
-              CheckboxListTile(
-                value:
-                    _selectedSourceKeys == null ||
-                    _selectedSourceKeys!.contains(source.key),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  source.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onChanged: (selected) {
-                  final selectedKeys = Set<String>.of(
-                    _selectedSourceKeys ?? sources.map((source) => source.key),
-                  );
-                  if (selected == true) {
-                    selectedKeys.add(source.key);
-                  } else {
-                    selectedKeys.remove(source.key);
-                  }
-                  setState(() => _selectedSourceKeys = selectedKeys);
-                  _onFilterChanged();
-                },
-              ),
-          ],
-        ],
+          );
+        },
       ),
     );
     final screen = Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        leadingWidth: 48,
+        titleSpacing: canPop ? 0 : null,
+        leading: canPop
+            ? IconButton(
+                tooltip: s.back,
+                icon: const Icon(Icons.arrow_back),
+                visualDensity: const VisualDensity(horizontal: -2),
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : null,
+        automaticallyImplyLeading: false,
         title: Text(
           widget.category?.title ??
               (scopeLabel == null ? s.search : s.searchInScope(scopeLabel)),
@@ -1206,13 +1226,19 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          if (isGlobalSearch) displaySettingsButton(),
-          if (isGlobalSearch) advancedFiltersButton(),
+          if (isGlobalSearch) ...[
+            layoutButton(),
+            if (_mode == ComicSearchMode.single &&
+                (selected?.searchSorts.isNotEmpty ?? false))
+              sortButton(),
+            advancedFiltersButton(),
+          ],
           if (widget.category == null)
             IconButton(
               key: const ValueKey('comic-search-history-toggle'),
               tooltip: _showHistory ? s.close : s.searchHistory,
-              icon: Icon(_showHistory ? Icons.close : Icons.history),
+              icon: const Icon(Icons.history),
+              visualDensity: const VisualDensity(horizontal: -2),
               onPressed: () => setState(() => _showHistory = !_showHistory),
             ),
         ],

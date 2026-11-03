@@ -718,13 +718,10 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             : null,
       ),
       sliversBefore: [
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height:
-                (widget.embedded ? 0.0 : MediaQuery.paddingOf(context).top) +
-                64,
+        if (!widget.embedded)
+          SliverToBoxAdapter(
+            child: SizedBox(height: MediaQuery.paddingOf(context).top + 64),
           ),
-        ),
         if (searchState.isRefreshing && searchState.works.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(

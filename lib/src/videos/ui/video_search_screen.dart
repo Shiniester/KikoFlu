@@ -16,7 +16,6 @@ import '../../widgets/responsive_dialog.dart';
 import '../../widgets/search_condition_chip.dart';
 import '../../widgets/search_history_section.dart';
 import '../../widgets/search_input_decoration.dart';
-import '../../widgets/search_options_button.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
 import '../missav_client.dart';
@@ -1479,28 +1478,6 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     }
   }
 
-  Future<void> _confirmClearSearchHistory() async {
-    final s = S.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(s.clearSearchHistory),
-        content: Text(s.clearCurrentSearchHistoryConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(s.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(s.confirm),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) await _clearSearchHistory();
-  }
-
   Future<void> _clearSearchHistory() async {
     final history = ref.read(unifiedSearchHistoryProvider.notifier);
     final historyContext = _historyContext;
@@ -1625,62 +1602,50 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     );
   }
 
-  Widget _displaySettings(S s, LayoutType layout) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Text(s.layout, style: Theme.of(context).textTheme.titleSmall),
-      for (final option in LayoutType.values)
-        ListTile(
-          key: ValueKey('video-search-layout-${option.name}'),
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(switch (option) {
-            LayoutType.bigGrid => Icons.grid_view,
-            LayoutType.smallGrid => Icons.apps,
-            LayoutType.list => Icons.view_list,
-          }),
-          title: Text(switch (option) {
-            LayoutType.bigGrid => s.layoutBigGrid,
-            LayoutType.smallGrid => s.layoutSmallGrid,
-            LayoutType.list => s.layoutList,
-          }),
-          selected: option == layout,
-          trailing: option == layout ? const Icon(Icons.check) : null,
-          onTap: () =>
-              ref.read(videoBrowseLayoutProvider.notifier).setLayout(option),
-        ),
-    ],
-  );
-
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final canPop = ModalRoute.of(context)?.canPop == true;
     final history = ref.watch(unifiedSearchHistoryProvider);
-    final historyEntries = _historyEntries(history);
     final layout = ref.watch(videoBrowseLayoutProvider);
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        leadingWidth: 48,
+        titleSpacing: canPop ? 0 : null,
+        leading: canPop
+            ? IconButton(
+                tooltip: s.back,
+                icon: const Icon(Icons.arrow_back),
+                visualDensity: const VisualDensity(horizontal: -2),
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : null,
+        automaticallyImplyLeading: false,
         title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          SearchOptionsButton(
-            icon: Icons.tune,
-            tooltip: s.feedSettings,
-            child: _displaySettings(s, layout),
+          IconButton(
+            key: const ValueKey('video-search-layout-toggle'),
+            tooltip: s.layout,
+            icon: Icon(switch (layout) {
+              LayoutType.bigGrid => Icons.grid_view,
+              LayoutType.smallGrid => Icons.apps,
+              LayoutType.list => Icons.view_list,
+            }),
+            visualDensity: const VisualDensity(horizontal: -2),
+            onPressed: () =>
+                ref.read(videoBrowseLayoutProvider.notifier).cycle(),
           ),
           if (_results != null || _loading)
             IconButton(
               key: const ValueKey('video-search-history-toggle'),
               tooltip: _showHistory ? s.close : s.searchHistory,
-              icon: Icon(_showHistory ? Icons.close : Icons.history),
+              icon: const Icon(Icons.history),
+              visualDensity: const VisualDensity(horizontal: -2),
               onPressed: () {
                 _inputFocus.unfocus();
                 setState(() => _showHistory = !_showHistory);
               },
-            ),
-          if (!_showHistory && _results != null && historyEntries.isNotEmpty)
-            IconButton(
-              tooltip: s.clearSearchHistory,
-              icon: const Icon(Icons.delete_sweep_outlined),
-              onPressed: _confirmClearSearchHistory,
             ),
         ],
       ),

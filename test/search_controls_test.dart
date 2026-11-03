@@ -20,24 +20,24 @@ Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
 );
 
 void main() {
-  testWidgets('search options open without moving results and toggle closed', (
+  testWidgets('search options open centered without moving results', (
     tester,
   ) async {
     await tester.pumpWidget(
       _app(
-        const Column(
+        Column(
           children: [
             Row(
               children: [
-                Spacer(),
+                const Spacer(),
                 SearchOptionsButton(
                   icon: Icons.tune,
                   tooltip: 'Filter',
-                  child: Text('Filter options'),
+                  contentBuilder: (_, _) => const Text('Filter options'),
                 ),
               ],
             ),
-            SizedBox(key: ValueKey('results'), height: 200),
+            const SizedBox(key: ValueKey('results'), height: 200),
           ],
         ),
       ),
@@ -50,7 +50,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Filter options'), findsOneWidget);
     expect(tester.getTopLeft(results), position);
+    final dialogRect = tester.getRect(find.byType(Dialog));
+    final physicalSize = tester.view.physicalSize;
+    final pixelRatio = tester.view.devicePixelRatio;
+    expect(
+      dialogRect.center.dx,
+      closeTo(physicalSize.width / pixelRatio / 2, 1),
+    );
+    expect(
+      dialogRect.center.dy,
+      closeTo(physicalSize.height / pixelRatio / 2, 1),
+    );
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+    expect(find.text('Filter options'), findsNothing);
+    expect(tester.getTopLeft(results), position);
     await tester.tap(find.byTooltip('Filter'));
+    await tester.pumpAndSettle();
+    final dialogContext = tester.element(find.byType(Dialog));
+    final closeTooltip = MaterialLocalizations.of(
+      dialogContext,
+    ).closeButtonTooltip;
+    expect(find.byTooltip(closeTooltip), findsOneWidget);
+    await tester.tap(find.byTooltip(closeTooltip));
     await tester.pumpAndSettle();
     expect(find.text('Filter options'), findsNothing);
     await tester.tap(find.byTooltip('Filter'));
@@ -68,13 +90,13 @@ void main() {
     await tester.pumpWidget(
       _app(
         StatefulBuilder(
-          builder: (context, setState) => SearchOptionsButton(
+          builder: (context, _) => SearchOptionsButton(
             icon: Icons.tune,
             tooltip: 'Filter',
-            child: SwitchListTile(
+            contentBuilder: (context, setDialogState) => SwitchListTile(
               title: const Text('Subtitles'),
               value: selected,
-              onChanged: (value) => setState(() => selected = value),
+              onChanged: (value) => setDialogState(() => selected = value),
             ),
           ),
         ),
@@ -108,7 +130,7 @@ void main() {
             SearchOptionsButton(
               icon: Icons.tune,
               tooltip: 'Filter',
-              child: Column(
+              contentBuilder: (_, _) => Column(
                 children: [
                   for (var index = 0; index < 12; index++)
                     ListTile(title: Text('Filter $index')),

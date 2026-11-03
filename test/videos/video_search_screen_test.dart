@@ -80,6 +80,8 @@ void main() {
     );
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('video-search-history-toggle')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(l10n.clearSearchHistory));
     await tester.pumpAndSettle();
     await tester.tap(find.text(l10n.confirm));
@@ -230,21 +232,34 @@ void main() {
         tester.element(find.byType(VideoSearchScreen)),
       );
       final layoutProvider = container.read(videoBrowseLayoutProvider.notifier);
-      await layoutProvider.setLayout(LayoutType.list);
+      await layoutProvider.setLayout(LayoutType.smallGrid);
       await tester.pumpAndSettle();
 
-      final l10n = await S.delegate.load(const Locale('en'));
-      await tester.tap(find.byTooltip(l10n.feedSettings));
-      await tester.pumpAndSettle();
+      final appBarFinder = find.byType(AppBar);
+      final appBar = tester.widget<AppBar>(appBarFinder);
+      expect(appBar.centerTitle, isFalse);
+      expect(appBar.leadingWidth, 48);
       expect(
-        find.byKey(const ValueKey('video-search-layout-list')),
-        findsOneWidget,
+        tester
+            .getCenter(
+              find.descendant(
+                of: appBarFinder,
+                matching: find.text('Video search'),
+              ),
+            )
+            .dx,
+        lessThan(tester.getRect(appBarFinder).center.dx),
       );
-      await tester.tap(find.byKey(const ValueKey('video-search-layout-list')));
+      final layoutToggle = find.byKey(
+        const ValueKey('video-search-layout-toggle'),
+      );
+      expect(
+        (tester.widget<IconButton>(layoutToggle).icon as Icon).icon,
+        Icons.apps,
+      );
+      await tester.tap(layoutToggle);
       await tester.pumpAndSettle();
       expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
-      await tester.tap(find.byTooltip(l10n.feedSettings));
-      await tester.pumpAndSettle();
 
       final input = find.byKey(const ValueKey('video-search-input'));
       await tester.enterText(input, 'kept query');
@@ -262,6 +277,26 @@ void main() {
       pendingSearch.complete(const VideoSearchResults.collection([result]));
       await tester.pumpAndSettle();
       expect(find.text('Layout result'), findsOneWidget);
+      final actionButtons = tester
+          .widgetList<IconButton>(
+            find.descendant(
+              of: appBarFinder,
+              matching: find.byType(IconButton),
+            ),
+          )
+          .toList();
+      expect(actionButtons.map((button) => (button.icon as Icon).icon), [
+        Icons.view_list,
+        Icons.history,
+      ]);
+      expect(
+        actionButtons.every(
+          (button) =>
+              button.visualDensity == const VisualDensity(horizontal: -2),
+        ),
+        isTrue,
+      );
+      expect(find.byIcon(Icons.delete_sweep_outlined), findsNothing);
       expect(
         tester
             .widget<VideoCollectionView<VideoItem>>(

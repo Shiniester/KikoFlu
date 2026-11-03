@@ -4705,7 +4705,7 @@ void main() {
     );
   });
 
-  testWidgets('comic search sort menu closes on Escape and selects a sort', (
+  testWidgets('comic search actions are separate and sort updates live', (
     tester,
   ) async {
     final source = _SortedSource();
@@ -4717,19 +4717,64 @@ void main() {
     );
 
     final s = S.of(tester.element(find.byType(ComicSearchScreen)));
-    final settingsButton = find.byTooltip(s.feedSettings);
-    expect(settingsButton, findsOneWidget);
+    final sortButton = find.byKey(const ValueKey('comic-search-sort-button'));
+    expect(
+      find.byKey(const ValueKey('comic-search-layout-toggle')),
+      findsOneWidget,
+    );
+    expect(sortButton, findsOneWidget);
+    expect(comicAdvancedFilterButton(tester), findsOneWidget);
     expect(source.sortRequests, [null]);
-    await tester.tap(settingsButton);
+    final appBarFinder = find.byType(AppBar);
+    final appBar = tester.widget<AppBar>(appBarFinder);
+    final buttons = tester
+        .widgetList<IconButton>(
+          find.descendant(of: appBarFinder, matching: find.byType(IconButton)),
+        )
+        .toList();
+    expect(appBar.centerTitle, isFalse);
+    expect(appBar.leadingWidth, 48);
+    expect(
+      tester
+          .getCenter(
+            find.descendant(of: appBarFinder, matching: find.text(s.search)),
+          )
+          .dx,
+      lessThan(tester.getRect(appBarFinder).center.dx),
+    );
+    expect(buttons.map((button) => (button.icon as Icon).icon), [
+      Icons.view_list,
+      Icons.sort,
+      Icons.tune,
+      Icons.history,
+    ]);
+    expect(
+      buttons.every(
+        (button) => button.visualDensity == const VisualDensity(horizontal: -2),
+      ),
+      isTrue,
+    );
+
+    await tester.tap(sortButton);
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(ChoiceChip, s.layoutBigGrid), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, 'Newest'), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, 'Oldest'), findsOneWidget);
+    final dialogRect = tester.getRect(find.byType(Dialog));
+    final physicalSize = tester.view.physicalSize;
+    final pixelRatio = tester.view.devicePixelRatio;
+    expect(
+      dialogRect.center.dx,
+      closeTo(physicalSize.width / pixelRatio / 2, 1),
+    );
+    expect(
+      dialogRect.center.dy,
+      closeTo(physicalSize.height / pixelRatio / 2, 1),
+    );
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.widgetWithText(ChoiceChip, 'Oldest'), findsNothing);
 
-    await tester.tap(settingsButton);
+    await tester.tap(sortButton);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
     await tester.pumpAndSettle();
@@ -4798,7 +4843,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pumpAndSettle();
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     await waitForFinder(tester, find.text('Other book'));
 
@@ -5019,7 +5064,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(source.searches, 0);
       expect(other.searches, 0);
-      await tester.tap(comicAdvancedFilterButton(tester));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -5095,7 +5140,7 @@ void main() {
             .selected,
         isTrue,
       );
-      await tester.tap(comicAdvancedFilterButton(tester));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await pumpFrames(tester, frames: 20);
 
       expect(find.text(s.searchUpdating), findsOneWidget);
@@ -5140,18 +5185,18 @@ void main() {
 
     await tester.tap(find.widgetWithText(ChoiceChip, 'Other'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(s.feedSettings));
+    await tester.tap(find.byKey(const ValueKey('comic-search-sort-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(s.feedSettings));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await pumpFrames(tester, frames: 2);
     expect(find.text(s.searchUpdating), findsOneWidget);
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpFrames(tester, frames: 20);
 
     await tester.enterText(input, 'unsent query');
@@ -5226,7 +5271,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(groupedMode);
     await tester.pumpAndSettle();
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
     final label = '${first.name}, ${second.name}';
@@ -5284,7 +5329,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pump();
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpFrames(tester, frames: 20);
     await pumpFrames(tester, frames: 2);
 
@@ -5815,13 +5860,12 @@ void main() {
     await tester.enterText(input, 'restore me');
     await tester.tap(find.byKey(const ValueKey('comic-search-submit')));
     await waitForFinder(tester, find.text(_comic.title));
-    final s = S.of(tester.element(find.byType(ComicSearchScreen)));
-    await tester.tap(find.byTooltip(s.feedSettings));
+    await tester.tap(find.byKey(const ValueKey('comic-search-sort-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
     await tester.pumpAndSettle();
     expect(source.sortRequests.last, 'da');
-    await tester.tap(find.byTooltip(s.feedSettings));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('comic-search-history-toggle')));
@@ -9717,7 +9761,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pumpAndSettle();
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     final hero = find.descendant(
       of: find.byType(ComicCover),
@@ -10282,7 +10326,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
       await tester.pumpAndSettle();
-      await tester.tap(comicAdvancedFilterButton(tester));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.text('Fixture book'), findsOneWidget);
       final successfulCalls = source.searches;
@@ -10297,7 +10341,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Merged results'));
       await tester.pumpAndSettle();
-      await tester.tap(comicAdvancedFilterButton(tester));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.text('Fixture book'), findsOneWidget);
       expect(find.text('Other book'), findsOneWidget);
@@ -12457,7 +12501,7 @@ void main() {
     await pumpFrames(tester, frames: 20);
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pump();
-    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpFrames(tester, frames: 20);
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(LinearProgressIndicator), findsNothing);

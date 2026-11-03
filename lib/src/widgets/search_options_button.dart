@@ -1,93 +1,76 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'animated_menu_anchor.dart';
+import 'responsive_dialog.dart';
 
-/// Keeps search options in a bounded popup without resizing the results.
+/// Opens search options in a centered dialog without resizing the results.
 class SearchOptionsButton extends StatelessWidget {
   const SearchOptionsButton({
     super.key,
     required this.icon,
     required this.tooltip,
-    required this.child,
+    required this.contentBuilder,
   });
 
   final IconData icon;
   final String tooltip;
-  final Widget child;
+  final Widget Function(BuildContext context, StateSetter setDialogState)
+  contentBuilder;
 
   @override
-  Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    final width = math.min(360.0, media.size.width - 32);
-    final height = math.max(
-      48.0,
-      math.min(
-        480.0,
-        media.size.height -
-            media.padding.vertical -
-            media.viewInsets.vertical -
-            kToolbarHeight -
-            24,
-      ),
-    );
-    return AnimatedMenuAnchor(
-      menuStyle: const MenuStyle(
-        alignment: AlignmentDirectional.bottomEnd,
-        padding: WidgetStatePropertyAll(EdgeInsets.zero),
-      ),
-      menuChildren: [
-        SizedBox(
-          width: width,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: height),
-            child: Focus(
-              autofocus: true,
-              onKeyEvent: (_, event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.escape) {
-                  Navigator.of(context).maybePop();
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: SingleChildScrollView(
-                primary: false,
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    icon: Icon(icon),
+    visualDensity: const VisualDensity(horizontal: -2),
+    onPressed: () {
+      FocusManager.instance.primaryFocus?.unfocus();
+      showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => Focus(
+            autofocus: true,
+            onKeyEvent: (_, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.escape) {
+                Navigator.of(context).maybePop();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: ResponsiveDialog(
+              maxWidth: 420,
+              titlePadding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
+              contentPadding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              title: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 22,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
                       tooltip,
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    child,
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                  ),
+                ],
               ),
+              content: contentBuilder(context, setDialogState),
             ),
           ),
         ),
-      ],
-      builder: (context, controller, _) => Semantics(
-        expanded: controller.isOpen,
-        child: IconButton(
-          tooltip: tooltip,
-          icon: Icon(icon),
-          onPressed: () {
-            if (controller.isOpen) {
-              controller.close();
-            } else {
-              FocusManager.instance.primaryFocus?.unfocus();
-              controller.open();
-            }
-          },
-        ),
-      ),
-    );
-  }
+      );
+    },
+  );
 }
