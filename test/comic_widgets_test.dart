@@ -9180,12 +9180,28 @@ void main() {
       );
       expect(find.byType(WorkTitleHeader), findsOneWidget);
       expect(find.text('detail unavailable'), findsOneWidget);
+      final scrollable = find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.text('chapters unavailable'),
+        200,
+        scrollable: scrollable,
+      );
       expect(find.text('chapters unavailable'), findsOneWidget);
       source.detailFails = false;
       await tester.ensureVisible(find.text('Retry').first);
       await tester.tap(find.text('Retry').first);
       await tester.pumpAndSettle();
       expect(find.text('detail unavailable'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text('chapters unavailable'),
+        200,
+        scrollable: scrollable,
+      );
       expect(find.text('chapters unavailable'), findsOneWidget);
       source.chaptersFail = false;
       await tester.ensureVisible(find.text('Retry'));

@@ -3107,7 +3107,8 @@ void main() {
         expect(navigation, findsOneWidget);
         expect(tester.state(mini), same(miniState));
         if (landscape) {
-          expect(tester.getRect(rail).right, lessThanOrEqualTo(0));
+          expect(tester.getRect(rail), initialNavigationRect);
+          expect(navigation.hitTestable(), findsNothing);
           expect(tester.getTopLeft(mini).dy, greaterThan(initialMiniRect.top));
         } else {
           expect(tester.getTopLeft(dock).dy, closeTo(size.height, 0.01));
@@ -3186,7 +3187,13 @@ void main() {
             closeTo(0, 0.01),
           );
           expect(dock, findsNothing);
-          expect(rail, findsNothing);
+          if (landscape) {
+            expect(rail, findsOneWidget);
+            expect(tester.getRect(rail), initialNavigationRect);
+            expect(rail.hitTestable(), findsNothing);
+          } else {
+            expect(rail, findsNothing);
+          }
           handedOff = true;
           break;
         }
@@ -3194,7 +3201,13 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(AudioPlayerScreen), findsOneWidget);
         expect(dock, findsNothing);
-        expect(rail, findsNothing);
+        if (landscape) {
+          expect(rail, findsOneWidget);
+          expect(tester.getRect(rail), initialNavigationRect);
+          expect(rail.hitTestable(), findsNothing);
+        } else {
+          expect(rail, findsNothing);
+        }
 
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();

@@ -240,20 +240,18 @@ void main() {
       await tester.pumpAndSettle();
       final field = find.byType(TextField).first;
       final fieldElement = tester.element(field);
+      final addConditionTooltip = S.of(tester.element(field)).add;
       Future<void> add(String text) async {
         await tester.enterText(field, text);
-        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.tap(find.byTooltip(addConditionTooltip));
         await tester.pump();
       }
 
       await add('first');
       await tester.pump(const Duration(milliseconds: 80));
-      final revealFinder = find
-          .ancestor(
-            of: find.byType(SearchConditionChip).first,
-            matching: find.byType(SizeTransition),
-          )
-          .first;
+      final revealFinder = find.byKey(
+        const ValueKey('search-conditions-reveal'),
+      );
       final progress = tester
           .widget<SizeTransition>(revealFinder)
           .sizeFactor
@@ -270,9 +268,7 @@ void main() {
       chips[0].onDeleted!();
       chips[1].onDeleted!();
       await tester.pump();
-      final collapse = tester
-          .widgetList<SizeTransition>(find.byType(SizeTransition))
-          .first;
+      final collapse = tester.widget<SizeTransition>(revealFinder);
       expect(collapse.sizeFactor.value, progress);
       await tester.pump(const Duration(milliseconds: 60));
       expect(collapse.sizeFactor.value, lessThan(progress));

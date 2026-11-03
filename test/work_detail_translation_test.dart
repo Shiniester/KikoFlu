@@ -495,6 +495,7 @@ void main() {
               () => find.text('${chinese.expected}.wav').evaluate().isNotEmpty,
             );
             expect(find.text('Unwanted cached filename.wav'), findsNothing);
+            await tester.pump(Duration.zero);
             expect(tester.takeException(), isNull);
           },
         );

@@ -204,7 +204,14 @@ void main() {
   setUpAll(() async {
     final fonts =
         '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';
-    final fontBytes = await File('$fonts/roboto-bold.ttf').readAsBytes();
+    final fontBytes = await Directory(fonts)
+        .listSync()
+        .whereType<File>()
+        .singleWhere(
+          (file) =>
+              file.uri.pathSegments.last.toLowerCase() == 'roboto-bold.ttf',
+        )
+        .readAsBytes();
     await (FontLoader(
       'DetailHeaderRoboto',
     )..addFont(Future.value(ByteData.sublistView(fontBytes)))).load();

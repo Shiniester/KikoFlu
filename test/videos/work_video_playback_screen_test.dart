@@ -304,6 +304,7 @@ void main() {
         });
 
         final preferences = await SharedPreferences.getInstance();
+        await StorageService.initCritical(preferences: preferences);
         final library = _GatedVideoLibrary(preferences: preferences);
         final navigation = AppNavigationController();
         addTearDown(navigation.dispose);
@@ -558,21 +559,35 @@ void main() {
         await tester.pumpAndSettle();
         final scaledPlayer = find.byType(VideoPlaybackPanel);
         final scaledPlayerRect = tester.getRect(scaledPlayer);
-        expect(scaledPlayerRect.height, greaterThanOrEqualTo(120));
         expect(scaledPlayerRect.width, greaterThanOrEqualTo(320));
         final scaledMiniPlayerRect = tester.getRect(find.byType(MiniPlayer));
-        expect(scaledMiniPlayerRect.height, 88);
         final scaledFullscreen = find.byTooltip(s.videoFullscreen);
         expect(scaledFullscreen, findsOneWidget);
         final selectedAfterScaling = find.byKey(
           const ValueKey('work-video-playlist-Disc 1/clip.mp4'),
         );
+        expect(scaledMiniPlayerRect.height, greaterThan(miniPlayerRect.height));
+        expect(
+          find
+              .byKey(const ValueKey('mini-player-upward-launcher'))
+              .hitTestable(),
+          findsOneWidget,
+        );
+        expect(scaledFullscreen.hitTestable(), findsOneWidget);
         final selectedRectAfterScaling = tester.getRect(selectedAfterScaling);
         final pinnedHeaderAfterScaling = tester.getRect(
           find.byKey(const ValueKey('work-video-playlist-pinned-header')),
         );
         final playlistViewportAfterScaling = tester.getRect(
           find.byKey(const ValueKey('work-video-playlist-scroll-view')),
+        );
+        expect(
+          scaledPlayerRect.height,
+          greaterThanOrEqualTo(
+            (playlistViewportAfterScaling.height -
+                    selectedRectAfterScaling.height)
+                .clamp(0.0, 120.0),
+          ),
         );
         expect(
           selectedRectAfterScaling.top,
@@ -795,6 +810,7 @@ void main() {
       addTearDown(() {
         messenger.setMockMethodCallHandler(mediaChannel, null);
         messenger.setMockMethodCallHandler(pipChannel, null);
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
       });
 
       final library = VideoLibrary(
@@ -807,7 +823,6 @@ void main() {
         pictureInPictureChannel: pipChannel,
         platform: TargetPlatform.android,
       );
-      final localizations = await S.delegate.load(const Locale('en'));
       const localPath = r'C:\offline\clip.mp4';
 
       await tester.pumpWidget(
@@ -840,6 +855,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // The shared platform queue can contain futures from the previous real zone.
+      await tester.runAsync(() async {});
+      await tester.pumpAndSettle();
       expect(session.loadFileCount, 1);
       expect(session.lastFilePath, localPath);
       expect(session.loadStreamCount, 0);
@@ -861,26 +879,25 @@ void main() {
               .dy,
         ),
       );
-      final fullscreenButton = find.byTooltip(localizations.videoFullscreen);
-      expect(fullscreenButton, findsOneWidget);
-      Future<void> waitForAppBar(bool visible) async {
-        for (var attempt = 0; attempt < 50; attempt++) {
-          if (find.byType(AppBar).evaluate().isNotEmpty == visible) return;
-          await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 10)),
-          );
-          await tester.pump();
-        }
-      }
-
-      await tester.tap(fullscreenButton);
-      await waitForAppBar(false);
+      final fullscreenControl = find.byKey(
+        const ValueKey('video-fullscreen-control'),
+      );
+      expect(fullscreenControl.hitTestable(), findsOneWidget);
+      await tester.tap(fullscreenControl);
       await tester.pumpAndSettle();
       expect(find.byType(AppBar), findsNothing);
-      await tester.tap(find.byTooltip(localizations.videoFullscreen));
-      await waitForAppBar(true);
+      expect(
+        find.byKey(const ValueKey('work-video-screen-safe-area')),
+        findsNothing,
+      );
+      expect(fullscreenControl.hitTestable(), findsOneWidget);
+      await tester.tap(fullscreenControl);
       await tester.pumpAndSettle();
       expect(find.byType(AppBar), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('work-video-screen-safe-area')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

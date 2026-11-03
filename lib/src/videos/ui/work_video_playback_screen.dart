@@ -272,8 +272,13 @@ class _WorkVideoPlaybackScreenState
       builder: (context, constraints) {
         final textScale = MediaQuery.textScalerOf(context).scale(1);
         final detailsHeight = math.max(64.0, 44 * textScale + 20);
+        final compactRowExtent = math.max(48.0, 16 * textScale + 16);
         final maxPlayerHeight = math.min(
-          constraints.maxHeight,
+          math.max(
+            0.0,
+            constraints.maxHeight -
+                (widget.siblingVideos.isEmpty ? 0.0 : compactRowExtent),
+          ),
           math.max(120.0, constraints.maxHeight * .65),
         );
         final minPlayerWidth = math.min(320.0, constraints.maxWidth);
@@ -286,7 +291,6 @@ class _WorkVideoPlaybackScreenState
           _playlistRowExtent,
           16 * textScale + 32,
         );
-        final compactRowExtent = math.max(48.0, 16 * textScale + 16);
         final rowExtent = math.min(
           preferredRowExtent,
           math.max(compactRowExtent, constraints.maxHeight - playerHeight),

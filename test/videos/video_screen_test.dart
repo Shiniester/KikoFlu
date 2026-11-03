@@ -1568,16 +1568,23 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await tester.pumpAndSettle();
-      final l10n = await S.delegate.load(const Locale('en'));
-      await tester.tap(find.text(l10n.filter));
+      await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
+      final genreType = find.byKey(const ValueKey('video-search-type-genre'));
+      await tester.ensureVisible(genreType);
+      await tester.tap(genreType);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Drama'));
       await tester.pumpAndSettle();
       expect(client.filterOptionKinds, [VideoSearchFilterKind.genre]);
       expect(client.combinedSearchRequests, isEmpty);
 
+      final keywordType = find.byKey(
+        const ValueKey('video-search-type-keyword'),
+      );
+      await tester.ensureVisible(keywordType);
+      await tester.tap(keywordType);
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('video-search-input')),
         'keyword',
