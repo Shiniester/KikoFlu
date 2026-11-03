@@ -141,11 +141,8 @@ Future<void> _pumpSearchScreen(
   await tester.pumpAndSettle();
 }
 
-Future<void> _expandFiltersAndSelectTag(WidgetTester tester) async {
+Future<void> _selectTag(WidgetTester tester) async {
   final l10n = await S.delegate.load(const Locale('zh'));
-  final expandButton = find.byKey(const ValueKey('search-filter-toggle'));
-  await tester.tap(expandButton);
-  await tester.pumpAndSettle();
   await tester.tap(find.text(l10n.searchTypeTag));
   await tester.pumpAndSettle();
 }
@@ -169,7 +166,7 @@ void main() {
       api: api,
       sourceNotifier: _JapaneseSourceNotifier(),
     );
-    await _expandFiltersAndSelectTag(tester);
+    await _selectTag(tester);
 
     await tester.tap(find.byType(TextField).first);
     await tester.pump();
@@ -197,7 +194,7 @@ void main() {
       sourceNotifier: _JapaneseSourceNotifier(),
     );
 
-    await _expandFiltersAndSelectTag(tester);
+    await _selectTag(tester);
     expect(api.catalogTypes, [SearchType.tag]);
 
     final field = find.byType(TextField).first;
@@ -223,7 +220,14 @@ void main() {
       '/tag/%e8%80%b3%e3%81%8b%e3%81%8d/',
     );
     expect(find.byIcon(Icons.expand_less), findsNothing);
-    expect(find.byIcon(Icons.tune), findsOneWidget);
+    final displaySettingsButton = find.byIcon(Icons.view_comfy_outlined);
+    expect(displaySettingsButton, findsOneWidget);
+    await tester.tap(displaySettingsButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('audio-search-layout-setting')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -237,7 +241,7 @@ void main() {
       sourceNotifier: AudioSourceNotifier(),
     );
 
-    await _expandFiltersAndSelectTag(tester);
+    await _selectTag(tester);
     final field = find.byType(TextField).first;
     await tester.tap(field);
     await tester.enterText(field, '耳');

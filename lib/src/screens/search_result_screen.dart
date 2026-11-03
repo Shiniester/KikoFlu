@@ -11,6 +11,7 @@ import '../providers/audio_source_provider.dart';
 import '../providers/search_result_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/works_provider.dart' show LayoutType, worksProvider;
 import '../services/log_service.dart';
 import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
@@ -95,6 +96,14 @@ class SearchResultScreen extends StatelessWidget {
                   subtitleFilter: initialSubtitleFilter,
                 ),
           );
+
+          notifier.syncLayoutType(ref.read(worksProvider).layoutType);
+          ref.listen(worksProvider.select((state) => state.layoutType), (
+            previous,
+            next,
+          ) {
+            if (previous != next) notifier.syncLayoutType(next);
+          });
 
           ref.listen(pageSizeProvider, (previous, next) {
             if (previous != next) {
@@ -330,24 +339,24 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
       widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
       ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
-  IconData _getLayoutIcon(SearchLayoutType layoutType) {
+  IconData _getLayoutIcon(LayoutType layoutType) {
     switch (layoutType) {
-      case SearchLayoutType.bigGrid:
-        return Icons.grid_3x3;
-      case SearchLayoutType.smallGrid:
+      case LayoutType.bigGrid:
+        return Icons.grid_view;
+      case LayoutType.smallGrid:
+        return Icons.grid_on;
+      case LayoutType.list:
         return Icons.view_list;
-      case SearchLayoutType.list:
-        return Icons.view_agenda;
     }
   }
 
-  String _getLayoutTooltip(SearchLayoutType layoutType) {
+  String _getLayoutTooltip(LayoutType layoutType) {
     switch (layoutType) {
-      case SearchLayoutType.bigGrid:
+      case LayoutType.bigGrid:
         return S.of(context).switchToSmallGrid;
-      case SearchLayoutType.smallGrid:
+      case LayoutType.smallGrid:
         return S.of(context).switchToList;
-      case SearchLayoutType.list:
+      case LayoutType.list:
         return S.of(context).switchToLargeGrid;
     }
   }
@@ -362,6 +371,9 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchResultProvider);
+    final layoutType = ref.watch(
+      worksProvider.select((state) => state.layoutType),
+    );
     final currentSource = ref.watch(audioSourceProvider);
     final isJapaneseAsmr =
         widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
@@ -378,20 +390,20 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
     final resultBody = Stack(
       children: [
-        Positioned.fill(child: _buildBody(searchState)),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: ProgressiveTopScrim(height: topPadding + 72),
-        ),
-        Positioned(
-          top: topPadding + 8,
-          left: horizontalPadding,
-          right: horizontalPadding,
-          child: FloatingToolbarRow(
-            children: [
-              if (!widget.embedded)
+        Positioned.fill(child: _buildBody(searchState, layoutType)),
+        if (!widget.embedded) ...[
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ProgressiveTopScrim(height: topPadding + 72),
+          ),
+          Positioned(
+            top: topPadding + 8,
+            left: horizontalPadding,
+            right: horizontalPadding,
+            child: FloatingToolbarRow(
+              children: [
                 FloatingToolbarSurface(
                   child: FloatingToolbarIconButton(
                     icon: Icons.arrow_back,
@@ -399,55 +411,56 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                 ),
-              FloatingToolbarSurface(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FloatingToolbarIconButton(
-                      icon: _getLayoutIcon(searchState.layoutType),
-                      tooltip: _getLayoutTooltip(searchState.layoutType),
-                      onPressed: () => ref
-                          .read(searchResultProvider.notifier)
-                          .toggleLayoutType(),
-                    ),
-                    if (!isJapaneseAsmr)
+                FloatingToolbarSurface(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       FloatingToolbarIconButton(
-                        icon: _getSubtitleFilterIcon(
-                          searchState.subtitleFilter,
-                        ),
-                        tooltip: SubtitleFilterMode.fromValue(
-                          searchState.subtitleFilter,
-                        ).localizedTooltip(context),
-                        isSelected: SubtitleFilterMode.fromValue(
-                          searchState.subtitleFilter,
-                        ).isActive,
-                        onPressed: () {
-                          final nextFilter = SubtitleFilterMode.fromValue(
+                        icon: _getLayoutIcon(layoutType),
+                        tooltip: _getLayoutTooltip(layoutType),
+                        onPressed: () => ref
+                            .read(searchResultProvider.notifier)
+                            .toggleLayoutType(),
+                      ),
+                      if (!isJapaneseAsmr)
+                        FloatingToolbarIconButton(
+                          icon: _getSubtitleFilterIcon(
                             searchState.subtitleFilter,
-                          ).next.value;
-                          final onSubtitleFilterRequested =
-                              widget.onSubtitleFilterRequested;
-                          if (onSubtitleFilterRequested != null) {
-                            onSubtitleFilterRequested(nextFilter);
-                            return;
-                          }
-                          ref
-                              .read(searchResultProvider.notifier)
-                              .toggleSubtitleFilter();
-                        },
-                      ),
-                    if (!isJapaneseAsmr)
-                      FloatingToolbarIconButton(
-                        icon: Icons.sort,
-                        tooltip: S.of(context).sort,
-                        onPressed: () => _showSortDialog(context),
-                      ),
-                  ],
+                          ),
+                          tooltip: SubtitleFilterMode.fromValue(
+                            searchState.subtitleFilter,
+                          ).localizedTooltip(context),
+                          isSelected: SubtitleFilterMode.fromValue(
+                            searchState.subtitleFilter,
+                          ).isActive,
+                          onPressed: () {
+                            final nextFilter = SubtitleFilterMode.fromValue(
+                              searchState.subtitleFilter,
+                            ).next.value;
+                            final onSubtitleFilterRequested =
+                                widget.onSubtitleFilterRequested;
+                            if (onSubtitleFilterRequested != null) {
+                              onSubtitleFilterRequested(nextFilter);
+                              return;
+                            }
+                            ref
+                                .read(searchResultProvider.notifier)
+                                .toggleSubtitleFilter();
+                          },
+                        ),
+                      if (!isJapaneseAsmr)
+                        FloatingToolbarIconButton(
+                          icon: Icons.sort,
+                          tooltip: S.of(context).sort,
+                          onPressed: () => _showSortDialog(context),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ],
     );
 
@@ -605,7 +618,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     );
   }
 
-  Widget _buildBody(SearchResultState searchState) {
+  Widget _buildBody(SearchResultState searchState, LayoutType layoutType) {
     if (searchState.error != null && searchState.works.isEmpty) {
       final error = searchState.error!;
       if (error.contains('[jp-asmr-verification-required]') &&
@@ -667,7 +680,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     return WorksGridView(
       works: searchState.works,
       onOpenWorkDetail: (builder) => unawaited(_openWorkDetail(builder)),
-      layoutType: searchState.layoutType.toWorksLayoutType(),
+      layoutType: layoutType,
       scrollController: _scrollController,
       isLoading: searchState.isLoading,
       isRefreshing: false,

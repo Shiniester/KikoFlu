@@ -63,6 +63,82 @@ class VideoScreen extends ConsumerStatefulWidget {
     this.active = true,
   }) : initialUrl = url;
 
+  static Widget searchScreen(
+    BuildContext context, {
+    required MissavClient client,
+    String? collectionKey,
+    List<VideoLink> initialFilters = const [],
+  }) {
+    final s = S.of(context);
+    final accountCollection =
+        collectionKey == 'favorites' || collectionKey == 'history';
+    return GlobalAudioPlayerWrapper(
+      child: VideoSearchScreen(
+        title: s.search,
+        initialFilters: initialFilters,
+        historyContext: UnifiedSearchHistoryContext(
+          contentType: 'video',
+          entryScope: accountCollection ? collectionKey! : 'source-directory',
+          source: 'missav',
+        ),
+        search: (query, filters, isCurrent) async {
+          if (accountCollection) {
+            final collectionVideos = await client.searchCollection(
+              client.collectionUrl(collectionKey!),
+              query,
+              isCurrent: isCurrent,
+            );
+            if (filters.isEmpty || collectionVideos.isEmpty || !isCurrent()) {
+              return VideoSearchResults.collection(collectionVideos);
+            }
+            final filteredVideos = await client.searchWithFilters(
+              query,
+              filters,
+              isCurrent: isCurrent,
+            );
+            if (!isCurrent()) {
+              return const VideoSearchResults.collection([]);
+            }
+            final collectionIds = collectionVideos
+                .map((video) => video.id)
+                .toSet();
+            return VideoSearchResults.collection(
+              filteredVideos
+                  .where((video) => collectionIds.contains(video.id))
+                  .toList(growable: false),
+            );
+          }
+          if (query.trim().isEmpty && filters.length == 1) {
+            return VideoSearchResults.catalog(
+              await client.browse(filters.single.url),
+            );
+          }
+          if (filters.isNotEmpty) {
+            return VideoSearchResults.collection(
+              await client.searchWithFilters(
+                query,
+                filters,
+                isCurrent: isCurrent,
+              ),
+            );
+          }
+          return VideoSearchResults.catalog(await client.search(query));
+        },
+        loadFilters: accountCollection
+            ? null
+            : (kind, pageUrl) =>
+                  client.searchFilterOptions(kind, pageUrl: pageUrl),
+        browsePage: client.browse,
+        accountClient: accountCollection ? client : null,
+        verifyAccess: (searchContext, verification) => verifyMissavAccess(
+          searchContext,
+          client,
+          sourceUrl: verification.sourceUrl ?? client.homeUrl,
+        ),
+      ),
+    );
+  }
+
   final bool active;
   final String? initialUrl;
 
@@ -739,59 +815,15 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _search() async {
-    final s = S.of(context);
+  Future<void> _search({List<VideoLink> initialFilters = const []}) async {
     final collectionKey = _activeCollectionKey;
     await pushWorkDetailRoute(
       context,
-      builder: (_) => GlobalAudioPlayerWrapper(
-        child: VideoSearchScreen(
-          title: s.search,
-          historyContext: UnifiedSearchHistoryContext(
-            contentType: 'video',
-            entryScope:
-                collectionKey == 'favorites' || collectionKey == 'history'
-                ? collectionKey!
-                : 'source-directory',
-            source: 'missav',
-          ),
-          search: (query, filters, isCurrent) async {
-            if (collectionKey != null &&
-                (collectionKey == 'favorites' || collectionKey == 'history')) {
-              final videos = await _client.searchCollection(
-                _client.collectionUrl(collectionKey),
-                query,
-                isCurrent: isCurrent,
-              );
-              return VideoSearchResults.collection(videos);
-            }
-            if (filters.isNotEmpty) {
-              return VideoSearchResults.collection(
-                await _client.searchWithFilters(
-                  query,
-                  filters,
-                  isCurrent: isCurrent,
-                ),
-              );
-            }
-            return VideoSearchResults.catalog(await _client.search(query));
-          },
-          loadFilters:
-              collectionKey == 'favorites' || collectionKey == 'history'
-              ? null
-              : (kind, pageUrl) =>
-                    _client.searchFilterOptions(kind, pageUrl: pageUrl),
-          browsePage: _client.browse,
-          accountClient:
-              collectionKey == 'favorites' || collectionKey == 'history'
-              ? _client
-              : null,
-          verifyAccess: (searchContext, verification) => verifyMissavAccess(
-            searchContext,
-            _client,
-            sourceUrl: verification.sourceUrl ?? _client.homeUrl,
-          ),
-        ),
+      builder: (searchContext) => VideoScreen.searchScreen(
+        searchContext,
+        client: _client,
+        collectionKey: collectionKey,
+        initialFilters: initialFilters,
       ),
     );
   }
@@ -844,7 +876,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _openCatalog(VideoLink link) => _loadUrl(link.url);
+  Future<void> _openCatalog(VideoLink link) {
+    final isMetadataLink = switch (link.kind) {
+      VideoLinkKind.category ||
+      VideoLinkKind.actor ||
+      VideoLinkKind.tag ||
+      VideoLinkKind.studio => true,
+      _ => link.cardMetadataRoute != null,
+    };
+    if (isMetadataLink) return _search(initialFilters: [link]);
+    return _loadUrl(link.url);
+  }
 
   String _catalogUrl(String path) {
     final home = Uri.parse(_client.homeUrl);
@@ -1196,10 +1238,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     builder: (_) => const VideoDownloadsScreen(),
   );
 
-  Future<void> _openDetails(VideoItem video) => pushWorkDetailRoute(
-    context,
-    builder: (_) => VideoDetailsScreen(video: video),
-  );
+  Future<void> _openDetails(VideoItem video) {
+    final collectionKey = switch (_activeCollectionKey) {
+      'favorites' || 'history' => _activeCollectionKey,
+      _ => null,
+    };
+    return pushWorkDetailRoute(
+      context,
+      builder: (_) =>
+          VideoDetailsScreen(video: video, searchCollectionKey: collectionKey),
+    );
+  }
 
   bool _isCollectionLink(VideoLink link) {
     final segments = Uri.tryParse(
@@ -1329,7 +1378,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           : icon,
       title: Text(link.label),
       trailing: trailing,
-      onTap: () => _openCatalog(link),
+      onTap: () => _loadUrl(link.url),
     );
   }
 
@@ -1990,7 +2039,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final page = LibraryPageScaffold(
       title: title,
       searchHint: s.videoSearchHint,
-      onSearch: _search,
+      onSearch: () => _search(),
       drawerChildren: _drawer(layoutType),
       deferDrawerActions: widget.active,
       body: _content(s, layoutType),

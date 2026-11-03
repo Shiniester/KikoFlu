@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
-import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
+import 'package:kikoeru_flutter/src/widgets/search_options_button.dart';
 
 Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
   locale: const Locale('en'),
@@ -18,62 +19,113 @@ Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
   home: Scaffold(body: SingleChildScrollView(child: child)),
 );
 
-Widget _header(BuildContext context, Widget filterButton) =>
-    Row(children: [const Spacer(), filterButton]);
-
 void main() {
-  testWidgets('selected filters remain visible when controls collapse', (
+  testWidgets('search options open without moving results and toggle closed', (
     tester,
   ) async {
     await tester.pumpWidget(
       _app(
-        const SearchFilterPanel(
-          headerBuilder: _header,
-          selected: Text('Selected condition'),
-          filters: Text('Filter options'),
+        const Column(
+          children: [
+            Row(
+              children: [
+                Spacer(),
+                SearchOptionsButton(
+                  icon: Icons.tune,
+                  tooltip: 'Filter',
+                  child: Text('Filter options'),
+                ),
+              ],
+            ),
+            SizedBox(key: ValueKey('results'), height: 200),
+          ],
         ),
       ),
     );
 
-    expect(find.text('Selected condition'), findsOneWidget);
+    final results = find.byKey(const ValueKey('results'));
+    final position = tester.getTopLeft(results);
     expect(find.text('Filter options'), findsNothing);
     await tester.tap(find.byTooltip('Filter'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Filter options'), findsOneWidget);
+    expect(tester.getTopLeft(results), position);
     await tester.tap(find.byTooltip('Filter'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Filter options'), findsNothing);
-    expect(find.text('Selected condition'), findsOneWidget);
+    await tester.tap(find.byTooltip('Filter'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('Filter options'), findsNothing);
+    expect(tester.getTopLeft(results), position);
+  });
+
+  testWidgets('search options reflect immediate changes and dismiss on back', (
+    tester,
+  ) async {
+    var selected = false;
+    await tester.pumpWidget(
+      _app(
+        StatefulBuilder(
+          builder: (context, setState) => SearchOptionsButton(
+            icon: Icons.tune,
+            tooltip: 'Filter',
+            child: SwitchListTile(
+              title: const Text('Subtitles'),
+              value: selected,
+              onChanged: (value) => setState(() => selected = value),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Filter'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    expect(selected, isTrue);
+    expect(
+      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+      isTrue,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(SwitchListTile), findsNothing);
   });
 
   for (final width in [320.0, 840.0]) {
-    testWidgets('filter panel fits a $width logical-pixel window', (
-      tester,
-    ) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = Size(width, 800);
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        _app(
-          SearchFilterPanel(
-            headerBuilder: _header,
-            selected: const Wrap(children: [Chip(label: Text('Selected'))]),
-            filters: Wrap(
-              spacing: 8,
-              children: [
-                for (var index = 0; index < 6; index++)
-                  Chip(label: Text('Filter $index')),
-              ],
+    testWidgets(
+      'search options scroll at $width with a keyboard and large text',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          _app(
+            SearchOptionsButton(
+              icon: Icons.tune,
+              tooltip: 'Filter',
+              child: Column(
+                children: [
+                  for (var index = 0; index < 12; index++)
+                    ListTile(title: Text('Filter $index')),
+                ],
+              ),
             ),
+            textScale: 1.6,
           ),
-          textScale: 1.6,
-        ),
-      );
-      await tester.tap(find.byTooltip('Filter'));
-      await tester.pump();
-      expect(tester.takeException(), isNull);
-    });
+        );
+        await tester.tap(find.byTooltip('Filter'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Filter 11'));
+        await tester.pumpAndSettle();
+        expect(find.text('Filter 11').hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('history removes one entry and confirms clearing', (

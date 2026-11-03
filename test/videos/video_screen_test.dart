@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
@@ -175,6 +177,159 @@ void main() {
 
     expect(client.browsedUrls, [releaseUrl]);
   });
+
+  testWidgets('single metadata filter loads one source page at a time', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const tag = VideoLink(
+      label: 'Drama',
+      url: 'https://missav.ai/cn/genres/drama',
+      kind: VideoLinkKind.category,
+    );
+    const video = VideoItem(
+      id: 'catalog-tagged',
+      title: 'Catalog tagged video',
+      pageUrl: 'https://missav.ai/cn/catalog-tagged',
+      tags: [tag],
+    );
+    const nextUrl = 'https://missav.ai/cn/genres/drama?page=2';
+    const secondFilter = VideoLink(
+      label: 'Comedy',
+      url: 'https://missav.ai/cn/genres/comedy',
+      kind: VideoLinkKind.category,
+    );
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Catalog',
+        url: 'https://missav.ai/cn/release',
+        videos: [video],
+      ),
+      pagesByUrl: const {
+        'https://missav.ai/cn/genres/drama': VideoCatalogPage(
+          title: 'Drama',
+          url: 'https://missav.ai/cn/genres/drama',
+          nextUrl: nextUrl,
+          videos: [
+            VideoItem(
+              id: 'first-tagged',
+              title: 'First tagged result',
+              pageUrl: 'https://missav.ai/cn/first-tagged',
+            ),
+          ],
+        ),
+        nextUrl: VideoCatalogPage(
+          title: 'Drama',
+          url: nextUrl,
+          previousUrl: 'https://missav.ai/cn/genres/drama',
+          currentPage: 2,
+          videos: [
+            VideoItem(
+              id: 'second-tagged',
+              title: 'Second tagged result',
+              pageUrl: 'https://missav.ai/cn/second-tagged',
+              tags: [secondFilter],
+            ),
+          ],
+        ),
+      },
+    );
+    addTearDown(client.dispose);
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(tag.label));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VideoSearchScreen), findsOneWidget);
+    expect(find.text('First tagged result'), findsOneWidget);
+    expect(client.combinedSearchRequests, isEmpty);
+    expect(client.browsedUrls.where((url) => url.startsWith(tag.url)), [
+      tag.url,
+    ]);
+    expect(client.browsedUrls, isNot(contains(nextUrl)));
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await _tapNextPage(tester, l10n);
+    expect(find.text('Second tagged result'), findsOneWidget);
+    expect(find.text('First tagged result'), findsNothing);
+    expect(client.browsedUrls.where((url) => url.startsWith(tag.url)), [
+      tag.url,
+      nextUrl,
+    ]);
+    expect(client.combinedSearchRequests, isEmpty);
+    await tester.tap(find.text(secondFilter.label));
+    await tester.pumpAndSettle();
+    expect(client.combinedSearchRequests, hasLength(1));
+    expect(client.combinedSearchRequests.single.query, '');
+    expect(
+      client.combinedSearchRequests.single.filters.map((filter) => filter.url),
+      [tag.url, secondFilter.url],
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'details metadata opens a filtered search and returns to details',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      const tag = VideoLink(
+        label: 'Drama',
+        url: 'https://missav.ai/cn/genres/drama',
+        kind: VideoLinkKind.category,
+      );
+      const video = VideoItem(
+        id: 'detail-tagged',
+        title: 'Detail tagged video',
+        pageUrl: 'https://missav.ai/cn/detail-tagged',
+        tags: [tag],
+      );
+      final client = _TestMissavClient(
+        detailsResult: const VideoDetails(video: video),
+      );
+      addTearDown(client.dispose);
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const VideoDetailsScreen(
+            video: video,
+            sessionFactory: _TestVideoPlaybackSession.new,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(tag.label));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VideoSearchScreen), findsOneWidget);
+      expect(client.combinedSearchRequests, isEmpty);
+      expect(
+        tester
+            .widget<VideoSearchScreen>(find.byType(VideoSearchScreen))
+            .initialFilters
+            .map((filter) => filter.url),
+        [tag.url],
+      );
+      expect(client.browsedUrls, contains(tag.url));
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
+      expect(find.byType(VideoSearchScreen), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('failed cover retries only after tapping retry', (tester) async {
     final client = _TestMissavClient(
@@ -1583,8 +1738,6 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
-      await tester.pumpAndSettle();
       final genreType = find.byKey(const ValueKey('video-search-type-genre'));
       await tester.ensureVisible(genreType);
       await tester.tap(genreType);
@@ -1593,6 +1746,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(client.filterOptionKinds, [VideoSearchFilterKind.genre]);
       expect(client.combinedSearchRequests, isEmpty);
+      expect(client.browsedUrls, contains('https://missav.ai/en/genres/drama'));
 
       final keywordType = find.byKey(
         const ValueKey('video-search-type-keyword'),
@@ -1606,6 +1760,7 @@ void main() {
       );
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pumpAndSettle();
+      expect(client.combinedSearchRequests, hasLength(1));
       expect(client.combinedSearchRequests.last.query, 'keyword');
       expect(client.combinedSearchRequests.last.filters.single.label, 'Drama');
       expect(
@@ -1835,6 +1990,72 @@ void main() {
     }
   });
 
+  testWidgets(
+    'metadata filters from account search stay within that collection',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      const tag = VideoLink(
+        label: 'Account genre',
+        url: 'https://missav.ai/cn/genres/account-genre',
+        kind: VideoLinkKind.category,
+      );
+      const video = VideoItem(
+        id: 'account-tagged',
+        title: 'Account result',
+        pageUrl: 'https://missav.ai/cn/account-tagged',
+        tags: [tag],
+      );
+      const collectionUrl = 'https://missav.ai/en/saved';
+      final client = _TestMissavClient(
+        loggedIn: true,
+        catalog: const VideoCatalogPage(title: 'Favorites', url: collectionUrl),
+        collectionSearchResults: const [video],
+      );
+      addTearDown(client.dispose);
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const VideoScreen.catalog(url: collectionUrl),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-page-search')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'Account',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(client.collectionSearchCalls, 1);
+      expect(find.text(video.title), findsOneWidget);
+
+      await tester.tap(find.text(tag.label));
+      await tester.pumpAndSettle();
+
+      expect(client.collectionSearchCalls, 2);
+      expect(client.combinedSearchRequests, hasLength(1));
+      expect(client.combinedSearchRequests.single.query, 'Account');
+      expect(
+        client.combinedSearchRequests.single.filters.map(
+          (filter) => filter.url,
+        ),
+        [tag.url],
+      );
+      expect(client.browsedUrls, isNot(contains(tag.url)));
+      expect(find.text(video.title), findsNothing);
+      expect(find.text(l10n.noResults), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('download queue shares card geometry after resize', (
     tester,
   ) async {
@@ -2028,6 +2249,7 @@ void main() {
       );
       final l10n = await S.delegate.load(const Locale('en'));
       for (final isDownload in [false, true]) {
+        final searchedFilterUrls = <List<String>>[];
         final client = _TestMissavClient(
           pagesByUrl: {
             tag.url: VideoCatalogPage(title: 'Genre catalog', url: tag.url),
@@ -2058,8 +2280,12 @@ void main() {
                 : VideoSearchScreen(
                     title: 'Search',
                     initialQuery: 'Sample',
-                    search: (_, _, _) async =>
-                        const VideoSearchResults.collection([video]),
+                    search: (_, filters, _) async {
+                      searchedFilterUrls.add(
+                        filters.map((filter) => filter.url).toList(),
+                      );
+                      return const VideoSearchResults.collection([video]);
+                    },
                     browsePage: client.browse,
                   ),
           ),
@@ -2077,8 +2303,14 @@ void main() {
         }
         await tester.tap(find.text('Drama'));
         await tester.pumpAndSettle();
-        expect(client.browsedUrls, contains(tag.url));
-        expect(find.text('Genre catalog'), findsOneWidget);
+        if (isDownload) {
+          expect(client.browsedUrls, contains(tag.url));
+          expect(find.text('Genre catalog'), findsOneWidget);
+        } else {
+          expect(searchedFilterUrls.last, [tag.url]);
+          expect(client.browsedUrls, isNot(contains(tag.url)));
+          expect(find.text('Genre catalog'), findsNothing);
+        }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
@@ -2873,6 +3105,57 @@ class _EmptyVideoSecureStorage implements FlutterSecureStorage {
   }
 }
 
+class _TestVideoPlaybackSession implements VideoPlaybackSession {
+  final ValueNotifier<VideoPlaybackSnapshot> _snapshot = ValueNotifier(
+    const VideoPlaybackSnapshot(),
+  );
+
+  @override
+  ValueListenable<VideoPlaybackSnapshot> get snapshot => _snapshot;
+
+  @override
+  Widget buildSurface({required double aspectRatio}) =>
+      const ColoredBox(color: Colors.black);
+
+  @override
+  Future<void> loadStream(
+    VideoStream stream, {
+    required Duration position,
+    required double volume,
+  }) async {}
+
+  @override
+  Future<void> loadFile(
+    String path, {
+    required Duration position,
+    required double volume,
+  }) async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> setRate(double rate) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> selectAudioTrack(String id) async {}
+
+  @override
+  Future<void> selectSubtitleTrack(String id) async {}
+
+  @override
+  Future<void> dispose() async => _snapshot.dispose();
+}
+
 class _TestMissavClient extends MissavClient {
   _TestMissavClient({
     this.catalog,
@@ -2891,6 +3174,7 @@ class _TestMissavClient extends MissavClient {
     this.onBrowse,
     this.collectionSearchResults = const [],
     this.recommendationHandler,
+    this.detailsResult,
   });
 
   final VideoCatalogPage? catalog;
@@ -2911,6 +3195,7 @@ class _TestMissavClient extends MissavClient {
   final void Function(String url)? onBrowse;
   final List<VideoItem> collectionSearchResults;
   final _RecommendationHandler? recommendationHandler;
+  final VideoDetails? detailsResult;
   bool loggedIn;
   int _testSessionGeneration = 0;
   @override
@@ -2954,6 +3239,17 @@ class _TestMissavClient extends MissavClient {
 
   @override
   Future<void> initialize() async {}
+
+  @override
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
+  }) async {
+    final details = detailsResult ?? VideoDetails(video: item);
+    await onReady?.call(details);
+    return details;
+  }
 
   @override
   Future<VideoCatalogPage> browse(

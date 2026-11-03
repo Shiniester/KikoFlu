@@ -102,11 +102,10 @@ void main() {
   });
 
   test(
-    'feed providers restore and persist their independent layouts',
+    'global search shares the home layout while reviews keep their own layout',
     () async {
       SharedPreferences.setMockInitialValues({
         WorksNotifier.layoutPreferenceKey: LayoutType.smallGrid.name,
-        SearchResultNotifier.layoutPreferenceKey: SearchLayoutType.list.name,
         MyReviewsNotifier.layoutPreferenceKey:
             MyReviewLayoutType.smallGrid.name,
         MyReviewsNotifier.filterPreferenceKey: MyReviewFilter.listening.name,
@@ -141,7 +140,7 @@ void main() {
       expect(container.read(worksProvider).layoutType, LayoutType.smallGrid);
       expect(
         container.read(searchResultProvider).layoutType,
-        SearchLayoutType.list,
+        SearchLayoutType.smallGrid,
       );
       expect(
         container.read(myReviewsProvider).layoutType,
@@ -154,8 +153,12 @@ void main() {
       await container.read(myReviewsProvider.notifier).load();
       expect(apiService.lastReviewFilter, MyReviewFilter.listening.value);
 
-      container.read(worksProvider.notifier).toggleLayoutType();
       container.read(searchResultProvider.notifier).toggleLayoutType();
+      expect(container.read(worksProvider).layoutType, LayoutType.list);
+      expect(
+        container.read(searchResultProvider).layoutType,
+        SearchLayoutType.list,
+      );
       container.read(myReviewsProvider.notifier).toggleLayoutType();
       container
           .read(myReviewsProvider.notifier)
@@ -167,10 +170,7 @@ void main() {
         prefs.getString(WorksNotifier.layoutPreferenceKey),
         LayoutType.list.name,
       );
-      expect(
-        prefs.getString(SearchResultNotifier.layoutPreferenceKey),
-        SearchLayoutType.bigGrid.name,
-      );
+      expect(prefs.containsKey('search_result_layout_type'), isFalse);
       expect(
         prefs.getString(MyReviewsNotifier.layoutPreferenceKey),
         MyReviewLayoutType.list.name,
