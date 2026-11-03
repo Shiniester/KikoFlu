@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
@@ -21,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
@@ -36,6 +38,7 @@ import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -274,6 +277,117 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  for (final (size, withTrack, fullscreen) in [
+    (const Size(390, 844), false, false),
+    (const Size(390, 844), true, false),
+    (const Size(1280, 720), false, false),
+    (const Size(1280, 720), true, false),
+    (const Size(390, 844), true, true),
+  ]) {
+    testWidgets('text preview stays above shared navigation at $size '
+        '(track=$withTrack, fullscreen=$fullscreen)', (tester) async {
+      final directory = Directory.systemTemp.createTempSync('subtitle_');
+      final subtitle = File('${directory.path}/track.srt');
+      final content = [
+        ...List.generate(100, (index) => 'subtitle line $index'),
+        'last subtitle line',
+      ].join('\n');
+      subtitle.writeAsStringSync(content);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await subtitle.delete();
+          await directory.delete();
+        });
+      });
+
+      final navigation = await _pumpShell(
+        tester,
+        size: size,
+        withTrack: withTrack,
+        safePadding: const FakeViewPadding(bottom: 24),
+      );
+      if (fullscreen) {
+        _openPlayer(navigation);
+        await tester.pumpAndSettle();
+      }
+      final navigator = fullscreen
+          ? navigation.navigator!
+          : navigation.tabNavigator(0)!;
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => TextPreviewScreen(
+              textUrl: LocalFileUrl.fromPath(subtitle.path),
+              title: 'track.srt',
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      for (var attempt = 0; attempt < 40; attempt++) {
+        if (find
+            .byKey(const ValueKey('text-preview-content'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pumpAndSettle();
+
+      final preview = find.byType(TextPreviewScreen);
+      final scroll = find.descendant(
+        of: preview,
+        matching: find.byType(SingleChildScrollView),
+      );
+      final controller = tester
+          .widget<SingleChildScrollView>(scroll)
+          .controller!;
+      final bottom = fullscreen
+          ? size.height - 24
+          : size.width > size.height
+          ? withTrack
+                ? tester.getTopLeft(find.byType(MiniPlayer)).dy
+                : size.height - 24
+          : tester.getTopLeft(find.byType(AppBottomDock)).dy;
+
+      Future<void> expectLastLineVisible(bool editing) async {
+        controller.jumpTo(controller.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        final contentFinder = find.byKey(
+          ValueKey(
+            editing ? 'text-preview-edit-field' : 'text-preview-content',
+          ),
+        );
+        final editable = tester
+            .state<EditableTextState>(
+              find.descendant(
+                of: contentFinder,
+                matching: find.byType(EditableText),
+              ),
+            )
+            .renderEditable;
+        final lastLine = editable.getLocalRectForCaret(
+          TextPosition(offset: content.length),
+        );
+        expect(tester.getRect(scroll).bottom, closeTo(bottom, 0.01));
+        expect(
+          editable.localToGlobal(lastLine.bottomLeft).dy,
+          lessThanOrEqualTo(bottom),
+        );
+      }
+
+      await expectLastLineVisible(false);
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+      await expectLastLineVisible(true);
+      if (fullscreen) expect(find.byType(AppBottomDock), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final size in [const Size(390, 600), const Size(1280, 720)]) {
     for (final withTrack in [false, true]) {

@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
@@ -661,7 +662,7 @@ void main() {
     'playlist entries stay in their collection page and browse in place',
     (tester) async {
       const collectionUrl = 'https://missav.ai/en/playlists';
-      const playlistUrl = 'https://missav.ai/en/playlists/123';
+      const playlistUrl = 'https://missav.ai/dm123/en/playlists/123';
       final client = _TestMissavClient(
         catalog: const VideoCatalogPage(
           title: 'Home catalog',
@@ -691,6 +692,14 @@ void main() {
           playlistUrl: const VideoCatalogPage(
             title: 'Playlist one videos',
             url: playlistUrl,
+            links: [
+              VideoLink(
+                label: 'Another playlist',
+                url: 'https://missav.ai/en/playlists/456',
+                kind: VideoLinkKind.playlist,
+                sourceKey: '456',
+              ),
+            ],
             videos: [
               VideoItem(
                 id: 'playlist-video',
@@ -766,6 +775,12 @@ void main() {
       expect(find.text('Playlist video'), findsOneWidget);
       expect(client.browsedUrls, contains(playlistUrl));
       expect(observer.pushes, pushesBeforeSelection);
+
+      await tester.tap(find.text('Playlist video'));
+      await tester.pump();
+      expect(observer.pushes, pushesBeforeSelection + 1);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
     },
   );
 
@@ -2382,76 +2397,212 @@ void main() {
     );
   });
 
-  testWidgets('actor favorites remain accessible from their saved collection', (
-    tester,
-  ) async {
-    const actor = VideoLink(
-      label: 'Fixture actor',
-      url: 'https://missav.ai/cn/actress/fixture',
-      kind: VideoLinkKind.actor,
-    );
-    final client = _TestMissavClient(
-      loggedIn: true,
-      catalog: const VideoCatalogPage(
-        title: 'Source actor directory',
-        url: 'https://missav.ai/cn/actresses',
-        links: [actor],
-      ),
-      pagesByUrl: {
-        'https://missav.ai/en/saved/actresses': const VideoCatalogPage(
-          title: 'Actor favorites',
-          url: 'https://missav.ai/en/saved/actresses',
-          links: [actor],
+  testWidgets(
+    'actor favorites show avatar fallbacks and retain pagination and actions',
+    (tester) async {
+      final actors = List.generate(
+        41,
+        (index) => VideoLink(
+          label: 'Fixture actor $index',
+          url: 'https://missav.ai/cn/actresses/fixture-$index',
+          cover: index == 0 || index == 40
+              ? 'https://fourhoi.com/actor/fixture-$index.jpg'
+              : '',
+          kind: VideoLinkKind.actor,
         ),
-      },
-    );
-    final library = await _testLibrary();
-    final downloads = _TestVideoDownloads(client: client, library: library);
+      );
+      final client = _TestMissavClient(
+        loggedIn: true,
+        catalog: const VideoCatalogPage(
+          title: 'Source actor directory',
+          url: 'https://missav.ai/cn/actresses',
+        ),
+        pagesByUrl: {
+          'https://missav.ai/en/saved/actresses': VideoCatalogPage(
+            title: 'Actor favorites',
+            url: 'https://missav.ai/en/saved/actresses',
+            links: actors,
+          ),
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final imageBytes = img.encodePng(img.Image(width: 2, height: 2));
+      final imageBody = Completer<List<int>>();
+      final imageRequestStarted = Completer<void>();
+      final imageClient = _DeferredVideoCoverHttpClient(
+        imageBody.future,
+        imageRequestStarted: imageRequestStarted,
+        contentLength: imageBytes.length,
+        bodyForRequest: (request) =>
+            request == 1 ? imageBody.future : Future.value(const <int>[]),
+        contentLengthForRequest: (request) =>
+            request == 1 ? imageBytes.length : 0,
+        statusCodeForRequest: (request) =>
+            request == 1 ? HttpStatus.ok : HttpStatus.notFound,
+      );
+      final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+      debugNetworkImageHttpClientProvider = () => imageClient;
+      try {
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            const VideoScreen.catalog(url: 'https://missav.ai/cn/actresses'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+        await tester.pumpAndSettle();
+        final drawer = find.byKey(const ValueKey('library-drawer'));
+        expect(
+          find.descendant(of: drawer, matching: find.text('Fixture actor 0')),
+          findsNothing,
+        );
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.scrollUntilVisible(
+          find.descendant(
+            of: drawer,
+            matching: find.text(l10n.videoActorFavorites),
+          ),
+          240,
+          scrollable: find
+              .descendant(of: drawer, matching: find.byType(Scrollable))
+              .first,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: drawer,
+            matching: find.text(l10n.videoActorFavorites),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.runAsync(
+          () => imageRequestStarted.future.timeout(const Duration(seconds: 5)),
+        );
+        await tester.pumpAndSettle();
 
-    await tester.pumpWidget(
-      _app(
-        client,
-        library,
-        downloads,
-        const VideoScreen.catalog(url: 'https://missav.ai/cn/actresses'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
-    await tester.pumpAndSettle();
-    final drawer = find.byKey(const ValueKey('library-drawer'));
-    expect(
-      find.descendant(of: drawer, matching: find.text('Fixture actor')),
-      findsNothing,
-    );
-    expect(find.text('Fixture actor'), findsNothing);
-    final l10n = await S.delegate.load(const Locale('en'));
-    await tester.scrollUntilVisible(
-      find.descendant(
-        of: drawer,
-        matching: find.text(l10n.videoActorFavorites),
-      ),
-      240,
-      scrollable: find
-          .descendant(of: drawer, matching: find.byType(Scrollable))
-          .first,
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: drawer,
-        matching: find.text(l10n.videoActorFavorites),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Fixture actor'), findsOneWidget);
-    await tester.tap(find.byTooltip('Fixture actor'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l10n.videoFavoriteActor));
-    await tester.pumpAndSettle();
+        expect(find.text('Fixture actor 0'), findsOneWidget);
+        expect(imageClient.requestCount, 1);
+        final firstActorTile = find.ancestor(
+          of: find.text('Fixture actor 0'),
+          matching: find.byType(ListTile),
+        );
+        final firstActorImage = find.descendant(
+          of: firstActorTile,
+          matching: find.byType(Image),
+        );
+        expect(firstActorImage, findsOneWidget);
+        final imageStream = tester
+            .widget<Image>(firstActorImage)
+            .image
+            .resolve(
+              createLocalImageConfiguration(tester.element(firstActorImage)),
+            );
+        final imageDecoded = Completer<void>();
+        final imageStreamListener = ImageStreamListener((
+          image,
+          synchronousCall,
+        ) {
+          if (!imageDecoded.isCompleted) imageDecoded.complete();
+        });
+        imageStream.addListener(imageStreamListener);
+        expect(
+          find.descendant(
+            of: firstActorTile,
+            matching: find.byIcon(Icons.person_outline),
+          ),
+          findsOneWidget,
+        );
+        final secondActorTile = find.ancestor(
+          of: find.text('Fixture actor 1'),
+          matching: find.byType(ListTile),
+        );
+        expect(
+          find.descendant(
+            of: secondActorTile,
+            matching: find.byIcon(Icons.person_outline),
+          ),
+          findsOneWidget,
+        );
+        final thirdActorTile = find.ancestor(
+          of: find.text('Fixture actor 2'),
+          matching: find.byType(ListTile),
+        );
+        expect(
+          find.descendant(
+            of: thirdActorTile,
+            matching: find.byIcon(Icons.person_outline),
+          ),
+          findsOneWidget,
+        );
 
-    expect(client.actorFavoriteChanges, [true]);
-  });
+        try {
+          await tester.runAsync(() async => imageBody.complete(imageBytes));
+          final decodeTimeout = Stopwatch()..start();
+          while (!imageDecoded.isCompleted &&
+              decodeTimeout.elapsed < const Duration(seconds: 5)) {
+            await tester.runAsync(() {
+              final eventLoopTurn = Completer<void>();
+              Timer.run(() => eventLoopTurn.complete());
+              return eventLoopTurn.future;
+            });
+            await tester.pump();
+          }
+          expect(imageDecoded.isCompleted, isTrue);
+        } finally {
+          imageStream.removeListener(imageStreamListener);
+        }
+        final firstActorRawImage = find.descendant(
+          of: firstActorTile,
+          matching: find.byType(RawImage),
+        );
+        expect(firstActorRawImage, findsOneWidget);
+        expect(tester.widget<RawImage>(firstActorRawImage).image, isNotNull);
+        expect(imageClient.requestCount, 1);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: firstActorTile,
+            matching: find.byIcon(Icons.person_outline),
+          ),
+          findsNothing,
+        );
+        await tester.tap(find.byTooltip('Fixture actor 0'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(l10n.videoFavoriteActor));
+        await tester.pumpAndSettle();
+        expect(client.actorFavoriteChanges, [true]);
+
+        await _tapNextPage(tester, l10n);
+        expect(find.text('Fixture actor 40'), findsOneWidget);
+        expect(imageClient.requestCount, 2);
+        final lastActorTile = find.ancestor(
+          of: find.text('Fixture actor 40'),
+          matching: find.byType(ListTile),
+        );
+        expect(
+          find.descendant(
+            of: lastActorTile,
+            matching: find.byIcon(Icons.person_outline),
+          ),
+          findsOneWidget,
+        );
+        await tester.ensureVisible(find.text('Fixture actor 40'));
+        await tester.tap(find.text('Fixture actor 40'));
+        await tester.pumpAndSettle();
+        expect(client.browsedUrls, contains(actors.last.url));
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        client.dispose();
+      } finally {
+        if (!imageBody.isCompleted) imageBody.complete(imageBytes);
+        debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+      }
+    },
+  );
 
   testWidgets('watch history clearing confirms and refreshes from source', (
     tester,

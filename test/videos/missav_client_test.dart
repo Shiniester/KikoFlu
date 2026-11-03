@@ -356,6 +356,38 @@ void main() {
     },
   );
 
+  test('keeps an actor cover when its image has no alt text', () async {
+    const html = '''
+      <!doctype html>
+      <html lang="en">
+        <head><title>My actress collection</title></head>
+        <body x-data="{user: null}">
+          <main>
+            <a href="/en/actresses/sample-actor">
+              <span>Sample actor</span>
+              <img src="data:image/svg+xml,placeholder"
+                   data-src="https://fourhoi.com/actor/sample-t.jpg">
+            </a>
+          </main>
+        </body>
+      </html>
+    ''';
+    final adapter = _Adapter((_) => _response(html));
+    final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/en/saved/actresses');
+
+    expect(page.links, hasLength(1));
+    expect(page.links.single.label, 'Sample actor');
+    expect(page.links.single.kind, VideoLinkKind.actor);
+    expect(page.links.single.cover, 'https://fourhoi.com/actor/sample-t.jpg');
+  });
+
   test(
     'homepage recommendations preserve source order and continue by cursor',
     () async {

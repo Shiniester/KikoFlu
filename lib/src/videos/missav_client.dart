@@ -2170,7 +2170,7 @@ class MissavClient extends ChangeNotifier {
       }
       if (_excludeDirectoryAnchor(anchor, uri)) continue;
       if (videoUrls.contains(uri.toString())) continue;
-      final image = anchor.querySelector('img[alt]');
+      final image = anchor.querySelector('img');
       final label = anchor.text.trim().isNotEmpty
           ? anchor.text.trim()
           : image?.attributes['alt']?.trim() ?? '';

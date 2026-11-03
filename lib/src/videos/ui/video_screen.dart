@@ -1270,6 +1270,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   };
 
   Widget _collectionLinkTile(VideoLink link) {
+    final icon = Icon(_directoryIcon(link));
     Widget? trailing;
     if (link.kind == VideoLinkKind.actor) {
       final s = S.of(context);
@@ -1308,7 +1309,24 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       );
     }
     return ListTile(
-      leading: Icon(_directoryIcon(link)),
+      leading: link.kind == VideoLinkKind.actor && link.cover.isNotEmpty
+          ? SizedBox.square(
+              dimension: 40,
+              child: ClipOval(
+                child: Image.network(
+                  link.cover,
+                  fit: BoxFit.cover,
+                  excludeFromSemantics: true,
+                  frameBuilder:
+                      (context, child, frame, wasSynchronouslyLoaded) {
+                        return frame == null ? Center(child: icon) : child;
+                      },
+                  errorBuilder: (context, error, stackTrace) =>
+                      Center(child: icon),
+                ),
+              ),
+            )
+          : icon,
       title: Text(link.label),
       trailing: trailing,
       onTap: () => _openCatalog(link),
@@ -1535,6 +1553,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   List<VideoLink> _collectionLinksForContent(VideoCatalogPage page) {
     final collectionKey = _collectionKeyForUrl(page.url);
     if (collectionKey != _activeCollectionKey) return const [];
+    if (collectionKey == 'playlists' &&
+        _catalogPath(page.url) !=
+            _catalogPath(_client.collectionUrl('playlists'))) {
+      return const [];
+    }
     final kind = switch (collectionKey) {
       'actorFavorites' => VideoLinkKind.actor,
       'playlists' => VideoLinkKind.playlist,

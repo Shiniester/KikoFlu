@@ -119,6 +119,10 @@ _Avoid_: System safe area, page margin
 A video saved in a Video Source Account's collection, belonging to that account.
 _Avoid_: Local Favorite, comic Source Favorite
 
+**Video Playlist (视频播放列表)**:
+A collection of videos stored by a Video Source for a Video Source Account.
+_Avoid_: Playback queue
+
 **Video Watch History (视频观看历史)**:
 A Video Source Account's list of watched videos.
 _Avoid_: Video Resume Position, audio playback history
