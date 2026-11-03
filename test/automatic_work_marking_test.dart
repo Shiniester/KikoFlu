@@ -576,6 +576,104 @@ void main() {
   );
 
   test(
+    'queued reconciliation preserves a newer live automatic marking intent',
+    () async {
+      final h = Harness();
+      h.service.observeProgress(1, 'marked');
+      h.service.observeProgress(2, null);
+      h.writeGate = Completer<void>();
+      h.writeStarted = Completer<void>();
+      final firstWriteStarted = h.writeStarted!.future;
+      final first = h.event(AutomaticMarkingEventType.started, track: a);
+      await firstWriteStarted;
+
+      final reconciliation = h.service.reconcilePending();
+      const secondTrack = AudioTrack(
+        id: 'c',
+        hash: 'original-c',
+        title: 'C',
+        url: 'https://example.invalid/c',
+        workId: 2,
+      );
+      final projected = Completer<void>();
+      h.changed = () {
+        if (h.service.progressFor(2, null) == 'listening' &&
+            !projected.isCompleted) {
+          projected.complete();
+        }
+      };
+      final second = h.event(
+        AutomaticMarkingEventType.started,
+        track: secondTrack,
+      );
+      await projected.future;
+      // This no-op waits for the second local projection to enqueue its write.
+      await h.service.addedToPlaylist(2);
+
+      h.writeGate!.complete();
+      await Future.wait([first, reconciliation, second]);
+
+      expect(h.online[1], 'listening');
+      expect(h.online[2], 'listening');
+      expect(h.writes, ['listening', 'listening']);
+      expect(h.conflicts, 0);
+    },
+  );
+
+  test(
+    'reconciliation recovers pending work after switching away and back',
+    () async {
+      const alice = 'https://example.invalid/alice';
+      final h = Harness();
+      h.service.observeProgress(1, 'marked');
+      h.service.observeProgress(2, null);
+      h.writeGate = Completer<void>();
+      h.writeStarted = Completer<void>();
+      final firstWriteStarted = h.writeStarted!.future;
+      final first = h.event(AutomaticMarkingEventType.started, track: a);
+      await firstWriteStarted;
+
+      const secondTrack = AudioTrack(
+        id: 'c',
+        hash: 'original-c',
+        title: 'C',
+        url: 'https://example.invalid/c',
+        workId: 2,
+      );
+      final projected = Completer<void>();
+      h.changed = () {
+        if (h.service.progressFor(2, null) == 'listening' &&
+            !projected.isCompleted) {
+          projected.complete();
+        }
+      };
+      final second = h.event(
+        AutomaticMarkingEventType.started,
+        track: secondTrack,
+      );
+      await projected.future;
+      await h.service.addedToPlaylist(2);
+      expect(
+        ((h.persisted[alice] as Map<String, dynamic>)['pending']
+            as Map<String, dynamic>)['2'],
+        'listening',
+      );
+
+      h.owner = 'https://example.invalid/bob';
+      h.writeGate!.complete();
+      await Future.wait([first, second]);
+      h.owner = alice;
+
+      await h.service.reconcilePending();
+
+      expect((h.persisted[alice] as Map<String, dynamic>)['pending'], isEmpty);
+      expect(h.service.progressFor(1, null), 'listening');
+      expect(h.service.progressFor(2, null), isNull);
+      expect(h.conflicts, 1);
+    },
+  );
+
+  test(
     'offline known progress is optimistic; missing baseline is never guessed',
     () async {
       final h = Harness()..offline = true;

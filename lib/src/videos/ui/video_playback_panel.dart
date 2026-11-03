@@ -626,6 +626,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Duration? _pendingLoadPosition;
   String? _pendingLoadVideoId;
   String? _loadedVideoId;
+  ({String videoId, Duration position})? _pendingSourcePosition;
   Duration? _seekPreview;
   Duration? _pendingSeekPosition;
   Duration? _dragStartPosition;
@@ -1074,7 +1075,18 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final sourceLocalPath = widget.localPath;
     final sourceStreams = widget.streams;
     final sourceStreamIndex = _streamIndex;
+    final pendingSourcePosition = _pendingSourcePosition;
+    final pendingSeekPosition = _pendingSeekPosition;
+    final pendingSeekVideoId = _loadedVideoId;
     _clearPendingSeek();
+    if (savePreviousPosition && widget.savePositionOnSourceChange) {
+      _pendingSourcePosition =
+          pendingSeekPosition != null && pendingSeekVideoId != null
+          ? (videoId: pendingSeekVideoId, position: pendingSeekPosition)
+          : pendingSourcePosition;
+    } else if (!widget.savePositionOnSourceChange) {
+      _pendingSourcePosition = null;
+    }
     _cancelSeekPreview();
     final generation = ++_loadGeneration;
     final pauseGeneration = _pauseGeneration;
@@ -1089,9 +1101,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       if (_disposed || generation != _loadGeneration) return;
       var loadPosition = position;
       if (savePreviousPosition && widget.savePositionOnSourceChange) {
+        final sourcePositionToSave = _pendingSourcePosition;
         await _saveLoadedSourcePosition();
-        if (_disposed || generation != _loadGeneration) return;
+        if (_pendingSourcePosition == sourcePositionToSave) {
+          _pendingSourcePosition = null;
+        }
         _loadedVideoId = null;
+        if (_disposed || generation != _loadGeneration) return;
         loadPosition = widget.library.positionFor(sourceVideoId);
       }
       await _settings.initialize();
@@ -1447,6 +1463,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _seekPreviewClearTimer?.cancel();
     _seekPreviewClearTimer = null;
     if (_pendingSeekPosition == null) return;
+    _pendingSourcePosition = null;
     _updatePlayerState(() => _pendingSeekPosition = null);
     _scheduleControlsHide();
   }
@@ -2294,10 +2311,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       final pendingPosition = _pendingLoadVideoId == videoId
           ? _pendingLoadPosition
           : null;
-      return widget.library.savePosition(
-        videoId,
-        pendingPosition ?? _session.snapshot.value.position,
-      );
+      final sourceChangePosition = _pendingSourcePosition;
+      final position =
+          sourceChangePosition != null &&
+              sourceChangePosition.videoId == videoId
+          ? sourceChangePosition.position
+          : pendingPosition ?? _session.snapshot.value.position;
+      return widget.library.savePosition(videoId, position);
     }
     if (!_sourceLoaded && _pendingLoadPosition == null) return Future.value();
     return widget.library.savePosition(

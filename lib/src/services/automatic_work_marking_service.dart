@@ -354,15 +354,20 @@ class AutomaticWorkMarkingService {
         await _save();
       }
       remote = _enqueue(
-        () => _apply(
-          owner,
-          id,
-          action,
-          generation,
-          manualRevision,
-          intent,
-          hadPending ? desired : null,
-        ),
+        () =>
+            _apply(
+              owner,
+              id,
+              action,
+              generation,
+              manualRevision,
+              intent,
+              hadPending ? desired : null,
+            ).whenComplete(() {
+              if (_intents[key] == intent && pending.containsKey('$id')) {
+                _blockedPending.add(key);
+              }
+            }),
       );
     });
     _localTail = local.catchError(onError);
@@ -449,6 +454,8 @@ class AutomaticWorkMarkingService {
       var discarded = false;
       for (final key in pending.keys.toList()) {
         final id = int.parse(key);
+        final pendingKey = _key(owner, id);
+        if (!_blockedPending.contains(pendingKey)) continue;
         final snapshot = refreshSnapshot(id);
         final generation = _generation;
         try {
@@ -464,8 +471,8 @@ class AutomaticWorkMarkingService {
           _touch(owner, id);
           _map(data, 'visible')[key] = current;
           pending.remove(key);
-          _blockedPending.remove(_key(owner, id));
-          _intents[_key(owner, id)] = (_intents[_key(owner, id)] ?? 0) + 1;
+          _blockedPending.remove(pendingKey);
+          _intents[pendingKey] = (_intents[pendingKey] ?? 0) + 1;
           discarded = true;
         } catch (_) {
           break;

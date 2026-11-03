@@ -4387,6 +4387,198 @@ void main() {
     );
   }
 
+  _testPlayerWidget(
+    'source switches save pending seeks for their video across rapid changes',
+    (tester) async {
+      const initialA = Duration(seconds: 4);
+      const initialB = Duration(seconds: 7);
+      const initialC = Duration(seconds: 13);
+      const seekA = Duration(seconds: 25);
+      const seekB = Duration(seconds: 31);
+      const seekAWhileReloading = Duration(seconds: 41);
+      final library = await _testLibrary();
+      await library.savePosition('A', initialA);
+      await library.savePosition('B', initialB);
+      await library.savePosition('C', initialC);
+      final session = _DelayedSeekPlaybackSession();
+      final platform = _TestVideoPlayerPlatform();
+
+      Future<void> pumpSource(
+        String videoId, {
+        List<VideoStream>? streams,
+        bool settle = true,
+      }) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('en'),
+            supportedLocales: S.supportedLocales,
+            localizationsDelegates: S.localizationsDelegates,
+            theme: ThemeData(useMaterial3: true),
+            home: Scaffold(
+              body: VideoPlaybackPanel(
+                key: const ValueKey('source-switch-player'),
+                videoId: videoId,
+                library: library,
+                streams: streams ?? _details().streams,
+                initialPosition: videoId == 'A' ? initialA : Duration.zero,
+                savePositionOnSourceChange: true,
+                sessionFactory: () => session,
+                platform: platform,
+              ),
+            ),
+          ),
+        );
+        if (settle) {
+          await tester.pumpAndSettle();
+        } else {
+          await tester.pump();
+        }
+      }
+
+      await pumpSource('A');
+      session.emitSnapshot(position: const Duration(seconds: 20));
+      await tester.pump();
+      final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+      var slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(seekA.inMilliseconds.toDouble());
+      slider.onChangeEnd!(seekA.inMilliseconds.toDouble());
+      await tester.pump();
+      expect(session.seekCount, 1);
+      expect(session.snapshot.value.position, const Duration(seconds: 20));
+
+      await pumpSource('B');
+      expect(library.positionFor('A'), seekA);
+      expect(session.requestedPositions.last, initialB);
+      slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(seekB.inMilliseconds.toDouble());
+      slider.onChangeEnd!(seekB.inMilliseconds.toDouble());
+      await tester.pump();
+      expect(session.seekCount, 2);
+      expect(session.snapshot.value.position, initialB);
+
+      await pumpSource('A');
+      expect(library.positionFor('B'), seekB);
+      expect(session.requestedPositions.last, seekA);
+
+      final reloadGate = Completer<void>();
+      session.nextLoadCompleter = reloadGate;
+      await pumpSource(
+        'A',
+        streams: [
+          ..._details().streams,
+          const VideoStream(
+            label: '1080p',
+            url: 'https://cdn.example/video-1080.m3u8',
+          ),
+        ],
+        settle: false,
+      );
+      expect(session.loadStreamCount, 4);
+      session.emitSnapshot(position: seekA);
+      await tester.pump();
+      slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(seekAWhileReloading.inMilliseconds.toDouble());
+      slider.onChangeEnd!(seekAWhileReloading.inMilliseconds.toDouble());
+      await tester.pump();
+      expect(session.seekCount, 3);
+      expect(session.snapshot.value.position, seekA);
+
+      await pumpSource('B', settle: false);
+      await pumpSource('C', settle: false);
+      reloadGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(session.loadStreamCount, 5);
+      expect(library.positionFor('A'), seekAWhileReloading);
+      expect(library.positionFor('B'), seekB);
+      expect(session.requestedPositions.last, initialC);
+    },
+  );
+
+  _testPlayerWidget(
+    'parallel pause save keeps the pending outgoing seek position',
+    (tester) async {
+      const initialA = Duration(seconds: 4);
+      const initialB = Duration(seconds: 7);
+      const oldSnapshot = Duration(seconds: 20);
+      const target = Duration(seconds: 25);
+      final library = await _testLibrary();
+      await library.savePosition('A', initialA);
+      await library.savePosition('B', initialB);
+      final session = _PauseGatedPlaybackSession();
+      final platform = _TestVideoPlayerPlatform();
+      var videoId = 'A';
+      late StateSetter updateVideo;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          theme: ThemeData(useMaterial3: true),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              updateVideo = setState;
+              return Scaffold(
+                body: VideoPlaybackPanel(
+                  videoId: videoId,
+                  library: library,
+                  streams: _details().streams,
+                  initialPosition: videoId == 'A' ? initialA : Duration.zero,
+                  savePositionOnSourceChange: true,
+                  sessionFactory: () => session,
+                  platform: platform,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      session.emitSnapshot(position: oldSnapshot);
+      await tester.pump();
+      final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+      final slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(target.inMilliseconds.toDouble());
+      slider.onChangeEnd!(target.inMilliseconds.toDouble());
+      await tester.pump();
+      expect(session.seekCount, 1);
+      expect(session.snapshot.value.position, oldSnapshot);
+
+      final sourcePauseGate = Completer<void>();
+      session.nextPauseCompleter = sourcePauseGate;
+      var lifecyclePaused = false;
+      try {
+        updateVideo(() => videoId = 'B');
+        await tester.pump();
+        expect(session.nextPauseCompleter, isNull);
+
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        lifecyclePaused = true;
+        for (
+          var frame = 0;
+          library.positionFor('A') != target && frame < 10;
+          frame++
+        ) {
+          await tester.pump();
+        }
+        expect(library.positionFor('A'), target);
+      } finally {
+        if (!sourcePauseGate.isCompleted) sourcePauseGate.complete();
+        if (lifecyclePaused) {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pump();
+        }
+      }
+
+      await tester.pumpAndSettle();
+      expect(session.requestedPositions.last, initialB);
+    },
+  );
+
   for (final input in ['keyboard', 'double tap', 'surface swipe']) {
     _testPlayerWidget('relative $input seek starts from the pending target', (
       tester,
@@ -7672,6 +7864,18 @@ class _DelayedSeekPlaybackSession extends _FakePlaybackSession {
     final completer = nextSeekCompleter;
     nextSeekCompleter = null;
     if (completer != null) await completer.future;
+  }
+}
+
+class _PauseGatedPlaybackSession extends _DelayedSeekPlaybackSession {
+  Completer<void>? nextPauseCompleter;
+
+  @override
+  Future<void> pause() async {
+    final completer = nextPauseCompleter;
+    nextPauseCompleter = null;
+    if (completer != null) await completer.future;
+    await super.pause();
   }
 }
 
