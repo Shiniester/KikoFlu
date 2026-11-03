@@ -789,15 +789,73 @@ void main() {
     final preview = tester.getRect(
       find.byKey(const ValueKey('player-lyric-preview')),
     );
-    final controls = tester.getRect(
-      find.byKey(const ValueKey('controls-pane-wide')),
-    );
+    final controls = tester.getRect(find.byType(PlayerControlsWidget));
     expect(title.center.dx, lessThan(preview.center.dx));
     expect(header.bottom, lessThanOrEqualTo(cover.top));
     expect(cover.center.dx, lessThan(preview.center.dx));
     expect(preview.bottom, lessThanOrEqualTo(controls.top));
+    expect(controls.top - preview.bottom, lessThanOrEqualTo(24));
     expect(tester.takeException(), isNull);
   });
+
+  for (final size in [const Size(1280, 720), const Size(900, 412)]) {
+    testWidgets(
+      'wide subtitle preview shows five lines above controls at $size',
+      (tester) async {
+        final lyrics = List.generate(
+          8,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'wide preview lyric $index',
+          ),
+        );
+        final seeks = <Duration>[];
+        await _pumpPlayer(
+          tester,
+          size,
+          lyrics: lyrics,
+          positionStream: Stream.value(const Duration(seconds: 3)),
+          onSeek: seeks.add,
+        );
+        await tester.pumpAndSettle();
+
+        final preview = find.byKey(const ValueKey('player-lyric-preview'));
+        for (final index in [1, 2, 3, 4, 5]) {
+          expect(
+            find
+                .descendant(
+                  of: preview,
+                  matching: find.text('wide preview lyric $index'),
+                )
+                .hitTestable(),
+            findsOneWidget,
+          );
+        }
+        final previewRect = tester.getRect(preview);
+        final controlsRect = tester.getRect(find.byType(PlayerControlsWidget));
+        expect(previewRect.bottom, lessThanOrEqualTo(controlsRect.top));
+        expect(controlsRect.top - previewRect.bottom, lessThanOrEqualTo(24));
+
+        await tester.tap(
+          find.descendant(
+            of: preview,
+            matching: find.text('wide preview lyric 3'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
+              .controller!
+              .page,
+          closeTo(2, .001),
+        );
+        expect(seeks, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('phone landscape uses the wide stage without overflow', (
     tester,
@@ -3803,7 +3861,7 @@ void main() {
     expect(paintClip.contains(const Offset(1, 1)), isFalse);
   });
 
-  testWidgets('short compact stage keeps queue content at cover width', (
+  testWidgets('short compact stage gives the queue its full available width', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(839, 720));
@@ -3821,7 +3879,7 @@ void main() {
     final queueWidth = tester
         .getSize(find.byKey(const ValueKey('player-queue-width-boundary')))
         .width;
-    expect(queueWidth, closeTo(coverWidth + 20, 0.01));
+    expect(queueWidth, closeTo(839, 0.01));
     expect(
       find.byKey(const ValueKey('player-queue-now-playing')),
       findsNothing,

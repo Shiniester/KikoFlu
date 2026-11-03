@@ -120,6 +120,80 @@ void main() {
     },
   );
 
+  test(
+    'clearing history persists one deletion without changing current playback',
+    () async {
+      await service.updateQueue([_track('a')]);
+      await service.updateQueue([_track('b')]);
+      await service.updateQueue([_track('c')], autoplay: true);
+      await until(() => player.playing);
+      final historyA = service.historicalQueues.last;
+      final queueIds = service.queue.map((track) => track.id).toList();
+      final loadedCount = player.loaded.length;
+      final playedCount = player.played.length;
+      final stopCount = player.stopCount;
+      player.position = const Duration(seconds: 12);
+      await service.persistPlaybackSession();
+      final playbackSnapshot = sessionStore.snapshot;
+
+      expect(await service.clearHistoricalQueue(historyA), isTrue);
+
+      expect(historyStore.snapshots, hasLength(1));
+      expect(historyStore.snapshots.single.queue.single.id, 'b');
+      expect(service.historicalQueues.map((queue) => queue.queue.single.id), [
+        'b',
+      ]);
+      expect(service.queue.map((track) => track.id), queueIds);
+      expect(service.currentTrack?.id, 'c');
+      expect(player.playing, isTrue);
+      expect(player.position, const Duration(seconds: 12));
+      expect(player.loaded, hasLength(loadedCount));
+      expect(player.played, hasLength(playedCount));
+      expect(player.stopCount, stopCount);
+      expect(sessionStore.snapshot, same(playbackSnapshot));
+    },
+  );
+
+  test('failed history deletion preserves the persisted queue', () async {
+    await service.updateQueue([_track('a')]);
+    await service.updateQueue([_track('b')]);
+    final historyA = service.historicalQueues.single;
+    final previous = historyStore.snapshots;
+    historyStore.failNextSave = true;
+
+    await expectLater(service.clearHistoricalQueue(historyA), throwsStateError);
+
+    expect(historyStore.snapshots, same(previous));
+    expect(
+      service.historicalQueues.single.markingQueueId,
+      historyA.markingQueueId,
+    );
+  });
+
+  test(
+    'clearing history during native restore does not revive the deleted queue',
+    () async {
+      await service.updateQueue([_track('a')]);
+      await service.updateQueue([_track('b')]);
+      final historyA = service.historicalQueues.single;
+      player.holdNextLoad = true;
+      final restoring = service.restoreHistoricalQueue(historyA, 0);
+      await until(() => player.pendingLoad != null);
+
+      expect(await service.clearHistoricalQueue(historyA), isTrue);
+      player.finishLoad();
+
+      expect(await restoring, isTrue);
+      expect(service.currentTrack?.id, 'a');
+      expect(service.historicalQueues.map((queue) => queue.queue.single.id), [
+        'b',
+      ]);
+      expect(historyStore.snapshots.map((queue) => queue.queue.single.id), [
+        'b',
+      ]);
+    },
+  );
+
   test('historical track selection marks completed audio as replay', () async {
     final (marking, operations) = _observeAutomaticMarking(service);
     await service.updateQueue([marking_fixture.a]);
@@ -473,6 +547,7 @@ void main() {
       expect(service.historicalQueues, hasLength(20));
       expect(service.historicalQueues.first.queue.single.id, 'alice-19');
       expect(service.historicalQueues.last.queue.single.id, 'alice-0');
+      final aliceHistory = service.historicalQueues.first;
 
       await StorageService.setMap('current_user', {'name': 'bob'});
       expect(service.historicalQueues, isEmpty);
@@ -480,12 +555,19 @@ void main() {
       await service.updateQueue([_track('bob-1')]);
       final bobHistory = service.historicalQueues.single;
       expect(bobHistory.queue.single.id, 'bob-0');
+      final beforeWrongOwnerClear = List<PlaybackSessionSnapshot>.of(
+        historyStore.snapshots,
+      );
+      expect(await service.clearHistoricalQueue(aliceHistory), isFalse);
+      expect(historyStore.snapshots, beforeWrongOwnerClear);
 
       await StorageService.setMap('current_user', {'name': 'alice'});
       expect(service.historicalQueues, hasLength(20));
       expect(await service.restoreHistoricalQueue(bobHistory, 0), isFalse);
+      expect(await service.clearHistoricalQueue(bobHistory), isFalse);
       expect(service.historicalQueues.first.queue.single.id, 'alice-20');
       expect(service.historicalQueues.last.queue.single.id, 'alice-1');
+      expect(historyStore.snapshots, contains(bobHistory));
     },
   );
 }

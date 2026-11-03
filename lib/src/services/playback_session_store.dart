@@ -204,9 +204,12 @@ class SharedPreferencesPlaybackQueueHistoryStore
   @override
   Future<void> save(List<PlaybackSessionSnapshot> queues) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
+    final saved = await prefs.setString(
       storageKey,
       jsonEncode(queues.map((snapshot) => snapshot.toJson()).toList()),
     );
+    if (!saved) {
+      throw StateError('Failed to save playback queue history');
+    }
   }
 }

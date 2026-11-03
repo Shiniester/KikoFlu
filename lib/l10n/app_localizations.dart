@@ -1600,6 +1600,12 @@ abstract class S {
   /// **'This will stop playback and remove every item from the queue.'**
   String get clearPlaybackQueueMessage;
 
+  /// Confirmation before deleting the historical playback queue being viewed.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear this historical playback queue?'**
+  String get clearHistoricalPlaybackQueueMessage;
+
   /// No description provided for @noAudioPlaying.
   ///
   /// In en, this message translates to:

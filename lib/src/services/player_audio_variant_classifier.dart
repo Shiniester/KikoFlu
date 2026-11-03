@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 import '../models/audio_preference.dart';
 import '../services/subtitle_matching.dart';
 import '../utils/file_tree_utils.dart';
@@ -72,6 +74,8 @@ class PlayerAudioVariantClassifier {
   const PlayerAudioVariantClassifier();
 
   static final _noSeJapaneseMarker = RegExp(r'(^|[^a-z])se(?:なし|無)');
+  static final _fullWidthDigit = RegExp(r'[０-９]');
+  static final _leadingZeros = RegExp(r'(^|[^0-9])0+(?=[0-9])');
 
   List<PlayerAudioVariant> scan(
     List<dynamic> fileTree, {
@@ -580,7 +584,38 @@ class PlayerAudioVariantClassifier {
       preference?.ejaculation,
     ).compareTo(traitRank(b.ejaculation, preference?.ejaculation));
     if (compared != 0) return compared;
-    return a.fullPath.toLowerCase().compareTo(b.fullPath.toLowerCase());
+    String sortKey(String path) => path.replaceAllMapped(
+      _fullWidthDigit,
+      (match) => String.fromCharCode(match[0]!.codeUnitAt(0) - 0xFEE0),
+    );
+    String numericKey(String path) =>
+        path.replaceAllMapped(_leadingZeros, (match) => match[1]!);
+
+    final aParts = a.fullPath.split('/');
+    final bParts = b.fullPath.split('/');
+    for (
+      var index = 0;
+      index < aParts.length && index < bParts.length;
+      index++
+    ) {
+      final aPart = '${aParts[index]}${index < aParts.length - 1 ? '/' : ''}';
+      final bPart = '${bParts[index]}${index < bParts.length - 1 ? '/' : ''}';
+      final aLower = aPart.toLowerCase();
+      final bLower = bPart.toLowerCase();
+      final aKey = sortKey(aLower);
+      final bKey = sortKey(bLower);
+      final pathOrder = compareNatural(numericKey(aKey), numericKey(bKey));
+      if (pathOrder != 0) return pathOrder;
+      final paddingOrder = compareNatural(aKey, bKey);
+      if (paddingOrder != 0) return paddingOrder;
+      final originalOrder = aLower.compareTo(bLower);
+      if (originalOrder != 0) return originalOrder;
+      if (index < aParts.length - 1 && index < bParts.length - 1) {
+        final caseOrder = aPart.compareTo(bPart);
+        if (caseOrder != 0) return caseOrder;
+      }
+    }
+    return aParts.length.compareTo(bParts.length);
   }
 
   void _sort(

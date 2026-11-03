@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -96,4 +98,28 @@ void main() {
     expect(restored, hasLength(1));
     expect(restored.single.queue.single.id, 'kept');
   });
+
+  test('history save reports a rejected preferences write', () async {
+    SharedPreferencesStorePlatform.instance = _RejectingPreferencesStore();
+
+    await expectLater(
+      const SharedPreferencesPlaybackQueueHistoryStore().save(const []),
+      throwsStateError,
+    );
+  });
+}
+
+class _RejectingPreferencesStore extends SharedPreferencesStorePlatform {
+  @override
+  Future<Map<String, Object>> getAll() async => {};
+
+  @override
+  Future<bool> clear() async => false;
+
+  @override
+  Future<bool> remove(String key) async => false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      false;
 }

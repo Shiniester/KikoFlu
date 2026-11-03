@@ -822,6 +822,10 @@ class SEn extends S {
       'This will stop playback and remove every item from the queue.';
 
   @override
+  String get clearHistoricalPlaybackQueueMessage =>
+      'Clear this historical playback queue?';
+
+  @override
   String get noAudioPlaying => 'No audio playing';
 
   @override

@@ -403,6 +403,10 @@
   },
   "clearPlaybackQueueTitle": "Clear playback queue?",
   "clearPlaybackQueueMessage": "This will stop playback and remove every item from the queue.",
+  "clearHistoricalPlaybackQueueMessage": "Clear this historical playback queue?",
+  "@clearHistoricalPlaybackQueueMessage": {
+    "description": "Confirmation before deleting the historical playback queue being viewed."
+  },
   "noAudioPlaying": "No audio playing",
   "playbackSpeed": "Playback Speed",
   "backward10s": "Backward 10s",

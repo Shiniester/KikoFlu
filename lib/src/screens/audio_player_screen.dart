@@ -942,24 +942,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           key: const ValueKey('wide-controls-page-boundary'),
           pageController: _wideRightPageController,
           pageIndex: 1,
-          child: Column(
-            children: [
-              PlayerVerticalSwipeRegion(
-                key: const ValueKey('wide-controls-lyric-preview-surface'),
-                swipeDownDrag: mainBodyDismissDrag,
-                pageDragCoordinator: _widePageHandoff,
-                child: _buildLyricPreview(track),
-              ),
-              Expanded(
-                child: _buildControlsPane(
-                  context,
-                  track: track,
-                  isWide: true,
-                  showTrackHeader: false,
-                  dismissDrag: mainBodyDismissDrag,
-                ),
-              ),
-            ],
+          child: _buildControlsPane(
+            context,
+            track: track,
+            isWide: true,
+            showTrackHeader: false,
+            dismissDrag: mainBodyDismissDrag,
           ),
         ),
       ),
@@ -1570,7 +1558,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       onTap: _showLyrics,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        child: LyricDisplay(albumName: track.album),
+        child: Consumer(
+          builder: (context, ref, _) {
+            final hasLyrics = ref.watch(
+              lyricControllerProvider.select(
+                (state) => state.lyrics.isNotEmpty,
+              ),
+            );
+            return hasLyrics
+                ? ThreeLineLyricDisplay(
+                    onSeekRequested: (_) => _showLyrics(),
+                    lineCount: 5,
+                    textHorizontalPadding: 16,
+                  )
+                : LyricDisplay(albumName: track.album);
+          },
+        ),
       ),
     );
   }
@@ -1647,6 +1650,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       ),
                     ),
                   SizedBox(height: isWide ? 24 : 12),
+                ],
+                if (isWide) ...[
+                  PlayerVerticalSwipeRegion(
+                    key: const ValueKey('wide-controls-lyric-preview-surface'),
+                    swipeDownDrag: dismissDrag,
+                    pageDragCoordinator: _widePageHandoff,
+                    child: _buildLyricPreview(track),
+                  ),
+                  const SizedBox(height: 12),
                 ],
                 controls,
               ],
@@ -1767,7 +1779,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       alignment: Alignment.center,
       child: SizedBox(
         key: const ValueKey('player-queue-width-boundary'),
-        width: isWide ? double.infinity : _compactSharedWidth! + 20,
+        width: double.infinity,
         child: Column(
           children: [
             Expanded(

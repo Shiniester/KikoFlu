@@ -1042,6 +1042,33 @@ class AudioPlayerService {
     return request.committed;
   }
 
+  Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {
+    if (_disposed) throw StateError('AudioPlayerService is disposed');
+    await _ensureHistoricalQueuesLoaded();
+    return _enqueueQueueHistoryWrite(() async {
+      final ownerKey = _currentSessionOwnerKey();
+      if (ownerKey == null || snapshot.ownerKey != ownerKey) return false;
+
+      final previous = _storedHistoricalQueues;
+      final index = previous.indexWhere(
+        (item) => _sameHistoricalQueue(item, snapshot),
+      );
+      if (index < 0) return false;
+
+      final next = List<PlaybackSessionSnapshot>.of(previous)..removeAt(index);
+      final updated = List<PlaybackSessionSnapshot>.unmodifiable(next);
+      await _playbackQueueHistoryStore.save(updated);
+      if (_currentSessionOwnerKey() != ownerKey) {
+        await _playbackQueueHistoryStore.save(previous);
+        return false;
+      }
+
+      _storedHistoricalQueues = updated;
+      _emitHistoricalQueuesChanged();
+      return true;
+    });
+  }
+
   Future<void> clearQueue() => _clearQueue(archive: true);
 
   Future<void> _clearQueue({required bool archive}) async {

@@ -804,6 +804,9 @@ class SJa extends S {
   String get clearPlaybackQueueMessage => '再生を停止し、キュー内のすべての項目を削除します。';
 
   @override
+  String get clearHistoricalPlaybackQueueMessage => 'この履歴の再生キューを消去しますか？';
+
+  @override
   String get noAudioPlaying => '再生中のオーディオはありません';
 
   @override

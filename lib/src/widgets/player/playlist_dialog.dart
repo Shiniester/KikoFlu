@@ -320,17 +320,16 @@ class PlayerQueueBrowser extends ConsumerStatefulWidget {
 }
 
 class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
-  final PageController _pageController = PageController();
   final Map<PlaybackSessionSnapshot, ScrollController>
   _historyScrollControllers = {};
   Set<PlaybackSessionSnapshot> _visibleHistory = {};
   int _currentPage = 0;
+  double _horizontalDragDistance = 0;
   int? _restoringHistoryIndex;
   int? _restoringTrackIndex;
   int _restoreGeneration = 0;
   bool _initialPageScheduled = false;
   bool _initialPageSelected = false;
-  bool _pageClampScheduled = false;
   bool _historyCleanupScheduled = false;
 
   @override
@@ -352,7 +351,6 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
 
   @override
   void dispose() {
-    _pageController.dispose();
     for (final controller in _historyScrollControllers.values) {
       controller.dispose();
     }
@@ -391,42 +389,61 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     _initialPageScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initialPageScheduled = false;
-      if (!mounted ||
-          !_pageController.hasClients ||
-          _pageController.positions.length != 1) {
-        return;
-      }
+      if (!mounted) return;
       _initialPageSelected = true;
-      _pageController.jumpToPage(1);
+      _goToPage(1);
       widget.onInitialHistorySelected?.call();
     });
   }
 
-  void _schedulePageClamp(int page) {
-    if (_pageClampScheduled) return;
-    _pageClampScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pageClampScheduled = false;
-      if (!mounted ||
-          !_pageController.hasClients ||
-          _pageController.positions.length != 1) {
-        return;
-      }
-      _pageController.jumpToPage(page);
-    });
+  void _goToPage(int page) {
+    if (_currentPage == page) return;
+    setState(() => _currentPage = page);
   }
 
-  Future<void> _goToPage(int page) async {
-    if (!_pageController.hasClients) return;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _pageController.jumpToPage(page);
-      return;
-    }
-    await _pageController.animateToPage(
-      page,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.ease,
+  void _finishHorizontalDrag(DragEndDetails details, int pageCount) {
+    final distance = _horizontalDragDistance;
+    final velocity = details.primaryVelocity ?? 0;
+    _horizontalDragDistance = 0;
+    if (distance.abs() < 24 && velocity.abs() < 300) return;
+    final direction = distance.abs() >= 24 ? distance : velocity;
+    _goToPage(
+      (_currentPage + (direction > 0 ? 1 : -1)).clamp(0, pageCount - 1),
     );
+  }
+
+  Future<void> _clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => ResponsiveAlertDialog(
+        title: Text(S.of(dialogContext).playbackQueueHistory),
+        content: Text(S.of(dialogContext).clearHistoricalPlaybackQueueMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(S.of(dialogContext).cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(S.of(dialogContext).clear),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final cleared = await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .clearHistoricalQueue(snapshot);
+      if (cleared && mounted) _goToPage(0);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(S.of(context).errorWithMessage(error.toString())),
+        ),
+      );
+    }
   }
 
   Future<void> _restoreHistoricalTrack(
@@ -444,7 +461,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
           .read(audioPlayerControllerProvider.notifier)
           .restoreHistoricalQueue(snapshot, trackIndex);
       if (!mounted || generation != _restoreGeneration) return;
-      if (restored) await _goToPage(0);
+      if (restored) _goToPage(0);
     } catch (error) {
       if (!mounted || generation != _restoreGeneration) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -467,6 +484,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     required int pageCount,
     required List<AudioTrack> currentQueue,
     required AudioTrack? currentTrack,
+    required PlaybackSessionSnapshot? historicalQueue,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -480,18 +498,21 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     final currentTrackIndex = currentQueue.indexWhere(
       (track) => track.id == currentTrack?.id,
     );
-    final currentQueuePosition = currentQueue.isEmpty
-        ? '0 / 0'
+    final queuePosition = historicalQueue != null
+        ? '0 / ${historicalQueue.queue.length}'
         : '${currentTrackIndex < 0 ? 0 : currentTrackIndex + 1} / ${currentQueue.length}';
     final showClearButton =
-        isCurrentQueue && currentQueue.isNotEmpty && widget.onClear != null;
+        historicalQueue != null ||
+        (currentQueue.isNotEmpty && widget.onClear != null);
     final titleSidePadding = widget.horizontalPadding == 10
         ? 0.0
         : widget.horizontalPadding;
     final titleSideWidth = widget.horizontalPadding == 10 ? 78.0 : 68.0;
     final clearButton = TextButton(
       key: const ValueKey('player-queue-clear-button'),
-      onPressed: widget.onClear,
+      onPressed: historicalQueue == null
+          ? widget.onClear
+          : () => _clearHistoricalQueue(historicalQueue),
       style: TextButton.styleFrom(
         foregroundColor: colorScheme.onSurfaceVariant,
         padding: widget.horizontalPadding == 10
@@ -539,22 +560,18 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                 ),
               SizedBox(
                 width: titleSideWidth,
-                child: isCurrentQueue
-                    ? Padding(
-                        padding: EdgeInsets.only(
-                          left: widget.horizontalPadding == 10 ? 10 : 0,
-                        ),
-                        child: Text(
-                          currentQueuePosition,
-                          key: const ValueKey(
-                            'player-queue-current-track-position',
-                          ),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      )
-                    : null,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: widget.horizontalPadding == 10 ? 10 : 0,
+                  ),
+                  child: Text(
+                    queuePosition,
+                    key: const ValueKey('player-queue-current-track-position'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
               ),
               Expanded(
                 child: ConstrainedBox(
@@ -685,7 +702,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     if (widget.initialQueueHistory && history.isNotEmpty) {
       _scheduleInitialHistoryPage();
     }
-    if (_currentPage >= pageCount) _schedulePageClamp(pageCount - 1);
+    _currentPage = _currentPage.clamp(0, pageCount - 1);
     final queueAsync = ref.watch(queueProvider);
     final currentQueue =
         queueAsync.valueOrNull ?? ref.read(audioPlayerServiceProvider).queue;
@@ -702,6 +719,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
             pageCount: pageCount,
             currentQueue: currentQueue,
             currentTrack: currentTrack,
+            historicalQueue: _currentPage == 0
+                ? null
+                : history[_currentPage - 1],
           ),
           if (widget.initialQueueHistory && historyAsync.isLoading)
             const LinearProgressIndicator(),
@@ -714,48 +734,31 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
               ),
             ),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                const pageGap = 24.0;
-                // Widen the page stride to preserve the queue's content width.
-                final pageWidth = constraints.maxWidth + pageGap;
-                return ClipRect(
-                  child: OverflowBox(
-                    minWidth: pageWidth,
-                    maxWidth: pageWidth,
-                    child: PageView.builder(
-                      key: const ValueKey('player-queue-history-page-view'),
-                      controller: _pageController,
-                      reverse: true,
-                      itemCount: pageCount,
-                      onPageChanged: (index) =>
-                          setState(() => _currentPage = index),
-                      itemBuilder: (context, index) => Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: pageGap / 2,
-                        ),
-                        child: index == 0
-                            ? PlayerQueueSurface(
-                                showTitleBar: false,
-                                onTrackSelected: widget.onTrackSelected,
-                                onClear: widget.onClear,
-                                onDismissRequested: widget.onDismissRequested,
-                                dismissDrag: widget.dismissDrag,
-                                scrollController: widget.scrollController,
-                                pageDragCoordinator: widget.pageDragCoordinator,
-                                horizontalPadding: widget.horizontalPadding,
-                              )
-                            : _buildHistoryPage(
-                                context,
-                                snapshot: history[index - 1],
-                                historyIndex: index - 1,
-                                authState: authState,
-                              ),
-                      ),
+            child: GestureDetector(
+              key: const ValueKey('player-queue-history-content'),
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (_) => _horizontalDragDistance = 0,
+              onHorizontalDragUpdate: (details) =>
+                  _horizontalDragDistance += details.primaryDelta ?? 0,
+              onHorizontalDragEnd: (details) =>
+                  _finishHorizontalDrag(details, pageCount),
+              child: _currentPage == 0
+                  ? PlayerQueueSurface(
+                      showTitleBar: false,
+                      onTrackSelected: widget.onTrackSelected,
+                      onClear: widget.onClear,
+                      onDismissRequested: widget.onDismissRequested,
+                      dismissDrag: widget.dismissDrag,
+                      scrollController: widget.scrollController,
+                      pageDragCoordinator: widget.pageDragCoordinator,
+                      horizontalPadding: widget.horizontalPadding,
+                    )
+                  : _buildHistoryPage(
+                      context,
+                      snapshot: history[_currentPage - 1],
+                      historyIndex: _currentPage - 1,
+                      authState: authState,
                     ),
-                  ),
-                );
-              },
             ),
           ),
         ],

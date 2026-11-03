@@ -177,7 +177,7 @@ python tool/performance/summarize_player_profile.py baseline_horizontal candidat
 宽屏左栏顶部固定显示标题和“更多”按钮，下方显示封面。
 右栏横向页为音频详情、播放控件、字幕，默认播放控件。
 右栏纵向页为音频详情／播放控件／字幕区域、队列。
-短字幕位于播放控件上方，点击后打开字幕页；无字幕时显示专辑名。
+5 行字幕预览紧贴播放控件上方，点击后打开字幕页；无字幕时显示专辑名。
 右栏切页时，左栏保持原位；从队列返回后恢复原页和列表滚动位置。
 
 点击统一使用 `PageController.animateToPage`，时长 300ms、曲线

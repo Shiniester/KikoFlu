@@ -95,6 +95,30 @@ void main() {
       );
     },
   );
+
+  test('audio controller forwards historical queue clearing', () async {
+    SharedPreferences.setMockInitialValues({
+      'server_host': _host,
+      'current_user': '{"name":"alice"}',
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    final snapshot = _snapshot('alice', 'alice-queue');
+    final service = _HistoryService([snapshot])..clearResult = true;
+    addTearDown(service.dispose);
+    final container = ProviderContainer(
+      overrides: [audioPlayerServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(audioPlayerControllerProvider.notifier)
+        .clearHistoricalQueue(snapshot);
+
+    expect(result, isTrue);
+    expect(service.clearedSnapshot, same(snapshot));
+  });
 }
 
 class _Auth extends AuthNotifier {
@@ -117,6 +141,8 @@ class _HistoryService extends AudioPlayerService {
 
   final List<PlaybackSessionSnapshot> queues;
   final _changes = StreamController<void>.broadcast();
+  PlaybackSessionSnapshot? clearedSnapshot;
+  bool clearResult = false;
 
   @override
   List<PlaybackSessionSnapshot> get historicalQueues =>
@@ -134,6 +160,12 @@ class _HistoryService extends AudioPlayerService {
   Stream<List<PlaybackSessionSnapshot>> historicalQueuesForOwnerStream(
     String? ownerKey,
   ) => _changes.stream.map((_) => historicalQueuesForOwner(ownerKey));
+
+  @override
+  Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {
+    clearedSnapshot = snapshot;
+    return clearResult;
+  }
 
   void publish() => _changes.add(null);
 
