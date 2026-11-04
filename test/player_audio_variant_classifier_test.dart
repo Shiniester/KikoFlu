@@ -166,13 +166,29 @@ void main() {
       'SE off',
       'SE-off',
       'SEoff',
+      'SE_OFF',
       'SEなし',
       'SE無し',
+      'SE無',
+      '01SE無',
+      '本編SE無',
+      'noise無_SE無',
       'SEカット',
       'SEオフ',
+      '无音效',
+      '不含音效',
+      '去音效',
+      '無音效',
+      '無SE',
+      '無効果音',
       '効果音なし',
       '効果音無し',
       '効果音カット',
+      '纯人声',
+      '純人聲',
+      '音声のみ',
+      '声のみ',
+      '只有人声',
       '效果音剪辑',
       '效果音剪輯',
       '音效剪辑',
@@ -189,6 +205,32 @@ void main() {
         expect(variant.se, PlayerBinaryTrait.absent, reason: variant.fullPath);
         expect(variant.ejaculation, PlayerBinaryTrait.present);
       }
+    }
+  });
+
+  test('SE無 and SEなし do not match the end of English words', () {
+    for (final name in const [
+      'noise無',
+      'NOISE無',
+      'ＮＯＩＳＥ無',
+      'noise無し',
+      'noiseなし',
+    ]) {
+      final variants = classifier.scan([
+        _audio('$name.wav', 'filename'),
+        _folder(name, [_audio('track.wav', 'directory')]),
+      ]);
+      expect(variants, hasLength(2));
+      for (final variant in variants) {
+        expect(variant.se, PlayerBinaryTrait.present, reason: variant.fullPath);
+      }
+      expect(
+        classifier.applyFilter(
+          variants,
+          const PlayerAudioVariantFilter(seValues: {PlayerBinaryTrait.absent}),
+        ),
+        isEmpty,
+      );
     }
   });
 
@@ -253,6 +295,7 @@ void main() {
     final variants = classifier.scan([
       _folder('SEなし_射精音なし', [_audio('SEあり_射精音あり.wav', 'negative-directory')]),
       _folder('効果音あり_射精音あり', [_audio('SECut_絶頂なし.wav', 'negative-filename')]),
+      _folder('効果音あり_射精音あり', [_audio('纯人声_絶頂なし.wav', 'negative-voice')]),
       _audio('効果音あり_射精音あり.wav', 'positive'),
     ]);
     const preference = AudioFormatPreference(
@@ -263,6 +306,7 @@ void main() {
     expect(best.map((variant) => variant.source['hash']).toSet(), {
       'negative-directory',
       'negative-filename',
+      'negative-voice',
     });
     expect(
       classifier.applyFilter(
@@ -487,6 +531,166 @@ void main() {
       );
       expect(variants, orderedEquals(original));
     }
+  });
+
+  test('sorts numbers in audio paths within each preference level', () {
+    final variants = classifier.scan([
+      _folder('Disc 10', [
+        _audio('track10.wav', 'disc10-track10'),
+        _audio('track2.wav', 'disc10-track2'),
+      ]),
+      _folder('Disc 2', [
+        _audio('track10.wav', 'disc2-track10'),
+        _audio('track２.wav', 'disc2-track2'),
+        _audio('track1.wav', 'disc2-track1'),
+      ]),
+    ]);
+    const expected = [
+      'disc2-track1',
+      'disc2-track2',
+      'disc2-track10',
+      'disc10-track2',
+      'disc10-track10',
+    ];
+
+    expect(
+      classifier.selectBest(variants).map((variant) => variant.source['hash']),
+      expected,
+    );
+    expect(
+      classifier
+          .applyFilter(variants, const PlayerAudioVariantFilter(showAll: true))
+          .map((variant) => variant.source['hash']),
+      expected,
+    );
+  });
+
+  test('compares later numbers before leading-zero differences', () {
+    final variants = classifier.scan([
+      _audio('1_1002.wav', 'one-1002'),
+      _audio('1_10.wav', 'one-10'),
+      _audio('０１_2.wav', 'one-2'),
+      _audio('001_1.wav', 'one-001'),
+      _audio('01_1.wav', 'one-01'),
+      _audio('1_00.wav', 'one-zero'),
+      _audio('01_12.wav', 'one-12'),
+    ]);
+    const expected = [
+      'one-zero',
+      'one-01',
+      'one-001',
+      'one-2',
+      'one-10',
+      'one-12',
+      'one-1002',
+    ];
+
+    expect(
+      classifier.selectBest(variants).map((variant) => variant.source['hash']),
+      expected,
+    );
+    expect(
+      classifier
+          .applyFilter(variants, const PlayerAudioVariantFilter(showAll: true))
+          .map((variant) => variant.source['hash']),
+      expected,
+    );
+  });
+
+  test('keeps folders grouped when digit widths differ', () {
+    final variants = classifier.scan([
+      _folder('Disc １', [_audio('2.wav', 'full-2'), _audio('4.wav', 'full-4')]),
+      _folder('Disc 1', [
+        _audio('1.wav', 'half-1'),
+        _audio('3.wav', 'half-3'),
+        _folder('Side １', [
+          _audio('2.wav', 'side-full-2'),
+          _audio('4.wav', 'side-full-4'),
+        ]),
+        _folder('Side 1', [
+          _audio('1.wav', 'side-half-1'),
+          _audio('3.wav', 'side-half-3'),
+        ]),
+      ]),
+    ]);
+    const expected = [
+      'half-1',
+      'half-3',
+      'side-half-1',
+      'side-half-3',
+      'side-full-2',
+      'side-full-4',
+      'full-2',
+      'full-4',
+    ];
+
+    expect(
+      classifier.selectBest(variants).map((variant) => variant.source['hash']),
+      expected,
+    );
+    expect(
+      classifier
+          .applyFilter(variants, const PlayerAudioVariantFilter(showAll: true))
+          .map((variant) => variant.source['hash']),
+      expected,
+    );
+  });
+
+  test('keeps folders grouped when letter case differs', () {
+    final variants = classifier.scan([
+      _folder('Disc', [
+        _audio('1.wav', 'upper-1'),
+        _audio('3.wav', 'upper-3'),
+        _folder('Side', [_audio('1.wav', 'upper-side-1')]),
+        _folder('side', [_audio('2.wav', 'lower-side-2')]),
+      ]),
+      _folder('disc', [_audio('2.wav', 'lower-2'), _audio('4.wav', 'lower-4')]),
+    ]);
+    const expected = [
+      'upper-1',
+      'upper-3',
+      'upper-side-1',
+      'lower-side-2',
+      'lower-2',
+      'lower-4',
+    ];
+
+    expect(
+      classifier.selectBest(variants).map((variant) => variant.source['hash']),
+      expected,
+    );
+    expect(
+      classifier
+          .applyFilter(variants, const PlayerAudioVariantFilter(showAll: true))
+          .map((variant) => variant.source['hash']),
+      expected,
+    );
+  });
+
+  test('keeps audio preferences ahead of numeric path order', () {
+    PlayerAudioVariant variant(String title, PlayerBinaryTrait se) =>
+        PlayerAudioVariant(
+          source: title,
+          title: title,
+          parentPath: '',
+          fullPath: title,
+          format: PlayerAudioFormat.wav,
+          subtitleLanguage: PlayerSubtitleLanguage.none,
+          se: se,
+          ejaculation: PlayerBinaryTrait.unknown,
+        );
+
+    final variants = [
+      variant('1.wav', PlayerBinaryTrait.unknown),
+      variant('10.wav', PlayerBinaryTrait.present),
+      variant('2.wav', PlayerBinaryTrait.present),
+    ];
+
+    expect(classifier.selectBest(variants).map((variant) => variant.title), [
+      '2.wav',
+      '10.wav',
+      '1.wav',
+    ]);
   });
 
   test('prepared matching keeps fuzzy names and directory boundaries', () {

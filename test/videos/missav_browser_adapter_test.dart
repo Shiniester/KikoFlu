@@ -169,6 +169,173 @@ void main() {
     browser.adapter.close();
   });
 
+  testWidgets('queued API request receives its full timeout', (tester) async {
+    final browser = _Browser();
+    final navigation = Completer<String>();
+    browser.navigationGate = navigation;
+    browser.onRequest = (request) => browser.reply(request, body: 'ready');
+    final first = browser.adapter.loadDocument(
+      Uri.parse('https://missav.ai/cn/playlists/slow'),
+    );
+    first.ignore();
+    final outcome = Completer<Object>();
+    try {
+      await tester.pump();
+      expect(browser.navigationStarted.isCompleted, isTrue);
+      final options = _options()
+        ..receiveTimeout = const Duration(milliseconds: 20);
+      unawaited(
+        browser.adapter
+            .fetch(options, null, null)
+            .then<void>(
+              outcome.complete,
+              onError: (Object error) => outcome.complete(error),
+            ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(outcome.isCompleted, isFalse);
+
+      navigation.complete('<html>source page</html>');
+      await tester.pump();
+      await tester.pump();
+      expect(await first, '<html>source page</html>');
+      expect(outcome.isCompleted, isTrue);
+      final response = await outcome.future;
+      expect(response, isA<ResponseBody>());
+      expect(
+        await utf8.decodeStream((response as ResponseBody).stream),
+        'ready',
+      );
+    } finally {
+      if (!navigation.isCompleted) navigation.complete('<html></html>');
+      browser.adapter.close();
+      await tester.pump();
+    }
+  });
+
+  testWidgets('queued document receives its full timeout', (tester) async {
+    final browser = _Browser();
+    browser.onRequest = (_) {};
+    final first = browser.adapter.fetch(
+      _options()..receiveTimeout = const Duration(minutes: 2),
+      null,
+      null,
+    );
+    first.ignore();
+    final outcome = Completer<Object>();
+    try {
+      await tester.pump();
+      expect(browser.requestSent.isCompleted, isTrue);
+      unawaited(
+        browser.adapter
+            .loadDocument(Uri.parse('https://missav.ai/cn/download'))
+            .then<void>(
+              outcome.complete,
+              onError: (Object error) => outcome.complete(error),
+            ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 31));
+      expect(outcome.isCompleted, isFalse);
+
+      browser.reply(browser.requests.single, body: 'ready');
+      await tester.pump();
+      await tester.pump();
+      expect((await first).statusCode, 200);
+      expect(outcome.isCompleted, isTrue);
+      expect(await outcome.future, '<html>source page</html>');
+      expect(browser.navigations, ['https://missav.ai/cn/download']);
+    } finally {
+      browser.adapter.close();
+      await tester.pump();
+    }
+  });
+
+  testWidgets('queued request times out if the browser stays busy', (
+    tester,
+  ) async {
+    final browser = _Browser();
+    browser.onRequest = (_) {};
+    final first = browser.adapter.fetch(
+      _options()..receiveTimeout = const Duration(minutes: 2),
+      null,
+      null,
+    );
+    first.ignore();
+    final outcome = Completer<Object>();
+    try {
+      await tester.pump();
+      expect(browser.requestSent.isCompleted, isTrue);
+      unawaited(
+        browser.adapter
+            .fetch(
+              _options()..receiveTimeout = const Duration(milliseconds: 20),
+              null,
+              null,
+            )
+            .then<void>(
+              outcome.complete,
+              onError: (Object error) => outcome.complete(error),
+            ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 31));
+      expect(outcome.isCompleted, isTrue);
+      expect(
+        await outcome.future,
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.receiveTimeout,
+        ),
+      );
+    } finally {
+      browser.adapter.close();
+      await tester.pump();
+    }
+  });
+
+  testWidgets('a timed-out document releases the browser queue', (
+    tester,
+  ) async {
+    final browser = _Browser()..navigationGate = Completer<String>();
+    final outcome = Completer<Object>();
+    unawaited(
+      browser.adapter
+          .loadDocument(Uri.parse('https://missav.ai/cn/playlists/slow'))
+          .then<void>(
+            outcome.complete,
+            onError: (Object error) => outcome.complete(error),
+          ),
+    );
+    try {
+      await tester.pump();
+      expect(browser.navigationStarted.isCompleted, isTrue);
+      await tester.pump(const Duration(seconds: 31));
+      expect(outcome.isCompleted, isTrue);
+      expect(
+        await outcome.future,
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.receiveTimeout,
+        ),
+      );
+      expect(browser.navigationCancelled.isCompleted, isTrue);
+
+      browser.navigationGate = null;
+      final next = browser.adapter.loadDocument(
+        Uri.parse('https://missav.ai/cn/download'),
+      );
+      await tester.pump();
+      expect(await next, '<html>source page</html>');
+    } finally {
+      browser.adapter.close();
+      await tester.pump();
+    }
+  });
+
   test(
     'an unfinished fetch holds the shared browser before navigation',
     () async {
@@ -254,7 +421,11 @@ void main() {
       cancelToken: token,
     );
     await browser.navigationStarted.future;
+    browser.navigationGate = null;
     token.cancel();
+    final nextDocument = browser.adapter.loadDocument(
+      Uri.parse('https://missav.ai/cn/playlists/next'),
+    );
     await expectLater(
       document,
       throwsA(
@@ -266,6 +437,7 @@ void main() {
       ),
     );
     await browser.navigationCancelled.future;
+    expect(await nextDocument, '<html>source page</html>');
     browser.onRequest = (request) =>
         browser.reply(request, body: 'API response');
     final response = await browser.adapter.fetch(
@@ -274,7 +446,10 @@ void main() {
       null,
     );
     expect(await utf8.decodeStream(response.stream), 'API response');
-    expect(browser.navigations, ['https://missav.ai/cn/open-604']);
+    expect(browser.navigations, [
+      'https://missav.ai/cn/open-604',
+      'https://missav.ai/cn/playlists/next',
+    ]);
     browser.adapter.close();
   });
 

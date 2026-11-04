@@ -35,6 +35,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
 
   static const channelName = 'KikoMissavHttp';
   static const _origin = 'https://missav.ai';
+  static const _requestTimeout = Duration(seconds: 30);
 
   static bool _isSource(String? value) {
     final uri = Uri.tryParse(value ?? '');
@@ -93,8 +94,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     _pending[id] = operation;
     unawaited(cancelFuture?.then((_) => _cancel(id)));
     try {
-      final responseFuture = _runExclusive<Object?>(() async {
-        _checkActive(id, operation);
+      final responseFuture = _runExclusive<Object?>(id, operation, () async {
         unawaited(
           _send(id, operation, requestStream).catchError((
             Object error,
@@ -110,23 +110,10 @@ class MissavBrowserAdapter implements HttpClientAdapter {
           if (cleanup != null) await cleanup;
         }
       });
-      final data =
-          await Future.any<Object?>([
-            responseFuture,
-            operation.result.future,
-          ]).timeout(
-            options.receiveTimeout ?? const Duration(seconds: 30),
-            onTimeout: () {
-              final timeout =
-                  options.receiveTimeout ?? const Duration(seconds: 30);
-              final error = DioException.receiveTimeout(
-                timeout: timeout,
-                requestOptions: options,
-              );
-              _finishOperation(id, operation, error);
-              throw error;
-            },
-          );
+      final data = await Future.any<Object?>([
+        responseFuture,
+        operation.result.future,
+      ]);
       if (data is! Map) {
         throw DioException.connectionError(
           requestOptions: options,
@@ -179,8 +166,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
       unawaited(cancelToken.whenCancel.then((_) => _cancel(id)));
     }
     try {
-      final documentFuture = _runExclusive<String>(() async {
-        _checkActive(id, operation);
+      final documentFuture = _runExclusive<String>(id, operation, () async {
         operation.sent = true;
         late final String body;
         try {
@@ -195,31 +181,54 @@ class MissavBrowserAdapter implements HttpClientAdapter {
       return await Future.any<String>([
         documentFuture,
         operation.result.future.then((value) => value as String),
-      ]).timeout(
-        options.receiveTimeout ?? const Duration(seconds: 30),
-        onTimeout: () {
-          final timeout = options.receiveTimeout ?? const Duration(seconds: 30);
-          final error = DioException.receiveTimeout(
-            timeout: timeout,
-            requestOptions: options,
-          );
-          _finishOperation(id, operation, error);
-          throw error;
-        },
-      );
+      ]);
     } finally {
       _pending.remove(id);
     }
   }
 
-  Future<T> _runExclusive<T>(Future<T> Function() action) {
+  Future<T> _runExclusive<T>(
+    int id,
+    _BrowserRequest operation,
+    Future<T> Function() action,
+  ) {
     final previous = _queue;
     final release = Completer<void>();
     _queue = release.future;
+    final timeout = operation.options.receiveTimeout ?? _requestTimeout;
+    // Allow one default request to finish before timing out in the queue.
+    final queueTimeout = timeout + _requestTimeout;
+    final waitingTimer = Timer(queueTimeout, () {
+      _finishOperation(
+        id,
+        operation,
+        DioException.receiveTimeout(
+          timeout: queueTimeout,
+          requestOptions: operation.options,
+        ),
+      );
+    });
+    operation.result.future.whenComplete(waitingTimer.cancel).ignore();
     return () async {
       await previous;
+      waitingTimer.cancel();
       try {
-        return await action();
+        _checkActive(id, operation);
+        final timer = Timer(timeout, () {
+          _finishOperation(
+            id,
+            operation,
+            DioException.receiveTimeout(
+              timeout: timeout,
+              requestOptions: operation.options,
+            ),
+          );
+        });
+        try {
+          return await action();
+        } finally {
+          timer.cancel();
+        }
       } finally {
         if (!release.isCompleted) release.complete();
       }

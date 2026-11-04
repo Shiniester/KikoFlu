@@ -510,28 +510,6 @@ class _ScopedSearchResultScreenState
   Future<void> _retry() =>
       _runSearch(preserveResults: true, reloadSource: _hasSourceFailure);
 
-  LayoutType _currentLayout() {
-    return switch (widget.query.scope) {
-      SearchScope.onlineMarks => switch (ref
-          .watch(myReviewsProvider)
-          .layoutType) {
-        MyReviewLayoutType.bigGrid => LayoutType.bigGrid,
-        MyReviewLayoutType.smallGrid => LayoutType.smallGrid,
-        MyReviewLayoutType.list => LayoutType.list,
-      },
-      SearchScope.history => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.history),
-      ),
-      SearchScope.playlists => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.playlists),
-      ),
-      SearchScope.downloads => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.downloads),
-      ),
-      SearchScope.globalWorks => LayoutType.bigGrid,
-    };
-  }
-
   String _scopeLabel(BuildContext context) {
     final s = S.of(context);
     return switch (widget.query.scope) {
@@ -758,7 +736,7 @@ class _ScopedSearchResultScreenState
         ),
       ),
     );
-    final layoutType = _currentLayout();
+    final layoutType = ref.watch(audioLayoutProvider);
     final keepPrevious =
         _previousMatchingEntries.isNotEmpty &&
         (_isSearching || _hasSourceFailure || _unresolvedEntries.isNotEmpty);

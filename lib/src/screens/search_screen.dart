@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,12 +14,15 @@ import '../models/search_scope_session.dart';
 import '../models/sort_options.dart';
 import '../providers/auth_provider.dart';
 import '../providers/audio_source_provider.dart';
+import '../providers/collection_layout_provider.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/unified_search_history_provider.dart';
+import '../providers/works_provider.dart' show LayoutType;
 import '../utils/l10n_extensions.dart';
 import '../utils/server_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/tag_localizer.dart';
+import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../services/log_service.dart';
 import '../widgets/scrollable_appbar.dart';
@@ -26,9 +30,10 @@ import '../widgets/download_fab.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/material_popup_surface.dart';
 import '../widgets/search_condition_chip.dart';
-import '../widgets/search_filter_panel.dart';
 import '../widgets/search_history_section.dart';
 import '../widgets/search_input_decoration.dart';
+import '../widgets/search_options_button.dart';
+import '../widgets/sort_dialog.dart';
 import '../widgets/japanese_asmr_access_prompt.dart';
 import 'search_result_screen.dart';
 import 'scoped_search_result_screen.dart';
@@ -64,7 +69,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   late final AnimationController _conditionsReveal;
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
-  final _filterPanelKey = GlobalKey<SearchFilterPanelState>();
   final _conditionsScrollController = ScrollController(); // 用于搜索条件横向滚动
   final List<SearchCondition> _searchConditions = [];
   final SearchScopeSession _scopeSession = SearchScopeSession();
@@ -78,6 +82,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   int _activeSubtitleFilter = 0;
   int _searchRevision = 0;
   bool _hasSubmittedSearch = false;
+  bool _showHistory = false;
   bool _didRestoreInitialQuery = false;
   bool _submitAfterSuggestion = false;
 
@@ -477,7 +482,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     SortDirection? sortDirection,
     int? subtitleFilter,
   }) async {
-    if (manual) _filterPanelKey.currentState?.collapse();
     final nextSortOption = sortOption ?? _activeSortOption;
     final nextSortDirection = sortDirection ?? _activeSortDirection;
     final nextSubtitleFilter = subtitleFilter ?? _activeSubtitleFilter;
@@ -576,6 +580,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       _activeSortDirection = nextSortDirection;
       _activeSubtitleFilter = nextSubtitleFilter;
       _hasSubmittedSearch = true;
+      _showHistory = false;
       _searchRevision++;
       if (widget.scope != null && widget.scope != SearchScope.globalWorks) {
         _activeScopedQuery = _buildScopedQuery(effectiveConditions);
@@ -681,11 +686,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   }
 
   void _onResultSortRequested(SortOrder option, SortDirection direction) {
-    unawaited(_performSearch(sortOption: option, sortDirection: direction));
+    unawaited(
+      _performSearch(
+        sortOption: option,
+        sortDirection: direction,
+        manual: !_hasSubmittedSearch,
+      ),
+    );
   }
 
   void _onResultSubtitleFilterRequested(int subtitleFilter) {
-    unawaited(_performSearch(subtitleFilter: subtitleFilter));
+    unawaited(
+      _performSearch(
+        subtitleFilter: subtitleFilter,
+        manual: !_hasSubmittedSearch,
+      ),
+    );
   }
 
   void _onOnlineAccountChanged() {
@@ -859,7 +875,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         sortDirection: sortDirection,
         subtitleFilter: payload['subtitleFilter'] as int? ?? 0,
       );
-      _hasSubmittedSearch = false;
     });
     _updateConditionsReveal();
     final restoredKeyword = payload['keyword']?.toString() ?? '';
@@ -962,6 +977,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
         ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
     final theme = Theme.of(context);
+    final resultLayoutType = ref.watch(audioLayoutProvider);
     return GestureDetector(
       // 点击任何地方（包括 AppBar）都取消焦点，关闭下拉框
       onTap: () {
@@ -969,70 +985,234 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       },
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
-        appBar: ScrollableAppBar(
-          title: Text(
-            widget.scope == null || widget.scope == SearchScope.globalWorks
-                ? S.of(context).search
-                : S.of(context).searchInScope(_searchScopeLabel(context)),
-            style: UiTextStyles.pageTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final title =
+                  widget.scope == null ||
+                      widget.scope == SearchScope.globalWorks
+                  ? S.of(context).search
+                  : S.of(context).searchInScope(_searchScopeLabel(context));
+              final titleWidth = TextPainter.computeWidth(
+                text: TextSpan(
+                  text: title,
+                  style:
+                      (theme.appBarTheme.titleTextStyle ??
+                              theme.textTheme.titleLarge)
+                          ?.merge(UiTextStyles.pageTitle),
+                ),
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context),
+                locale: Localizations.maybeLocaleOf(context),
+                maxLines: 1,
+              );
+              final titleSpacing = widget.showBackButton
+                  ? 0.0
+                  : theme.appBarTheme.titleSpacing ??
+                        NavigationToolbar.kMiddleSpacing;
+              final availableWidth =
+                  (constraints.maxWidth -
+                          MediaQuery.paddingOf(context).horizontal -
+                          (widget.showBackButton ? 48 : 0) -
+                          titleSpacing * 2)
+                      .clamp(0.0, constraints.maxWidth);
+              final minActionsWidth = availableWidth < 40
+                  ? availableWidth
+                  : 40.0;
+              final maxActionsWidth =
+                  (availableWidth - titleWidth.ceilToDouble() - 8).clamp(
+                    minActionsWidth,
+                    availableWidth,
+                  );
+              final scrollBehavior = ScrollConfiguration.of(context);
+              return FocusTraversalGroup(
+                policy: ReadingOrderTraversalPolicy(
+                  requestFocusCallback:
+                      (node, {alignment, alignmentPolicy, duration, curve}) =>
+                          FocusTraversalPolicy.defaultTraversalRequestFocusCallback(
+                            node,
+                            alignment: 0.5,
+                            alignmentPolicy:
+                                ScrollPositionAlignmentPolicy.explicit,
+                            duration: duration,
+                            curve: curve,
+                          ),
+                ),
+                child: ScrollableAppBar(
+                  centerTitle: false,
+                  leadingWidth: 48,
+                  titleSpacing: widget.showBackButton ? 0 : null,
+                  title: Text(
+                    title,
+                    style: UiTextStyles.pageTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  leading: widget.showBackButton
+                      ? IconButton(
+                          tooltip: S.of(context).back,
+                          icon: const Icon(Icons.arrow_back),
+                          visualDensity: const VisualDensity(horizontal: -2),
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        )
+                      : null,
+                  automaticallyImplyLeading: false,
+                  clipBehavior: Clip.none,
+                  actions: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxActionsWidth),
+                      child: ScrollConfiguration(
+                        behavior: scrollBehavior.copyWith(
+                          dragDevices: {
+                            ...scrollBehavior.dragDevices,
+                            PointerDeviceKind.mouse,
+                          },
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                key: const ValueKey(
+                                  'audio-search-layout-toggle',
+                                ),
+                                tooltip: _layoutActionLabel(resultLayoutType),
+                                icon: Icon(_layoutIcon(resultLayoutType)),
+                                visualDensity: const VisualDensity(
+                                  horizontal: -2,
+                                ),
+                                onPressed: () => ref
+                                    .read(audioLayoutProvider.notifier)
+                                    .cycle(),
+                              ),
+                              if ((widget.scope == null ||
+                                      widget.scope ==
+                                          SearchScope.globalWorks) &&
+                                  !isJapaneseGlobalSearch) ...[
+                                IconButton(
+                                  key: const ValueKey(
+                                    'audio-search-subtitle-toggle',
+                                  ),
+                                  tooltip: SubtitleFilterMode.fromValue(
+                                    _activeSubtitleFilter,
+                                  ).localizedTooltip(context),
+                                  icon: Icon(
+                                    _activeSubtitleFilter ==
+                                            SubtitleFilterMode
+                                                .withSubtitles
+                                                .value
+                                        ? Icons.closed_caption
+                                        : Icons.closed_caption_disabled,
+                                  ),
+                                  visualDensity: const VisualDensity(
+                                    horizontal: -2,
+                                  ),
+                                  onPressed: () =>
+                                      _onResultSubtitleFilterRequested(
+                                        SubtitleFilterMode.fromValue(
+                                          _activeSubtitleFilter,
+                                        ).next.value,
+                                      ),
+                                ),
+                                IconButton(
+                                  key: const ValueKey(
+                                    'audio-search-sort-button',
+                                  ),
+                                  tooltip: S.of(context).sort,
+                                  icon: const Icon(Icons.sort),
+                                  visualDensity: const VisualDensity(
+                                    horizontal: -2,
+                                  ),
+                                  onPressed: _showResultSortDialog,
+                                ),
+                              ],
+                              if (!isJapaneseGlobalSearch)
+                                SearchOptionsButton(
+                                  key: const ValueKey(
+                                    'audio-search-advanced-filter',
+                                  ),
+                                  icon: Icons.tune,
+                                  tooltip: S.of(context).advancedFilter,
+                                  contentBuilder: (_, setDialogState) =>
+                                      Consumer(
+                                        builder: (context, ref, _) => Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: _buildAdvancedFilterSections(
+                                            setDialogState,
+                                            isOfficialServer:
+                                                ServerUtils.isOfficialServer(
+                                                  ref.watch(authProvider).host,
+                                                ),
+                                          ),
+                                        ),
+                                      ),
+                                ),
+                              IconButton(
+                                key: const ValueKey(
+                                  'audio-search-history-toggle',
+                                ),
+                                tooltip: _showHistory
+                                    ? S.of(context).close
+                                    : S.of(context).searchHistory,
+                                icon: const Icon(Icons.history),
+                                visualDensity: const VisualDensity(
+                                  horizontal: -2,
+                                ),
+                                onPressed: () => setState(
+                                  () => _showHistory = !_showHistory,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
-          leading: widget.showBackButton
-              ? IconButton(
-                  tooltip: S.of(context).back,
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.of(context).maybePop(),
-                )
-              : null,
-          automaticallyImplyLeading: false,
-          clipBehavior: Clip.none,
-          actions: [
-            if (_hasSubmittedSearch)
-              IconButton(
-                tooltip: S.of(context).searchHistory,
-                icon: const Icon(Icons.history),
-                onPressed: () => setState(() => _hasSubmittedSearch = false),
-              ),
-          ],
         ),
         resizeToAvoidBottomInset: true, // 自动调整以避免键盘遮挡
         body: LayoutBuilder(
           builder: (context, constraints) => Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SearchFilterPanel(
-                  key: _filterPanelKey,
-                  headerBuilder: (context, filterButton) => Padding(
-                    padding: const EdgeInsets.only(top: 8, bottom: 4),
-                    child: Row(
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: constraints.maxHeight * .6,
+                ),
+                child: SingleChildScrollView(
+                  key: const ValueKey('audio-search-top-controls'),
+                  primary: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: _buildSearchInput()),
-                        filterButton,
-                        IconButton.filled(
-                          key: const ValueKey('audio-search-submit'),
-                          tooltip: S.of(context).search,
-                          onPressed: () => _performSearch(manual: true),
-                          icon: const Icon(Icons.search),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8, bottom: 4),
+                          child: Row(
+                            children: [
+                              Expanded(child: _buildSearchInput()),
+                              IconButton(
+                                key: const ValueKey('audio-search-submit'),
+                                tooltip: S.of(context).search,
+                                onPressed: () => _performSearch(manual: true),
+                                icon: const Icon(Icons.search),
+                              ),
+                            ],
+                          ),
                         ),
+                        _buildSearchTypeControls(
+                          theme,
+                          isJapaneseGlobalSearch: isJapaneseGlobalSearch,
+                        ),
+                        _buildSearchConditionsSection(theme),
                       ],
-                    ),
-                  ),
-                  selected: _buildSearchConditionsSection(theme),
-                  filters: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight:
-                          constraints.maxHeight *
-                          (MediaQuery.viewInsetsOf(context).bottom > 0
-                              ? .15
-                              : .34),
-                    ),
-                    child: SingleChildScrollView(
-                      child: _buildFilterControls(
-                        theme,
-                        isJapaneseGlobalSearch: isJapaneseGlobalSearch,
-                      ),
                     ),
                   ),
                 ),
@@ -1040,7 +1220,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               const Divider(height: 1),
               Expanded(
                 child: _hasSubmittedSearch
-                    ? _buildActiveResults()
+                    ? IndexedStack(
+                        index: _showHistory ? 1 : 0,
+                        children: [
+                          _buildActiveResults(),
+                          SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            child: _buildHistorySection(),
+                          ),
+                        ],
+                      )
                     : SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                         child: _buildHistorySection(),
@@ -1215,7 +1404,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     ],
   );
 
-  Widget _buildFilterControls(
+  IconData _layoutIcon(LayoutType layoutType) => switch (layoutType) {
+    LayoutType.bigGrid => Icons.grid_view,
+    LayoutType.smallGrid => Icons.apps,
+    LayoutType.list => Icons.view_list,
+  };
+
+  String _layoutActionLabel(LayoutType layoutType) => switch (layoutType) {
+    LayoutType.bigGrid => S.of(context).switchToSmallGrid,
+    LayoutType.smallGrid => S.of(context).switchToList,
+    LayoutType.list => S.of(context).switchToLargeGrid,
+  };
+
+  void _showResultSortDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => CommonSortDialog(
+        currentOption: _activeSortOption,
+        currentDirection: _activeSortDirection,
+        availableOptions: SortOrder.values
+            .where(
+              (option) =>
+                  option != SortOrder.nsfw && option != SortOrder.updatedAt,
+            )
+            .toList(),
+        onSort: _onResultSortRequested,
+        autoClose: true,
+      ),
+    );
+  }
+
+  Widget _buildSearchTypeControls(
     ThemeData theme, {
     required bool isJapaneseGlobalSearch,
   }) {
@@ -1226,27 +1445,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FloatingToolbarSurface(
-          padding: const EdgeInsets.all(4),
-          child: SizedBox(
-            height: 48,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: SearchType.values
-                    .where(
-                      (type) =>
-                          !isJapaneseGlobalSearch ||
-                          type == SearchType.keyword ||
-                          type == SearchType.rjNumber ||
-                          type == SearchType.tag ||
-                          type == SearchType.va ||
-                          type == SearchType.circle,
-                    )
-                    .map((type) => _buildSearchTypeButton(type, theme))
-                    .toList(),
-              ),
+        SizedBox(
+          key: const ValueKey('audio-search-type-row'),
+          height: 48,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: SearchType.values
+                  .where(
+                    (type) =>
+                        !isJapaneseGlobalSearch ||
+                        type == SearchType.keyword ||
+                        type == SearchType.rjNumber ||
+                        type == SearchType.tag ||
+                        type == SearchType.va ||
+                        type == SearchType.circle,
+                  )
+                  .map((type) => _buildSearchTypeButton(type, theme))
+                  .toList(),
             ),
           ),
         ),
@@ -1315,12 +1532,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 ],
               ),
             ),
-        if (!isJapaneseGlobalSearch) ...[
-          const Divider(height: 24),
-          Text(S.of(context).advancedFilter, style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          ..._buildAdvancedFilterSections(),
-        ],
       ],
     );
   }
@@ -1544,20 +1755,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
-  void _handleFilterChange(VoidCallback change) {
+  void _handleFilterChange(VoidCallback change, StateSetter setDialogState) {
     setState(change);
+    setDialogState(() {});
     _updateConditionsReveal();
-    if (_hasSubmittedSearch) _performSearch();
+    _performSearch(manual: !_hasSubmittedSearch);
   }
 
-  List<Widget> _buildAdvancedFilterSections() {
+  List<Widget> _buildAdvancedFilterSections(
+    StateSetter setDialogState, {
+    required bool isOfficialServer,
+  }) {
     final theme = Theme.of(context);
     final filterValueStyle = theme.textTheme.labelLarge?.copyWith(
       color: theme.colorScheme.onSurface,
       fontWeight: FontWeight.w500,
     );
-    final authState = ref.watch(authProvider);
-    final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
     final supportsScopeFiltering =
         widget.scope != null && widget.scope != SearchScope.globalWorks;
     final supportsAdvancedFilters = isOfficialServer || supportsScopeFiltering;
@@ -1582,9 +1795,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     max: 5,
                     divisions: 20,
                     label: _minRate.toStringAsFixed(2),
-                    onChanged: (value) => setState(() => _minRate = value),
-                    onChangeEnd: (value) =>
-                        _handleFilterChange(() => _minRate = value),
+                    onChanged: (value) {
+                      setState(() => _minRate = value);
+                      setDialogState(() {});
+                    },
+                    onChangeEnd: (value) => _handleFilterChange(
+                      () => _minRate = value,
+                      setDialogState,
+                    ),
                   ),
                 ],
               ),
@@ -1593,95 +1811,74 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ),
         const SizedBox(height: 12),
       ],
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final ageRatingFilter = FloatingToolbarSurface(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: DropdownButtonFormField<AgeRating>(
-              initialValue: _ageRating,
-              isExpanded: true,
-              decoration: _filterInputDecoration(
-                theme,
-                labelText: S.of(context).ageRatingLabel,
-                prefixIcon: const Icon(Icons.shield),
-              ),
-              items: AgeRating.values
-                  .where(
-                    (rating) =>
-                        supportsAdvancedFilters || rating != AgeRating.r15,
-                  )
-                  .map((rating) {
-                    return DropdownMenuItem(
-                      value: rating,
-                      child: Text(
-                        rating.localizedLabel(context),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: filterValueStyle,
-                      ),
-                    );
-                  })
-                  .toList(),
-              style: filterValueStyle,
-              menuMaxHeight: 300,
-              onChanged: (value) => _handleFilterChange(
-                () => _ageRating = value ?? AgeRating.all,
-              ),
-            ),
-          );
-          final salesRangeFilter = FloatingToolbarSurface(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: DropdownButtonFormField<SalesRange>(
-              initialValue: _salesRange,
-              isExpanded: true,
-              decoration: _filterInputDecoration(
-                theme,
-                labelText: S.of(context).salesLabel,
-                prefixIcon: const Icon(Icons.trending_up),
-              ),
-              items: SalesRange.values.map((range) {
+      FloatingToolbarSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: DropdownButtonFormField<AgeRating>(
+          initialValue: _ageRating,
+          isExpanded: true,
+          decoration: _filterInputDecoration(
+            theme,
+            labelText: S.of(context).ageRatingLabel,
+            prefixIcon: const Icon(Icons.shield),
+          ),
+          items: AgeRating.values
+              .where(
+                (rating) => supportsAdvancedFilters || rating != AgeRating.r15,
+              )
+              .map((rating) {
                 return DropdownMenuItem(
-                  value: range,
+                  value: rating,
                   child: Text(
-                    range == SalesRange.all
-                        ? S.of(context).salesRangeAll
-                        : range.label,
+                    rating.localizedLabel(context),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: filterValueStyle,
                   ),
                 );
-              }).toList(),
-              style: filterValueStyle,
-              menuMaxHeight: 300,
-              onChanged: (value) => _handleFilterChange(
-                () => _salesRange = value ?? SalesRange.all,
-              ),
-            ),
-          );
-          if (constraints.maxWidth < 600) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ageRatingFilter,
-                if (supportsAdvancedFilters) ...[
-                  const SizedBox(height: 12),
-                  salesRangeFilter,
-                ],
-              ],
-            );
-          }
-          return Row(
-            children: [
-              Expanded(child: ageRatingFilter),
-              if (supportsAdvancedFilters) ...[
-                const SizedBox(width: 12),
-                Expanded(child: salesRangeFilter),
-              ],
-            ],
-          );
-        },
+              })
+              .toList(),
+          style: filterValueStyle,
+          menuMaxHeight: 300,
+          onChanged: (value) => _handleFilterChange(
+            () => _ageRating = value ?? AgeRating.all,
+            setDialogState,
+          ),
+        ),
       ),
+      if (supportsAdvancedFilters) ...[
+        const SizedBox(height: 12),
+        FloatingToolbarSurface(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: DropdownButtonFormField<SalesRange>(
+            initialValue: _salesRange,
+            isExpanded: true,
+            decoration: _filterInputDecoration(
+              theme,
+              labelText: S.of(context).salesLabel,
+              prefixIcon: const Icon(Icons.trending_up),
+            ),
+            items: SalesRange.values.map((range) {
+              return DropdownMenuItem(
+                value: range,
+                child: Text(
+                  range == SalesRange.all
+                      ? S.of(context).salesRangeAll
+                      : range.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: filterValueStyle,
+                ),
+              );
+            }).toList(),
+            style: filterValueStyle,
+            menuMaxHeight: 300,
+            onChanged: (value) => _handleFilterChange(
+              () => _salesRange = value ?? SalesRange.all,
+              setDialogState,
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
     ];
   }

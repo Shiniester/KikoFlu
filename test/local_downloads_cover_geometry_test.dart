@@ -5,6 +5,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/download_task.dart';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart'
     show LayoutType;
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
@@ -87,7 +88,7 @@ void main() {
       tester.view.physicalSize = size;
       for (final layout in LayoutType.values) {
         SharedPreferences.setMockInitialValues({
-          'collection_downloads_layout_type': layout.name,
+          AudioLayoutNotifier.preferenceKey: layout.name,
         });
         await StorageService.initCritical(
           preferences: await SharedPreferences.getInstance(),
@@ -140,7 +141,7 @@ void main() {
 
     tester.view.physicalSize = const Size(320, 800);
     SharedPreferences.setMockInitialValues({
-      'collection_downloads_layout_type': LayoutType.list.name,
+      AudioLayoutNotifier.preferenceKey: LayoutType.list.name,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),

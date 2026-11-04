@@ -7,11 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
+import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/unified_search_history_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
+import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../../providers/works_provider.dart';
 import '../missav_client.dart';
@@ -62,6 +64,82 @@ class VideoScreen extends ConsumerStatefulWidget {
     required String url,
     this.active = true,
   }) : initialUrl = url;
+
+  static Widget searchScreen(
+    BuildContext context, {
+    required MissavClient client,
+    String? collectionKey,
+    List<VideoLink> initialFilters = const [],
+  }) {
+    final s = S.of(context);
+    final accountCollection =
+        collectionKey == 'favorites' || collectionKey == 'history';
+    return GlobalAudioPlayerWrapper(
+      child: VideoSearchScreen(
+        title: s.search,
+        initialFilters: initialFilters,
+        historyContext: UnifiedSearchHistoryContext(
+          contentType: 'video',
+          entryScope: accountCollection ? collectionKey! : 'source-directory',
+          source: 'missav',
+        ),
+        search: (query, filters, isCurrent) async {
+          if (accountCollection) {
+            final collectionVideos = await client.searchCollection(
+              client.collectionUrl(collectionKey!),
+              query,
+              isCurrent: isCurrent,
+            );
+            if (filters.isEmpty || collectionVideos.isEmpty || !isCurrent()) {
+              return VideoSearchResults.collection(collectionVideos);
+            }
+            final filteredVideos = await client.searchWithFilters(
+              query,
+              filters,
+              isCurrent: isCurrent,
+            );
+            if (!isCurrent()) {
+              return const VideoSearchResults.collection([]);
+            }
+            final collectionIds = collectionVideos
+                .map((video) => video.id)
+                .toSet();
+            return VideoSearchResults.collection(
+              filteredVideos
+                  .where((video) => collectionIds.contains(video.id))
+                  .toList(growable: false),
+            );
+          }
+          if (query.trim().isEmpty && filters.length == 1) {
+            return VideoSearchResults.catalog(
+              await client.browse(filters.single.url),
+            );
+          }
+          if (filters.isNotEmpty) {
+            return VideoSearchResults.collection(
+              await client.searchWithFilters(
+                query,
+                filters,
+                isCurrent: isCurrent,
+              ),
+            );
+          }
+          return VideoSearchResults.catalog(await client.search(query));
+        },
+        loadFilters: accountCollection
+            ? null
+            : (kind, pageUrl) =>
+                  client.searchFilterOptions(kind, pageUrl: pageUrl),
+        browsePage: client.browse,
+        accountClient: accountCollection ? client : null,
+        verifyAccess: (searchContext, verification) => verifyMissavAccess(
+          searchContext,
+          client,
+          sourceUrl: verification.sourceUrl ?? client.homeUrl,
+        ),
+      ),
+    );
+  }
 
   final bool active;
   final String? initialUrl;
@@ -121,6 +199,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   final Set<VideoCoverImageKey> _stagingFailedCovers = {};
   final Set<VideoCoverImageKey> _publishedFailedCovers = {};
   CancelToken? _activeBrowseCancelToken;
+  final Map<String, String?> _playlistCoverResults = {};
+  final List<String> _queuedPlaylistCoverUrls = [];
+  CancelToken? _activePlaylistCoverCancelToken;
+  int _playlistCoverGeneration = 0;
+  String? _playlistCoverDirectoryPath;
+  bool _playlistCoverNeedsReload = false;
   VideoCatalogPage? _stagingPage;
   Completer<void>? _stagingReadyCompleter;
   int? _stagingRequest;
@@ -189,6 +273,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (_sourceLocaleTag == languageTag) return;
     _sourceLocaleTag = languageTag;
     _client.setLocale(languageTag);
+    _resetPlaylistCoverAccess(null);
     if (!_dependenciesReady) return;
     final recommendationsActive = _recommendationsActive;
     final url =
@@ -239,6 +324,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   @override
   void didUpdateWidget(VideoScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active &&
+        !widget.active &&
+        _playlistCoverDirectoryPath != null) {
+      _pausePlaylistCoverAccess();
+    }
+    if (!oldWidget.active &&
+        widget.active &&
+        _playlistCoverNeedsReload &&
+        ModalRoute.of(context)?.isCurrent != false) {
+      if (_resumePlaylistCoverAccess()) return;
+    }
     if (!oldWidget.active && widget.active && _page == null) {
       if (_recommendationsActive) {
         if (_pendingRecommendationReload) {
@@ -303,6 +399,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _accountName = accountName;
     _observedSessionGeneration = sessionGeneration;
     if (!mounted) return;
+    _resetPlaylistCoverAccess(null);
 
     final url =
         _loadingUrl ??
@@ -365,9 +462,18 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
     final url = _pendingAccountReloadUrl;
-    if (url == null || _route?.isCurrent != true || !widget.active) return;
-    _pendingAccountReloadUrl = null;
-    unawaited(_loadUrl(url));
+    if (url != null && _route?.isCurrent == true && widget.active) {
+      _pendingAccountReloadUrl = null;
+      unawaited(_loadUrl(url));
+      return;
+    }
+    if (_playlistCoverNeedsReload &&
+        _route?.isCurrent == true &&
+        widget.active) {
+      setState(() {
+        _resumePlaylistCoverAccess();
+      });
+    }
   }
 
   _VideoPageCacheKey _pageCacheKey(String url) => (
@@ -600,6 +706,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     } else if (!preserveCollection) {
       _activeCollectionKey = _collectionKeyForUrl(url);
     }
+    _resetPlaylistCoverAccess(url);
     final request = ++_request;
     _loadingUrl = url;
     final previousBrowseCancelToken = _activeBrowseCancelToken;
@@ -739,59 +846,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _search() async {
-    final s = S.of(context);
+  Future<void> _search({List<VideoLink> initialFilters = const []}) async {
     final collectionKey = _activeCollectionKey;
+    _pausePlaylistCoverAccess();
     await pushWorkDetailRoute(
       context,
-      builder: (_) => GlobalAudioPlayerWrapper(
-        child: VideoSearchScreen(
-          title: s.search,
-          historyContext: UnifiedSearchHistoryContext(
-            contentType: 'video',
-            entryScope:
-                collectionKey == 'favorites' || collectionKey == 'history'
-                ? collectionKey!
-                : 'source-directory',
-            source: 'missav',
-          ),
-          search: (query, filters, isCurrent) async {
-            if (collectionKey != null &&
-                (collectionKey == 'favorites' || collectionKey == 'history')) {
-              final videos = await _client.searchCollection(
-                _client.collectionUrl(collectionKey),
-                query,
-                isCurrent: isCurrent,
-              );
-              return VideoSearchResults.collection(videos);
-            }
-            if (filters.isNotEmpty) {
-              return VideoSearchResults.collection(
-                await _client.searchWithFilters(
-                  query,
-                  filters,
-                  isCurrent: isCurrent,
-                ),
-              );
-            }
-            return VideoSearchResults.catalog(await _client.search(query));
-          },
-          loadFilters:
-              collectionKey == 'favorites' || collectionKey == 'history'
-              ? null
-              : (kind, pageUrl) =>
-                    _client.searchFilterOptions(kind, pageUrl: pageUrl),
-          browsePage: _client.browse,
-          accountClient:
-              collectionKey == 'favorites' || collectionKey == 'history'
-              ? _client
-              : null,
-          verifyAccess: (searchContext, verification) => verifyMissavAccess(
-            searchContext,
-            _client,
-            sourceUrl: verification.sourceUrl ?? _client.homeUrl,
-          ),
-        ),
+      builder: (searchContext) => VideoScreen.searchScreen(
+        searchContext,
+        client: _client,
+        collectionKey: collectionKey,
+        initialFilters: initialFilters,
       ),
     );
   }
@@ -844,7 +908,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _openCatalog(VideoLink link) => _loadUrl(link.url);
+  Future<void> _openCatalog(VideoLink link) {
+    final isMetadataLink = switch (link.kind) {
+      VideoLinkKind.category ||
+      VideoLinkKind.actor ||
+      VideoLinkKind.tag ||
+      VideoLinkKind.studio => true,
+      _ => link.cardMetadataRoute != null,
+    };
+    if (isMetadataLink) return _search(initialFilters: [link]);
+    return _loadUrl(link.url);
+  }
 
   String _catalogUrl(String path) {
     final home = Uri.parse(_client.homeUrl);
@@ -859,6 +933,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _openRecommendations({int? pageSize, bool refresh = false}) {
+    _resetPlaylistCoverAccess(null);
     final int size = pageSize ?? ref.read<int>(pageSizeProvider);
     final clearPage =
         refresh ||
@@ -1188,18 +1263,34 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     ];
   }
 
-  Future<void> _openAccount() =>
-      pushBottomDockRoute(context, builder: (_) => const VideoAccountScreen());
+  Future<void> _openAccount() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoAccountScreen(),
+    );
+  }
 
-  Future<void> _openDownloads() => pushBottomDockRoute(
-    context,
-    builder: (_) => const VideoDownloadsScreen(),
-  );
+  Future<void> _openDownloads() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoDownloadsScreen(),
+    );
+  }
 
-  Future<void> _openDetails(VideoItem video) => pushWorkDetailRoute(
-    context,
-    builder: (_) => VideoDetailsScreen(video: video),
-  );
+  Future<void> _openDetails(VideoItem video) {
+    _pausePlaylistCoverAccess();
+    final collectionKey = switch (_activeCollectionKey) {
+      'favorites' || 'history' => _activeCollectionKey,
+      _ => null,
+    };
+    return pushWorkDetailRoute(
+      context,
+      builder: (_) =>
+          VideoDetailsScreen(video: video, searchCollectionKey: collectionKey),
+    );
+  }
 
   bool _isCollectionLink(VideoLink link) {
     final segments = Uri.tryParse(
@@ -1257,6 +1348,102 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     return null;
   }
 
+  bool _isPlaylistDirectoryUrl(String url) =>
+      _collectionKeyForUrl(url) == 'playlists' &&
+      _catalogPath(url) == _catalogPath(_client.collectionUrl('playlists'));
+
+  void _resetPlaylistCoverAccess(String? url) {
+    _playlistCoverGeneration++;
+    final activeToken = _activePlaylistCoverCancelToken;
+    _activePlaylistCoverCancelToken = null;
+    if (activeToken != null && !activeToken.isCancelled) {
+      activeToken.cancel('Playlist directory changed.');
+    }
+    _queuedPlaylistCoverUrls.clear();
+    _playlistCoverResults.clear();
+    _playlistCoverDirectoryPath = url != null && _isPlaylistDirectoryUrl(url)
+        ? _catalogPath(url)
+        : null;
+    _playlistCoverNeedsReload = false;
+  }
+
+  void _pausePlaylistCoverAccess() {
+    if (_playlistCoverDirectoryPath == null) return;
+    _resetPlaylistCoverAccess(null);
+    _playlistCoverNeedsReload = true;
+  }
+
+  bool _resumePlaylistCoverAccess() {
+    final url = _loadingUrl ?? _page?.url;
+    _resetPlaylistCoverAccess(url);
+    return url != null && _isPlaylistDirectoryUrl(url);
+  }
+
+  void _onPlaylistItemsVisible(
+    String pageUrl,
+    int generation,
+    List<VideoLink> items,
+  ) {
+    final path = _catalogPath(pageUrl);
+    if (!mounted ||
+        !widget.active ||
+        generation != _playlistCoverGeneration ||
+        path == null ||
+        _playlistCoverDirectoryPath != path ||
+        _activeCollectionKey != 'playlists') {
+      return;
+    }
+    final visibleUrls = items.map((item) => item.url).toSet();
+    _queuedPlaylistCoverUrls.removeWhere((url) => !visibleUrls.contains(url));
+    for (final item in items) {
+      if (!_queuedPlaylistCoverUrls.contains(item.url) &&
+          !_playlistCoverResults.containsKey(item.url)) {
+        _queuedPlaylistCoverUrls.add(item.url);
+      }
+    }
+    _loadNextPlaylistCover(generation);
+  }
+
+  void _loadNextPlaylistCover(int generation) {
+    if (!mounted ||
+        generation != _playlistCoverGeneration ||
+        _activePlaylistCoverCancelToken != null ||
+        _queuedPlaylistCoverUrls.isEmpty) {
+      return;
+    }
+    final playlistUrl = _queuedPlaylistCoverUrls.removeAt(0);
+    _playlistCoverResults[playlistUrl] = null;
+    final cancelToken = CancelToken();
+    _activePlaylistCoverCancelToken = cancelToken;
+    unawaited(_readPlaylistCover(playlistUrl, generation, cancelToken));
+  }
+
+  Future<void> _readPlaylistCover(
+    String playlistUrl,
+    int generation,
+    CancelToken cancelToken,
+  ) async {
+    try {
+      final cover = await _client.loadPlaylistCover(
+        playlistUrl,
+        cancelToken: cancelToken,
+      );
+      if (!mounted ||
+          generation != _playlistCoverGeneration ||
+          cancelToken.isCancelled) {
+        return;
+      }
+      setState(() => _playlistCoverResults[playlistUrl] = cover);
+    } catch (_) {
+      // Retry this playlist when a new directory visit starts.
+    } finally {
+      if (identical(_activePlaylistCoverCancelToken, cancelToken)) {
+        _activePlaylistCoverCancelToken = null;
+        _loadNextPlaylistCover(generation);
+      }
+    }
+  }
+
   Future<void> _openCollection(String key) =>
       _loadUrl(_client.collectionUrl(key), collectionKey: key);
 
@@ -1270,6 +1457,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   };
 
   Widget _collectionLinkTile(VideoLink link) {
+    final icon = Icon(_directoryIcon(link));
     Widget? trailing;
     if (link.kind == VideoLinkKind.actor) {
       final s = S.of(context);
@@ -1289,31 +1477,157 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
         ],
       );
-    } else if (link.kind == VideoLinkKind.playlist) {
-      final s = S.of(context);
-      trailing = PopupMenuButton<String>(
-        tooltip: link.label,
-        onSelected: (action) {
-          if (action == 'source') unawaited(_openSource(link.url));
-          if (action == 'rename') {
-            unawaited(_showPlaylistNameDialog(playlist: link));
-          }
-          if (action == 'delete') unawaited(_deletePlaylist(link));
-        },
-        itemBuilder: (_) => [
-          PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
-          PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
-          PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
-        ],
-      );
     }
     return ListTile(
-      leading: Icon(_directoryIcon(link)),
+      leading: link.kind == VideoLinkKind.actor && link.cover.isNotEmpty
+          ? SizedBox.square(
+              dimension: 40,
+              child: ClipOval(
+                child: Image.network(
+                  link.cover,
+                  fit: BoxFit.cover,
+                  excludeFromSemantics: true,
+                  frameBuilder:
+                      (context, child, frame, wasSynchronouslyLoaded) {
+                        return frame == null ? Center(child: icon) : child;
+                      },
+                  errorBuilder: (context, error, stackTrace) =>
+                      Center(child: icon),
+                ),
+              ),
+            )
+          : icon,
       title: Text(link.label),
       trailing: trailing,
-      onTap: () => _openCatalog(link),
+      onTap: () => _loadUrl(link.url),
     );
   }
+
+  Widget _playlistLinkMenu(VideoLink link) {
+    final s = S.of(context);
+    return PopupMenuButton<String>(
+      tooltip: link.label,
+      padding: EdgeInsets.zero,
+      iconSize: 20,
+      onSelected: (action) {
+        if (action == 'source') unawaited(_openSource(link.url));
+        if (action == 'rename') {
+          unawaited(_showPlaylistNameDialog(playlist: link));
+        }
+        if (action == 'delete') unawaited(_deletePlaylist(link));
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
+        PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
+        PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
+      ],
+    );
+  }
+
+  Widget _playlistLinkCard(VideoLink link, LayoutType layoutType) =>
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final coverUrl = _playlistCoverResults[link.url];
+          final theme = Theme.of(context);
+          final isList = layoutType == LayoutType.list;
+          final titleStyle = theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            height: 1.2,
+          );
+          final listCoverSize = isList
+              ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+              : null;
+          final coverWidth = isList
+              ? listCoverSize!.width
+              : constraints.maxWidth;
+          final radius = collectionCoverRadius(coverWidth);
+          final fallback = ColoredBox(
+            color: theme.colorScheme.surfaceContainerHighest,
+            child: Center(
+              child: Icon(
+                Icons.playlist_play,
+                size: 32,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          );
+          final image = coverUrl == null || coverUrl.isEmpty
+              ? fallback
+              : Image.network(
+                  coverUrl,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  excludeFromSemantics: true,
+                  frameBuilder: (_, child, frame, _) =>
+                      frame == null ? fallback : child,
+                  errorBuilder: (_, _, _) => fallback,
+                );
+          final cover = ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: PrivacyBlurCover(
+              borderRadius: BorderRadius.circular(radius),
+              child: image,
+            ),
+          );
+          final info = Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    link.label,
+                    style: titleStyle,
+                    maxLines: collectionCardTitleMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                _playlistLinkMenu(link),
+              ],
+            ),
+          );
+
+          return Card(
+            key: ValueKey('video-playlist-card-${link.url}'),
+            elevation: 1,
+            margin: isList
+                ? const EdgeInsets.symmetric(vertical: 4)
+                : EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(isList ? 8 : radius),
+            ),
+            child: InkWell(
+              onTap: () => _loadUrl(link.url),
+              child: isList
+                  ? ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 76),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: listCoverSize!.width,
+                            height: listCoverSize.height,
+                            child: cover,
+                          ),
+                          Expanded(child: info),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: collectionCoverAspectRatio,
+                          child: cover,
+                        ),
+                        info,
+                      ],
+                    ),
+            ),
+          );
+        },
+      );
 
   Future<void> _loginRequired() async {
     if (!mounted) return;
@@ -1535,6 +1849,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   List<VideoLink> _collectionLinksForContent(VideoCatalogPage page) {
     final collectionKey = _collectionKeyForUrl(page.url);
     if (collectionKey != _activeCollectionKey) return const [];
+    if (collectionKey == 'playlists' && !_isPlaylistDirectoryUrl(page.url)) {
+      return const [];
+    }
     final kind = switch (collectionKey) {
       'actorFavorites' => VideoLinkKind.actor,
       'playlists' => VideoLinkKind.playlist,
@@ -1693,6 +2010,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (page == null) {
       return _withStaging(const SizedBox.shrink(), s, layoutType);
     }
+    final playlistCoverGeneration = _playlistCoverGeneration;
     final collectionLinks = _collectionLinksForContent(page);
     final pageSize = ref.watch(pageSizeProvider);
     final recommendationPageSize = _activeRecommendationPageSize ?? pageSize;
@@ -1729,6 +2047,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               .take(pageSize)
               .toList(growable: false)
         : page.videos;
+    final displayedCollectionLinks = hasLocalPagination
+        ? collectionLinks
+              .skip((localPage - 1) * pageSize)
+              .take(pageSize)
+              .toList(growable: false)
+        : collectionLinks;
     final pagination = VirtualizedPagination(
       currentPage: _recommendationsActive
           ? recommendationPageNumber
@@ -1845,24 +2169,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                   ),
                 ),
               Expanded(
-                child: collectionLinks.isNotEmpty
-                    ? VirtualizedSliverCollection<VideoLink>(
-                        items: hasLocalPagination
-                            ? collectionLinks
-                                  .skip((localPage - 1) * pageSize)
-                                  .take(pageSize)
-                                  .toList(growable: false)
-                            : collectionLinks,
-                        itemId: (link) => link.url,
-                        itemBuilder: (context, link, _) =>
-                            _collectionLinkTile(link),
-                        controller: _scrollController,
-                        pageStorageKey: PageStorageKey<String>(
-                          'video-links-${page.url}',
-                        ),
-                        pagination: pagination,
-                      )
-                    : VideoCollectionView(
+                child: collectionLinks.isEmpty
+                    ? VideoCollectionView<VideoItem>(
                         items: videos,
                         layoutType: layoutType,
                         itemId: (video) => video.id,
@@ -1890,6 +2198,40 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                               : 'video-${page.url}',
                         ),
                         emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                        pagination: pagination,
+                      )
+                    : collectionLinks.first.kind == VideoLinkKind.playlist
+                    ? VideoCollectionView<VideoLink>(
+                        key: ValueKey(
+                          'video-playlists-$playlistCoverGeneration',
+                        ),
+                        items: displayedCollectionLinks,
+                        layoutType: layoutType,
+                        itemId: (link) => link.url,
+                        itemBuilder: (_, link, _) =>
+                            _playlistLinkCard(link, layoutType),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-playlists-${page.url}',
+                        ),
+                        emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                        pagination: pagination,
+                        onVisibleItemsChanged: (items, _) =>
+                            _onPlaylistItemsVisible(
+                              page.url,
+                              playlistCoverGeneration,
+                              items,
+                            ),
+                      )
+                    : VirtualizedSliverCollection<VideoLink>(
+                        items: displayedCollectionLinks,
+                        itemId: (link) => link.url,
+                        itemBuilder: (context, link, _) =>
+                            _collectionLinkTile(link),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-links-${page.url}',
+                        ),
                         pagination: pagination,
                       ),
               ),
@@ -1967,7 +2309,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final page = LibraryPageScaffold(
       title: title,
       searchHint: s.videoSearchHint,
-      onSearch: _search,
+      onSearch: () => _search(),
       drawerChildren: _drawer(layoutType),
       deferDrawerActions: widget.active,
       body: _content(s, layoutType),
@@ -1994,6 +2336,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   @override
   void dispose() {
+    _resetPlaylistCoverAccess(null);
     _client.removeListener(_onClientChanged);
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _request++;

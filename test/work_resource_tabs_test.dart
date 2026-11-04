@@ -2235,6 +2235,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('audio list and play queue use numeric file order', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {'type': 'audio', 'title': '10_track.wav', 'hash': 'ten'},
+      {'type': 'audio', 'title': '2_track.wav', 'hash': 'two'},
+      {'type': 'audio', 'title': '1_track.wav', 'hash': 'one'},
+    ]);
+    addTearDown(tree.dispose);
+    List<dynamic>? queue;
+    await _pumpResources(tester, tree, onPlay: (_, __, files) => queue = files);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('1_track.wav')).dy,
+      lessThan(tester.getTopLeft(find.text('2_track.wav')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('2_track.wav')).dy,
+      lessThan(tester.getTopLeft(find.text('10_track.wav')).dy),
+    );
+    await tester.tap(find.text('2_track.wav'));
+    expect(queue!.map((file) => file['hash']), ['one', 'two', 'ten']);
+  });
+
   testWidgets(
     'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {

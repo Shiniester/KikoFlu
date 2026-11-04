@@ -266,7 +266,7 @@ void main() {
   for (final scenario in [
     (size: const Size(390, 844), pageKey: 'compact-player-pages', dx: -240.0),
     (size: const Size(390, 844), pageKey: 'compact-player-pages', dx: 240.0),
-    (size: const Size(1280, 720), pageKey: 'wide-left-pages', dx: 450.0),
+    (size: const Size(1280, 720), pageKey: 'wide-right-pages', dx: 450.0),
   ]) {
     testWidgets(
       'horizontal page drag retains cover image state at ${scenario.size} ${scenario.dx}',
@@ -303,7 +303,13 @@ void main() {
         final pages = tester.widget<PageView>(
           find.byKey(ValueKey(scenario.pageKey)),
         );
-        final gesture = await tester.startGesture(tester.getCenter(artwork));
+        final gesture = await tester.startGesture(
+          tester.getCenter(
+            scenario.pageKey == 'wide-right-pages'
+                ? find.byKey(ValueKey(scenario.pageKey))
+                : artwork,
+          ),
+        );
         await gesture.moveBy(Offset(scenario.dx.sign * 20, 0));
         for (var step = 0; step < 6; step++) {
           await gesture.moveBy(Offset(scenario.dx / 6, 0));
@@ -766,16 +772,106 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('wide player renders the two equal stage regions', (
+  testWidgets('wide player places the title and cover left of controls', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(1280, 720));
 
     expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('wide-right-pages')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wide-left-pages')), findsNothing);
     expect(find.text(_track.title), findsOneWidget);
+    final title = tester.getRect(find.text(_track.title));
+    final header = tester.getRect(
+      find.byKey(const ValueKey('wide-header-dismiss-surface')),
+    );
+    final cover = tester.getRect(find.byKey(const ValueKey('cover-pane-wide')));
+    final preview = tester.getRect(
+      find.byKey(const ValueKey('player-lyric-preview')),
+    );
+    final controls = tester.getRect(find.byType(PlayerControlsWidget));
+    expect(title.center.dx, lessThan(preview.center.dx));
+    expect(header.bottom, lessThanOrEqualTo(cover.top));
+    expect(cover.center.dx, lessThan(preview.center.dx));
+    expect(preview.bottom, lessThanOrEqualTo(controls.top));
+    expect(controls.top - preview.bottom, lessThanOrEqualTo(24));
     expect(tester.takeException(), isNull);
   });
+
+  for (final scenario in [
+    (size: const Size(1280, 720), visibleLines: [1, 2, 3, 4, 5]),
+    (size: const Size(900, 412), visibleLines: [2, 3, 4]),
+  ]) {
+    final size = scenario.size;
+    testWidgets(
+      'wide subtitle preview seeks on tap and toggles on double tap at $size',
+      (tester) async {
+        final lyrics = List.generate(
+          8,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'wide preview lyric $index',
+          ),
+        );
+        final seeks = <Duration>[];
+        await _pumpPlayer(
+          tester,
+          size,
+          lyrics: lyrics,
+          positionStream: Stream.value(const Duration(seconds: 3)),
+          onSeek: seeks.add,
+        );
+        await tester.pumpAndSettle();
+
+        final preview = find.byKey(const ValueKey('player-lyric-preview'));
+        for (final index in scenario.visibleLines) {
+          expect(
+            find
+                .descendant(
+                  of: preview,
+                  matching: find.text('wide preview lyric $index'),
+                )
+                .hitTestable(),
+            findsOneWidget,
+          );
+        }
+        final previewRect = tester.getRect(preview);
+        final controlsRect = tester.getRect(find.byType(PlayerControlsWidget));
+        expect(previewRect.bottom, lessThanOrEqualTo(controlsRect.top));
+        expect(controlsRect.top - previewRect.bottom, lessThanOrEqualTo(24));
+
+        final line = find.descendant(
+          of: preview,
+          matching: find.text('wide preview lyric 4'),
+        );
+        final controller = ProviderScope.containerOf(
+          tester.element(find.byType(AudioPlayerScreen)),
+        ).read(audioPlayerControllerProvider.notifier);
+        final pages = tester.widget<PageView>(
+          find.byKey(const ValueKey('wide-right-pages')),
+        );
+        await tester.tap(line);
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, closeTo(1, .001));
+        expect(seeks, [const Duration(seconds: 4)]);
+        expect(controller.isPlaying, isFalse);
+
+        seeks.clear();
+        for (final playing in [true, false]) {
+          await tester.tap(line);
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.tap(line);
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(controller.isPlaying, playing);
+          expect(seeks, isEmpty);
+          expect(pages.controller!.page, closeTo(1, .001));
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('phone landscape uses the wide stage without overflow', (
     tester,
@@ -783,6 +879,209 @@ void main() {
     await _pumpPlayer(tester, const Size(900, 412));
 
     expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final scenario in [
+    (size: const Size(568, 320), padding: const FakeViewPadding()),
+    (
+      size: const Size(568, 320),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (
+      size: const Size(568, 320),
+      padding: const FakeViewPadding(top: 24, bottom: 48),
+    ),
+    (size: const Size(640, 360), padding: const FakeViewPadding()),
+    (
+      size: const Size(640, 360),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (size: const Size(667, 375), padding: const FakeViewPadding()),
+    (size: const Size(736, 414), padding: const FakeViewPadding()),
+    (size: const Size(800, 360), padding: const FakeViewPadding()),
+    (
+      size: const Size(800, 360),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (size: const Size(800, 412), padding: const FakeViewPadding()),
+    (
+      size: const Size(800, 412),
+      padding: const FakeViewPadding(top: 30, bottom: 24),
+    ),
+    (
+      size: const Size(800, 412),
+      padding: const FakeViewPadding(top: 24, bottom: 48),
+    ),
+    (size: const Size(900, 412), padding: const FakeViewPadding()),
+  ]) {
+    testWidgets(
+      'short landscape keeps all playback controls visible at ${scenario.size} '
+      'with safe area ${scenario.padding.left},${scenario.padding.top},'
+      '${scenario.padding.right},${scenario.padding.bottom}',
+      (tester) async {
+        tester.view.padding = scenario.padding;
+        tester.view.viewPadding = scenario.padding;
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        final lyrics = List.generate(
+          8,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'short landscape lyric $index',
+          ),
+        );
+        await _pumpPlayer(
+          tester,
+          scenario.size,
+          lyrics: lyrics,
+          positionStream: Stream.value(const Duration(seconds: 3)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('wide-player-layout')),
+          findsOneWidget,
+        );
+        expect(
+          find
+              .descendant(
+                of: find.byKey(const ValueKey('player-lyric-preview')),
+                matching: find.text('short landscape lyric 3'),
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        final cover = tester.getRect(
+          find.byKey(const ValueKey('cover-pane-wide')),
+        );
+        final controls = tester.getRect(find.byType(PlayerControlsWidget));
+        expect(cover.right, lessThanOrEqualTo(controls.left));
+
+        final viewport = tester.getRect(
+          find.byKey(const PageStorageKey('player-wide-controls-scroll')),
+        );
+        for (final control in [
+          find.byType(PlayerProgressSection),
+          find.byType(PlayerPlayPauseButton),
+          find.byType(PlayerControlsWidget),
+        ]) {
+          final rect = tester.getRect(control);
+          expect(rect.top, greaterThanOrEqualTo(viewport.top));
+          expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
+          expect(control.hitTestable(), findsOneWidget);
+        }
+        final controlsPosition = Scrollable.of(
+          tester.element(find.byType(PlayerControlsWidget)),
+        ).position;
+        expect(controlsPosition.maxScrollExtent, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('short landscape keeps controls reachable with doubled text', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(800, 360),
+      textScale: 2,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'Current lyric with doubled text',
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    final playButton = find.byType(PlayerPlayPauseButton);
+    await tester.ensureVisible(playButton);
+    await tester.pumpAndSettle();
+    expect(playButton.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('short landscape queue stays open after rotation', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(800, 360));
+    await tester.fling(
+      find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+      const Offset(0, -240),
+      1200,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-vertical-player-pages')),
+    );
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('empty queue uses landscape layout inside safe area', (
+    tester,
+  ) async {
+    const padding = FakeViewPadding(left: 44, right: 21);
+    tester.view.padding = padding;
+    tester.view.viewPadding = padding;
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    await _pumpPlayer(
+      tester,
+      const Size(640, 360),
+      trackStream: Stream<AudioTrack?>.value(null),
+      queueStream: Stream<List<AudioTrack>>.value(const []),
+      initialSurface: PlayerInitialSurface.queue,
+      pushedRoute: true,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('player-queue-history-previous-button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide controls swipe to details and open lyrics from preview', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(1280, 720));
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
+    );
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    expect(find.text(_track.album!), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(pages.controller!.page, closeTo(0, 0.001));
+    expect(
+      find.byKey(const ValueKey('wide-audio-details-pane')),
+      findsOneWidget,
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    await tester.tap(find.byKey(const ValueKey('player-lyric-preview')));
+    await tester.pumpAndSettle();
+    expect(pages.controller!.page, closeTo(2, 0.001));
+    expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -831,7 +1130,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
     expect(find.text('1 / 1'), findsOneWidget);
-    expect(find.byIcon(Icons.graphic_eq), findsOneWidget);
+    expect(find.byIcon(Icons.graphic_eq), findsNothing);
     final queueMaterial = tester.widget<Material>(
       find.byKey(const ValueKey('player-queue-track-track-1')),
     );
@@ -919,7 +1218,7 @@ void main() {
     });
   }
 
-  testWidgets('direct queue activates lyrics and work data before resizing', (
+  testWidgets('direct queue stays unactivated while rotating layouts', (
     tester,
   ) async {
     final api = _CountingProgressApiService();
@@ -942,29 +1241,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.workLoads, 0);
     expect(detailsLoads, 0);
-    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
-    await tester.pumpAndSettle();
-    final widePages = tester.widget<PageView>(
-      find.byKey(const ValueKey('wide-right-pages')),
-    );
-    expect(widePages.controller!.page, closeTo(1, 0.001));
-    expect(api.workLoads, 1);
-    expect(detailsLoads, 1);
+    expect(find.byKey(const ValueKey('player-lyric-preview')), findsNothing);
+
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
-    final pages = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-pages')),
-    );
-    expect(pages.controller!.page, closeTo(2, 0.001));
-    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(320, 0),
-    );
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+    expect(find.byKey(const ValueKey('compact-player-pages')), findsNothing);
+    expect(api.workLoads, 0);
+    expect(detailsLoads, 0);
+
+    tester.view.physicalSize = const Size(1280, 720);
     await tester.pumpAndSettle();
-    expect(pages.controller!.page, closeTo(1, 0.001));
-    expect(find.byKey(const ValueKey('controls-pane-compact')), findsOneWidget);
-    expect(api.workLoads, 1);
+    expect(find.byKey(const ValueKey('wide-right-pages')), findsNothing);
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(find.byKey(const ValueKey('player-lyric-preview')), findsNothing);
+    expect(api.workLoads, 0);
+    expect(detailsLoads, 0);
     expect(tester.takeException(), isNull);
   });
 
@@ -1040,7 +1333,7 @@ void main() {
   ) async {
     await _pumpPlayer(
       tester,
-      const Size(1280, 720),
+      const Size(800, 360),
       pushedRoute: true,
       initialSurface: PlayerInitialSurface.queue,
     );
@@ -1107,9 +1400,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('semantic panes and last-operated page survive resizes', (
-    tester,
-  ) async {
+  testWidgets('wide right page semantics survive resizes', (tester) async {
     await _pumpPlayer(tester, const Size(390, 844));
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
@@ -1117,7 +1408,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.physicalSize = const Size(800, 360);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
@@ -1126,12 +1417,21 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.fling(
-      find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
-      const Offset(-520, 0),
-      1200,
+    final widePages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
+    expect(widePages.controller!.page, closeTo(1, 0.001));
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(widePages.controller!.page, closeTo(2, 0.001));
     expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
@@ -1139,10 +1439,8 @@ void main() {
 
     tester.view.physicalSize = const Size(1280, 720);
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('wide-audio-details-pane')),
-      findsOneWidget,
-    );
+    expect(widePages.controller!.page, closeTo(2, 0.001));
+    expect(find.byKey(const ValueKey('wide-audio-details-pane')), findsNothing);
     expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -1156,10 +1454,10 @@ void main() {
       workDetails: _longPlayerWorkDetails(),
     );
     final widePages = tester.widget<PageView>(
-      find.byKey(const ValueKey('wide-left-pages')),
+      find.byKey(const ValueKey('wide-right-pages')),
     );
     await tester.drag(
-      find.byKey(const ValueKey('wide-left-pages')),
+      find.byKey(const ValueKey('wide-right-pages')),
       const Offset(320, 0),
     );
     await tester.pumpAndSettle();
@@ -1218,7 +1516,7 @@ void main() {
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
-    expect(widePages.controller!.page, 1);
+    expect(widePages.controller!.page, 2);
 
     final wideList = tester.widget<ListView>(
       find.byKey(const ValueKey('full-lyric-list')),
@@ -1241,7 +1539,7 @@ void main() {
 
     tester.view.physicalSize = const Size(1280, 720);
     await tester.pumpAndSettle();
-    expect(widePages.controller!.page, 1);
+    expect(widePages.controller!.page, 2);
     expect(
       tester
           .widget<ListView>(find.byKey(const ValueKey('full-lyric-list')))
@@ -1393,7 +1691,7 @@ void main() {
 
   testWidgets('same-frame page clicks survive layout changes', (tester) async {
     await _pumpPlayer(tester, const Size(1280, 720));
-    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
+    await tester.tap(find.byKey(const ValueKey('player-lyric-preview')));
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
     expect(
@@ -1408,8 +1706,8 @@ void main() {
     final right = tester
         .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
         .controller!;
-    expect(right.page, closeTo(1, 0.001));
-    right.jumpToPage(0);
+    expect(right.page, closeTo(2, 0.001));
+    right.jumpToPage(1);
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -1508,15 +1806,15 @@ void main() {
         .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
         .controller!;
 
-    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
+    await tester.tap(find.byKey(const ValueKey('player-lyric-preview')));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(rightController.page, closeTo(Curves.ease.transform(0.5), 0.02));
+    expect(rightController.page, closeTo(1 + Curves.ease.transform(0.5), 0.02));
     await tester.pump(const Duration(milliseconds: 150));
-    expect(rightController.page, closeTo(1, 0.001));
+    expect(rightController.page, closeTo(2, 0.001));
 
-    rightController.jumpToPage(0);
+    rightController.jumpToPage(1);
     await tester.pumpAndSettle();
     final verticalController = tester
         .widget<PageView>(
@@ -1538,11 +1836,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('repeated lyric clicks retain the latest target on resize', (
+  testWidgets('lyric preview target survives resize during its transition', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(1280, 720));
-    final preview = find.byKey(const ValueKey('player-cover-lyric-preview'));
+    final preview = find.byKey(const ValueKey('player-lyric-preview'));
     final right = tester
         .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
         .controller!;
@@ -1550,12 +1848,8 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 20));
-    await tester.tap(preview);
-    await tester.pump();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 20));
-    expect(right.page, greaterThan(0));
-    expect(right.page, lessThan(0.5));
+    expect(right.page, greaterThan(1));
+    expect(right.page, lessThan(2));
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
     expect(
@@ -1664,84 +1958,103 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact queue mounts on demand and retains its scroll state', (
-    tester,
-  ) async {
-    final tracks = List.generate(
-      40,
-      (index) => AudioTrack(
-        id: 'queue-$index',
-        title: 'Queue track $index',
-        url: 'https://example.invalid/$index.mp3',
-      ),
-    );
-    await _pumpPlayer(
-      tester,
-      const Size(390, 844),
-      queueStream: Stream.value(tracks),
-    );
-    final queue = find.byKey(
-      const ValueKey('player-queue-pane'),
-      skipOffstage: false,
-    );
-    expect(queue, findsNothing);
-    final gesture = await tester.startGesture(
-      tester.getCenter(
-        find.byKey(const ValueKey('compact-header-dismiss-surface')),
-      ),
-    );
-    await gesture.moveBy(const Offset(0, -20));
-    await tester.pump();
-    await gesture.moveBy(const Offset(0, -80));
-    await tester.pump();
-    final verticalPages = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-vertical-player-pages')),
-    );
-    expect(verticalPages.controller!.page, greaterThan(0));
-    expect(queue, findsOneWidget);
-    expect(_compactQueueProgress(tester), greaterThan(0));
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
-    await gesture.cancel();
-    await tester.pumpAndSettle();
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
-
-    Future<void> openQueue() async {
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
+  testWidgets(
+    'compact queue repositions current track after returning from details',
+    (tester) async {
+      final tracks = List.generate(
+        60,
+        (index) => AudioTrack(
+          id: 'queue-$index',
+          title: 'Queue track $index',
+          url: 'https://example.invalid/$index.mp3',
         ),
       );
+      final currentTrack = tracks[35];
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        queueStream: Stream.value(tracks),
+        track: currentTrack,
+      );
+      final horizontal = tester.widget<PageView>(
+        find.byKey(const ValueKey('compact-player-pages')),
+      );
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(320, 0),
+      );
       await tester.pumpAndSettle();
-    }
+      expect(horizontal.controller!.page, 0);
 
-    await openQueue();
-    final list = find.byKey(const ValueKey('player-queue-list'));
-    final scroll = tester.state<ScrollableState>(
-      find.descendant(of: list, matching: find.byType(Scrollable)),
-    );
-    scroll.position.jumpTo(350);
-    await tester.pump();
-    final position = scroll.position.pixels;
-    await tester.fling(
-      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
-      const Offset(0, 300),
-      1000,
-    );
-    await tester.pumpAndSettle();
-    expect(scroll.mounted, isTrue);
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
-    await openQueue();
-    expect(
-      tester.state<ScrollableState>(
+      Future<void> openQueueFromDetails() async {
+        await tester.drag(
+          find.byKey(const ValueKey('compact-header-dismiss-surface')),
+          const Offset(0, -600),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> closeQueueToDetails() async {
+        await tester.drag(
+          find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+          const Offset(0, 600),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      void expectCurrentAtTarget() {
+        final list = find.byKey(const ValueKey('player-queue-list'));
+        final listRect = tester.getRect(list);
+        final currentRow = find.byKey(
+          ValueKey('player-queue-track-content-${currentTrack.id}'),
+        );
+        expect(currentRow, findsOneWidget);
+        final rowRect = tester.getRect(currentRow);
+        final itemExtent = tester.widget<ReorderableListView>(list).itemExtent!;
+        final visibleRows = (listRect.height / itemExtent).floor();
+        final targetRow = (visibleRows * .4).ceil() - 1;
+        expect(rowRect.top, closeTo(listRect.top + targetRow * itemExtent, .5));
+      }
+
+      final queue = find.byKey(
+        const ValueKey('player-queue-pane'),
+        skipOffstage: false,
+      );
+      expect(queue, findsNothing);
+      await openQueueFromDetails();
+      expect(queue, findsOneWidget);
+      expect(_compactQueueProgress(tester), greaterThan(0));
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
+      final list = find.byKey(const ValueKey('player-queue-list'));
+      final scroll = tester.state<ScrollableState>(
         find.descendant(of: list, matching: find.byType(Scrollable)),
-      ),
-      same(scroll),
-    );
-    expect(scroll.position.pixels, position);
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      expectCurrentAtTarget();
+
+      scroll.position.jumpTo(0);
+      await tester.pump();
+      await closeQueueToDetails();
+      expect(horizontal.controller!.page, 0);
+      expect(scroll.mounted, isTrue);
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
+      final reentry = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('compact-header-dismiss-surface')),
+        ),
+      );
+      await reentry.moveBy(const Offset(0, -24));
+      await tester.pump();
+      await reentry.moveBy(const Offset(0, -140));
+      await tester.pump();
+      await tester.pump();
+      expect(_compactQueueProgress(tester), inExclusiveRange(0, .5));
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
+      expectCurrentAtTarget();
+      await reentry.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact queue can reopen after a list-edge page handoff', (
     tester,
@@ -2093,7 +2406,7 @@ void main() {
     },
   );
 
-  testWidgets('wide queue preserves scroll and the latest left page', (
+  testWidgets('wide detail hands off to queue and restores after resize', (
     tester,
   ) async {
     final tracks = List.generate(
@@ -2108,23 +2421,40 @@ void main() {
       tester,
       const Size(1280, 720),
       queueStream: Stream.value(tracks),
+      workDetails: _longPlayerWorkDetails(),
     );
-    final leftPages = tester.widget<PageView>(
-      find.byKey(const ValueKey('wide-left-pages')),
+    final rightPages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
     );
     await tester.drag(
-      find.byKey(const ValueKey('wide-left-pages')),
+      find.byKey(const ValueKey('wide-right-pages')),
       const Offset(320, 0),
     );
     await tester.pumpAndSettle();
-    expect(leftPages.controller!.page, 0);
+    expect(rightPages.controller!.page, 0);
 
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const ValueKey('controls-pane-wide')),
-        matching: find.byIcon(Icons.queue_music),
-      ),
+    final detailsPane = find.byKey(const ValueKey('wide-audio-details-pane'));
+    final detailsScroll = find.descendant(
+      of: detailsPane,
+      matching: find.byType(CustomScrollView),
     );
+    expect(detailsScroll, findsOneWidget);
+    final detailsPosition = tester
+        .state<ScrollableState>(
+          find.descendant(of: detailsPane, matching: find.byType(Scrollable)),
+        )
+        .position;
+    detailsPosition.jumpTo(detailsPosition.maxScrollExtent);
+    await tester.pump();
+
+    final detailsGesture = await tester.startGesture(
+      tester.getCenter(detailsScroll),
+    );
+    for (var frame = 0; frame < 40; frame++) {
+      await detailsGesture.moveBy(const Offset(0, -16));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await detailsGesture.up();
     await tester.pumpAndSettle();
     final verticalPages = tester.widget<PageView>(
       find.byKey(const ValueKey('wide-vertical-player-pages')),
@@ -2138,14 +2468,6 @@ void main() {
     expect(scrollable, findsOneWidget);
     tester.state<ScrollableState>(scrollable).position.jumpTo(350);
     await tester.pump();
-
-    await tester.drag(
-      find.byKey(const ValueKey('wide-left-pages')),
-      const Offset(-320, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(leftPages.controller!.page, 1);
-    expect(verticalPages.controller!.page, 1);
 
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
@@ -2167,9 +2489,13 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(verticalPages.controller!.page, 0);
-    expect(leftPages.controller!.page, 1);
+    expect(rightPages.controller!.page, 0);
     expect(
-      find.byKey(const ValueKey('wide-cover-page-boundary')),
+      detailsPosition.pixels,
+      closeTo(detailsPosition.maxScrollExtent, 0.1),
+    );
+    expect(
+      find.byKey(const ValueKey('wide-audio-details-pane')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -2839,6 +3165,78 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final direction in [-1.0, 1.0]) {
+    testWidgets('wide same-frame seek drag retains the gesture at $direction', (
+      tester,
+    ) async {
+      await _pumpPlayer(tester, const Size(1280, 720));
+      final pages = tester.widget<PageView>(
+        find.byKey(const ValueKey('wide-right-pages')),
+      );
+      final target = tester.getRect(
+        find.byKey(const ValueKey('player-progress-gesture-target')),
+      );
+      final gesture = await tester.startGesture(
+        Offset(target.center.dx, target.top + 2),
+      );
+      try {
+        await gesture.moveBy(Offset(16 * direction, 0));
+        await gesture.moveBy(Offset(64 * direction, 0));
+        await tester.pump();
+        expect(
+          tester
+              .widget<Slider>(
+                find.byKey(const ValueKey('player-progress-slider')),
+              )
+              .value,
+          direction > 0
+              ? inExclusiveRange(0.55, 0.9)
+              : inExclusiveRange(0.1, 0.45),
+        );
+        expect(pages.controller!.page, closeTo(1, 0.001));
+      } finally {
+        await gesture.up();
+      }
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('wide segmented seek drag stays on the controls page', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(1280, 720));
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
+    );
+    final target = tester.getRect(
+      find.byKey(const ValueKey('player-progress-gesture-target')),
+    );
+    final gesture = await tester.startGesture(
+      Offset(target.left + target.width * 0.2, target.top + 2),
+    );
+    await tester.pump();
+    await gesture.moveBy(const Offset(16, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(pages.controller!.page, closeTo(1, 0.001));
+
+    for (var frame = 0; frame < 5; frame++) {
+      await gesture.moveBy(const Offset(22, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(pages.controller!.page, closeTo(1, 0.001));
+    }
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const ValueKey('player-progress-slider')))
+          .value,
+      greaterThan(0.3),
+    );
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final layout in [
     (name: 'compact', size: const Size(390, 844)),
     (name: 'wide', size: const Size(1280, 720)),
@@ -2974,6 +3372,53 @@ void main() {
         0,
       );
       expectStableShell();
+    });
+  }
+
+  for (final size in [
+    const Size(390, 844),
+    const Size(600, 960),
+    const Size(800, 1120),
+  ]) {
+    testWidgets('compact bottom actions respond to taps at $size', (
+      tester,
+    ) async {
+      final repeatModes = <LoopMode>[];
+      await _pumpPlayer(
+        tester,
+        size,
+        platform: TargetPlatform.android,
+        onRepeatModeChanged: repeatModes.add,
+      );
+      await tester.pumpAndSettle();
+
+      final controls = find.byKey(const ValueKey('controls-pane-compact'));
+      final repeat = find.descendant(
+        of: controls,
+        matching: find.byIcon(Icons.repeat),
+      );
+      final queue = find.descendant(
+        of: controls,
+        matching: find.byIcon(Icons.queue_music),
+      );
+      final coverRect = tester.getRect(
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      );
+      expect(tester.getRect(repeat).left, closeTo(coverRect.left, 0.01));
+      expect(tester.getRect(queue).right, closeTo(coverRect.right, 0.01));
+
+      await tester.tap(repeat);
+      await tester.pump();
+      expect(repeatModes, [LoopMode.one]);
+      expect(
+        find.descendant(of: controls, matching: find.byIcon(Icons.repeat_one)),
+        findsOneWidget,
+      );
+
+      await tester.tap(queue);
+      await tester.pumpAndSettle();
+      expect(_compactQueueProgress(tester), 1);
+      expect(tester.takeException(), isNull);
     });
   }
 
@@ -3118,7 +3563,10 @@ void main() {
       textScale: 1.4,
       lyrics: lyrics,
     );
-    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(-400, 0),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
     await tester.pumpAndSettle();
@@ -3474,9 +3922,6 @@ void main() {
 
         await tester.pumpAndSettle();
 
-        Rect nowPlayingRect() => tester.getRect(
-          find.byKey(const ValueKey('player-queue-now-playing')),
-        );
         Rect titleBarRect() => tester.getRect(
           find.byKey(const ValueKey('player-queue-title-bar')),
         );
@@ -3487,7 +3932,6 @@ void main() {
         );
 
         final initialAnchors = (
-          nowPlaying: nowPlayingRect(),
           titleBar: titleBarRect(),
           list: listRect(),
           modePill: modePillRect(),
@@ -3515,18 +3959,6 @@ void main() {
             .height;
         expect(shortHeight, closeTo(longHeight, 0.01));
         expect(noArtistHeight, closeTo(longHeight, 0.01));
-        for (final id in const ['queue-long', 'queue-short']) {
-          expect(
-            tester
-                .getSize(
-                  find.byKey(
-                    ValueKey('player-queue-current-indicator-slot-$id'),
-                  ),
-                )
-                .width,
-            id == 'queue-long' ? 36 : 0,
-          );
-        }
         expect(
           tester
               .getSize(
@@ -3535,13 +3967,12 @@ void main() {
               .width,
           closeTo(
             tester
-                    .getSize(
-                      find.byKey(
-                        const ValueKey('player-queue-metadata-queue-short'),
-                      ),
-                    )
-                    .width -
-                36,
+                .getSize(
+                  find.byKey(
+                    const ValueKey('player-queue-metadata-queue-short'),
+                  ),
+                )
+                .width,
             0.01,
           ),
         );
@@ -3556,17 +3987,15 @@ void main() {
               .width,
           closeTo(
             tester
-                    .getSize(
-                      find.byKey(
-                        const ValueKey('player-queue-metadata-queue-short'),
-                      ),
-                    )
-                    .width +
-                36,
+                .getSize(
+                  find.byKey(
+                    const ValueKey('player-queue-metadata-queue-short'),
+                  ),
+                )
+                .width,
             0.01,
           ),
         );
-        expect(nowPlayingRect(), initialAnchors.nowPlaying);
         expect(titleBarRect(), initialAnchors.titleBar);
         expect(listRect(), initialAnchors.list);
         expect(modePillRect(), initialAnchors.modePill);
@@ -3588,7 +4017,6 @@ void main() {
         currentTracks.add(noArtistTrack);
         await tester.pumpAndSettle();
         expect(scrollPosition.pixels, closeTo(pixelsBeforeSwitch, 0.01));
-        expect(nowPlayingRect(), initialAnchors.nowPlaying);
         expect(titleBarRect(), initialAnchors.titleBar);
         expect(listRect(), initialAnchors.list);
         expect(modePillRect(), initialAnchors.modePill);
@@ -3687,160 +4115,164 @@ void main() {
     expect(paintClip.contains(const Offset(1, 1)), isFalse);
   });
 
-  testWidgets('short compact stage keeps queue content at cover width', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(839, 720));
+  testWidgets(
+    'short compact queue keeps a centered body in the full viewport',
+    (tester) async {
+      await _pumpPlayer(tester, const Size(839, 720));
 
-    final coverWidth = tester
-        .getSize(find.byKey(const ValueKey('player-cover-artwork-track-1')))
-        .width;
-    final controlsWidth = tester
-        .getSize(find.byKey(const ValueKey('controls-pane-compact')))
-        .width;
-    expect(controlsWidth, closeTo(coverWidth, 0.01));
+      final coverWidth = tester
+          .getSize(find.byKey(const ValueKey('player-cover-artwork-track-1')))
+          .width;
+      final controlsWidth = tester
+          .getSize(find.byKey(const ValueKey('controls-pane-compact')))
+          .width;
+      expect(controlsWidth, closeTo(coverWidth, 0.01));
 
-    await tester.tap(find.byIcon(Icons.queue_music));
-    await tester.pumpAndSettle();
-    final queueWidth = tester
-        .getSize(find.byKey(const ValueKey('player-queue-width-boundary')))
-        .width;
-    expect(queueWidth, closeTo(coverWidth + 20, 0.01));
-    final nowPlayingArtwork = find.byKey(
-      const ValueKey('player-queue-now-playing-artwork'),
-    );
-    final queueArtwork = find.byKey(
-      const ValueKey('player-queue-artwork-track-1'),
-    );
-    expect(tester.getSize(nowPlayingArtwork), const Size(64, 48));
-    expect(tester.getSize(queueArtwork), const Size(64, 48));
-    for (final artwork in [nowPlayingArtwork, queueArtwork]) {
+      await tester.tap(find.byIcon(Icons.queue_music));
+      await tester.pumpAndSettle();
+      final queueBoundaryFinder = find.byKey(
+        const ValueKey('player-queue-width-boundary'),
+      );
+      final queueWidth = tester.getSize(queueBoundaryFinder).width;
+      final pageViewport = tester.getRect(
+        find.byKey(const ValueKey('player-queue-history-content')),
+      );
+      final queuePane = tester.getRect(
+        find.byKey(const ValueKey('player-queue-pane')),
+      );
+      expect(pageViewport.width, closeTo(839, 0.01));
+      expect(pageViewport.left, closeTo(queuePane.left, 0.01));
+      expect(pageViewport.right, closeTo(queuePane.right, 0.01));
+      expect(queueWidth, closeTo(coverWidth + 20, 0.01));
+      expect(queueWidth, lessThan(pageViewport.width));
+      expect(
+        find.byKey(const ValueKey('player-queue-now-playing')),
+        findsNothing,
+      );
+      final queueArtwork = find.byKey(
+        const ValueKey('player-queue-artwork-track-1'),
+      );
+      expect(tester.getSize(queueArtwork), const Size(64, 48));
       final decoration =
           tester
                   .widget<DecoratedBox>(
                     find.descendant(
-                      of: artwork,
+                      of: queueArtwork,
                       matching: find.byType(DecoratedBox),
                     ),
                   )
                   .decoration
               as BoxDecoration;
       expect(decoration.borderRadius, BorderRadius.circular(10));
-    }
-    final queueBoundary = tester.getRect(
-      find.byKey(const ValueKey('player-queue-width-boundary')),
-    );
-    final nowPlaying = tester.getRect(
-      find.byKey(const ValueKey('player-queue-now-playing')),
-    );
-    final titleBar = tester.getRect(
-      find.byKey(const ValueKey('player-queue-title-bar')),
-    );
-    final queueTrackFinder = find.byKey(
-      const ValueKey('player-queue-track-track-1'),
-    );
-    final queueTrackContentFinder = find.byKey(
-      const ValueKey('player-queue-track-content-track-1'),
-    );
-    final queueTrack = tester.getRect(queueTrackFinder);
-    final queueList = tester.widget<ReorderableListView>(
-      find.byKey(const ValueKey('player-queue-list')),
-    );
-    expect(queueList.clipBehavior, isNot(Clip.none));
-    expect(nowPlaying.left, closeTo(queueBoundary.left, 0.01));
-    expect(nowPlaying.right, closeTo(queueBoundary.right, 0.01));
-    expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
-    expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
-    expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
-    expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
-    expect(
-      tester.getRect(queueArtwork).left,
-      closeTo(queueBoundary.left + 10, 0.01),
-    );
-    expect(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.text('Artist'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Artist · Album'), findsNothing);
-    final queueTitle = tester.widget<Text>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.text(_track.title),
-      ),
-    );
-    expect(queueTitle.style?.fontSize, 12.5);
-    expect(queueTitle.style?.height, 1.12);
-    final shiftedTextColumn = tester.widget<Transform>(
-      find
-          .descendant(
-            of: queueTrackContentFinder,
-            matching: find.byWidgetPredicate(
-              (widget) =>
-                  widget is Transform &&
-                  (widget.transform.storage[13] - 1).abs() < 0.001,
-            ),
-          )
-          .first,
-    );
-    expect(shiftedTextColumn.transform.storage[13], closeTo(1, 0.001));
-    final countText = tester.widget<Text>(find.text('1 / 1'));
-    final clearText = tester.widget<Text>(find.text('Clear'));
-    expect(clearText.style?.fontSize, countText.style?.fontSize);
-    expect(clearText.style?.color, countText.style?.color);
-    final clearTextRect = tester.getRect(find.text('Clear'));
-    final clearButtonRect = tester.getRect(
-      find.byKey(const ValueKey('player-queue-clear-button')),
-    );
-    expect(clearTextRect.right, closeTo(queueBoundary.right - 10, 0.01));
-    expect(clearButtonRect.right, closeTo(queueBoundary.right, 0.01));
-    expect(clearButtonRect.width, closeTo(clearTextRect.width + 20, 0.01));
-    expect(clearButtonRect.center.dx, closeTo(clearTextRect.center.dx, 0.01));
-    final queueInk = tester.widget<InkWell>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byType(InkWell),
-      ),
-    );
-    expect(
-      queueInk.overlayColor?.resolve({WidgetState.pressed}),
-      Colors.transparent,
-    );
-    expect(queueInk.splashFactory, same(NoSplash.splashFactory));
-    final removeIcon = tester.widget<Icon>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byIcon(Icons.remove),
-      ),
-    );
-    expect(removeIcon.size, 18);
-    final removeButton = find.ancestor(
-      of: find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byIcon(Icons.remove),
-      ),
-      matching: find.byType(PlayerCompactAction),
-    );
-    expect(tester.getSize(removeButton), const Size(32, 32));
-    expect(
-      tester.getRect(removeButton).right,
-      closeTo(queueBoundary.right - 10, 0.01),
-    );
-    expect(
-      removeIcon.color,
-      Theme.of(
-        tester.element(queueTrackContentFinder),
-      ).colorScheme.onSurfaceVariant,
-    );
-    await tester.tapAt(
-      Offset(clearButtonRect.right - 2, clearButtonRect.center.dy),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Clear playback queue?'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      final queueBoundary = tester.getRect(queueBoundaryFinder);
+      expect(queueBoundary.center.dx, closeTo(pageViewport.center.dx, 0.01));
+      final titleBar = tester.getRect(
+        find.byKey(const ValueKey('player-queue-title-bar')),
+      );
+      final queueTrackFinder = find.byKey(
+        const ValueKey('player-queue-track-track-1'),
+      );
+      final queueTrackContentFinder = find.byKey(
+        const ValueKey('player-queue-track-content-track-1'),
+      );
+      final queueTrack = tester.getRect(queueTrackFinder);
+      final queueList = tester.widget<ReorderableListView>(
+        find.byKey(const ValueKey('player-queue-list')),
+      );
+      expect(queueList.clipBehavior, isNot(Clip.none));
+      expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
+      expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
+      expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
+      expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+      expect(
+        tester.getRect(queueArtwork).left,
+        closeTo(queueBoundary.left + 10, 0.01),
+      );
+      expect(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.text('Artist'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Artist · Album'), findsNothing);
+      final queueTitle = tester.widget<Text>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.text(_track.title),
+        ),
+      );
+      expect(queueTitle.style?.fontSize, 12.5);
+      expect(queueTitle.style?.height, 1.12);
+      final shiftedTextColumn = tester.widget<Transform>(
+        find
+            .descendant(
+              of: queueTrackContentFinder,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Transform &&
+                    (widget.transform.storage[13] - 1).abs() < 0.001,
+              ),
+            )
+            .first,
+      );
+      expect(shiftedTextColumn.transform.storage[13], closeTo(1, 0.001));
+      final countText = tester.widget<Text>(find.text('1 / 1'));
+      final clearText = tester.widget<Text>(find.text('Clear'));
+      expect(clearText.style?.fontSize, countText.style?.fontSize);
+      expect(clearText.style?.color, countText.style?.color);
+      final clearTextRect = tester.getRect(find.text('Clear'));
+      final clearButtonRect = tester.getRect(
+        find.byKey(const ValueKey('player-queue-clear-button')),
+      );
+      expect(clearTextRect.right, closeTo(queueBoundary.right - 10, 0.01));
+      expect(clearButtonRect.right, closeTo(queueBoundary.right, 0.01));
+      expect(clearButtonRect.width, closeTo(clearTextRect.width + 20, 0.01));
+      expect(clearButtonRect.center.dx, closeTo(clearTextRect.center.dx, 0.01));
+      final queueInk = tester.widget<InkWell>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(
+        queueInk.overlayColor?.resolve({WidgetState.pressed}),
+        Colors.transparent,
+      );
+      expect(queueInk.splashFactory, same(NoSplash.splashFactory));
+      final removeIcon = tester.widget<Icon>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byIcon(Icons.remove),
+        ),
+      );
+      expect(removeIcon.size, 18);
+      final removeButton = find.ancestor(
+        of: find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byIcon(Icons.remove),
+        ),
+        matching: find.byType(PlayerCompactAction),
+      );
+      expect(tester.getSize(removeButton), const Size(32, 32));
+      expect(
+        tester.getRect(removeButton).right,
+        closeTo(queueBoundary.right - 10, 0.01),
+      );
+      expect(
+        removeIcon.color,
+        Theme.of(
+          tester.element(queueTrackContentFinder),
+        ).colorScheme.onSurfaceVariant,
+      );
+      await tester.tapAt(
+        Offset(clearButtonRect.right - 2, clearButtonRect.center.dy),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Clear playback queue?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'more uses full-width rows and closing it does not restore search input',
@@ -3987,7 +4419,7 @@ void main() {
             ),
           ),
         );
-        pages.controller!.jumpToPage(config.isWide ? 1 : 2);
+        pages.controller!.jumpToPage(2);
         await tester.pumpAndSettle();
         final surface = find.byKey(
           ValueKey('player-lyrics-surface-${config.isWide}'),
@@ -4621,6 +5053,7 @@ Future<void> _pumpPlayer(
   bool disableThemeArtwork = false,
   void Function(int oldIndex, int newIndex)? onQueueReorder,
   void Function(Duration position)? onSeek,
+  void Function(LoopMode mode)? onRepeatModeChanged,
   VoidCallback? onHostTap,
   bool mockArtworkSeed = false,
 }) async {
@@ -4637,7 +5070,11 @@ Future<void> _pumpPlayer(
           audioSliceStateProvider.overrideWith(
             (ref) => Stream.value(sliceState),
           ),
-        if (onSeek != null)
+        if (onRepeatModeChanged != null)
+          audioPlayerControllerProvider.overrideWith(
+            (ref) => _RepeatModeAudioController(ref, onRepeatModeChanged),
+          )
+        else if (onSeek != null)
           audioPlayerControllerProvider.overrideWith(
             (ref) => _SeekingAudioController(ref, onSeek),
           )
@@ -4741,6 +5178,19 @@ Future<void> _pumpPlayer(
   if (settleEntry) await tester.pump(const Duration(milliseconds: 350));
 }
 
+class _RepeatModeAudioController extends AudioPlayerController {
+  _RepeatModeAudioController(Ref ref, this.onRepeatModeChanged)
+    : super(ref.read(audioPlayerServiceProvider), ref);
+
+  final void Function(LoopMode mode) onRepeatModeChanged;
+
+  @override
+  Future<void> setRepeatMode(LoopMode mode) async {
+    onRepeatModeChanged(mode);
+    state = state.copyWith(repeatMode: mode);
+  }
+}
+
 class _ReorderingAudioController extends AudioPlayerController {
   _ReorderingAudioController(Ref ref, this.onReorder)
     : super(ref.read(audioPlayerServiceProvider), ref);
@@ -4758,6 +5208,20 @@ class _SeekingAudioController extends AudioPlayerController {
     : super(ref.read(audioPlayerServiceProvider), ref);
 
   final void Function(Duration position) onSeek;
+  bool _isPlaying = false;
+
+  @override
+  bool get isPlaying => _isPlaying;
+
+  @override
+  Future<void> play() async {
+    _isPlaying = true;
+  }
+
+  @override
+  Future<void> pause() async {
+    _isPlaying = false;
+  }
 
   @override
   Future<void> seekAndPersist(Duration position) async {

@@ -21,56 +21,28 @@ class HistoryScreen extends ConsumerStatefulWidget {
   ConsumerState<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends ConsumerState<HistoryScreen>
-    with WidgetsBindingObserver {
+class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   bool _tabActive = false;
-  bool _routeActive = true;
-  bool _appActive = true;
-  bool? _requestedVisibility;
-  int _visibilityRevision = 0;
+  bool? _requestedTabActivity;
+  int _tabActivityRevision = 0;
   HistoryNotifier? _historyNotifier;
-
-  bool get _isVisible => _tabActive && _routeActive && _appActive;
-
-  bool _isForeground(AppLifecycleState? state) =>
-      state == null || state == AppLifecycleState.resumed;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _appActive = _isForeground(WidgetsBinding.instance.lifecycleState);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _routeActive = ModalRoute.of(context)?.isCurrent ?? true;
-    _scheduleVisibilityUpdate();
-  }
 
   void _onTabActivityChanged(bool active) {
     _tabActive = active;
-    _scheduleVisibilityUpdate();
+    _scheduleTabActivityUpdate();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _appActive = _isForeground(state);
-    _scheduleVisibilityUpdate();
-  }
-
-  void _scheduleVisibilityUpdate() {
-    final visible = _isVisible;
-    if (_requestedVisibility == visible) return;
-    _requestedVisibility = visible;
-    final revision = ++_visibilityRevision;
-    if (!visible) {
+  void _scheduleTabActivityUpdate() {
+    final active = _tabActive;
+    if (_requestedTabActivity == active) return;
+    _requestedTabActivity = active;
+    final revision = ++_tabActivityRevision;
+    if (!active) {
       _historyNotifier?.setVisible(false);
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || revision != _visibilityRevision || !_isVisible) return;
+      if (!mounted || revision != _tabActivityRevision || !_tabActive) return;
       _historyNotifier = ref.read(historyProvider.notifier);
       _historyNotifier!.setVisible(true);
     });
@@ -78,8 +50,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _visibilityRevision++;
+    _tabActivityRevision++;
     _historyNotifier?.setVisible(false);
     super.dispose();
   }
@@ -105,9 +76,7 @@ class _HistoryContent extends ConsumerWidget {
         (value) => (host: value.host ?? '', token: value.token ?? ''),
       ),
     );
-    final layoutType = ref.watch(
-      collectionLayoutProvider(CollectionLayoutKey.history),
-    );
+    final layoutType = ref.watch(audioLayoutProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,

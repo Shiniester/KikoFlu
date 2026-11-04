@@ -563,9 +563,7 @@ class PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
   }
 
   Widget _buildListView(PlaylistsState state) {
-    final layoutType = ref.watch(
-      collectionLayoutProvider(CollectionLayoutKey.playlists),
-    );
+    final layoutType = ref.watch(audioLayoutProvider);
     return LayoutBuilder(
       builder: (context, constraints) {
         final metrics = resolveCollectionGridMetrics(

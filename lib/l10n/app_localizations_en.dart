@@ -9,7 +9,7 @@ class SEn extends S {
   SEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'KikoFlu';
+  String get appTitle => 'Iroru';
 
   @override
   String get navHome => 'Home';
@@ -804,11 +804,23 @@ class SEn extends S {
   String get playlistTitle => 'Playback Queue';
 
   @override
+  String get playbackQueueHistory => 'Playback queue history';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return 'Page $current of $total';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => 'Clear playback queue?';
 
   @override
   String get clearPlaybackQueueMessage =>
       'This will stop playback and remove every item from the queue.';
+
+  @override
+  String get clearHistoricalPlaybackQueueMessage =>
+      'Clear this historical playback queue?';
 
   @override
   String get noAudioPlaying => 'No audio playing';

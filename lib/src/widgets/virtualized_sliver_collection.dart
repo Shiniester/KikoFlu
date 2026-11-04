@@ -256,6 +256,7 @@ class _VirtualizedSliverCollectionState<T>
   List<Object> _lastVisibleIds = const [];
   late Map<Object, int> _indexById;
   late int _indexedItemCount;
+  Key _masonryKey = UniqueKey();
   final _retentionWindow = ValueNotifier<(int, int)>((0, 0));
 
   bool get _retainsItems =>
@@ -294,6 +295,19 @@ class _VirtualizedSliverCollectionState<T>
     if (!_retainsItems) _retentionWindow.value = (0, 0);
     if (!identical(oldWidget.items, widget.items) ||
         _indexedItemCount != widget.items.length) {
+      if (widget.layout == VirtualizedCollectionLayout.masonry) {
+        for (
+          var index = 0;
+          index < widget.items.length && index < _indexedItemCount;
+          index++
+        ) {
+          if (_indexById[widget.itemId(widget.items[index])] != index) {
+            // Masonry retains stale positions when items change order.
+            _masonryKey = UniqueKey();
+            break;
+          }
+        }
+      }
       _rebuildIndex();
       _prefetchedIds.removeWhere((id) => !_indexById.containsKey(id));
     }
@@ -748,6 +762,7 @@ class _VirtualizedSliverCollectionState<T>
         gridDelegate: widget.gridDelegate!,
       ),
       VirtualizedCollectionLayout.masonry => SliverMasonryGrid(
+        key: _masonryKey,
         delegate: delegate,
         gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: widget.masonryCrossAxisCount!,

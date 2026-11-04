@@ -88,7 +88,7 @@ class MissavClient extends ChangeNotifier {
   Uri Function(Uri)? _mediaRoute;
   int _sessionGeneration = 0;
   CancelToken _sessionCancelToken = CancelToken();
-  final Set<VoidCallback> _cancelBrowseRequests = {};
+  final List<CancelToken> _browseCancelTokens = [];
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
   Completer<void>? _sessionRestoration;
@@ -242,13 +242,7 @@ class MissavClient extends ChangeNotifier {
     if (cancelToken?.cancelError case final error?) throw error;
     await _prepareOnlineAccess();
     final requestCancelToken = cancelToken ?? CancelToken();
-    void cancelRequest() {
-      if (!requestCancelToken.isCancelled) {
-        requestCancelToken.cancel('MissAV account changed.');
-      }
-    }
-
-    _cancelBrowseRequests.add(cancelRequest);
+    _browseCancelTokens.add(requestCancelToken);
     try {
       if (requestCancelToken.cancelError case final error?) throw error;
       return await _browse(
@@ -257,7 +251,49 @@ class MissavClient extends ChangeNotifier {
         onParsed: onParsed,
       );
     } finally {
-      _cancelBrowseRequests.remove(cancelRequest);
+      _browseCancelTokens.remove(requestCancelToken);
+    }
+  }
+
+  Future<String?> loadPlaylistCover(
+    String url, {
+    CancelToken? cancelToken,
+  }) async {
+    if (cancelToken?.cancelError case final error?) throw error;
+    await _prepareOnlineAccess();
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final playlistUri = _localizedSourceUri(url).removeFragment();
+    final queryParameters = <String, dynamic>{
+      for (final entry in playlistUri.queryParametersAll.entries)
+        if (entry.key != 'page')
+          entry.key: entry.value.length == 1 ? entry.value.single : entry.value,
+    };
+    final uri = queryParameters.isEmpty
+        ? Uri.parse(playlistUri.toString().split('?').first)
+        : playlistUri.replace(queryParameters: queryParameters);
+    final requestCancelToken = cancelToken ?? CancelToken();
+    _browseCancelTokens.add(requestCancelToken);
+    try {
+      if (requestCancelToken.cancelError case final error?) throw error;
+      final document = await _loadDocument(
+        uri,
+        generation,
+        cancelToken: requestCancelToken,
+      );
+      if (requestCancelToken.cancelError case final error?) throw error;
+      _checkGeneration(generation, uri);
+      if (_locale != locale) {
+        throw MissavException(
+          'MissAV language changed during the request.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      final videos = _parseVideos(document, uri);
+      final cover = videos.isEmpty ? null : videos.first.cover;
+      return cover == null || cover.isEmpty ? null : cover;
+    } finally {
+      _browseCancelTokens.remove(requestCancelToken);
     }
   }
 
@@ -346,13 +382,7 @@ class MissavClient extends ChangeNotifier {
     final locale = _locale;
     final uri = _localizedSourceUri(homeUrl);
     final requestCancelToken = cancelToken ?? CancelToken();
-    void cancelRequest() {
-      if (!requestCancelToken.isCancelled) {
-        requestCancelToken.cancel('MissAV account changed.');
-      }
-    }
-
-    _cancelBrowseRequests.add(cancelRequest);
+    _browseCancelTokens.add(requestCancelToken);
     try {
       if (requestCancelToken.cancelError case final error?) throw error;
       if (cursor == null) {
@@ -452,7 +482,7 @@ class MissavClient extends ChangeNotifier {
         cause: error,
       );
     } finally {
-      _cancelBrowseRequests.remove(cancelRequest);
+      _browseCancelTokens.remove(requestCancelToken);
     }
   }
 
@@ -1446,8 +1476,10 @@ class MissavClient extends ChangeNotifier {
     _recommendationUserId = null;
     _recommendationScenario = null;
     _sessionCancelToken.cancel('MissAV account changed.');
-    for (final cancelRequest in _cancelBrowseRequests.toList()) {
-      cancelRequest();
+    for (final cancelToken in _browseCancelTokens.toList()) {
+      if (!cancelToken.isCancelled) {
+        cancelToken.cancel('MissAV account changed.');
+      }
     }
     _sessionCancelToken = CancelToken();
     return ++_sessionGeneration;
@@ -2170,7 +2202,7 @@ class MissavClient extends ChangeNotifier {
       }
       if (_excludeDirectoryAnchor(anchor, uri)) continue;
       if (videoUrls.contains(uri.toString())) continue;
-      final image = anchor.querySelector('img[alt]');
+      final image = anchor.querySelector('img');
       final label = anchor.text.trim().isNotEmpty
           ? anchor.text.trim()
           : image?.attributes['alt']?.trim() ?? '';

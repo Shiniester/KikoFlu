@@ -22,6 +22,12 @@ class PlaybackSessionSnapshot {
   final String ownerKey;
   final String? markingQueueId;
 
+  bool isSameQueue(PlaybackSessionSnapshot other) =>
+      ownerKey == other.ownerKey &&
+      (markingQueueId != null && other.markingQueueId != null
+          ? markingQueueId == other.markingQueueId
+          : identical(this, other));
+
   Map<String, dynamic> toJson() => {
     'version': version,
     'queue': queue.map((track) => track.toJson()).toList(),
@@ -77,6 +83,12 @@ abstract interface class PlaybackSessionStore {
   Future<void> savePosition(Duration position);
 
   Future<void> clear();
+}
+
+abstract interface class PlaybackQueueHistoryStore {
+  Future<List<PlaybackSessionSnapshot>> load();
+
+  Future<void> save(List<PlaybackSessionSnapshot> queues);
 }
 
 /// Runs restoration as a failure-safe transaction.
@@ -154,5 +166,56 @@ class SharedPreferencesPlaybackSessionStore implements PlaybackSessionStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(storageKey);
     await prefs.remove(positionKey);
+  }
+}
+
+class SharedPreferencesPlaybackQueueHistoryStore
+    implements PlaybackQueueHistoryStore {
+  const SharedPreferencesPlaybackQueueHistoryStore();
+
+  static const String storageKey = 'playback_queue_history_v1';
+
+  @override
+  Future<List<PlaybackSessionSnapshot>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getString(storageKey);
+    if (encoded == null || encoded.isEmpty) return const [];
+
+    try {
+      final json = jsonDecode(encoded);
+      if (json is! List) throw const FormatException('Invalid queue history');
+      final snapshots = <PlaybackSessionSnapshot>[];
+      for (final item in json) {
+        if (item is! Map) continue;
+        try {
+          snapshots.add(
+            PlaybackSessionSnapshot.fromJson(Map<String, dynamic>.from(item)),
+          );
+        } catch (error) {
+          LogService.instance.captureOutput(
+            '[AudioSession] Ignoring invalid historical queue: $error',
+          );
+        }
+      }
+      return snapshots;
+    } catch (error) {
+      LogService.instance.captureOutput(
+        '[AudioSession] Ignoring invalid saved queue history: $error',
+      );
+      await prefs.remove(storageKey);
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> save(List<PlaybackSessionSnapshot> queues) async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = await prefs.setString(
+      storageKey,
+      jsonEncode(queues.map((snapshot) => snapshot.toJson()).toList()),
+    );
+    if (!saved) {
+      throw StateError('Failed to save playback queue history');
+    }
   }
 }

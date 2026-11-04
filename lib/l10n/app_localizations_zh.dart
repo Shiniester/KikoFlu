@@ -9,7 +9,7 @@ class SZh extends S {
   SZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get appTitle => 'KikoFlu';
+  String get appTitle => 'Iroru';
 
   @override
   String get navHome => '主页';
@@ -786,10 +786,21 @@ class SZh extends S {
   String get playlistTitle => '播放队列';
 
   @override
+  String get playbackQueueHistory => '历史播放队列';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return '第 $current/$total 页';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => '清空播放队列？';
 
   @override
   String get clearPlaybackQueueMessage => '这将停止播放并移除队列中的全部歌曲。';
+
+  @override
+  String get clearHistoricalPlaybackQueueMessage => '清除此历史播放队列？';
 
   @override
   String get noAudioPlaying => '没有正在播放的音频';
@@ -4858,7 +4869,7 @@ class SZhHant extends SZh {
   SZhHant() : super('zh_Hant');
 
   @override
-  String get appTitle => 'KikoFlu';
+  String get appTitle => 'Iroru';
 
   @override
   String get navHome => '首頁';
@@ -5635,10 +5646,21 @@ class SZhHant extends SZh {
   String get playlistTitle => '播放佇列';
 
   @override
+  String get playbackQueueHistory => '歷史播放佇列';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return '第 $current/$total 頁';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => '清空播放清單？';
 
   @override
   String get clearPlaybackQueueMessage => '這將停止播放並移除清單中的全部歌曲。';
+
+  @override
+  String get clearHistoricalPlaybackQueueMessage => '清除此歷史播放佇列？';
 
   @override
   String get noAudioPlaying => '沒有正在播放的音訊';

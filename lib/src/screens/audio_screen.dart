@@ -36,6 +36,8 @@ import '../widgets/library_page_scaffold.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/tab_page_motion.dart';
 import '../widgets/virtualized_sliver_collection.dart';
+import '../widgets/player/player_route.dart';
+import '../widgets/player/player_vertical_gestures.dart';
 import '../widgets/works_grid_view.dart';
 import 'downloads_screen.dart';
 import 'blocked_items_screen.dart';
@@ -46,7 +48,6 @@ import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'subtitle_library_screen.dart';
 import 'works_screen.dart';
-export '../providers/my_reviews_provider.dart' show MyReviewLayoutType;
 
 class AudioScreen extends ConsumerStatefulWidget {
   const AudioScreen({super.key});
@@ -403,17 +404,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     LayoutType.list => Icons.view_list,
   };
 
-  Widget _layoutTile({
-    required String title,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) => LibraryDrawerTile(
-    icon: icon,
-    title: title,
-    closeOnTap: false,
-    onTap: onTap,
-  );
-
   List<Widget> _buildDrawerChildren({
     required MyTabsDisplaySettings settings,
     required AudioSource source,
@@ -498,11 +488,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       case 'recommended':
         final worksState = ref.watch(worksProvider);
         options.addAll([
-          _layoutTile(
-            title: s.layout,
-            icon: _layoutIcon(worksState.layoutType),
-            onTap: () => ref.read(worksProvider.notifier).toggleLayoutType(),
-          ),
           if (source != AudioSource.jpAsmr)
             LibraryDrawerTile(
               icon:
@@ -580,16 +565,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               onTap: () =>
                   ref.read(myReviewsProvider.notifier).changeFilter(filter),
             ),
-          _layoutTile(
-            title: s.layout,
-            icon: switch (marksState.layoutType) {
-              MyReviewLayoutType.bigGrid => Icons.grid_view,
-              MyReviewLayoutType.smallGrid => Icons.grid_on,
-              MyReviewLayoutType.list => Icons.view_list,
-            },
-            onTap: () =>
-                ref.read(myReviewsProvider.notifier).toggleLayoutType(),
-          ),
           LibraryDrawerTile(
             icon:
                 SubtitleFilterMode.fromValue(marksState.subtitleFilter).isActive
@@ -612,18 +587,15 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         break;
       case 'history':
         options.add(
-          _layoutTile(
-            title: s.layout,
-            icon: _layoutIcon(
-              ref.watch(collectionLayoutProvider(CollectionLayoutKey.history)),
+          LibraryDrawerTile(
+            key: const ValueKey('audio-queue-history-entry'),
+            icon: Icons.queue_music,
+            title: s.playbackQueueHistory,
+            onTap: () => openAudioPlayer<void>(
+              context,
+              initialSurface: PlayerInitialSurface.queue,
+              initialQueueHistory: true,
             ),
-            onTap: () => ref
-                .read(
-                  collectionLayoutProvider(
-                    CollectionLayoutKey.history,
-                  ).notifier,
-                )
-                .cycle(),
           ),
         );
         if (ref.watch(historyProvider).records.isNotEmpty) {
@@ -638,21 +610,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         break;
       case 'playlists':
         options.addAll([
-          _layoutTile(
-            title: s.layout,
-            icon: _layoutIcon(
-              ref.watch(
-                collectionLayoutProvider(CollectionLayoutKey.playlists),
-              ),
-            ),
-            onTap: () => ref
-                .read(
-                  collectionLayoutProvider(
-                    CollectionLayoutKey.playlists,
-                  ).notifier,
-                )
-                .cycle(),
-          ),
           LibraryDrawerTile(
             icon: Icons.add,
             title: s.createPlaylist,
@@ -674,6 +631,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final s = S.of(context);
     final autoTranslate = ref.watch(autoTranslateWorkDetailsProvider);
     return [
+      LibraryDrawerTile(
+        title: s.layout,
+        icon: _layoutIcon(ref.watch(audioLayoutProvider)),
+        closeOnTap: false,
+        onTap: () => ref.read(audioLayoutProvider.notifier).cycle(),
+      ),
       LibraryDrawerTile(
         icon: Icons.block,
         title: s.block,
@@ -731,17 +694,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       ]);
     }
     options.addAll([
-      _layoutTile(
-        title: S.of(context).layout,
-        icon: _layoutIcon(
-          ref.watch(collectionLayoutProvider(CollectionLayoutKey.downloads)),
-        ),
-        onTap: () => ref
-            .read(
-              collectionLayoutProvider(CollectionLayoutKey.downloads).notifier,
-            )
-            .cycle(),
-      ),
       LibraryDrawerTile(
         icon: Icons.sort,
         title: S.of(context).sortOptions,
@@ -1071,11 +1023,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    final layoutType = switch (state.layoutType) {
-      MyReviewLayoutType.bigGrid => LayoutType.bigGrid,
-      MyReviewLayoutType.smallGrid => LayoutType.smallGrid,
-      MyReviewLayoutType.list => LayoutType.list,
-    };
+    final layoutType = ref.watch(audioLayoutProvider);
 
     return WorksGridView(
       works: state.works,
@@ -1092,7 +1040,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       onRefresh: () => ref.read(myReviewsProvider.notifier).refresh(),
       pagination: VirtualizedPagination(
         currentPage: state.currentPage,
-        pageSize: state.layoutType == MyReviewLayoutType.list
+        pageSize: layoutType == LayoutType.list
             ? state.pageSize
             : state.effectivePageSize,
         totalCount: state.totalCount,

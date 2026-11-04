@@ -104,9 +104,9 @@ class _AppBootstrapGateState extends State<AppBootstrapGate> {
                     Text(
                       failed
                           ? (isChinese
-                                ? 'KikoFlu 启动失败'
-                                : 'KikoFlu failed to start')
-                          : (isChinese ? '正在启动 KikoFlu…' : 'Starting KikoFlu…'),
+                                ? 'Iroru 启动失败'
+                                : 'Iroru failed to start')
+                          : (isChinese ? '正在启动 Iroru…' : 'Starting Iroru…'),
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),

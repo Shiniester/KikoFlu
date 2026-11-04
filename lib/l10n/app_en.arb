@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appTitle": "KikoFlu",
+  "appTitle": "Iroru",
 
   "navHome": "Home",
   "navSearch": "Search",
@@ -391,8 +391,21 @@
   },
 
   "playlistTitle": "Playback Queue",
+  "playbackQueueHistory": "Playback queue history",
+  "queueBrowserPagePosition": "Page {current} of {total}",
+  "@queueBrowserPagePosition": {
+    "description": "Indicates the current page in the playback queue browser.",
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
   "clearPlaybackQueueTitle": "Clear playback queue?",
   "clearPlaybackQueueMessage": "This will stop playback and remove every item from the queue.",
+  "clearHistoricalPlaybackQueueMessage": "Clear this historical playback queue?",
+  "@clearHistoricalPlaybackQueueMessage": {
+    "description": "Confirmation before deleting the historical playback queue being viewed."
+  },
   "noAudioPlaying": "No audio playing",
   "playbackSpeed": "Playback Speed",
   "backward10s": "Backward 10s",

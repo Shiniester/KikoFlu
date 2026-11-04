@@ -132,8 +132,8 @@ jobs:
                   'applicationId = "com.meteor.kikoeruflutter.beta"',
               ),
               Path('android/app/src/main/AndroidManifest.xml'): (
-                  'android:label="KikoFlu"',
-                  'android:label="KikoFlu Beta"',
+                  'android:label="Iroru"',
+                  'android:label="Iroru Beta"',
               ),
           }
           for path, (old, new) in replacements.items():
@@ -195,10 +195,10 @@ jobs:
           mkdir -p dist
           flutter build apk --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/KikoFlu-android-universe_${VERSION}.apk"
+            "dist/Iroru-android-universe_${VERSION}.apk"
           flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            "dist/KikoFlu-android-arm64-v8a_${VERSION}.apk"
+            "dist/Iroru-android-arm64-v8a_${VERSION}.apk"
 
       - name: Verify Beta Packages
         env:
@@ -260,18 +260,18 @@ jobs:
         run: |
           set -euo pipefail
           assets=(
-            "release-assets/KikoFlu-android-universe_${VERSION}.apk"
-            "release-assets/KikoFlu-android-arm64-v8a_${VERSION}.apk"
+            "release-assets/Iroru-android-universe_${VERSION}.apk"
+            "release-assets/Iroru-android-arm64-v8a_${VERSION}.apk"
           )
           for asset in "${assets[@]}"; do
             test -s "$asset"
           done
           printf '%s\n\nBranch: %s\nWorkflow event SHA (github.sha): %s\nSelected release commit: %s\n\n%s\n' \
-            'Android Beta: installs alongside KikoFlu as KikoFlu Beta with separate app data.' \
+            'Android Beta: installs alongside Iroru as Iroru Beta with separate app data.' \
             "$GITHUB_REF_NAME" "$GITHUB_SHA" "$RELEASE_COMMIT" \
             "$RELEASE_NOTES" > "$RUNNER_TEMP/beta-release-notes.md"
           gh release create "$TAG" --target "$RELEASE_COMMIT" \
-            --title "KikoFlu $TAG" --notes-file "$RUNNER_TEMP/beta-release-notes.md" \
+            --title "Iroru $TAG" --notes-file "$RUNNER_TEMP/beta-release-notes.md" \
             --draft --prerelease --latest=false
           for asset in "${assets[@]}"; do
             for attempt in 1 2 3; do

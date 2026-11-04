@@ -1248,7 +1248,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: SafeArea(top: false, left: false, right: false, child: _buildBody()),
     );
   }
 

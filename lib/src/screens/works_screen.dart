@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/works_provider.dart';
+import '../providers/collection_layout_provider.dart';
 import '../models/audio_source.dart';
 import '../providers/audio_source_provider.dart';
 import '../utils/scroll_optimization.dart';
@@ -118,6 +119,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       setState(() => _displayGeneration++);
     });
     final worksState = ref.watch(worksProvider);
+    final layoutType = ref.watch(audioLayoutProvider);
     final audioSource = ref.watch(audioSourceProvider);
     final isRecommendMode =
         worksState.displayMode == DisplayMode.popular ||
@@ -137,6 +139,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       toolActions: _buildToolActions(
         context,
         worksState,
+        layoutType,
         isJapaneseAsmr: audioSource == AudioSource.jpAsmr,
         isRecommendMode: isRecommendMode,
       ),
@@ -172,7 +175,14 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
                     horizontalPadding,
                   ),
                   generation: displayGeneration,
-                  builder: _buildLayoutView,
+                  builder: (state, padding, controller, generation) =>
+                      _buildLayoutView(
+                        state,
+                        padding,
+                        controller,
+                        generation,
+                        layoutType,
+                      ),
                 ),
               ),
             ),
@@ -236,7 +246,8 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
   List<FloatingFeedToolAction> _buildToolActions(
     BuildContext context,
-    WorksState worksState, {
+    WorksState worksState,
+    LayoutType layoutType, {
     required bool isJapaneseAsmr,
     required bool isRecommendMode,
   }) {
@@ -248,13 +259,13 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
           onPressed: widget.onSearchOnline,
         ),
       FloatingFeedToolAction(
-        icon: switch (worksState.layoutType) {
+        icon: switch (layoutType) {
           LayoutType.bigGrid => Icons.grid_view,
           LayoutType.smallGrid => Icons.grid_on,
           LayoutType.list => Icons.view_list,
         },
         tooltip: S.of(context).layout,
-        onPressed: () => ref.read(worksProvider.notifier).toggleLayoutType(),
+        onPressed: () => ref.read(audioLayoutProvider.notifier).cycle(),
       ),
       if (!isJapaneseAsmr)
         FloatingFeedToolAction(
@@ -282,6 +293,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     EdgeInsetsGeometry padding,
     ScrollController scrollController,
     int generation,
+    LayoutType layoutType,
   ) {
     final notifier = ref.read(worksProvider.notifier);
     bool isActive() =>
@@ -313,7 +325,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
     return WorksGridView(
       works: worksState.works,
-      layoutType: worksState.layoutType,
+      layoutType: layoutType,
       scrollController: scrollController,
       padding: padding,
       physics: ScrollOptimization.physics,

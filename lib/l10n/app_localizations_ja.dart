@@ -9,7 +9,7 @@ class SJa extends S {
   SJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get appTitle => 'KikoFlu';
+  String get appTitle => 'Iroru';
 
   @override
   String get navHome => 'ホーム';
@@ -787,10 +787,21 @@ class SJa extends S {
   String get playlistTitle => '再生キュー';
 
   @override
+  String get playbackQueueHistory => '再生キューの履歴';
+
+  @override
+  String queueBrowserPagePosition(int current, int total) {
+    return '$current/$total ページ';
+  }
+
+  @override
   String get clearPlaybackQueueTitle => '再生キューをクリアしますか？';
 
   @override
   String get clearPlaybackQueueMessage => '再生を停止し、キュー内のすべての項目を削除します。';
+
+  @override
+  String get clearHistoricalPlaybackQueueMessage => 'この履歴の再生キューを消去しますか？';
 
   @override
   String get noAudioPlaying => '再生中のオーディオはありません';

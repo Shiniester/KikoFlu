@@ -12,10 +12,11 @@ import '../models/work.dart';
 import '../services/audio_player_service.dart';
 import '../services/log_service.dart';
 import '../services/playback_history_service.dart';
+import '../services/playback_session_store.dart';
 import 'settings_provider.dart';
 import 'automatic_work_marking_provider.dart';
 import 'history_provider.dart';
-import 'auth_provider.dart' show kikoeruApiServiceProvider;
+import 'auth_provider.dart' show authProvider, kikoeruApiServiceProvider;
 
 final _log = LogService.instance;
 
@@ -70,6 +71,48 @@ final queueProvider = StreamProvider<List<AudioTrack>>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return _withInitialValue(service.queue, service.queueStream);
 });
+
+final historicalQueuesProvider = StreamProvider<List<PlaybackSessionSnapshot>>((
+  ref,
+) {
+  final (host, userName) = ref.watch(
+    authProvider.select((auth) => (auth.host, auth.currentUser?.name)),
+  );
+  final service = ref.watch(audioPlayerServiceProvider);
+  final ownerKey = AudioPlayerService.playbackQueueOwnerKey(
+    host: host,
+    userName: userName,
+  );
+  return _historicalQueuesForOwnerWithInitialValue(service, ownerKey);
+});
+
+Stream<List<PlaybackSessionSnapshot>> _historicalQueuesForOwnerWithInitialValue(
+  AudioPlayerService service,
+  String? ownerKey,
+) {
+  StreamSubscription<List<PlaybackSessionSnapshot>>? subscription;
+  late StreamController<List<PlaybackSessionSnapshot>> controller;
+
+  controller = StreamController<List<PlaybackSessionSnapshot>>(
+    onListen: () {
+      subscription = service
+          .historicalQueuesForOwnerStream(ownerKey)
+          .listen(
+            controller.add,
+            onError: (Object error, StackTrace stackTrace) {
+              controller.addError(error, stackTrace);
+            },
+            onDone: controller.close,
+          );
+      controller.add(service.historicalQueuesForOwner(ownerKey));
+    },
+    onCancel: () async {
+      await subscription?.cancel();
+      subscription = null;
+    },
+  );
+  return controller.stream;
+}
 
 final manualSkipAvailabilityProvider = StreamProvider<ManualSkipAvailability>((
   ref,
@@ -364,6 +407,24 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       _ref.read(historyProvider.notifier).addOrUpdate(work);
     }
   }
+
+  Future<bool> restoreHistoricalQueue(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) async {
+    await _pendingDismissal;
+    final restored = await _service.restoreHistoricalQueue(snapshot, index);
+    if (restored) _ref.read(miniPlayerVisibilityProvider.notifier).show();
+    return restored;
+  }
+
+  Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) =>
+      _service.clearHistoricalQueue(snapshot);
+
+  Future<bool> removeHistoricalTrackAt(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) => _service.removeHistoricalTrackAt(snapshot, index);
 
   Future<void> _executeAudioAddMode(
     List<AudioTrack> tracks, {

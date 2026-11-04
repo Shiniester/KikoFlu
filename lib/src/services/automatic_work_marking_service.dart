@@ -3,6 +3,8 @@ import 'dart:async';
 import '../models/audio_track.dart';
 import '../models/automatic_marking_event.dart';
 
+const int _maxSavedQueueCompletions = 20;
+
 /// Account-local completion history and serialized online review mutations.
 class AutomaticWorkMarkingService {
   AutomaticWorkMarkingService({
@@ -156,6 +158,15 @@ class AutomaticWorkMarkingService {
     return _save();
   }
 
+  void _archiveQueueDone(Map<String, dynamic> data, String queueId) {
+    final queueDone = _map(data, 'queueDone');
+    queueDone.remove(queueId);
+    queueDone[queueId] = List<dynamic>.of(_list(data, 'done'));
+    while (queueDone.length > _maxSavedQueueCompletions) {
+      queueDone.remove(queueDone.keys.first);
+    }
+  }
+
   /// Manual edits win over queued/in-flight automation, including deletion.
   Future<void> manualUpdate(
     int id,
@@ -202,9 +213,24 @@ class AutomaticWorkMarkingService {
     final generation = _generation;
     final data = _data(owner);
     if (data['queueId'] != event.queueId) {
+      final savedDone = event.type == AutomaticMarkingEventType.restore
+          ? (data['queueDone'] as Map?)?.remove(event.queueId)
+          : null;
+      final previousQueueId = data['queueId'];
+      if (previousQueueId is String) {
+        _archiveQueueDone(data, previousQueueId);
+      }
       data['queueId'] = event.queueId;
       _list(data, 'done').clear();
+      if (savedDone is List) _list(data, 'done').addAll(savedDone);
       _map(data, 'direct').clear();
+    }
+    if (event.type == AutomaticMarkingEventType.replace) {
+      _map(data, 'direct').clear();
+      if (event.tracks.isNotEmpty) {
+        _list(data, 'done').clear();
+        (data['queueDone'] as Map?)?.remove(event.queueId);
+      }
     }
     if (!enabled) return _save();
     final actions = <(int, _MarkAction)>[];

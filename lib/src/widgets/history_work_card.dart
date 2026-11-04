@@ -5,6 +5,7 @@ import '../models/download_task.dart';
 import '../providers/auth_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/history_provider.dart';
+import '../services/history_database.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/cache_service.dart';
@@ -348,7 +349,23 @@ class HistoryWorkCard extends ConsumerWidget {
 
   Future<void> _resumePlayback(BuildContext context, WidgetRef ref) async {
     final l10n = S.of(context);
-    final work = record.work;
+    HistoryRecord? latestRecord;
+    try {
+      latestRecord = await HistoryDatabase.instance.getHistoryByWorkId(
+        record.work.id,
+      );
+    } catch (e) {
+      _log.captureOutput('Failed to load latest history: $e');
+      if (context.mounted) {
+        SnackBarUtil.showError(context, l10n.playbackFailed(e.toString()));
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    if (latestRecord == null || latestRecord.lastTrack == null) return;
+
+    final historyRecord = latestRecord;
+    final work = historyRecord.work;
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
@@ -394,25 +411,23 @@ class HistoryWorkCard extends ConsumerWidget {
 
     if (allFiles.isEmpty) {
       // Fallback to single track if list fetch fails
-      if (record.lastTrack != null) {
-        try {
-          await AudioPlayerService.instance.updateQueue(
-            [record.lastTrack!],
-            autoplay: true,
-            initialPosition: Duration(milliseconds: record.lastPositionMs),
-          );
-          if (AudioPlayerService.instance.isTrackLoading ||
-              AudioPlayerService.instance.currentTrack?.id !=
-                  record.lastTrack!.id) {
-            return;
-          }
-          ref.read(miniPlayerVisibilityProvider.notifier).show();
-          ref.read(historyProvider.notifier).addOrUpdate(work);
-        } catch (e) {
-          _log.captureOutput('Failed to resume playback: $e');
-          if (context.mounted) {
-            SnackBarUtil.showError(context, l10n.playbackFailed(e.toString()));
-          }
+      try {
+        await AudioPlayerService.instance.updateQueue(
+          [historyRecord.lastTrack!],
+          autoplay: true,
+          initialPosition: Duration(milliseconds: historyRecord.lastPositionMs),
+        );
+        if (AudioPlayerService.instance.isTrackLoading ||
+            AudioPlayerService.instance.currentTrack?.id !=
+                historyRecord.lastTrack!.id) {
+          return;
+        }
+        ref.read(miniPlayerVisibilityProvider.notifier).show();
+        ref.read(historyProvider.notifier).addOrUpdate(work);
+      } catch (e) {
+        _log.captureOutput('Failed to resume playback: $e');
+        if (context.mounted) {
+          SnackBarUtil.showError(context, l10n.playbackFailed(e.toString()));
         }
       }
       return;
@@ -426,12 +441,12 @@ class HistoryWorkCard extends ConsumerWidget {
         final fileHash = file['hash'];
         final fileName = file['title'] ?? file['name'];
 
-        if (record.lastTrack!.hash != null &&
-            fileHash == record.lastTrack!.hash) {
+        if (historyRecord.lastTrack!.hash != null &&
+            fileHash == historyRecord.lastTrack!.hash) {
           return true;
         }
         // Fallback to title match if hash is missing
-        return fileName == record.lastTrack!.title;
+        return fileName == historyRecord.lastTrack!.title;
       }
 
       // Helper to extract audio files from a list
@@ -513,7 +528,8 @@ class HistoryWorkCard extends ConsumerWidget {
     final queue = await const AudioTrackQueueBuilder().build(
       audioFiles: audioFiles,
       selectedFile:
-          record.lastTrack ?? (audioFiles.isNotEmpty ? audioFiles.first : null),
+          historyRecord.lastTrack ??
+          (audioFiles.isNotEmpty ? audioFiles.first : null),
       resolveUrl: (file) => audioUrlResolver.resolveOnline(
         file: file,
         workId: work.id,
@@ -532,8 +548,8 @@ class HistoryWorkCard extends ConsumerWidget {
     var tracks = queue.tracks;
     var index = queue.startIndex;
 
-    if (tracks.isEmpty && record.lastTrack != null) {
-      tracks = [record.lastTrack!];
+    if (tracks.isEmpty && historyRecord.lastTrack != null) {
+      tracks = [historyRecord.lastTrack!];
       index = 0;
     }
 
@@ -544,7 +560,7 @@ class HistoryWorkCard extends ConsumerWidget {
           tracks,
           startIndex: index,
           autoplay: true,
-          initialPosition: Duration(milliseconds: record.lastPositionMs),
+          initialPosition: Duration(milliseconds: historyRecord.lastPositionMs),
         );
         if (AudioPlayerService.instance.isTrackLoading ||
             AudioPlayerService.instance.currentTrack?.id != tracks[index].id) {

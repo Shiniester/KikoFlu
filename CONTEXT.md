@@ -1,6 +1,6 @@
-# KikoFlu
+# Iroru
 
-KikoFlu combines audio playback, comic reading, and video playback. Audio uses a
+Iroru combines audio playback, comic reading, and video playback. Audio uses a
 persistent compact surface and a full-screen player; comics use source-backed
 libraries and a full-screen reader with shared playback access. Video uses a
 separate inline player with full-screen playback and local downloads.
@@ -22,7 +22,8 @@ The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
 
 **Video Collection Layout (视频集合布局)**:
-The presentation of video cards as a big grid, small grid, or list.
+The presentation of video cards and Video Playlist cards as a big grid, small
+grid, or list.
 _Avoid_: Video playback mode
 
 **Four-line Card Title Height (作品卡片四行标题高度)**:
@@ -119,6 +120,13 @@ _Avoid_: System safe area, page margin
 A video saved in a Video Source Account's collection, belonging to that account.
 _Avoid_: Local Favorite, comic Source Favorite
 
+**Video Playlist (视频播放列表)**:
+A collection of videos stored by a Video Source for a Video Source Account.
+_Avoid_: Playback queue
+
+**Video Playlist Cover (视频播放列表封面)**:
+The cover of the first video in a Video Playlist, in Video Source order.
+
 **Video Watch History (视频观看历史)**:
 A Video Source Account's list of watched videos.
 _Avoid_: Video Resume Position, audio playback history
@@ -142,6 +150,17 @@ the menu button, current page name, and an entry to the scoped search screen.
 The sidebar shows the current page's options beneath its page entry, with shared
 browsing options in a separate group; swiping right across the main content opens it.
 _Avoid_: Home page, My page
+
+**Audio Collection Layout (音声集合布局)**:
+The shared presentation of audio work and playlist cards on the Audio Screen and
+in audio search results: big grid, small grid, or list. It excludes the subtitle
+library's hierarchical file list.
+_Avoid_: Audio player layout
+
+**Audio History Visit (音声历史浏览)**:
+A visit to audio history that ends when switching to another Audio Screen page or
+another App Tab Bar entry. Pagination, a Work Details Screen, Scoped Search
+opened from history, and backgrounding the app do not end the visit.
 
 **Audio Source (音声源)**:
 A provider of audio works for independent browsing, search and playback, such as
@@ -364,9 +383,20 @@ controls.
 _Avoid_: Player home page, main page
 
 **Player Queue Page (播放器队列页)**:
-The full-screen player page containing the current playback queue. It is
-distinct from the app-level playlist and playlist details screens.
+The full-screen player page for browsing the current playback queue and
+Historical Playback Queues. It is distinct from the app-level playlist and
+playlist details screens.
 _Avoid_: Player playlist page, playlist screen
+
+**Historical Playback Queue (历史播放队列)**:
+A previously used audio playback queue retained for later browsing. It is
+distinct from per-work playback history and account playlists.
+_Avoid_: Playback history, account playlist
+
+**Queue Ordinal (队列序号)**:
+The position assigned to a playback queue during one visit to the Player Queue
+Page. It is distinct from a track's position within a queue.
+_Avoid_: Track position, track index
 
 **Audio Add Mode (音频添加模式)**:
 The global preference that determines how selecting an audio item changes the
@@ -620,16 +650,16 @@ Source independently determines whether anonymous access is permitted.
 _Avoid_: guest demo account, offline account
 
 **Update Channel (更新渠道)**:
-The release family selected for KikoFlu update checks: Stable Release or Beta
+The release family selected for Iroru update checks: Stable Release or Beta
 Release.
 
 **Stable Release (正式版)**:
-A published KikoFlu version intended for regular use.
+A published Iroru version intended for regular use.
 
 **Beta Release (测试版)**:
-A published KikoFlu version intended for testing changes before a Stable Release.
+A published Iroru version intended for testing changes before a Stable Release.
 _Avoid_: Development build, nightly build
 
-**KikoFlu Beta**:
-The Android testing edition of KikoFlu. It is installed alongside the stable app
+**Iroru Beta**:
+The Android testing edition of Iroru. It is installed alongside the stable app
 and keeps separate app data.

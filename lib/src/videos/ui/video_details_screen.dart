@@ -36,6 +36,7 @@ class VideoDetailsScreen extends ConsumerStatefulWidget {
     this.sessionFactory,
     this.platformFactory,
     this.autoPlayVideo = false,
+    this.searchCollectionKey,
   });
 
   final VideoItem video;
@@ -43,6 +44,7 @@ class VideoDetailsScreen extends ConsumerStatefulWidget {
   final VideoPlaybackSessionFactory? sessionFactory;
   final VideoPlayerPlatform Function()? platformFactory;
   final bool autoPlayVideo;
+  final String? searchCollectionKey;
 
   @override
   ConsumerState<VideoDetailsScreen> createState() => _VideoDetailsScreenState();
@@ -694,7 +696,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _openCatalog(VideoLink link) => pushBottomDockRoute(
     context,
-    builder: (_) => VideoScreen.catalog(url: link.url),
+    builder: (searchContext) => VideoScreen.searchScreen(
+      searchContext,
+      client: _client,
+      collectionKey: widget.searchCollectionKey,
+      initialFilters: [link],
+    ),
   );
 
   Future<void> _openRelated(VideoItem video, {bool autoPlay = false}) {
@@ -703,6 +710,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       sessionFactory: widget.sessionFactory,
       platformFactory: widget.platformFactory,
       autoPlayVideo: autoPlay,
+      searchCollectionKey: widget.searchCollectionKey,
     );
     if (autoPlay) {
       return replaceWorkDetailRoute(context, builder: builder);

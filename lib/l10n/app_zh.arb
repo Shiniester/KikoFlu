@@ -1,7 +1,7 @@
 {
   "@@locale": "zh",
 
-  "appTitle": "KikoFlu",
+  "appTitle": "Iroru",
 
   "navHome": "主页",
   "navSearch": "搜索",
@@ -276,8 +276,11 @@
   "loadFileListFailed": "加载文件列表失败: {error}",
 
   "playlistTitle": "播放队列",
+  "playbackQueueHistory": "历史播放队列",
+  "queueBrowserPagePosition": "第 {current}/{total} 页",
   "clearPlaybackQueueTitle": "清空播放队列？",
   "clearPlaybackQueueMessage": "这将停止播放并移除队列中的全部歌曲。",
+  "clearHistoricalPlaybackQueueMessage": "清除此历史播放队列？",
   "noAudioPlaying": "没有正在播放的音频",
   "playbackSpeed": "播放速度",
   "backward10s": "后退10秒",

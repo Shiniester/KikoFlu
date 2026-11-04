@@ -669,6 +669,83 @@ void main() {
     },
   );
 
+  testWidgets('dragged tablet lyric preview leaves its bottom edge clear', (
+    tester,
+  ) async {
+    const pixelRatio = 2.5;
+    tester.view.devicePixelRatio = pixelRatio;
+    tester.view.physicalSize = const Size(2800, 2000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final previewLyrics = List.generate(
+      16,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM',
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 7)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: previewLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.light(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 350,
+                    child: ThreeLineLyricDisplay(
+                      lineCount: 5,
+                      onSeekRequested: (_) {},
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    final initialOffset = scrollable.position.pixels;
+    final gesture = await tester.startGesture(tester.getCenter(list));
+    await gesture.moveBy(const Offset(0, 25));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 10));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final maskBottom = tester
+        .getRect(find.byKey(const ValueKey('compact-lyric-edge-fade-mask')))
+        .bottom;
+    final listBottom = tester.getRect(list).bottom;
+    final physicalMaskBottom = maskBottom * pixelRatio;
+    expect(
+      physicalMaskBottom - physicalMaskBottom.floor(),
+      closeTo(0.5, 0.001),
+    );
+    expect((maskBottom - listBottom) * pixelRatio, closeTo(1, 0.001));
+    expect(scrollable.position.pixels, lessThan(initialOffset));
+    await gesture.up();
+  });
+
   testWidgets('compact lyric rows seek, fade edges, and resume following', (
     tester,
   ) async {

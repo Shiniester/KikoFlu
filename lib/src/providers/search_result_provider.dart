@@ -12,24 +12,23 @@ import '../providers/works_provider.dart';
 import '../models/sort_options.dart';
 import 'auth_provider.dart';
 import 'audio_source_provider.dart';
+import 'collection_layout_provider.dart';
 import 'settings_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
-import '../utils/persistent_enum_preference.dart';
 
 // Layout types for search results
 enum SearchLayoutType { list, smallGrid, bigGrid }
 
-// Extension to convert SearchLayoutType to LayoutType
-extension SearchLayoutTypeExtension on SearchLayoutType {
-  LayoutType toWorksLayoutType() {
+extension WorksLayoutTypeSearchResultExtension on LayoutType {
+  SearchLayoutType toSearchLayoutType() {
     switch (this) {
-      case SearchLayoutType.list:
-        return LayoutType.list;
-      case SearchLayoutType.smallGrid:
-        return LayoutType.smallGrid;
-      case SearchLayoutType.bigGrid:
-        return LayoutType.bigGrid;
+      case LayoutType.list:
+        return SearchLayoutType.list;
+      case LayoutType.smallGrid:
+        return SearchLayoutType.smallGrid;
+      case LayoutType.bigGrid:
+        return SearchLayoutType.bigGrid;
     }
   }
 }
@@ -145,26 +144,17 @@ class SearchResultState extends Equatable {
 
 // Search result notifier
 class SearchResultNotifier extends StateNotifier<SearchResultState> {
-  static const String layoutPreferenceKey = 'search_result_layout_type';
-
   final KikoeruApiService _apiService;
   final Ref _ref;
   final PagedRequestGate _requestGate = PagedRequestGate();
   int? _pendingPage;
-  final _layoutPreference = PersistentEnumPreference<SearchLayoutType>(
-    key: layoutPreferenceKey,
-    values: SearchLayoutType.values,
-    fallback: SearchLayoutType.bigGrid,
-  );
 
   SearchResultNotifier(
     this._apiService,
     this._ref, {
     int initialPageSize = 20,
     SearchResultState? initialState,
-  }) : super(initialState ?? SearchResultState(basePageSize: initialPageSize)) {
-    _loadLayoutPreference();
-  }
+  }) : super(initialState ?? SearchResultState(basePageSize: initialPageSize));
 
   int? cancelPendingPage() {
     final page = _pendingPage;
@@ -179,18 +169,6 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       loadMoreError: state.loadMoreError,
     );
     return page;
-  }
-
-  Future<void> _loadLayoutPreference() async {
-    final layoutType = await _layoutPreference.load();
-    if (!mounted || layoutType == null || layoutType == state.layoutType) {
-      return;
-    }
-    state = state.copyWith(
-      layoutType: layoutType,
-      error: state.error,
-      loadMoreError: state.loadMoreError,
-    );
   }
 
   Future<void> initializeSearch({
@@ -402,13 +380,17 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   }
 
   void toggleLayoutType() {
-    final nextLayout = switch (state.layoutType) {
-      SearchLayoutType.bigGrid => SearchLayoutType.smallGrid,
-      SearchLayoutType.smallGrid => SearchLayoutType.list,
-      SearchLayoutType.list => SearchLayoutType.bigGrid,
-    };
-    state = state.copyWith(layoutType: nextLayout);
-    unawaited(_layoutPreference.save(nextLayout));
+    _ref.read(audioLayoutProvider.notifier).cycle();
+  }
+
+  void syncLayoutType(LayoutType layoutType) {
+    final searchLayoutType = layoutType.toSearchLayoutType();
+    if (state.layoutType == searchLayoutType) return;
+    state = state.copyWith(
+      layoutType: searchLayoutType,
+      error: state.error,
+      loadMoreError: state.loadMoreError,
+    );
   }
 
   bool get isSubtitleFilterActive =>
@@ -497,6 +479,11 @@ final searchResultProvider =
         ref,
         initialPageSize: pageSize,
       );
+
+      notifier.syncLayoutType(ref.read(audioLayoutProvider));
+      ref.listen(audioLayoutProvider, (previous, next) {
+        if (previous != next) notifier.syncLayoutType(next);
+      });
 
       ref.listen(pageSizeProvider, (previous, next) {
         if (previous != next) {

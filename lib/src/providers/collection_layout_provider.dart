@@ -5,19 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../utils/persistent_enum_preference.dart';
 import 'works_provider.dart' show LayoutType;
 
-enum CollectionLayoutKey { history, playlists, downloads }
+final audioLayoutProvider =
+    StateNotifierProvider<AudioLayoutNotifier, LayoutType>(
+      (ref) => AudioLayoutNotifier(),
+    );
 
-final collectionLayoutProvider =
-    StateNotifierProvider.family<
-      CollectionLayoutNotifier,
-      LayoutType,
-      CollectionLayoutKey
-    >((ref, key) => CollectionLayoutNotifier(key));
-
-class CollectionLayoutNotifier extends StateNotifier<LayoutType> {
-  CollectionLayoutNotifier(CollectionLayoutKey key)
+class AudioLayoutNotifier extends StateNotifier<LayoutType> {
+  AudioLayoutNotifier()
     : _preference = PersistentEnumPreference<LayoutType>(
-        key: 'collection_${key.name}_layout_type',
+        key: preferenceKey,
         values: LayoutType.values,
         fallback: LayoutType.bigGrid,
       ),
@@ -25,6 +21,7 @@ class CollectionLayoutNotifier extends StateNotifier<LayoutType> {
     unawaited(_load());
   }
 
+  static const preferenceKey = 'audio_collection_layout_type';
   final PersistentEnumPreference<LayoutType> _preference;
 
   Future<void> _load() async {

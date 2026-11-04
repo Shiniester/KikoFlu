@@ -82,6 +82,38 @@ void main() {
       },
     ];
 
+    test('matches Iroru release assets on every supported platform', () {
+      final service = UpdateService();
+      final renamedAssets = [
+        for (final asset in assets)
+          {
+            ...asset,
+            'name': (asset['name']! as String).replaceFirst(
+              'KikoFlu-',
+              'Iroru-',
+            ),
+          },
+      ];
+      final cases = <(String, Abi?, String)>[
+        ('android', null, 'Iroru-android-arm64-v8a_4192.apk'),
+        ('windows', null, 'Iroru-windows-setup_4192.exe'),
+        ('macos', null, 'Iroru-macos_4192.dmg'),
+        ('linux', Abi.linuxX64, 'Iroru-linux-x64_4192.tar.gz'),
+        ('linux', Abi.linuxArm64, 'Iroru-linux-arm64_4192.tar.gz'),
+        ('ios', null, 'Iroru-ios-unsigned_4192.ipa'),
+      ];
+      for (final (platform, abi, expected) in cases) {
+        expect(
+          service.findPlatformAsset(
+            renamedAssets,
+            targetPlatform: platform,
+            targetAbi: abi,
+          )?['name'],
+          expected,
+        );
+      }
+    });
+
     test('matches Android arm64-v8a APK preferentially', () {
       final service = UpdateService();
       final matched = service.findPlatformAsset(

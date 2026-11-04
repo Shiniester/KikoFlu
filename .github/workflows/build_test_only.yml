@@ -99,9 +99,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           flutter build apk --release
-          mv build/app/outputs/flutter-apk/app-release.apk dist/KikoFlu-android-universe-test.apk
+          mv build/app/outputs/flutter-apk/app-release.apk dist/Iroru-android-universe-test.apk
           flutter build apk --release --split-per-abi
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/KikoFlu-android-arm64-v8a-test.apk
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Iroru-android-arm64-v8a-test.apk
 
       - name: Verify Android Package Compatibility
         env:
@@ -113,8 +113,8 @@ jobs:
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           aapt="$build_tools_dir/aapt"
           apksigner="$build_tools_dir/apksigner"
-          universal_apk="dist/KikoFlu-android-universe-test.apk"
-          arm64_apk="dist/KikoFlu-android-arm64-v8a-test.apk"
+          universal_apk="dist/Iroru-android-universe-test.apk"
+          arm64_apk="dist/Iroru-android-arm64-v8a-test.apk"
 
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
@@ -197,7 +197,7 @@ jobs:
           rm -rf build/Payload dist
           mkdir -p build/Payload dist
           cp -R build/ios/iphoneos/Runner.app build/Payload/
-          (cd build && zip -qr "$GITHUB_WORKSPACE/dist/KikoFlu-ios-unsigned-test.ipa" Payload)
+          (cd build && zip -qr "$GITHUB_WORKSPACE/dist/Iroru-ios-unsigned-test.ipa" Payload)
 
       - name: Upload iOS Artifact
         uses: actions/upload-artifact@v6
@@ -229,9 +229,9 @@ jobs:
           set -euo pipefail
           rm -rf build/dmg dist
           mkdir -p build/dmg dist
-          cp -R build/macos/Build/Products/Release/KikoFlu.app build/dmg/
-          hdiutil create -volname "KikoFlu" -srcfolder build/dmg \
-            -ov -format UDZO dist/KikoFlu-macos-test.dmg
+          cp -R build/macos/Build/Products/Release/Iroru.app build/dmg/
+          hdiutil create -volname "Iroru" -srcfolder build/dmg \
+            -ov -format UDZO dist/Iroru-macos-test.dmg
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v6
@@ -270,19 +270,19 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           iscc installer_script.iss
-          Copy-Item -Path 'Output/KikoFlu-windows-setup.exe' -Destination 'dist/KikoFlu-windows-setup-test.exe'
+          Copy-Item -Path 'Output/Iroru-windows-setup.exe' -Destination 'dist/Iroru-windows-setup-test.exe'
 
       - name: Create Windows Portable Archive
         uses: thedoctor0/zip-release@0.7.6
         with:
           type: 'zip'
-          filename: 'KikoFlu-windows.zip'
+          filename: 'Iroru-windows.zip'
           directory: 'build/windows/x64/runner/Release'
 
       - name: Rename Windows Portable Archive
         shell: pwsh
         run: |
-          Move-Item -Path 'build/windows/x64/runner/Release/KikoFlu-windows.zip' -Destination 'dist/KikoFlu-windows-test.zip'
+          Move-Item -Path 'build/windows/x64/runner/Release/Iroru-windows.zip' -Destination 'dist/Iroru-windows-test.zip'
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
@@ -325,7 +325,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          (cd build/linux/x64/release/bundle && tar -czf "$GITHUB_WORKSPACE/dist/KikoFlu-linux-x64-test.tar.gz" .)
+          (cd build/linux/x64/release/bundle && tar -czf "$GITHUB_WORKSPACE/dist/Iroru-linux-x64-test.tar.gz" .)
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v6
@@ -374,7 +374,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          (cd build/linux/arm64/release/bundle && tar -czf "$GITHUB_WORKSPACE/dist/KikoFlu-linux-arm64-test.tar.gz" .)
+          (cd build/linux/arm64/release/bundle && tar -czf "$GITHUB_WORKSPACE/dist/Iroru-linux-arm64-test.tar.gz" .)
 
       - name: Upload Linux ARM64 Artifact
         uses: actions/upload-artifact@v6

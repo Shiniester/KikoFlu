@@ -39,7 +39,7 @@ class VideoPlaybackService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL)
             else Notification.Builder(this)
         val notification = builder.setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(getString(R.string.video_playback)).setContentText("KikoFlu")
+            .setContentTitle(getString(R.string.video_playback)).setContentText("Iroru")
             .setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(android.R.drawable.ic_media_pause,
                 getString(R.string.video_pause), actionIntent(this, "pause")).build())

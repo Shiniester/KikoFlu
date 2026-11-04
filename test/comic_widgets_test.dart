@@ -8,7 +8,6 @@ import 'package:kikoeru_flutter/src/widgets/library_content_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
-import 'package:kikoeru_flutter/src/widgets/search_filter_panel.dart';
 import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
@@ -66,6 +65,10 @@ import 'package:kikoeru_flutter/src/utils/chinese_script_converter.dart';
 
 Finder readerPageValue(String value) => find.byWidgetPredicate(
   (widget) => widget is Semantics && widget.properties.value == value,
+);
+
+Finder comicAdvancedFilterButton(WidgetTester tester) => find.byTooltip(
+  S.of(tester.element(find.byType(ComicSearchScreen))).advancedFilter,
 );
 
 const _comic = Comic(
@@ -4702,7 +4705,7 @@ void main() {
     );
   });
 
-  testWidgets('comic search sort menu closes on Escape and selects a sort', (
+  testWidgets('comic search actions are separate and sort updates live', (
     tester,
   ) async {
     final source = _SortedSource();
@@ -4713,52 +4716,294 @@ void main() {
       source,
     );
 
-    await tester.tap(find.byIcon(Icons.tune));
-    await tester.pumpAndSettle();
-    final sortButton = find.byTooltip(
-      S.of(tester.element(find.byType(ComicSearchScreen))).comicSort,
+    final s = S.of(tester.element(find.byType(ComicSearchScreen)));
+    final sortButton = find.byKey(const ValueKey('comic-search-sort-button'));
+    expect(
+      find.byKey(const ValueKey('comic-search-layout-toggle')),
+      findsOneWidget,
     );
     expect(sortButton, findsOneWidget);
+    expect(comicAdvancedFilterButton(tester), findsOneWidget);
     expect(source.sortRequests, [null]);
-    await tester.tap(sortButton);
-    await tester.pumpAndSettle();
-    expect(find.widgetWithText(MenuItemButton, 'Newest'), findsOneWidget);
-    expect(find.widgetWithText(MenuItemButton, 'Oldest'), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(MenuItemButton), findsNothing);
+    final appBarFinder = find.byType(AppBar);
+    final appBar = tester.widget<AppBar>(appBarFinder);
+    final buttons = tester
+        .widgetList<IconButton>(
+          find.descendant(of: appBarFinder, matching: find.byType(IconButton)),
+        )
+        .toList();
+    expect(appBar.centerTitle, isFalse);
+    expect(appBar.leadingWidth, 48);
+    expect(
+      tester
+          .getCenter(
+            find.descendant(of: appBarFinder, matching: find.text(s.search)),
+          )
+          .dx,
+      lessThan(tester.getRect(appBarFinder).center.dx),
+    );
+    expect(buttons.map((button) => (button.icon as Icon).icon), [
+      Icons.view_list,
+      Icons.sort,
+      Icons.tune,
+      Icons.history,
+    ]);
+    expect(
+      buttons.every(
+        (button) => button.visualDensity == const VisualDensity(horizontal: -2),
+      ),
+      isTrue,
+    );
 
     await tester.tap(sortButton);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(MenuItemButton, 'Oldest'));
-    await tester.pumpAndSettle();
-    expect(source.sortRequests.last, 'da');
-    await tester.tap(sortButton);
-    await tester.pumpAndSettle();
-    final sortItems = find.byType(MenuItemButton);
-    final sortButtons = tester.widgetList<MenuItemButton>(sortItems).toList();
-    final selectedSort = sortButtons.singleWhere((button) => button.autofocus);
-    final unselectedSort = sortButtons.firstWhere(
-      (button) => !button.autofocus,
-    );
-    final colors = Theme.of(tester.element(sortItems.first)).colorScheme;
+    expect(find.widgetWithText(ChoiceChip, 'Newest'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Oldest'), findsOneWidget);
+    final dialogRect = tester.getRect(find.byType(Dialog));
+    final physicalSize = tester.view.physicalSize;
+    final pixelRatio = tester.view.devicePixelRatio;
     expect(
-      selectedSort.style?.foregroundColor?.resolve({}),
-      colors.onPrimaryContainer,
+      dialogRect.center.dx,
+      closeTo(physicalSize.width / pixelRatio / 2, 1),
     );
     expect(
-      selectedSort.style?.backgroundColor?.resolve({}),
-      colors.primaryContainer,
-    );
-    expect(unselectedSort.style?.foregroundColor?.resolve({}), isNull);
-    expect(unselectedSort.style?.backgroundColor?.resolve({}), isNull);
-    expect(
-      find.descendant(of: sortItems, matching: find.byIcon(Icons.check)),
-      findsNothing,
+      dialogRect.center.dy,
+      closeTo(physicalSize.height / pixelRatio / 2, 1),
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
+    expect(find.widgetWithText(ChoiceChip, 'Oldest'), findsNothing);
+
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
+    await tester.pumpAndSettle();
+    expect(source.sortRequests.last, 'da');
+    expect(
+      tester
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Oldest'))
+          .selected,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(ChoiceChip, 'Oldest'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic category search history toggles without searching again', (
+    tester,
+  ) async {
+    final source = _Source();
+    await pump(
+      tester,
+      const ComicSearchScreen(
+        initialSource: 'fixture',
+        category: ComicCategory('fixture-category', 'Fixture category'),
+      ),
+      _Library(),
+      source,
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+
+    final s = S.of(tester.element(find.byType(ComicSearchScreen)));
+    final history = find.byKey(const ValueKey('comic-search-history-toggle'));
+    final searches = source.searches;
+    expect(history.hitTestable(), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, s.searchHistory);
+    expect(find.byType(SearchHistorySection), findsNothing);
+
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsOneWidget);
+    expect(find.text(_comic.title), findsNothing);
+    expect(tester.widget<IconButton>(history).tooltip, s.close);
+
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsNothing);
+    expect(find.text(_comic.title), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, s.searchHistory);
+    expect(source.searches, searches);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic search history toggles without clearing the result', (
+    tester,
+  ) async {
+    final source = _Source();
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+
+    final s = S.of(tester.element(find.byType(ComicSearchScreen)));
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    final historyToggle = find.byKey(
+      const ValueKey('comic-search-history-toggle'),
+    );
+    expect(tester.widget<TextField>(input).controller!.text, 'book');
+    expect(find.byType(ComicGrid), findsOneWidget);
+
+    await tester.tap(historyToggle);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsOneWidget);
+    expect(tester.widget<IconButton>(historyToggle).tooltip, s.close);
+
+    await tester.tap(historyToggle);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsNothing);
+    expect(tester.widget<IconButton>(historyToggle).tooltip, s.searchHistory);
+    expect(find.byType(ComicGrid), findsOneWidget);
+    expect(find.text(_comic.title), findsOneWidget);
+    expect(tester.widget<TextField>(input).controller!.text, 'book');
+    expect(source.searches, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic filters search a typed query immediately', (tester) async {
+    final source = _Source();
+    final other = _Source('other');
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture'),
+      _Library(),
+      source,
+      other: other,
+    );
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.enterText(input, 'multi query');
+    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await waitForFinder(tester, find.text('Other book'));
+
+    expect(source.searchQueries, ['multi query']);
+    expect(other.searchQueries, ['multi query']);
+    expect(find.byType(SearchHistorySection), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic grouped search applies selected source targets', (
+    tester,
+  ) async {
+    final source = _Source();
+    final other = _Source('other');
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+      other: other,
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+
+    await tester.tap(comicAdvancedFilterButton(tester));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
+    await waitForFinder(tester, find.text('Other book'));
+    expect(other.searchQueries, ['book']);
+
+    final otherTarget = find.widgetWithText(CheckboxListTile, 'Other');
+    expect(tester.widget<CheckboxListTile>(otherTarget).value, isTrue);
+    await tester.tap(otherTarget);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<CheckboxListTile>(otherTarget).value, isFalse);
+    expect(source.searchQueries, ['book', 'book', 'book']);
+    expect(other.searchQueries, ['book']);
+    expect(find.text('Fixture book'), findsOneWidget);
+    expect(find.text('Other book'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic search header scrolls above the landscape keyboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      _Source(),
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.tap(input);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(ComicGrid)).height, greaterThan(0));
+    final selected = find.byKey(
+      const ValueKey('comic-search-selected-conditions'),
+    );
+    await tester.ensureVisible(selected);
+    await tester.pumpAndSettle();
+    expect(selected.hitTestable(), findsOneWidget);
+    await tester.ensureVisible(input);
+    await tester.pumpAndSettle();
+    expect(input.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic search preserves card layout while loading and resizing', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await StorageService.setString(
+      ComicLayoutNotifier.preferenceKey,
+      LayoutType.smallGrid.name,
+    );
+    final source = _Source();
+    final gate = Completer<ComicResult>();
+    source.searchGates[2] = gate;
+    final container = await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+    expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
+
+    final input = find.byKey(const ValueKey('comic-search-input'));
+    await tester.enterText(input, 'next query');
+    await tester.tap(find.byKey(const ValueKey('comic-search-submit')));
+    await pumpFrames(tester, frames: 3);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(
+      tester.widget<ComicGrid>(find.byType(ComicGrid)).comics.single.id,
+      'book',
+    );
+
+    tester.view.physicalSize = const Size(840, 800);
+    await tester.pump();
+    await pumpFrames(tester, frames: 3);
+    expect(find.byType(ComicGrid), findsOneWidget);
+    expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
+    expect(tester.widget<TextField>(input).controller!.text, 'next query');
+    expect(tester.takeException(), isNull);
+
+    gate.complete(
+      const ComicResult([
+        Comic(source: 'fixture', id: 'next-query', title: 'Next query'),
+      ]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Next query'), findsOneWidget);
+    expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
   });
 
   testWidgets('comic search keeps previous results after failure and retries', (
@@ -4837,7 +5082,7 @@ void main() {
   });
 
   testWidgets(
-    'comic filters wait for submit and retry partial source results',
+    'comic filters skip empty queries and retry partial source results',
     (tester) async {
       final source = _Source();
       final other = _Source('other')..fail = true;
@@ -4850,20 +5095,24 @@ void main() {
         other: other,
       );
 
-      await tester.tap(find.byIcon(Icons.tune));
+      await tester.tap(comicAdvancedFilterButton(tester));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
       await tester.pumpAndSettle();
       expect(source.searches, 0);
       expect(other.searches, 0);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byKey(const ValueKey('comic-search-input')),
         'multi query',
       );
+      expect(source.searches, 0);
+      expect(other.searches, 0);
       await tester.tap(find.byKey(const ValueKey('comic-search-submit')));
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.tune), findsOneWidget);
+      expect(comicAdvancedFilterButton(tester), findsOneWidget);
       expect(find.widgetWithText(ListTile, 'Fixture'), findsOneWidget);
       expect(find.widgetWithText(ListTile, 'Other'), findsOneWidget);
       expect(find.text('fixture error'), findsOneWidget);
@@ -4916,11 +5165,20 @@ void main() {
       final grid = find.byType(ComicGrid);
       expect(tester.widget<ComicGrid>(grid).comics.single.source, 'fixture');
 
-      await tester.tap(find.byIcon(Icons.tune));
+      await tester.tap(comicAdvancedFilterButton(tester));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
       await pumpFrames(tester, frames: 2);
-      expect(find.byIcon(Icons.expand_less), findsOneWidget);
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.widgetWithText(ChoiceChip, 'Grouped results'),
+            )
+            .selected,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpFrames(tester, frames: 20);
 
       expect(find.text(s.searchUpdating), findsOneWidget);
       expect(find.byType(ComicGrid), findsOneWidget);
@@ -4962,20 +5220,26 @@ void main() {
     final s = S.of(tester.element(find.byType(ComicSearchScreen)));
     final input = find.byKey(const ValueKey('comic-search-input'));
 
-    await tester.tap(find.byIcon(Icons.tune));
-    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Other'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(s.comicSort));
+    await tester.tap(find.byKey(const ValueKey('comic-search-sort-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(MenuItemButton, 'Oldest'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await pumpFrames(tester, frames: 2);
     expect(find.text(s.searchUpdating), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpFrames(tester, frames: 20);
 
     await tester.enterText(input, 'unsent query');
     await tester.tap(find.byTooltip(s.clear));
+    await tester.pumpAndSettle();
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
 
     expect(tester.widget<TextField>(input).controller!.text, isEmpty);
@@ -5037,19 +5301,20 @@ void main() {
       textScale: 1.4,
     );
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     final groupedMode = find.widgetWithText(ChoiceChip, 'Grouped results');
     await tester.ensureVisible(groupedMode);
     await tester.pumpAndSettle();
     await tester.tap(groupedMode);
     await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
 
     final label = '${first.name}, ${second.name}';
     final labelFinder = find.text(label);
-    final selectedConditionsRow = find.descendant(
-      of: find.byType(SearchFilterPanel),
-      matching: find.byType(ListView),
+    final selectedConditionsRow = find.byKey(
+      const ValueKey('comic-search-selected-conditions'),
     );
     expect(selectedConditionsRow, findsOneWidget);
     for (
@@ -5097,9 +5362,12 @@ void main() {
     );
     expect(source.cursors, [null]);
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpFrames(tester, frames: 20);
     await pumpFrames(tester, frames: 2);
 
     final grid = find.byType(ComicGrid);
@@ -5261,9 +5529,10 @@ void main() {
       expect(source.searches, 0);
       expect(source.sortRequests, isEmpty);
       expect(history.itemsFor(fixtureContext), hasLength(3));
-
-      await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+
       final otherSource = find.widgetWithText(ChoiceChip, 'Other');
       await tester.ensureVisible(otherSource);
       await tester.tap(otherSource);
@@ -5272,17 +5541,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(input).controller!.text, 'same query');
       expect(
-        find.descendant(
-          of: menu,
-          matching: find.text('same query other'),
-        ),
+        find.descendant(of: menu, matching: find.text('same query other')),
         findsOneWidget,
       );
       expect(
         find.descendant(of: menu, matching: find.text('same query')),
-        findsNothing,
+        findsOneWidget,
       );
-      expect(other.searches, 0);
+      expect(history.itemsFor(otherContext), hasLength(2));
+      expect(other.searchQueries, ['same query']);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(menu, findsNothing);
@@ -5290,10 +5557,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(menu, findsOneWidget);
       expect(
-        find.descendant(
-          of: menu,
-          matching: find.text('same query other'),
-        ),
+        find.descendant(of: menu, matching: find.text('same query other')),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
@@ -5315,22 +5579,21 @@ void main() {
       entryScope: 'source-directory',
       source: 'fixture',
     );
-    await container
-        .read(unifiedSearchHistoryProvider.notifier)
-        .addOrReplace(context, {
-          'keyword': 'same query',
-          'mode': 'single',
-          'source': 'fixture',
-          'sources': ['fixture'],
-        });
+    await container.read(unifiedSearchHistoryProvider.notifier).addOrReplace(
+      context,
+      {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      },
+    );
     await tester.pumpAndSettle();
 
     final input = find.byKey(const ValueKey('comic-search-input'));
     await tester.enterText(input, 'same');
     await tester.pumpAndSettle();
-    final menu = find.byKey(
-      const ValueKey('comic-search-history-suggestions'),
-    );
+    final menu = find.byKey(const ValueKey('comic-search-history-suggestions'));
     expect(
       find.descendant(of: menu, matching: find.text('same query')),
       findsOneWidget,
@@ -5359,14 +5622,15 @@ void main() {
       entryScope: 'source-directory',
       source: 'fixture',
     );
-    await container
-        .read(unifiedSearchHistoryProvider.notifier)
-        .addOrReplace(context, {
-          'keyword': 'same query',
-          'mode': 'single',
-          'source': 'fixture',
-          'sources': ['fixture'],
-        });
+    await container.read(unifiedSearchHistoryProvider.notifier).addOrReplace(
+      context,
+      {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      },
+    );
     await tester.pumpAndSettle();
 
     final input = find.byKey(const ValueKey('comic-search-input'));
@@ -5530,14 +5794,15 @@ void main() {
       entryScope: 'source-directory',
       source: 'fixture',
     );
-    await container
-        .read(unifiedSearchHistoryProvider.notifier)
-        .addOrReplace(context, {
-          'keyword': 'same query',
-          'mode': 'single',
-          'source': 'fixture',
-          'sources': ['fixture'],
-        });
+    await container.read(unifiedSearchHistoryProvider.notifier).addOrReplace(
+      context,
+      {
+        'keyword': 'same query',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      },
+    );
     await tester.pumpAndSettle();
 
     final input = find.byKey(const ValueKey('comic-search-input'));
@@ -5580,29 +5845,29 @@ void main() {
       _Library(),
       _Source(),
     );
+    expect(find.byKey(const ValueKey('comic-search-input')), findsOneWidget);
     const directoryContext = UnifiedSearchHistoryContext(
       contentType: 'comic',
       entryScope: 'source-directory',
       source: 'fixture',
     );
-    await container
-        .read(unifiedSearchHistoryProvider.notifier)
-        .addOrReplace(directoryContext, {
-          'keyword': 'directory only',
-          'mode': 'single',
-          'source': 'fixture',
-          'sources': ['fixture'],
-        });
+    await container.read(unifiedSearchHistoryProvider.notifier).addOrReplace(
+      directoryContext,
+      {
+        'keyword': 'directory only',
+        'mode': 'single',
+        'source': 'fixture',
+        'sources': ['fixture'],
+      },
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('comic-search-input')));
     await tester.pumpAndSettle();
-    final menu = find.byKey(
-      const ValueKey('comic-search-history-suggestions'),
-    );
-    final noHistory = S.of(
-      tester.element(find.byType(ComicSearchScreen)),
-    ).noSearchHistory;
+    final menu = find.byKey(const ValueKey('comic-search-history-suggestions'));
+    final noHistory = S
+        .of(tester.element(find.byType(ComicSearchScreen)))
+        .noSearchHistory;
     expect(
       find.descendant(of: menu, matching: find.text(noHistory)),
       findsOneWidget,
@@ -5632,16 +5897,13 @@ void main() {
     await tester.enterText(input, 'restore me');
     await tester.tap(find.byKey(const ValueKey('comic-search-submit')));
     await waitForFinder(tester, find.text(_comic.title));
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byKey(const ValueKey('comic-search-sort-button')));
     await tester.pumpAndSettle();
-    final sortButton = find.byTooltip(
-      S.of(tester.element(find.byType(ComicSearchScreen))).comicSort,
-    );
-    await tester.tap(sortButton);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(MenuItemButton, 'Oldest'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Oldest'));
     await tester.pumpAndSettle();
     expect(source.sortRequests.last, 'da');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('comic-search-history-toggle')));
     await tester.pumpAndSettle();
@@ -5704,7 +5966,6 @@ void main() {
         source,
         downloads: downloads,
       );
-      expect(find.byKey(const ValueKey('search-filter-toggle')), findsNothing);
       final history = container.read(unifiedSearchHistoryProvider.notifier);
       await history.load();
 
@@ -6278,6 +6539,7 @@ void main() {
       of: find.byType(ComicSearchScreen),
       matching: find.byType(EditableText),
     );
+    expect(searchField, findsOneWidget);
     expect(
       tester.widget<EditableText>(searchField).focusNode.hasFocus,
       isFalse,
@@ -7526,11 +7788,13 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await pump(tester, const Scaffold(), _Library(), _Source());
-    tester.state<NavigatorState>(find.byType(Navigator)).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const ComicDetailScreen(comic: _comic),
-      ),
-    );
+    tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ComicDetailScreen(comic: _comic),
+          ),
+        );
     await tester.pumpAndSettle();
     final appBar = find.byType(AppBar);
     final title = find.descendant(
@@ -9530,9 +9794,11 @@ void main() {
       _Source(),
       loadImage: (_) async => _widePng,
     );
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     final hero = find.descendant(
       of: find.byType(ComicCover),
@@ -10093,9 +10359,11 @@ void main() {
         source,
         other: other,
       );
-      await tester.tap(find.byIcon(Icons.tune));
+      await tester.tap(comicAdvancedFilterButton(tester));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.text('Fixture book'), findsOneWidget);
       final successfulCalls = source.searches;
@@ -10106,7 +10374,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(source.searches, successfulCalls);
       expect(find.text('Other book'), findsOneWidget);
+      await tester.tap(comicAdvancedFilterButton(tester));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, 'Merged results'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.text('Fixture book'), findsOneWidget);
       expect(find.text('Other book'), findsOneWidget);
@@ -12262,10 +12534,12 @@ void main() {
     await tester.pump();
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.tune));
-    await tester.pump();
+    await tester.tap(comicAdvancedFilterButton(tester));
+    await pumpFrames(tester, frames: 20);
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpFrames(tester, frames: 20);
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(LinearProgressIndicator), findsNothing);
 
@@ -12287,7 +12561,7 @@ void main() {
     final gate = Completer<ComicResult>();
     source.searchGates[source.searches + 1] = gate;
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(comicAdvancedFilterButton(tester));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Grouped results'));
     await tester.pump();

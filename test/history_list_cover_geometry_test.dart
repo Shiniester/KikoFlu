@@ -5,14 +5,14 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/history_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/screens/history_screen.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/work_cover_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _LoadedHistory extends HistoryNotifier {
-  _LoadedHistory(super._ref, HistoryRecord record)
-    : super(now: () => DateTime(2026)) {
+  _LoadedHistory(super._ref, HistoryRecord record) {
     state = HistoryState(records: [record], totalCount: 1, hasMore: false);
   }
 
@@ -33,7 +33,7 @@ void main() {
     const title = 'One\nTwo\nThree\nFour';
     const work = Work(id: 90210, title: title);
     SharedPreferences.setMockInitialValues({
-      'collection_history_layout_type': 'list',
+      AudioLayoutNotifier.preferenceKey: 'list',
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),

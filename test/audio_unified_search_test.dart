@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,13 +16,17 @@ import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+    show LayoutType;
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 
 class _SearchCall {
   const _SearchCall(this.keyword, this.order, this.sort, this.subtitle);
@@ -145,6 +152,156 @@ void main() {
     );
   });
 
+  testWidgets('search header actions are separate and left aligned', (
+    tester,
+  ) async {
+    final api = _AudioSearchApi();
+    await _pumpSearch(tester, api);
+    final l10n = await S.delegate.load(const Locale('en'));
+    final appBarFinder = find.byType(AppBar);
+    final appBar = tester.widget<AppBar>(appBarFinder);
+    final buttons = tester
+        .widgetList<IconButton>(
+          find.descendant(of: appBarFinder, matching: find.byType(IconButton)),
+        )
+        .toList();
+
+    expect(appBar.centerTitle, isFalse);
+    expect(appBar.leadingWidth, 48);
+    expect(
+      tester
+          .getCenter(
+            find.descendant(of: appBarFinder, matching: find.text(l10n.search)),
+          )
+          .dx,
+      lessThan(tester.getRect(appBarFinder).center.dx),
+    );
+    expect(buttons.map((button) => (button.icon as Icon).icon), [
+      Icons.grid_view,
+      Icons.closed_caption_disabled,
+      Icons.sort,
+      Icons.tune,
+      Icons.history,
+    ]);
+    expect(
+      buttons.every(
+        (button) => button.visualDensity == const VisualDensity(horizontal: -2),
+      ),
+      isTrue,
+    );
+
+    final history = find.byKey(const ValueKey('audio-search-history-toggle'));
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.close);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    expect(api.calls, isEmpty);
+  });
+
+  for (final width in [320.0, 840.0]) {
+    testWidgets('search title and actions fit at $width with large text', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 800);
+      if (width == 320) {
+        tester.view.padding = const FakeViewPadding(left: 8, right: 8);
+        tester.view.viewPadding = tester.view.padding;
+      }
+      addTearDown(tester.view.reset);
+      await _pumpSearch(
+        tester,
+        _AudioSearchApi(),
+        screen: const SearchScreen(showBackButton: true),
+        textScale: 1.4,
+      );
+
+      await tester.enterText(find.byType(TextField).first, 'search');
+      await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+      await tester.pumpAndSettle();
+
+      final appBar = find.byType(AppBar);
+      final title = find.descendant(of: appBar, matching: find.text('Search'));
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: title, matching: find.byType(RichText)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse);
+
+      final layout = find.byKey(const ValueKey('audio-search-layout-toggle'));
+      final history = find.byKey(const ValueKey('audio-search-history-toggle'));
+      final actions = find.descendant(
+        of: appBar,
+        matching: find.byType(SingleChildScrollView),
+      );
+      if (width == 320) {
+        await tester.drag(
+          actions,
+          const Offset(200, 0),
+          kind: PointerDeviceKind.mouse,
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(layout.hitTestable(), findsOneWidget);
+      await tester.tap(layout);
+      await tester.pumpAndSettle();
+      expect((tester.widget<IconButton>(layout).icon as Icon).icon, Icons.apps);
+
+      if (width == 320) {
+        await tester.drag(actions, const Offset(-200, 0));
+        await tester.pumpAndSettle();
+      }
+      expect(history.hitTestable(), findsOneWidget);
+      await tester.tap(history);
+      await tester.pumpAndSettle();
+      expect(find.text('Keyword: search'), findsOneWidget);
+      if (width == 320) {
+        final backIcon = find.descendant(
+          of: appBar,
+          matching: find.byIcon(Icons.arrow_back),
+        );
+        Focus.of(tester.element(backIcon)).requestFocus();
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        final layoutIcon = find.descendant(
+          of: layout,
+          matching: find.byIcon(Icons.apps),
+        );
+        expect(Focus.of(tester.element(layoutIcon)).hasPrimaryFocus, isTrue);
+        expect(
+          layout.hitTestable(),
+          findsOneWidget,
+          reason:
+              'layout ${tester.getRect(layout)}, actions ${tester.getRect(actions)}',
+        );
+        for (final key in [
+          'audio-search-subtitle-toggle',
+          'audio-search-sort-button',
+          'audio-search-advanced-filter',
+          'audio-search-history-toggle',
+        ]) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pumpAndSettle();
+          final action = find.byKey(ValueKey(key));
+          final icon = find.descendant(of: action, matching: find.byType(Icon));
+          expect(Focus.of(tester.element(icon)).hasPrimaryFocus, isTrue);
+          expect(action.hitTestable(), findsOneWidget);
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        expect(
+          FocusManager.instance.primaryFocus?.context
+              ?.findAncestorWidgetOfExactType<TextField>(),
+          isNotNull,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'search submits and updates filters on the same page while keeping prior results after failure',
     (tester) async {
@@ -206,16 +363,25 @@ void main() {
       await tester.enterText(input, 'initial query');
       await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
       await tester.pumpAndSettle();
+      final resultViewport = tester.getRect(find.byType(WorksGridView));
+      final totalCount = find.text(l10n.totalNWorks(1));
+      expect(totalCount, findsOneWidget);
+      expect(
+        tester.getTopLeft(totalCount).dy - resultViewport.top,
+        lessThan(16),
+      );
 
       await tester.enterText(input, 'subtitle query');
-      await tester.tap(find.byTooltip(l10n.showOnlySubtitled));
+      await tester.tap(
+        find.byKey(const ValueKey('audio-search-subtitle-toggle')),
+      );
       await tester.pumpAndSettle();
       expect(api.calls, hasLength(2));
       expect(api.calls[1].keyword, 'subtitle query');
       expect(api.calls[1].subtitle, 1);
 
       await tester.enterText(input, 'sorted query');
-      await tester.tap(find.byTooltip(l10n.sort));
+      await tester.tap(find.byKey(const ValueKey('audio-search-sort-button')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(l10n.sortRating).last);
       await tester.pumpAndSettle();
@@ -224,46 +390,124 @@ void main() {
       expect(api.calls[2].order, 'rate_average_2dp');
       expect(api.calls[2].subtitle, 1);
 
-      await tester.tap(find.byTooltip(l10n.searchHistory));
+      final historyToggle = find.byKey(
+        const ValueKey('audio-search-history-toggle'),
+      );
+      await tester.tap(historyToggle);
       await tester.pumpAndSettle();
       expect(find.text('Keyword: sorted query'), findsOneWidget);
+      expect(find.text('Result 3'), findsNothing);
+      await tester.tap(historyToggle);
+      await tester.pumpAndSettle();
+      expect(find.text('Result 3'), findsOneWidget);
+      expect(api.calls, hasLength(3));
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets(
-    'selected age filter remains visible when filters are collapsed',
-    (tester) async {
-      final api = _AudioSearchApi();
-      await _pumpSearch(tester, api);
-      final l10n = await S.delegate.load(const Locale('en'));
-      final filterButton = find.byKey(const ValueKey('search-filter-toggle'));
+  testWidgets('advanced filters search an unsubmitted input immediately', (
+    tester,
+  ) async {
+    final api = _AudioSearchApi();
+    await _pumpSearch(tester, api);
+    final l10n = await S.delegate.load(const Locale('en'));
 
-      await tester.enterText(find.byType(TextField).first, 'age filter');
-      await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
-      await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'age filter');
+    await tester.tap(find.byTooltip(l10n.advancedFilter));
+    await tester.pumpAndSettle();
+    final ageRating = find.byType(DropdownButtonFormField<AgeRating>);
+    expect(ageRating, findsOneWidget);
+    await tester.tap(ageRating);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.ageRatingGeneral).last);
+    await tester.pumpAndSettle();
+    expect(ageRating, findsOneWidget);
+    expect(find.text(l10n.ageRatingGeneral), findsOneWidget);
+    expect(api.calls, hasLength(1));
+    expect(api.calls.single.keyword, 'age filter \$age:general\$');
+    expect(find.text('Result 1'), findsOneWidget);
+    expect(
+      find.text('${l10n.ageRatingLabel}: ${l10n.ageRatingGeneral}'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
-      await tester.tap(filterButton);
-      await tester.pumpAndSettle();
-      final ageRating = find.byType(DropdownButtonFormField<AgeRating>);
-      expect(ageRating, findsOneWidget);
-      await tester.ensureVisible(ageRating);
-      await tester.tap(ageRating);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l10n.ageRatingGeneral).last);
-      await tester.pumpAndSettle();
-      expect(ageRating, findsOneWidget);
+  testWidgets('global search uses the shared audio layout during refresh', (
+    tester,
+  ) async {
+    final api = _AudioSearchApi();
+    api.nextReply = () async => api._response('First layout result');
+    await _pumpSearch(tester, api);
+    await tester.tap(find.byKey(const ValueKey('audio-search-layout-toggle')));
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SearchScreen)),
+    );
+    expect(container.read(audioLayoutProvider), LayoutType.smallGrid);
 
-      await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('${l10n.ageRatingLabel}: ${l10n.ageRatingGeneral}'),
-        findsOneWidget,
-      );
-      expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    await tester.enterText(find.byType(TextField).first, 'layout query');
+    await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text('First layout result'), findsOneWidget);
+    expect(
+      tester.widget<WorksGridView>(find.byType(WorksGridView)).layoutType,
+      LayoutType.smallGrid,
+    );
+
+    final nextReply = Completer<Map<String, dynamic>>();
+    api.nextReply = () => nextReply.future;
+    await tester.enterText(find.byType(TextField).first, 'refresh query');
+    await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+    await tester.pump();
+    expect(
+      tester.widget<WorksGridView>(find.byType(WorksGridView)).layoutType,
+      LayoutType.smallGrid,
+    );
+
+    nextReply.complete(api._response('Second layout result'));
+    await tester.pumpAndSettle();
+    expect(find.text('Second layout result'), findsOneWidget);
+    expect(
+      tester.widget<WorksGridView>(find.byType(WorksGridView)).layoutType,
+      LayoutType.smallGrid,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('audio search header scrolls above the landscape keyboard', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 360);
+    addTearDown(tester.view.reset);
+    await _pumpSearch(tester, _AudioSearchApi());
+
+    final input = find.byType(TextField).first;
+    await tester.enterText(input, 'landscape query');
+    await tester.tap(find.byTooltip('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(input);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(WorksGridView)).height, greaterThan(0));
+    final header = find.byKey(const ValueKey('audio-search-top-controls'));
+    final selected = find.descendant(
+      of: header,
+      matching: find.text('Keyword: landscape query'),
+    );
+    await tester.ensureVisible(selected);
+    await tester.pumpAndSettle();
+    expect(selected.hitTestable(), findsOneWidget);
+    await tester.ensureVisible(input);
+    await tester.pumpAndSettle();
+    expect(input.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final width in [320.0, 840.0]) {
     testWidgets(
@@ -275,17 +519,28 @@ void main() {
         addTearDown(tester.view.reset);
 
         await _pumpSearch(tester, _AudioSearchApi(), textScale: 1.6);
-        await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
+        final l10n = await S.delegate.load(const Locale('en'));
+        expect(
+          find.byKey(const ValueKey('audio-search-type-row')),
+          findsOneWidget,
+        );
+        for (final type in [
+          l10n.searchTypeKeyword,
+          l10n.searchTypeTag,
+          l10n.searchTypeVa,
+          l10n.searchTypeCircle,
+          l10n.searchTypeRjNumber,
+        ]) {
+          expect(find.text(type), findsOneWidget);
+        }
+        await tester.tap(find.byTooltip(l10n.advancedFilter));
         await tester.pumpAndSettle();
 
         expect(
           find.byKey(const ValueKey('audio-search-submit')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const ValueKey('search-filter-toggle')),
-          findsOneWidget,
-        );
+        expect(find.byType(DropdownButtonFormField<AgeRating>), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );

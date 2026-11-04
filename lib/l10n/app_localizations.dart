@@ -103,7 +103,7 @@ abstract class S {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'KikoFlu'**
+  /// **'Iroru'**
   String get appTitle;
 
   /// No description provided for @navHome.
@@ -1570,6 +1570,18 @@ abstract class S {
   /// **'Playback Queue'**
   String get playlistTitle;
 
+  /// No description provided for @playbackQueueHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback queue history'**
+  String get playbackQueueHistory;
+
+  /// Indicates the current page in the playback queue browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {current} of {total}'**
+  String queueBrowserPagePosition(int current, int total);
+
   /// No description provided for @clearPlaybackQueueTitle.
   ///
   /// In en, this message translates to:
@@ -1581,6 +1593,12 @@ abstract class S {
   /// In en, this message translates to:
   /// **'This will stop playback and remove every item from the queue.'**
   String get clearPlaybackQueueMessage;
+
+  /// Confirmation before deleting the historical playback queue being viewed.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear this historical playback queue?'**
+  String get clearHistoricalPlaybackQueueMessage;
 
   /// No description provided for @noAudioPlaying.
   ///

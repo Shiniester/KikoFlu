@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart'
     show BaseCacheManager, FileResponse;
@@ -19,6 +20,7 @@ import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/history_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
 import 'package:kikoeru_flutter/src/providers/playlists_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
@@ -63,6 +65,7 @@ import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
@@ -77,6 +80,7 @@ import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 import 'package:kikoeru_flutter/src/widgets/japanese_asmr_access_prompt.dart';
+import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 
 class _Reviews extends MyReviewsNotifier {
   _Reviews(Ref ref) : super(KikoeruApiService(), ref);
@@ -134,7 +138,6 @@ class _Works extends WorksNotifier {
 
   _Works(Ref ref) : super(KikoeruApiService(), ref) {
     state = WorksState(
-      layoutType: LayoutType.list,
       modeStates: {
         for (final mode in DisplayMode.values)
           mode: WorksModeSnapshot(
@@ -144,8 +147,6 @@ class _Works extends WorksNotifier {
       },
     );
   }
-
-  void useGrid() => state = state.copyWith(layoutType: LayoutType.bigGrid);
 
   void requireVerification() {
     state = state.copyWith(
@@ -490,13 +491,46 @@ void main() {
   setUp(() async {
     CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
     SharedPreferences.setMockInitialValues({
-      'works_layout_type': 'list',
+      AudioLayoutNotifier.preferenceKey: LayoutType.list.name,
       'my_tabs_show_playlists': false,
       'my_tabs_show_subtitle_library': false,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  testWidgets('queue history is nested under history and opens without audio', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    _requestAudioPage(tester, 'history');
+    await tester.pumpAndSettle();
+
+    const entryKey = ValueKey('audio-queue-history-entry');
+    final historyEntry = _audioPageTile(tester, 'history').children
+        .whereType<LibraryDrawerTile>()
+        .singleWhere((tile) => tile.key == entryKey);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    expect(
+      _section(tester, s.libraryPages).children
+          .whereType<LibraryDrawerTile>()
+          .where((tile) => tile.key == entryKey),
+      isEmpty,
+    );
+
+    historyEntry.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.byType(PlayerQueueBrowser), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -976,8 +1010,9 @@ void main() {
         await tester.pumpAndSettle();
       }
       final source = tester.element(find.byType(WorksScreen));
-      (ProviderScope.containerOf(source).read(worksProvider.notifier) as _Works)
-          .useGrid();
+      ProviderScope.containerOf(
+        source,
+      ).read(audioLayoutProvider.notifier).set(LayoutType.bigGrid);
       await tester.pumpAndSettle();
       Future<List<int>> homePixels() => tester
           .runAsync(() async {
@@ -1169,8 +1204,7 @@ void main() {
           final reduced = ValueNotifier(disableAnimations);
           addTearDown(reduced.dispose);
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('my_reviews_layout_type', layout.name);
-          await prefs.setString('collection_history_layout_type', layout.name);
+          await prefs.setString(AudioLayoutNotifier.preferenceKey, layout.name);
           await _pumpAudioScreen(tester, reduced);
           final container = ProviderScope.containerOf(
             tester.element(find.byType(AudioScreen)),
@@ -1210,8 +1244,7 @@ void main() {
           final reduced = ValueNotifier(disableAnimations);
           addTearDown(reduced.dispose);
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('my_reviews_layout_type', layout.name);
-          await prefs.setString('collection_history_layout_type', layout.name);
+          await prefs.setString(AudioLayoutNotifier.preferenceKey, layout.name);
           await _pumpAudioScreen(tester, reduced);
           final container = ProviderScope.containerOf(
             tester.element(find.byType(AudioScreen)),
@@ -1829,7 +1862,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('inline home and marks controls keep preferences independent', (
+  testWidgets('audio layout syncs while filters stay independent', (
     tester,
   ) async {
     final reduced = ValueNotifier(true);
@@ -1844,22 +1877,31 @@ void main() {
         tester,
         s.libraryBrowseOptions,
       ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
-      [s.block, s.autoTranslateWorkDetails],
+      [s.layout, s.block, s.autoTranslateWorkDetails],
     );
     expect(
       _audioPageTile(
         tester,
         'home',
       ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
-      contains(s.layout),
+      isNot(contains(s.layout)),
     );
-    final reviewLayout = container.read(myReviewsProvider).layoutType;
-    final homeLayout = container.read(worksProvider).layoutType;
+    final homeLayout = container.read(audioLayoutProvider);
     _browseTile(tester, 'Layout').onTap!();
     await tester.pumpAndSettle();
-    expect(container.read(worksProvider).layoutType, LayoutType.bigGrid);
-    expect(container.read(myReviewsProvider).layoutType, reviewLayout);
-    expect(container.read(worksProvider).layoutType, isNot(homeLayout));
+    expect(container.read(audioLayoutProvider), LayoutType.bigGrid);
+    expect(container.read(audioLayoutProvider), isNot(homeLayout));
+    expect(
+      tester
+          .widget<WorksGridView>(
+            find.descendant(
+              of: find.byKey(const ValueKey('works')),
+              matching: find.byType(WorksGridView),
+            ),
+          )
+          .layoutType,
+      LayoutType.bigGrid,
+    );
     _browseTile(tester, 'Subtitle filter').onTap!();
     await tester.pumpAndSettle();
     final homeSubtitleFilter = container.read(worksProvider).subtitleFilter;
@@ -1874,7 +1916,7 @@ void main() {
         page,
       ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title);
       expect(options, isNot(contains(s.sort)));
-      expect(options, contains(s.layout));
+      expect(options, isNot(contains(s.layout)));
       expect(options, contains(s.subtitleFilter));
     }
 
@@ -1898,12 +1940,36 @@ void main() {
       ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
       contains(markedLabel),
     );
-    final workLayout = container.read(worksProvider).layoutType;
+    expect(container.read(audioLayoutProvider), LayoutType.bigGrid);
+    expect(
+      _section(
+        tester,
+        s.libraryBrowseOptions,
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
+      contains(s.layout),
+    );
+    expect(
+      _audioPageTile(
+        tester,
+        'onlineMarks',
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
+      isNot(contains(s.layout)),
+    );
     final workSubtitleFilter = container.read(worksProvider).subtitleFilter;
     _browseTile(tester, 'Layout').onTap!();
     await tester.pumpAndSettle();
-    expect(container.read(myReviewsProvider).layoutType, isNot(reviewLayout));
-    expect(container.read(worksProvider).layoutType, workLayout);
+    expect(container.read(audioLayoutProvider), LayoutType.smallGrid);
+    expect(
+      tester
+          .widget<WorksGridView>(
+            find.descendant(
+              of: find.byKey(const ValueKey('onlineMarks')),
+              matching: find.byType(WorksGridView),
+            ),
+          )
+          .layoutType,
+      LayoutType.smallGrid,
+    );
     _browseTile(tester, 'Subtitle filter').onTap!();
     await tester.pumpAndSettle();
     expect(container.read(myReviewsProvider).subtitleFilter, isNot(0));
@@ -2792,7 +2858,7 @@ void main() {
         find.byKey(
           ValueKey(
             size.width >= playerWideLayoutBreakpoint
-                ? 'wide-left-pages'
+                ? 'wide-right-pages'
                 : 'compact-player-pages',
           ),
         ),

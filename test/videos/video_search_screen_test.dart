@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
@@ -47,6 +49,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('search-filter-toggle')), findsNothing);
 
+    final l10n = await S.delegate.load(const Locale('en'));
+    final history = find.byKey(const ValueKey('video-search-history-toggle'));
+    expect(history.hitTestable(), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.close);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    expect(submitted, isEmpty);
+
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
       'actor',
@@ -57,7 +71,6 @@ void main() {
     expect(find.text('Video result'), findsOneWidget);
     expect(find.byType(PaginationBar), findsOneWidget);
 
-    final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
     expect(find.text('actor'), findsOneWidget);
@@ -78,13 +91,16 @@ void main() {
     );
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('video-search-history-toggle')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(l10n.clearSearchHistory));
     await tester.pumpAndSettle();
     await tester.tap(find.text(l10n.confirm));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.history), findsNothing);
+    expect(history.hitTestable(), findsOneWidget);
+    expect(find.text(l10n.noSearchHistory), findsOneWidget);
   });
 
   testWidgets('first input tap suggests history and fills only its keyword', (
@@ -156,6 +172,166 @@ void main() {
     );
     expect(submitted, hasLength(2));
   });
+
+  testWidgets('initial VideoLink filters search by URL immediately', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final submitted = <({String query, List<String> filterUrls})>[];
+    const filter = VideoLink(
+      label: 'Actor filter',
+      url: 'https://missav.ai/actors/actor-1',
+      kind: VideoLinkKind.actor,
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          initialFilters: const [filter],
+          search: (query, filters, _) async {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            return const VideoSearchResults.collection([]);
+          },
+          loadFilters: (kind, _) async => _filterPage(kind),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(submitted, hasLength(1));
+    expect(submitted.single.query, '');
+    expect(submitted.single.filterUrls, [filter.url]);
+    expect(
+      find.byKey(ValueKey('selected-video-filter-${filter.url}')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'display layout stays shared during input, loading, results, and history toggles at 320 and 840 px',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final pendingSearch = Completer<VideoSearchResults>();
+      const result = VideoItem(
+        id: 'layout-result',
+        title: 'Layout result',
+        pageUrl: 'https://missav.ai/layout-result',
+      );
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Video search',
+            search: (_, _, _) => pendingSearch.future,
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(VideoSearchScreen)),
+      );
+      final layoutProvider = container.read(videoBrowseLayoutProvider.notifier);
+      await layoutProvider.setLayout(LayoutType.smallGrid);
+      await tester.pumpAndSettle();
+
+      final appBarFinder = find.byType(AppBar);
+      final appBar = tester.widget<AppBar>(appBarFinder);
+      expect(appBar.centerTitle, isFalse);
+      expect(appBar.leadingWidth, 48);
+      expect(
+        tester
+            .getCenter(
+              find.descendant(
+                of: appBarFinder,
+                matching: find.text('Video search'),
+              ),
+            )
+            .dx,
+        lessThan(tester.getRect(appBarFinder).center.dx),
+      );
+      final layoutToggle = find.byKey(
+        const ValueKey('video-search-layout-toggle'),
+      );
+      expect(
+        (tester.widget<IconButton>(layoutToggle).icon as Icon).icon,
+        Icons.apps,
+      );
+      await tester.tap(layoutToggle);
+      await tester.pumpAndSettle();
+      expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+
+      final input = find.byKey(const ValueKey('video-search-input'));
+      await tester.enterText(input, 'kept query');
+      expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+
+      tester.view.physicalSize = const Size(840, 720);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+
+      pendingSearch.complete(const VideoSearchResults.collection([result]));
+      await tester.pumpAndSettle();
+      expect(find.text('Layout result'), findsOneWidget);
+      final actionButtons = tester
+          .widgetList<IconButton>(
+            find.descendant(
+              of: appBarFinder,
+              matching: find.byType(IconButton),
+            ),
+          )
+          .toList();
+      expect(actionButtons.map((button) => (button.icon as Icon).icon), [
+        Icons.view_list,
+        Icons.history,
+      ]);
+      expect(
+        actionButtons.every(
+          (button) =>
+              button.visualDensity == const VisualDensity(horizontal: -2),
+        ),
+        isTrue,
+      );
+      expect(find.byIcon(Icons.delete_sweep_outlined), findsNothing);
+      expect(
+        tester
+            .widget<VideoCollectionView<VideoItem>>(
+              find.byType(VideoCollectionView<VideoItem>),
+            )
+            .layoutType,
+        LayoutType.list,
+      );
+      expect(tester.widget<TextField>(input).controller?.text, 'kept query');
+
+      final historyToggle = find.byKey(
+        const ValueKey('video-search-history-toggle'),
+      );
+      await tester.tap(historyToggle);
+      await tester.pumpAndSettle();
+      expect(find.text('Layout result'), findsNothing);
+      await tester.tap(historyToggle);
+      await tester.pumpAndSettle();
+      expect(find.text('Layout result'), findsOneWidget);
+      expect(tester.widget<TextField>(input).controller?.text, 'kept query');
+      expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+    },
+  );
 
   testWidgets('keyboard selects a history suggestion without searching', (
     tester,
@@ -244,7 +420,6 @@ void main() {
     expect(submitted.single.query, query);
     expect(submitted.single.filterUrls, isEmpty);
 
-    await _expandFilterPanel(tester);
     await _tapSearchType(tester, 'genre');
     final input = find.byKey(const ValueKey('video-search-input'));
     await tester.tap(input);
@@ -456,7 +631,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(submitted, hasLength(1));
 
-    await _expandFilterPanel(tester);
     await _tapSearchType(tester, 'actor');
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
@@ -474,7 +648,6 @@ void main() {
           .text,
       'not selected',
     );
-    await _toggleFilterPanel(tester);
     expect(
       tester
           .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
@@ -482,7 +655,6 @@ void main() {
           .prefixText,
       '${l10n.videoFilterActor} · ',
     );
-    await _expandFilterPanel(tester);
 
     await _tapSearchType(tester, 'keyword');
     expect(
@@ -507,7 +679,7 @@ void main() {
   });
 
   testWidgets(
-    'directory focus loads first-page suggestions before manual search',
+    'directory focus loads suggestions and selected filters search immediately',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       final submitted = <({String query, List<String> filterUrls})>[];
@@ -538,7 +710,6 @@ void main() {
         find.byKey(const ValueKey('video-search-input')),
         'manual keyword',
       );
-      await _expandFilterPanel(tester);
       await tester.tap(find.byKey(const ValueKey('video-search-type-genre')));
       await tester.pumpAndSettle();
 
@@ -552,15 +723,19 @@ void main() {
       await tester.tap(suggestion, kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
 
-      expect(submitted, isEmpty);
+      expect(submitted, hasLength(1));
+      expect(submitted.single.query, 'manual keyword');
+      expect(submitted.single.filterUrls, [
+        _filterUrl(VideoSearchFilterKind.genre),
+      ]);
       await tester.tap(
         find.byKey(const ValueKey('video-search-submit')),
         kind: PointerDeviceKind.mouse,
       );
       await tester.pumpAndSettle();
-      expect(submitted, hasLength(1));
-      expect(submitted.single.query, 'manual keyword');
-      expect(submitted.single.filterUrls, [
+      expect(submitted, hasLength(2));
+      expect(submitted.last.query, 'manual keyword');
+      expect(submitted.last.filterUrls, [
         _filterUrl(VideoSearchFilterKind.genre),
       ]);
     },
@@ -588,7 +763,6 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await _expandFilterPanel(tester);
       await tester.tap(find.byKey(const ValueKey('video-search-type-genre')));
       await tester.pump();
       expect(requestCount, 1);
@@ -646,7 +820,6 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await _expandFilterPanel(tester);
       await tester.tap(find.byKey(const ValueKey('video-search-type-genre')));
       await tester.pumpAndSettle();
 
@@ -698,7 +871,6 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await _expandFilterPanel(tester);
       await tester.tap(find.byKey(const ValueKey('video-search-type-actor')));
       await tester.pump();
       expect(requestedAccounts, ['Account A']);
@@ -761,7 +933,6 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await _expandFilterPanel(tester);
         await _tapSearchType(tester, 'series');
         expect(tester.takeException(), isNull);
 
@@ -1222,7 +1393,7 @@ void main() {
     );
 
     await _chooseFilter(tester, VideoSearchFilterKind.actor, 'Actor filter');
-    expect(submitted, hasLength(3));
+    expect(submitted, hasLength(4));
     expect(submitted.last.query, 'history keyword');
     expect(submitted.last.filterUrls, [
       _filterUrl(VideoSearchFilterKind.genre),
@@ -1751,9 +1922,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
-    expect(submitted, isEmpty);
-    await _toggleFilterPanel(tester);
-    expect(find.byKey(const ValueKey('video-search-type-genre')), findsNothing);
+    expect(submitted, hasLength(1));
+    expect(submitted.last.query, '');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+    ]);
+    expect(
+      find.byKey(const ValueKey('video-search-type-genre')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(
         ValueKey(
@@ -1762,10 +1939,14 @@ void main() {
       ),
       findsOneWidget,
     );
-    await _toggleFilterPanel(tester);
 
     await _chooseFilter(tester, VideoSearchFilterKind.actor, 'Actor filter');
-    expect(submitted, isEmpty);
+    expect(submitted, hasLength(2));
+    expect(submitted.last.query, '');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+    ]);
 
     await _tapSearchType(tester, 'keyword');
     await tester.enterText(
@@ -1775,9 +1956,8 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.search));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('video-search-type-genre')), findsNothing);
 
-    expect(submitted, hasLength(1));
+    expect(submitted, hasLength(3));
     expect(submitted.last.query, 'live keyword');
     expect(submitted.last.filterUrls, [
       _filterUrl(VideoSearchFilterKind.genre),
@@ -1790,7 +1970,7 @@ void main() {
       find.byKey(const ValueKey('video-search-type-genre')),
       findsOneWidget,
     );
-    expect(submitted, hasLength(2));
+    expect(submitted, hasLength(4));
     expect(submitted.last.query, 'live keyword');
     expect(submitted.last.filterUrls, [
       _filterUrl(VideoSearchFilterKind.genre),
@@ -1829,7 +2009,7 @@ void main() {
     expect(removeStudio.hitTestable(), findsOneWidget);
     await tester.tap(removeStudio);
     await tester.pumpAndSettle();
-    expect(submitted, hasLength(3));
+    expect(submitted, hasLength(5));
     expect(submitted.last.query, 'live keyword');
     expect(submitted.last.filterUrls, [
       _filterUrl(VideoSearchFilterKind.genre),
@@ -1838,7 +2018,7 @@ void main() {
 
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.history), findsOneWidget);
+    expect(find.text(l10n.searchHistory), findsOneWidget);
     expect(
       find.byKey(
         ValueKey(
@@ -2193,10 +2373,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('video-search-submit')));
     await tester.pumpAndSettle();
     expect(searchedFilterUrls, [
+      ['https://missav.ai/genre/comedy'],
+      ['https://missav.ai/genre/comedy', 'https://missav.ai/genre/drama'],
       ['https://missav.ai/genre/comedy', 'https://missav.ai/genre/drama'],
     ]);
 
-    await _expandFilterPanel(tester);
     await _tapSearchType(tester, 'actor');
     expect(
       find.byKey(
@@ -2252,7 +2433,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       tester.view.viewInsets = const FakeViewPadding();
-      tester.view.physicalSize = const Size(900, 900);
+      tester.view.physicalSize = const Size(840, 900);
       await tester.pumpAndSettle();
       expect(
         find.byKey(
@@ -2349,7 +2530,6 @@ Future<void> _openFilterPicker(
   WidgetTester tester,
   VideoSearchFilterKind kind,
 ) async {
-  await _expandFilterPanel(tester);
   await _tapSearchType(tester, kind.name);
   final browseAll = find.byKey(const ValueKey('video-search-browse-all'));
   await tester.scrollUntilVisible(
@@ -2374,22 +2554,6 @@ Future<void> _tapSearchType(WidgetTester tester, String type) async {
   await tester.tap(filterType);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 250));
-}
-
-Future<void> _expandFilterPanel(WidgetTester tester) async {
-  if (find
-      .byKey(const ValueKey('video-search-type-genre'))
-      .evaluate()
-      .isNotEmpty) {
-    return;
-  }
-  await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
-  await tester.pump();
-}
-
-Future<void> _toggleFilterPanel(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('search-filter-toggle')));
-  await tester.pump();
 }
 
 VideoCatalogPage _filterPage(VideoSearchFilterKind kind, {String? label}) =>
