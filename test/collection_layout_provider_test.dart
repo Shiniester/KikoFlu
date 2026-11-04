@@ -14,56 +14,51 @@ Future<void> _flushPreferenceLoads() async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('collection layout choices persist independently and restore', () async {
-    SharedPreferences.setMockInitialValues({});
+  test('audio layout ignores legacy values, cycles, and restores', () async {
+    SharedPreferences.setMockInitialValues({
+      'works_layout_type': 'list',
+      'my_reviews_layout_type': 'smallGrid',
+      'collection_history_layout_type': 'list',
+      'collection_playlists_layout_type': 'smallGrid',
+      'collection_downloads_layout_type': 'list',
+    });
     final firstRun = ProviderContainer();
 
-    for (final key in CollectionLayoutKey.values) {
-      expect(firstRun.read(collectionLayoutProvider(key)), LayoutType.bigGrid);
-    }
+    expect(firstRun.read(audioLayoutProvider), LayoutType.bigGrid);
     await _flushPreferenceLoads();
+    expect(firstRun.read(audioLayoutProvider), LayoutType.bigGrid);
 
-    firstRun
-        .read(collectionLayoutProvider(CollectionLayoutKey.history).notifier)
-        .set(LayoutType.smallGrid);
-    firstRun
-        .read(collectionLayoutProvider(CollectionLayoutKey.playlists).notifier)
-        .set(LayoutType.list);
-    firstRun
-        .read(collectionLayoutProvider(CollectionLayoutKey.downloads).notifier)
-        .set(LayoutType.smallGrid);
+    final notifier = firstRun.read(audioLayoutProvider.notifier);
+    notifier.set(LayoutType.smallGrid);
+    expect(firstRun.read(audioLayoutProvider), LayoutType.smallGrid);
+    notifier.cycle();
+    expect(firstRun.read(audioLayoutProvider), LayoutType.list);
+    notifier.cycle();
+    expect(firstRun.read(audioLayoutProvider), LayoutType.bigGrid);
+    notifier.cycle();
+    expect(firstRun.read(audioLayoutProvider), LayoutType.smallGrid);
     await _flushPreferenceLoads();
 
     final preferences = await SharedPreferences.getInstance();
+    expect(AudioLayoutNotifier.preferenceKey, 'audio_collection_layout_type');
     expect(
-      preferences.getString('collection_history_layout_type'),
+      preferences.getString(AudioLayoutNotifier.preferenceKey),
+      LayoutType.smallGrid.name,
+    );
+    expect(preferences.getString('works_layout_type'), 'list');
+    expect(preferences.getString('my_reviews_layout_type'), 'smallGrid');
+    expect(preferences.getString('collection_history_layout_type'), 'list');
+    expect(
+      preferences.getString('collection_playlists_layout_type'),
       'smallGrid',
     );
-    expect(preferences.getString('collection_playlists_layout_type'), 'list');
-    expect(
-      preferences.getString('collection_downloads_layout_type'),
-      'smallGrid',
-    );
+    expect(preferences.getString('collection_downloads_layout_type'), 'list');
 
     firstRun.dispose();
     final restored = ProviderContainer();
     addTearDown(restored.dispose);
-    for (final key in CollectionLayoutKey.values) {
-      restored.read(collectionLayoutProvider(key));
-    }
+    expect(restored.read(audioLayoutProvider), LayoutType.bigGrid);
     await _flushPreferenceLoads();
-
-    expect(
-      restored.read(collectionLayoutProvider(CollectionLayoutKey.history)),
-      LayoutType.smallGrid,
-    );
-    expect(
-      restored.read(collectionLayoutProvider(CollectionLayoutKey.playlists)),
-      LayoutType.list,
-    );
-    expect(
-      restored.read(collectionLayoutProvider(CollectionLayoutKey.downloads)),
-      LayoutType.smallGrid,
-    );
+    expect(restored.read(audioLayoutProvider), LayoutType.smallGrid);
   });
 }

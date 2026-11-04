@@ -1570,12 +1570,6 @@ abstract class S {
   /// **'Playback Queue'**
   String get playlistTitle;
 
-  /// No description provided for @currentPlaybackQueue.
-  ///
-  /// In en, this message translates to:
-  /// **'Current queue'**
-  String get currentPlaybackQueue;
-
   /// No description provided for @playbackQueueHistory.
   ///
   /// In en, this message translates to:

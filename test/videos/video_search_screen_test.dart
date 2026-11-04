@@ -49,6 +49,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('search-filter-toggle')), findsNothing);
 
+    final l10n = await S.delegate.load(const Locale('en'));
+    final history = find.byKey(const ValueKey('video-search-history-toggle'));
+    expect(history.hitTestable(), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.close);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    expect(submitted, isEmpty);
+
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
       'actor',
@@ -59,7 +71,6 @@ void main() {
     expect(find.text('Video result'), findsOneWidget);
     expect(find.byType(PaginationBar), findsOneWidget);
 
-    final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
     expect(find.text('actor'), findsOneWidget);
@@ -88,7 +99,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.history), findsNothing);
+    expect(history.hitTestable(), findsOneWidget);
+    expect(find.text(l10n.noSearchHistory), findsOneWidget);
   });
 
   testWidgets('first input tap suggests history and fills only its keyword', (

@@ -27,13 +27,6 @@ enum MyReviewFilter {
   const MyReviewFilter(this.value, this.label);
 }
 
-/// 布局类型枚举
-enum MyReviewLayoutType {
-  bigGrid, // 大网格（2列）
-  smallGrid, // 小网格（3列）
-  list, // 列表视图
-}
-
 class MyReviewsState extends Equatable {
   final List<Work> works;
   final List<Work> rawWorks;
@@ -47,7 +40,6 @@ class MyReviewsState extends Equatable {
   final bool hasMore;
   final MyReviewFilter filter;
   final int pageSize;
-  final MyReviewLayoutType layoutType;
   final SortOrder sortType;
   final SortDirection sortOrder;
   final int subtitleFilter; // 0: 全部, 1: 有字幕
@@ -67,7 +59,6 @@ class MyReviewsState extends Equatable {
     this.hasMore = true,
     this.filter = MyReviewFilter.all,
     this.pageSize = 20,
-    this.layoutType = MyReviewLayoutType.bigGrid,
     this.sortType = SortOrder.updatedAt,
     this.sortOrder = SortDirection.desc,
     this.subtitleFilter = 0,
@@ -86,7 +77,6 @@ class MyReviewsState extends Equatable {
     bool? hasMore,
     MyReviewFilter? filter,
     int? pageSize,
-    MyReviewLayoutType? layoutType,
     SortOrder? sortType,
     SortDirection? sortOrder,
     int? subtitleFilter,
@@ -104,7 +94,6 @@ class MyReviewsState extends Equatable {
       hasMore: hasMore ?? this.hasMore,
       filter: filter ?? this.filter,
       pageSize: pageSize ?? this.pageSize,
-      layoutType: layoutType ?? this.layoutType,
       sortType: sortType ?? this.sortType,
       sortOrder: sortOrder ?? this.sortOrder,
       subtitleFilter: subtitleFilter ?? this.subtitleFilter,
@@ -125,7 +114,6 @@ class MyReviewsState extends Equatable {
     hasMore,
     filter,
     pageSize,
-    layoutType,
     sortType,
     sortOrder,
     subtitleFilter,
@@ -133,17 +121,11 @@ class MyReviewsState extends Equatable {
 }
 
 class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
-  static const String layoutPreferenceKey = 'my_reviews_layout_type';
   static const String filterPreferenceKey = 'my_reviews_filter';
 
   final KikoeruApiService _apiService;
   final PagedRequestGate _requestGate = PagedRequestGate();
   List<Work>? _subtitledWorks;
-  final _layoutPreference = PersistentEnumPreference<MyReviewLayoutType>(
-    key: layoutPreferenceKey,
-    values: MyReviewLayoutType.values,
-    fallback: MyReviewLayoutType.bigGrid,
-  );
   final _filterPreference = PersistentEnumPreference<MyReviewFilter>(
     key: filterPreferenceKey,
     values: MyReviewFilter.values,
@@ -153,22 +135,7 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
 
   MyReviewsNotifier(this._apiService, Ref ref, {int initialPageSize = 20})
     : super(MyReviewsState(pageSize: initialPageSize)) {
-    preferencesReady = _loadPreferences();
-  }
-
-  Future<void> _loadPreferences() async {
-    await Future.wait([_loadLayoutPreference(), _loadFilterPreference()]);
-  }
-
-  Future<void> _loadLayoutPreference() async {
-    final layoutType = await _layoutPreference.load();
-    if (!mounted || layoutType == null) return;
-
-    state = state.copyWith(
-      layoutType: layoutType,
-      error: state.error,
-      loadMoreError: state.loadMoreError,
-    );
+    preferencesReady = _loadFilterPreference();
   }
 
   Future<void> _loadFilterPreference() async {
@@ -376,22 +343,6 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
       totalCount: 0,
     );
     load(targetPage: 1, supersede: true);
-  }
-
-  // 切换布局类型
-  void toggleLayoutType() {
-    final nextLayout = switch (state.layoutType) {
-      MyReviewLayoutType.bigGrid => MyReviewLayoutType.smallGrid,
-      MyReviewLayoutType.smallGrid => MyReviewLayoutType.list,
-      MyReviewLayoutType.list => MyReviewLayoutType.bigGrid,
-    };
-    setLayoutType(nextLayout);
-  }
-
-  void setLayoutType(MyReviewLayoutType layoutType) {
-    if (state.layoutType == layoutType) return;
-    state = state.copyWith(layoutType: layoutType);
-    unawaited(_layoutPreference.save(layoutType));
   }
 
   Future<void> refresh() =>

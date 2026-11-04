@@ -117,9 +117,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   bool get _compactQueueEntry {
     final routeNavigator = navigator;
-    return _prepareInitialFrame &&
-        routeNavigator != null &&
-        !usesWidePlayerLayout(MediaQuery.sizeOf(routeNavigator.context).width);
+    if (!_prepareInitialFrame || routeNavigator == null) return false;
+    final size = MediaQuery.sizeOf(routeNavigator.context);
+    return !usesWidePlayerLayout(size.width, height: size.height);
   }
 
   @override

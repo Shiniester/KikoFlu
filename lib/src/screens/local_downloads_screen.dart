@@ -691,9 +691,7 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     final endIndex = (startIndex + _pageSize).clamp(0, totalCount);
     final currentPageWorkIds = sortedWorkIds.sublist(startIndex, endIndex);
     final toolbarTop = widget.toolbarTop;
-    final layoutType = ref.watch(
-      collectionLayoutProvider(CollectionLayoutKey.downloads),
-    );
+    final layoutType = ref.watch(audioLayoutProvider);
     return Stack(
       children: [
         Positioned.fill(
@@ -970,21 +968,13 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             onPressed: _refreshMetadata,
           ),
           FloatingToolbarIconButton(
-            icon: switch (ref.watch(
-              collectionLayoutProvider(CollectionLayoutKey.downloads),
-            )) {
+            icon: switch (ref.watch(audioLayoutProvider)) {
               LayoutType.bigGrid => Icons.grid_view,
               LayoutType.smallGrid => Icons.grid_on,
               LayoutType.list => Icons.view_list,
             },
             tooltip: S.of(context).layout,
-            onPressed: () => ref
-                .read(
-                  collectionLayoutProvider(
-                    CollectionLayoutKey.downloads,
-                  ).notifier,
-                )
-                .cycle(),
+            onPressed: () => ref.read(audioLayoutProvider.notifier).cycle(),
           ),
           FloatingToolbarIconButton(
             icon: Icons.sort,

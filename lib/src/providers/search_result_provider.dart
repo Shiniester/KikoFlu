@@ -12,6 +12,7 @@ import '../providers/works_provider.dart';
 import '../models/sort_options.dart';
 import 'auth_provider.dart';
 import 'audio_source_provider.dart';
+import 'collection_layout_provider.dart';
 import 'settings_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
@@ -379,7 +380,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   }
 
   void toggleLayoutType() {
-    _ref.read(worksProvider.notifier).toggleLayoutType();
+    _ref.read(audioLayoutProvider.notifier).cycle();
   }
 
   void syncLayoutType(LayoutType layoutType) {
@@ -479,11 +480,8 @@ final searchResultProvider =
         initialPageSize: pageSize,
       );
 
-      notifier.syncLayoutType(ref.read(worksProvider).layoutType);
-      ref.listen(worksProvider.select((state) => state.layoutType), (
-        previous,
-        next,
-      ) {
+      notifier.syncLayoutType(ref.read(audioLayoutProvider));
+      ref.listen(audioLayoutProvider, (previous, next) {
         if (previous != next) notifier.syncLayoutType(next);
       });
 

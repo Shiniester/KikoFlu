@@ -22,7 +22,8 @@ The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
 
 **Video Collection Layout (视频集合布局)**:
-The presentation of video cards as a big grid, small grid, or list.
+The presentation of video cards and Video Playlist cards as a big grid, small
+grid, or list.
 _Avoid_: Video playback mode
 
 **Four-line Card Title Height (作品卡片四行标题高度)**:
@@ -146,6 +147,12 @@ the menu button, current page name, and an entry to the scoped search screen.
 The sidebar shows the current page's options beneath its page entry, with shared
 browsing options in a separate group; swiping right across the main content opens it.
 _Avoid_: Home page, My page
+
+**Audio Collection Layout (音声集合布局)**:
+The shared presentation of audio work and playlist cards on the Audio Screen and
+in audio search results: big grid, small grid, or list. It excludes the subtitle
+library's hierarchical file list.
+_Avoid_: Audio player layout
 
 **Audio History Visit (音声历史浏览)**:
 A visit to audio history that ends when switching to another Audio Screen page or
@@ -382,6 +389,11 @@ _Avoid_: Player playlist page, playlist screen
 A previously used audio playback queue retained for later browsing. It is
 distinct from per-work playback history and account playlists.
 _Avoid_: Playback history, account playlist
+
+**Queue Ordinal (队列序号)**:
+The position of a playback queue among the current queue and retained Historical
+Playback Queues. It is distinct from a track's position within a queue.
+_Avoid_: Track position, track index
 
 **Audio Add Mode (音频添加模式)**:
 The global preference that determines how selecting an audio item changes the

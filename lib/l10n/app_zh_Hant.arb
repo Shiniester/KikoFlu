@@ -276,7 +276,6 @@
   "loadFileListFailed": "載入檔案清單失敗: {error}",
 
   "playlistTitle": "播放佇列",
-  "currentPlaybackQueue": "目前播放佇列",
   "playbackQueueHistory": "歷史播放佇列",
   "queueBrowserPagePosition": "第 {current}/{total} 頁",
   "clearPlaybackQueueTitle": "清空播放清單？",

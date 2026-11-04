@@ -1233,14 +1233,13 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
               sortButton(),
             advancedFiltersButton(),
           ],
-          if (widget.category == null)
-            IconButton(
-              key: const ValueKey('comic-search-history-toggle'),
-              tooltip: _showHistory ? s.close : s.searchHistory,
-              icon: const Icon(Icons.history),
-              visualDensity: const VisualDensity(horizontal: -2),
-              onPressed: () => setState(() => _showHistory = !_showHistory),
-            ),
+          IconButton(
+            key: const ValueKey('comic-search-history-toggle'),
+            tooltip: _showHistory ? s.close : s.searchHistory,
+            icon: const Icon(Icons.history),
+            visualDensity: const VisualDensity(horizontal: -2),
+            onPressed: () => setState(() => _showHistory = !_showHistory),
+          ),
         ],
       ),
       body: LayoutBuilder(

@@ -2,10 +2,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
 import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+    show LayoutType;
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -102,12 +104,12 @@ void main() {
   });
 
   test(
-    'global search shares the home layout while reviews keep their own layout',
+    'global search shares audio layout while review filters stay independent',
     () async {
       SharedPreferences.setMockInitialValues({
-        WorksNotifier.layoutPreferenceKey: LayoutType.smallGrid.name,
-        MyReviewsNotifier.layoutPreferenceKey:
-            MyReviewLayoutType.smallGrid.name,
+        'works_layout_type': LayoutType.list.name,
+        'my_reviews_layout_type': LayoutType.smallGrid.name,
+        'collection_history_layout_type': LayoutType.list.name,
         MyReviewsNotifier.filterPreferenceKey: MyReviewFilter.listening.name,
       });
       await StorageService.initCritical(
@@ -125,26 +127,19 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      expect(container.read(worksProvider).layoutType, LayoutType.bigGrid);
+      expect(container.read(audioLayoutProvider), LayoutType.bigGrid);
       expect(
         container.read(searchResultProvider).layoutType,
         SearchLayoutType.bigGrid,
       );
-      expect(
-        container.read(myReviewsProvider).layoutType,
-        MyReviewLayoutType.bigGrid,
-      );
 
+      await container.read(myReviewsProvider.notifier).preferencesReady;
       await _pumpAsyncPreferenceLoad();
 
-      expect(container.read(worksProvider).layoutType, LayoutType.smallGrid);
+      expect(container.read(audioLayoutProvider), LayoutType.bigGrid);
       expect(
         container.read(searchResultProvider).layoutType,
-        SearchLayoutType.smallGrid,
-      );
-      expect(
-        container.read(myReviewsProvider).layoutType,
-        MyReviewLayoutType.smallGrid,
+        SearchLayoutType.bigGrid,
       );
       expect(
         container.read(myReviewsProvider).filter,
@@ -153,32 +148,34 @@ void main() {
       await container.read(myReviewsProvider.notifier).load();
       expect(apiService.lastReviewFilter, MyReviewFilter.listening.value);
 
-      container.read(searchResultProvider.notifier).toggleLayoutType();
-      expect(container.read(worksProvider).layoutType, LayoutType.list);
+      container.read(audioLayoutProvider.notifier).set(LayoutType.smallGrid);
+      expect(container.read(audioLayoutProvider), LayoutType.smallGrid);
+      expect(
+        container.read(searchResultProvider).layoutType,
+        SearchLayoutType.smallGrid,
+      );
+      container
+          .read(myReviewsProvider.notifier)
+          .changeFilter(MyReviewFilter.listened);
+      container.read(audioLayoutProvider.notifier).cycle();
+      expect(container.read(audioLayoutProvider), LayoutType.list);
       expect(
         container.read(searchResultProvider).layoutType,
         SearchLayoutType.list,
       );
-      container.read(myReviewsProvider.notifier).toggleLayoutType();
-      container
-          .read(myReviewsProvider.notifier)
-          .changeFilter(MyReviewFilter.listened);
       await _pumpAsyncPreferenceLoad();
 
       final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString(WorksNotifier.layoutPreferenceKey),
+        prefs.getString(AudioLayoutNotifier.preferenceKey),
         LayoutType.list.name,
       );
       expect(prefs.containsKey('search_result_layout_type'), isFalse);
       expect(
-        prefs.getString(MyReviewsNotifier.layoutPreferenceKey),
-        MyReviewLayoutType.list.name,
-      );
-      expect(
         prefs.getString(MyReviewsNotifier.filterPreferenceKey),
         MyReviewFilter.listened.name,
       );
+      expect(container.read(myReviewsProvider).filter, MyReviewFilter.listened);
     },
   );
 }

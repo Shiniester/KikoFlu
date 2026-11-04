@@ -17,7 +17,7 @@ import '../providers/audio_source_provider.dart';
 import '../providers/collection_layout_provider.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/unified_search_history_provider.dart';
-import '../providers/works_provider.dart' show LayoutType, worksProvider;
+import '../providers/works_provider.dart' show LayoutType;
 import '../utils/l10n_extensions.dart';
 import '../utils/server_utils.dart';
 import '../utils/snackbar_util.dart';
@@ -977,7 +977,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
         ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
     final theme = Theme.of(context);
-    final resultLayoutType = _watchResultLayoutType();
+    final resultLayoutType = ref.watch(audioLayoutProvider);
     return GestureDetector(
       // 点击任何地方（包括 AppBar）都取消焦点，关闭下拉框
       onTap: () {
@@ -1084,7 +1084,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                                 visualDensity: const VisualDensity(
                                   horizontal: -2,
                                 ),
-                                onPressed: _toggleResultLayoutType,
+                                onPressed: () => ref
+                                    .read(audioLayoutProvider.notifier)
+                                    .cycle(),
                               ),
                               if ((widget.scope == null ||
                                       widget.scope ==
@@ -1149,22 +1151,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                                         ),
                                       ),
                                 ),
-                              if (_hasSubmittedSearch)
-                                IconButton(
-                                  key: const ValueKey(
-                                    'audio-search-history-toggle',
-                                  ),
-                                  tooltip: _showHistory
-                                      ? S.of(context).close
-                                      : S.of(context).searchHistory,
-                                  icon: const Icon(Icons.history),
-                                  visualDensity: const VisualDensity(
-                                    horizontal: -2,
-                                  ),
-                                  onPressed: () => setState(
-                                    () => _showHistory = !_showHistory,
-                                  ),
+                              IconButton(
+                                key: const ValueKey(
+                                  'audio-search-history-toggle',
                                 ),
+                                tooltip: _showHistory
+                                    ? S.of(context).close
+                                    : S.of(context).searchHistory,
+                                icon: const Icon(Icons.history),
+                                visualDensity: const VisualDensity(
+                                  horizontal: -2,
+                                ),
+                                onPressed: () => setState(
+                                  () => _showHistory = !_showHistory,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1402,63 +1403,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       ),
     ],
   );
-
-  LayoutType _watchResultLayoutType() {
-    return switch (widget.scope) {
-      null || SearchScope.globalWorks => ref.watch(
-        worksProvider.select((state) => state.layoutType),
-      ),
-      SearchScope.onlineMarks => switch (ref.watch(
-        myReviewsProvider.select((state) => state.layoutType),
-      )) {
-        MyReviewLayoutType.bigGrid => LayoutType.bigGrid,
-        MyReviewLayoutType.smallGrid => LayoutType.smallGrid,
-        MyReviewLayoutType.list => LayoutType.list,
-      },
-      SearchScope.history => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.history),
-      ),
-      SearchScope.playlists => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.playlists),
-      ),
-      SearchScope.downloads => ref.watch(
-        collectionLayoutProvider(CollectionLayoutKey.downloads),
-      ),
-    };
-  }
-
-  void _toggleResultLayoutType() {
-    switch (widget.scope) {
-      case null:
-      case SearchScope.globalWorks:
-        ref.read(worksProvider.notifier).toggleLayoutType();
-        break;
-      case SearchScope.onlineMarks:
-        ref.read(myReviewsProvider.notifier).toggleLayoutType();
-        break;
-      case SearchScope.history:
-        ref
-            .read(
-              collectionLayoutProvider(CollectionLayoutKey.history).notifier,
-            )
-            .cycle();
-        break;
-      case SearchScope.playlists:
-        ref
-            .read(
-              collectionLayoutProvider(CollectionLayoutKey.playlists).notifier,
-            )
-            .cycle();
-        break;
-      case SearchScope.downloads:
-        ref
-            .read(
-              collectionLayoutProvider(CollectionLayoutKey.downloads).notifier,
-            )
-            .cycle();
-        break;
-    }
-  }
 
   IconData _layoutIcon(LayoutType layoutType) => switch (layoutType) {
     LayoutType.bigGrid => Icons.grid_view,

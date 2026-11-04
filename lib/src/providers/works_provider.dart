@@ -16,7 +16,6 @@ import '../models/sort_options.dart';
 import 'audio_source_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
-import '../utils/persistent_enum_preference.dart';
 
 final _log = LogService.instance;
 
@@ -117,7 +116,6 @@ class WorksModeSnapshot extends Equatable {
 class WorksState extends Equatable {
   static const _noArchiveDate = Object();
 
-  final LayoutType layoutType;
   final SortOrder sortOption;
   final SortDirection sortDirection;
   final JapaneseAsmrSortOption japaneseAsmrSortOption;
@@ -140,7 +138,6 @@ class WorksState extends Equatable {
       : japaneseAsmrCommentsPeriod;
 
   WorksState({
-    this.layoutType = LayoutType.bigGrid, // 默认大网格布局
     this.sortOption = SortOrder.release,
     this.sortDirection = SortDirection.desc,
     this.japaneseAsmrSortOption = JapaneseAsmrSortOption.date,
@@ -157,7 +154,6 @@ class WorksState extends Equatable {
   }) : modeStates = modeStates ?? _createInitialModeStates();
 
   WorksState copyWith({
-    LayoutType? layoutType,
     SortOrder? sortOption,
     SortDirection? sortDirection,
     JapaneseAsmrSortOption? japaneseAsmrSortOption,
@@ -173,7 +169,6 @@ class WorksState extends Equatable {
     Map<DisplayMode, WorksModeSnapshot>? modeStates,
   }) {
     return WorksState(
-      layoutType: layoutType ?? this.layoutType,
       sortOption: sortOption ?? this.sortOption,
       sortDirection: sortDirection ?? this.sortDirection,
       japaneseAsmrSortOption:
@@ -221,7 +216,6 @@ class WorksState extends Equatable {
 
   @override
   List<Object?> get props => [
-    layoutType,
     sortOption,
     sortDirection,
     japaneseAsmrSortOption,
@@ -240,7 +234,6 @@ class WorksState extends Equatable {
 
 // Works notifier
 class WorksNotifier extends StateNotifier<WorksState> {
-  static const String layoutPreferenceKey = 'works_layout_type';
   static String _sortOptionPreferenceKey(AudioSource source) =>
       'works_sort_option_${source.name}';
   static String _sortDirectionPreferenceKey(AudioSource source) =>
@@ -248,11 +241,6 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   final KikoeruApiService _apiService;
   final Ref _ref;
-  final _layoutPreference = PersistentEnumPreference<LayoutType>(
-    key: layoutPreferenceKey,
-    values: LayoutType.values,
-    fallback: LayoutType.bigGrid,
-  );
   final Map<DisplayMode, PagedRequestGate> _requestGates = {
     for (final mode in DisplayMode.values) mode: PagedRequestGate(),
   };
@@ -260,7 +248,6 @@ class WorksNotifier extends StateNotifier<WorksState> {
   WorksNotifier(this._apiService, this._ref, {int initialPageSize = 40})
     : super(WorksState(basePageSize: initialPageSize)) {
     _loadSortPreferences();
-    _loadLayoutPreference();
   }
 
   void _loadSortPreferences() {
@@ -319,14 +306,6 @@ class WorksNotifier extends StateNotifier<WorksState> {
         direction.name,
       ),
     );
-  }
-
-  Future<void> _loadLayoutPreference() async {
-    final layoutType = await _layoutPreference.load();
-    if (!mounted || layoutType == null || layoutType == state.layoutType) {
-      return;
-    }
-    state = state.copyWith(layoutType: layoutType);
   }
 
   WorksModeSnapshot _getModeState(DisplayMode mode) {
@@ -728,28 +707,6 @@ class WorksNotifier extends StateNotifier<WorksState> {
         ? SortDirection.desc
         : SortDirection.asc;
     setSortDirection(newDirection);
-  }
-
-  void setLayoutType(LayoutType layoutType) {
-    if (state.layoutType == layoutType) return;
-    state = state.copyWith(layoutType: layoutType);
-    unawaited(_layoutPreference.save(layoutType));
-  }
-
-  void toggleLayoutType() {
-    late LayoutType newLayoutType;
-    switch (state.layoutType) {
-      case LayoutType.bigGrid:
-        newLayoutType = LayoutType.smallGrid;
-        break;
-      case LayoutType.smallGrid:
-        newLayoutType = LayoutType.list;
-        break;
-      case LayoutType.list:
-        newLayoutType = LayoutType.bigGrid;
-        break;
-    }
-    setLayoutType(newLayoutType);
   }
 
   void clearError() {

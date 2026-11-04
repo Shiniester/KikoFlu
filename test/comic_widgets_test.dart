@@ -4791,6 +4791,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('comic category search history toggles without searching again', (
+    tester,
+  ) async {
+    final source = _Source();
+    await pump(
+      tester,
+      const ComicSearchScreen(
+        initialSource: 'fixture',
+        category: ComicCategory('fixture-category', 'Fixture category'),
+      ),
+      _Library(),
+      source,
+    );
+    await waitForFinder(tester, find.text(_comic.title));
+
+    final s = S.of(tester.element(find.byType(ComicSearchScreen)));
+    final history = find.byKey(const ValueKey('comic-search-history-toggle'));
+    final searches = source.searches;
+    expect(history.hitTestable(), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, s.searchHistory);
+    expect(find.byType(SearchHistorySection), findsNothing);
+
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsOneWidget);
+    expect(find.text(_comic.title), findsNothing);
+    expect(tester.widget<IconButton>(history).tooltip, s.close);
+
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchHistorySection), findsNothing);
+    expect(find.text(_comic.title), findsOneWidget);
+    expect(tester.widget<IconButton>(history).tooltip, s.searchHistory);
+    expect(source.searches, searches);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic search history toggles without clearing the result', (
     tester,
   ) async {

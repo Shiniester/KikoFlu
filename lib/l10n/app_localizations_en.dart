@@ -804,9 +804,6 @@ class SEn extends S {
   String get playlistTitle => 'Playback Queue';
 
   @override
-  String get currentPlaybackQueue => 'Current queue';
-
-  @override
   String get playbackQueueHistory => 'Playback queue history';
 
   @override

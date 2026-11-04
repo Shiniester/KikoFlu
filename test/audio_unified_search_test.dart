@@ -16,6 +16,7 @@ import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart'
@@ -154,7 +155,8 @@ void main() {
   testWidgets('search header actions are separate and left aligned', (
     tester,
   ) async {
-    await _pumpSearch(tester, _AudioSearchApi());
+    final api = _AudioSearchApi();
+    await _pumpSearch(tester, api);
     final l10n = await S.delegate.load(const Locale('en'));
     final appBarFinder = find.byType(AppBar);
     final appBar = tester.widget<AppBar>(appBarFinder);
@@ -179,6 +181,7 @@ void main() {
       Icons.closed_caption_disabled,
       Icons.sort,
       Icons.tune,
+      Icons.history,
     ]);
     expect(
       buttons.every(
@@ -186,6 +189,16 @@ void main() {
       ),
       isTrue,
     );
+
+    final history = find.byKey(const ValueKey('audio-search-history-toggle'));
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.close);
+    await tester.tap(history);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(history).tooltip, l10n.searchHistory);
+    expect(api.calls, isEmpty);
   });
 
   for (final width in [320.0, 840.0]) {
@@ -420,7 +433,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('global search uses the home layout during loading and refresh', (
+  testWidgets('global search uses the shared audio layout during refresh', (
     tester,
   ) async {
     final api = _AudioSearchApi();
@@ -428,6 +441,10 @@ void main() {
     await _pumpSearch(tester, api);
     await tester.tap(find.byKey(const ValueKey('audio-search-layout-toggle')));
     await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SearchScreen)),
+    );
+    expect(container.read(audioLayoutProvider), LayoutType.smallGrid);
 
     await tester.enterText(find.byType(TextField).first, 'layout query');
     await tester.tap(find.byKey(const ValueKey('audio-search-submit')));

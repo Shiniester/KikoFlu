@@ -156,7 +156,7 @@ Future<_HistoryHarness> _pumpHistoryTabs(
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   SharedPreferences.setMockInitialValues({
-    'collection_history_layout_type': layout.name,
+    AudioLayoutNotifier.preferenceKey: layout.name,
   });
   await StorageService.initCritical(
     preferences: await SharedPreferences.getInstance(),
@@ -374,12 +374,7 @@ void main() {
         );
         try {
           expect(harness.history.isVisible, isTrue);
-          expect(
-            harness.container.read(
-              collectionLayoutProvider(CollectionLayoutKey.history),
-            ),
-            layout,
-          );
+          expect(harness.container.read(audioLayoutProvider), layout);
           final columns = layout == LayoutType.bigGrid ? 2 : 3;
           final initialRow = _firstRowIds(tester, columns, recordCount);
           expect(initialRow, List.generate(columns, (index) => index + 1));

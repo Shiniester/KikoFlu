@@ -55,8 +55,15 @@ class _PlayerQueueReturnState {
 }
 
 const double playerWideLayoutBreakpoint = 840;
+const double playerShortStageWidthBreakpoint = 568;
+const double playerShortStageAspectRatio = 1.6;
+const double playerShortControlsHeightBreakpoint = 440;
+const double playerNarrowWideLayoutBreakpoint = 640;
 
-bool usesWidePlayerLayout(double width) => width >= playerWideLayoutBreakpoint;
+bool usesWidePlayerLayout(double width, {required double height}) =>
+    width >= playerWideLayoutBreakpoint ||
+    (width >= playerShortStageWidthBreakpoint &&
+        width >= height * playerShortStageAspectRatio);
 
 class AudioPlayerScreen extends ConsumerStatefulWidget {
   const AudioPlayerScreen({
@@ -420,9 +427,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   child: SafeArea(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
+                        final size = MediaQuery.sizeOf(context);
                         final isWide = usesWidePlayerLayout(
-                          constraints.maxWidth,
+                          size.width,
+                          height: size.height,
                         );
+                        _lastWasWide = isWide;
                         if (!isWide) {
                           _compactSharedWidth = math.max(
                             0,
@@ -584,6 +594,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                 builder: (context, constraints) {
                                   final isWide = usesWidePlayerLayout(
                                     constraints.maxWidth,
+                                    height: constraints.maxHeight,
                                   );
                                   _syncResponsivePageController(
                                     isWide,
@@ -595,6 +606,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                           track: track,
                                           coverUrl: coverUrl,
                                           previewPalette: palette,
+                                          availableWidth: constraints.maxWidth,
+                                          availableHeight:
+                                              constraints.maxHeight,
                                         )
                                       : _buildCompactPlayer(
                                           context,
@@ -895,16 +909,42 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required AudioTrack track,
     required String? coverUrl,
     required PlayerVisualPalette previewPalette,
+    required double availableWidth,
+    required double availableHeight,
   }) {
     final directQueueOnly = _directQueueEntry && !_playerPagesActivated;
-    final width = MediaQuery.sizeOf(context).width;
+    final shortStage = availableHeight <= playerShortControlsHeightBreakpoint;
     final titleDismissDrag = _dismissCoordinator.callbacks(context);
     final mainBodyDismissDrag = _dismissCoordinator.callbacks(
       context,
       mainBodyOnly: true,
     );
-    final outerPadding = width >= 1200 ? 48.0 : 24.0;
-    final gap = width >= 1200 ? 40.0 : 20.0;
+    final safeAreaPadding = MediaQuery.paddingOf(context);
+    final safeWidth = math.max(
+      0.0,
+      availableWidth - safeAreaPadding.horizontal,
+    );
+    final outerPadding = safeWidth >= 1200
+        ? 48.0
+        : safeWidth < playerNarrowWideLayoutBreakpoint
+        ? 8.0
+        : safeWidth < playerWideLayoutBreakpoint
+        ? 16.0
+        : 24.0;
+    final rowWidth =
+        availableWidth -
+        math.max(safeAreaPadding.left, outerPadding) -
+        math.max(safeAreaPadding.right, outerPadding);
+    final narrowWide = rowWidth < playerNarrowWideLayoutBreakpoint;
+    final gap = safeWidth >= 1200
+        ? 40.0
+        : narrowWide
+        ? 12.0
+        : 20.0;
+    // The main controls need 266 px plus the pane's 12 px padding on each side.
+    final rightPaneWidth = narrowWide
+        ? math.max(290.0, (rowWidth - gap) * 0.55)
+        : (rowWidth - gap) / 2;
     final wideRightPageChildren = <Widget>[
       _withOriginalPlayerGestureSettings(
         context,
@@ -947,6 +987,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             track: track,
             isWide: true,
             showTrackHeader: false,
+            shortStage: shortStage,
             dismissDrag: mainBodyDismissDrag,
           ),
         ),
@@ -993,7 +1034,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             ),
           ),
           SizedBox(width: gap),
-          Expanded(
+          SizedBox(
+            width: rightPaneWidth,
             child: NotificationListener<ScrollNotification>(
               onNotification: (notification) => _handlePageScrollNotification(
                 notification,
@@ -1551,7 +1593,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
-  Widget _buildLyricPreview(AudioTrack track) {
+  Widget _buildLyricPreview(
+    AudioTrack track, {
+    int lineCount = 5,
+    bool compact = false,
+  }) {
     return InkWell(
       key: const ValueKey('player-lyric-preview'),
       borderRadius: BorderRadius.circular(12),
@@ -1568,7 +1614,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             return hasLyrics
                 ? ThreeLineLyricDisplay(
                     onSeekRequested: (_) => _showLyrics(),
-                    lineCount: 5,
+                    compact: compact,
+                    lineCount: lineCount,
                     textHorizontalPadding: 16,
                   )
                 : LyricDisplay(albumName: track.album);
@@ -1582,6 +1629,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     BuildContext context, {
     required AudioTrack track,
     required bool isWide,
+    bool shortStage = false,
     bool showTrackHeader = true,
     bool enableQueueGesture = true,
     double? horizontalPadding,
@@ -1613,7 +1661,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             : _compactSharedWidth! + 24,
       ),
     );
-    final content = Align(
+    Widget buildContent({int previewLineCount = 5}) => Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680),
@@ -1622,7 +1670,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           child: Padding(
             padding: EdgeInsets.symmetric(
               horizontal: horizontalPadding ?? 12,
-              vertical: isWide ? 18 : 0,
+              vertical: isWide && !shortStage ? 18 : 0,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1656,7 +1704,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     key: const ValueKey('wide-controls-lyric-preview-surface'),
                     swipeDownDrag: dismissDrag,
                     pageDragCoordinator: _widePageHandoff,
-                    child: _buildLyricPreview(track),
+                    child: _buildLyricPreview(
+                      track,
+                      lineCount: previewLineCount,
+                      compact: previewLineCount == 3,
+                    ),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -1671,7 +1723,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     if (!isWide) {
       return KeyedSubtree(
         key: const ValueKey('controls-pane-compact'),
-        child: content,
+        child: buildContent(),
       );
     }
 
@@ -1683,7 +1735,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       children: [
         if (enableQueueGesture)
           SizedBox(
-            height: 72,
+            height: shortStage ? 48 : 72,
             width: double.infinity,
             child: PlayerVerticalSwipeRegion(
               key: const ValueKey('controls-queue-swipe-surface-wide'),
@@ -1695,6 +1747,21 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final timeStyle = Theme.of(context).textTheme.bodySmall;
+              final timeLabelHeight =
+                  MediaQuery.textScalerOf(
+                    context,
+                  ).scale(timeStyle?.fontSize ?? 12) *
+                  (timeStyle?.height ?? 1);
+              // Reserve the progress row and playback buttons before expanding lyrics.
+              const fullPreviewHeight = 144.0 + 20 + 12;
+              final primaryControlsHeight = 32 + timeLabelHeight + 18 + 62;
+              final fiveLineContentHeight =
+                  fullPreviewHeight +
+                  primaryControlsHeight +
+                  (shortStage ? 0 : 36);
+              final previewLineCount =
+                  constraints.maxHeight >= fiveLineContentHeight ? 5 : 3;
               return PlayerScrollEdgeActions(
                 pullDownDrag: dismissDrag,
                 child: KeyedSubtree(
@@ -1708,7 +1775,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       constraints: BoxConstraints(
                         minHeight: constraints.maxHeight,
                       ),
-                      child: Center(child: content),
+                      child: Center(
+                        child: buildContent(previewLineCount: previewLineCount),
+                      ),
                     ),
                   ),
                 ),
@@ -1778,7 +1847,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       key: const ValueKey('player-queue-pane'),
       alignment: Alignment.center,
       child: SizedBox(
-        key: const ValueKey('player-queue-width-boundary'),
         width: double.infinity,
         child: Column(
           children: [
@@ -1805,6 +1873,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     : _compactPageHandoff,
                 showPageButtons: isWide,
                 horizontalPadding: isWide ? 0 : 10,
+                contentWidth: isWide ? null : _compactSharedWidth! + 20,
               ),
             ),
           ],
@@ -1832,8 +1901,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     if (_rightPane == PlayerRightPane.queue) {
       return PlayerDismissVisualMode.secondary;
     }
+    final size = MediaQuery.sizeOf(context);
     final isWide =
-        _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
+        _lastWasWide ?? usesWidePlayerLayout(size.width, height: size.height);
     return _isMainDismissSurfaceVisible(isWide: isWide)
         ? PlayerDismissVisualMode.main
         : PlayerDismissVisualMode.secondary;
@@ -1967,7 +2037,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required int widePage,
     required int compactPage,
   }) {
-    final controller = usesWidePlayerLayout(MediaQuery.sizeOf(context).width)
+    final size = MediaQuery.sizeOf(context);
+    final controller =
+        (_lastWasWide ?? usesWidePlayerLayout(size.width, height: size.height))
         ? wideController
         : _compactPageController;
     final page = identical(controller, _compactPageController)
@@ -2124,7 +2196,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _dismissCoordinator.scheduleVisualModeSync(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (usesWidePlayerLayout(MediaQuery.sizeOf(context).width)) {
+      final size = MediaQuery.sizeOf(context);
+      if ((_lastWasWide ??
+          usesWidePlayerLayout(size.width, height: size.height))) {
         if (_wideRightPageController.hasClients) {
           _wideRightPageController.jumpToPage(_pageForRightPane(restoredRight));
         }
@@ -2718,8 +2792,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   }
 
   bool _shouldShowTrackLoadingSpinner() {
+    final size = MediaQuery.sizeOf(context);
     final isWide =
-        _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
+        _lastWasWide ?? usesWidePlayerLayout(size.width, height: size.height);
     return _isPlayerCoverVisible(isWide: isWide);
   }
 

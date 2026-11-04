@@ -391,7 +391,6 @@
   },
 
   "playlistTitle": "Playback Queue",
-  "currentPlaybackQueue": "Current queue",
   "playbackQueueHistory": "Playback queue history",
   "queueBrowserPagePosition": "Page {current} of {total}",
   "@queueBrowserPagePosition": {

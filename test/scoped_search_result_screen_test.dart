@@ -17,7 +17,11 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+    show LayoutType;
+import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _ScopeApi extends KikoeruApiService {
@@ -204,6 +208,28 @@ SearchQuery _query(
 );
 
 void main() {
+  testWidgets('scoped results follow the shared audio layout', (tester) async {
+    final api = _ScopeApi()..singleMark = true;
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: _query(SearchScope.onlineMarks, SearchType.keyword, 'Need'),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byType(EnhancedWorkCard).first;
+    expect(tester.widget<EnhancedWorkCard>(card).isListLayout, isFalse);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ScopedSearchResultScreen)),
+    );
+    container.read(audioLayoutProvider.notifier).set(LayoutType.list);
+    await tester.pumpAndSettle();
+
+    expect(container.read(audioLayoutProvider), LayoutType.list);
+    expect(tester.widget<EnhancedWorkCard>(card).isListLayout, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('rapid scope changes keep the last completed results', (
     tester,
   ) async {

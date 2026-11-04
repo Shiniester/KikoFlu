@@ -6,6 +6,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/providers/collection_layout_provider.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
@@ -24,7 +25,6 @@ class _SubtitleLibrary extends SubtitleLibraryNotifier {
 class _Works extends WorksNotifier {
   _Works(Ref ref) : super(KikoeruApiService(), ref) {
     state = WorksState(
-      layoutType: LayoutType.list,
       modeStates: {
         for (final mode in DisplayMode.values)
           mode: WorksModeSnapshot(
@@ -78,7 +78,9 @@ Widget _app(Widget child, {ValueNotifier<bool>? reduced}) => MaterialApp(
 
 void main() {
   setUp(() async {
-    SharedPreferences.setMockInitialValues({'works_layout_type': 'list'});
+    SharedPreferences.setMockInitialValues({
+      AudioLayoutNotifier.preferenceKey: 'list',
+    });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );

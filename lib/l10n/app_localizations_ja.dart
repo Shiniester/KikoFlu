@@ -787,9 +787,6 @@ class SJa extends S {
   String get playlistTitle => '再生キュー';
 
   @override
-  String get currentPlaybackQueue => '現在の再生キュー';
-
-  @override
   String get playbackQueueHistory => '再生キューの履歴';
 
   @override

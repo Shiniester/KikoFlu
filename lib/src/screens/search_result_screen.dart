@@ -8,10 +8,11 @@ import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
 import '../models/sort_options.dart';
 import '../providers/audio_source_provider.dart';
+import '../providers/collection_layout_provider.dart';
 import '../providers/search_result_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/works_provider.dart' show LayoutType, worksProvider;
+import '../providers/works_provider.dart' show LayoutType;
 import '../services/log_service.dart';
 import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
@@ -97,11 +98,8 @@ class SearchResultScreen extends StatelessWidget {
                 ),
           );
 
-          notifier.syncLayoutType(ref.read(worksProvider).layoutType);
-          ref.listen(worksProvider.select((state) => state.layoutType), (
-            previous,
-            next,
-          ) {
+          notifier.syncLayoutType(ref.read(audioLayoutProvider));
+          ref.listen(audioLayoutProvider, (previous, next) {
             if (previous != next) notifier.syncLayoutType(next);
           });
 
@@ -371,9 +369,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchResultProvider);
-    final layoutType = ref.watch(
-      worksProvider.select((state) => state.layoutType),
-    );
+    final layoutType = ref.watch(audioLayoutProvider);
     final currentSource = ref.watch(audioSourceProvider);
     final isJapaneseAsmr =
         widget.searchParams?['source'] == AudioSource.jpAsmr.name ||

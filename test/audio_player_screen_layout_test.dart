@@ -866,6 +866,166 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final scenario in [
+    (size: const Size(568, 320), padding: const FakeViewPadding()),
+    (
+      size: const Size(568, 320),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (size: const Size(640, 360), padding: const FakeViewPadding()),
+    (
+      size: const Size(640, 360),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (size: const Size(667, 375), padding: const FakeViewPadding()),
+    (size: const Size(736, 414), padding: const FakeViewPadding()),
+    (size: const Size(800, 360), padding: const FakeViewPadding()),
+    (
+      size: const Size(800, 360),
+      padding: const FakeViewPadding(left: 44, right: 21),
+    ),
+    (size: const Size(800, 412), padding: const FakeViewPadding()),
+    (
+      size: const Size(800, 412),
+      padding: const FakeViewPadding(top: 30, bottom: 24),
+    ),
+    (
+      size: const Size(800, 412),
+      padding: const FakeViewPadding(top: 24, bottom: 48),
+    ),
+    (size: const Size(900, 412), padding: const FakeViewPadding()),
+  ]) {
+    testWidgets(
+      'short landscape keeps playback controls visible at ${scenario.size} '
+      'with safe area ${scenario.padding.left},${scenario.padding.top},'
+      '${scenario.padding.right},${scenario.padding.bottom}',
+      (tester) async {
+        tester.view.padding = scenario.padding;
+        tester.view.viewPadding = scenario.padding;
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        final lyrics = List.generate(
+          8,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'short landscape lyric $index',
+          ),
+        );
+        await _pumpPlayer(
+          tester,
+          scenario.size,
+          lyrics: lyrics,
+          positionStream: Stream.value(const Duration(seconds: 3)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('wide-player-layout')),
+          findsOneWidget,
+        );
+        expect(
+          find
+              .descendant(
+                of: find.byKey(const ValueKey('player-lyric-preview')),
+                matching: find.text('short landscape lyric 3'),
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        final cover = tester.getRect(
+          find.byKey(const ValueKey('cover-pane-wide')),
+        );
+        final controls = tester.getRect(find.byType(PlayerControlsWidget));
+        expect(cover.right, lessThanOrEqualTo(controls.left));
+
+        final viewport = tester.getRect(
+          find.byKey(const PageStorageKey('player-wide-controls-scroll')),
+        );
+        for (final control in [
+          find.byType(PlayerProgressSection),
+          find.byType(PlayerPlayPauseButton),
+        ]) {
+          final rect = tester.getRect(control);
+          expect(rect.top, greaterThanOrEqualTo(viewport.top));
+          expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
+          expect(control.hitTestable(), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('short landscape keeps controls reachable with doubled text', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(800, 360),
+      textScale: 2,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'Current lyric with doubled text',
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    final playButton = find.byType(PlayerPlayPauseButton);
+    await tester.ensureVisible(playButton);
+    await tester.pumpAndSettle();
+    expect(playButton.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('short landscape queue stays open after rotation', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(800, 360));
+    await tester.fling(
+      find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+      const Offset(0, -240),
+      1200,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-vertical-player-pages')),
+    );
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('empty queue uses landscape layout inside safe area', (
+    tester,
+  ) async {
+    const padding = FakeViewPadding(left: 44, right: 21);
+    tester.view.padding = padding;
+    tester.view.viewPadding = padding;
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    await _pumpPlayer(
+      tester,
+      const Size(640, 360),
+      trackStream: Stream<AudioTrack?>.value(null),
+      queueStream: Stream<List<AudioTrack>>.value(const []),
+      initialSurface: PlayerInitialSurface.queue,
+      pushedRoute: true,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('player-queue-history-previous-button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('wide controls swipe to details and open lyrics from preview', (
     tester,
   ) async {
@@ -1148,7 +1308,7 @@ void main() {
   ) async {
     await _pumpPlayer(
       tester,
-      const Size(1280, 720),
+      const Size(800, 360),
       pushedRoute: true,
       initialSurface: PlayerInitialSurface.queue,
     );
@@ -1223,7 +1383,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.physicalSize = const Size(800, 360);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
@@ -3861,153 +4021,164 @@ void main() {
     expect(paintClip.contains(const Offset(1, 1)), isFalse);
   });
 
-  testWidgets('short compact stage gives the queue its full available width', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(839, 720));
+  testWidgets(
+    'short compact queue keeps a centered body in the full viewport',
+    (tester) async {
+      await _pumpPlayer(tester, const Size(839, 720));
 
-    final coverWidth = tester
-        .getSize(find.byKey(const ValueKey('player-cover-artwork-track-1')))
-        .width;
-    final controlsWidth = tester
-        .getSize(find.byKey(const ValueKey('controls-pane-compact')))
-        .width;
-    expect(controlsWidth, closeTo(coverWidth, 0.01));
+      final coverWidth = tester
+          .getSize(find.byKey(const ValueKey('player-cover-artwork-track-1')))
+          .width;
+      final controlsWidth = tester
+          .getSize(find.byKey(const ValueKey('controls-pane-compact')))
+          .width;
+      expect(controlsWidth, closeTo(coverWidth, 0.01));
 
-    await tester.tap(find.byIcon(Icons.queue_music));
-    await tester.pumpAndSettle();
-    final queueWidth = tester
-        .getSize(find.byKey(const ValueKey('player-queue-width-boundary')))
-        .width;
-    expect(queueWidth, closeTo(839, 0.01));
-    expect(
-      find.byKey(const ValueKey('player-queue-now-playing')),
-      findsNothing,
-    );
-    final queueArtwork = find.byKey(
-      const ValueKey('player-queue-artwork-track-1'),
-    );
-    expect(tester.getSize(queueArtwork), const Size(64, 48));
-    final decoration =
-        tester
-                .widget<DecoratedBox>(
-                  find.descendant(
-                    of: queueArtwork,
-                    matching: find.byType(DecoratedBox),
-                  ),
-                )
-                .decoration
-            as BoxDecoration;
-    expect(decoration.borderRadius, BorderRadius.circular(10));
-    final queueBoundary = tester.getRect(
-      find.byKey(const ValueKey('player-queue-width-boundary')),
-    );
-    final titleBar = tester.getRect(
-      find.byKey(const ValueKey('player-queue-title-bar')),
-    );
-    final queueTrackFinder = find.byKey(
-      const ValueKey('player-queue-track-track-1'),
-    );
-    final queueTrackContentFinder = find.byKey(
-      const ValueKey('player-queue-track-content-track-1'),
-    );
-    final queueTrack = tester.getRect(queueTrackFinder);
-    final queueList = tester.widget<ReorderableListView>(
-      find.byKey(const ValueKey('player-queue-list')),
-    );
-    expect(queueList.clipBehavior, isNot(Clip.none));
-    expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
-    expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
-    expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
-    expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
-    expect(
-      tester.getRect(queueArtwork).left,
-      closeTo(queueBoundary.left + 10, 0.01),
-    );
-    expect(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.text('Artist'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Artist · Album'), findsNothing);
-    final queueTitle = tester.widget<Text>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.text(_track.title),
-      ),
-    );
-    expect(queueTitle.style?.fontSize, 12.5);
-    expect(queueTitle.style?.height, 1.12);
-    final shiftedTextColumn = tester.widget<Transform>(
-      find
-          .descendant(
-            of: queueTrackContentFinder,
-            matching: find.byWidgetPredicate(
-              (widget) =>
-                  widget is Transform &&
-                  (widget.transform.storage[13] - 1).abs() < 0.001,
-            ),
-          )
-          .first,
-    );
-    expect(shiftedTextColumn.transform.storage[13], closeTo(1, 0.001));
-    final countText = tester.widget<Text>(find.text('1 / 1'));
-    final clearText = tester.widget<Text>(find.text('Clear'));
-    expect(clearText.style?.fontSize, countText.style?.fontSize);
-    expect(clearText.style?.color, countText.style?.color);
-    final clearTextRect = tester.getRect(find.text('Clear'));
-    final clearButtonRect = tester.getRect(
-      find.byKey(const ValueKey('player-queue-clear-button')),
-    );
-    expect(clearTextRect.right, closeTo(queueBoundary.right - 10, 0.01));
-    expect(clearButtonRect.right, closeTo(queueBoundary.right, 0.01));
-    expect(clearButtonRect.width, closeTo(clearTextRect.width + 20, 0.01));
-    expect(clearButtonRect.center.dx, closeTo(clearTextRect.center.dx, 0.01));
-    final queueInk = tester.widget<InkWell>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byType(InkWell),
-      ),
-    );
-    expect(
-      queueInk.overlayColor?.resolve({WidgetState.pressed}),
-      Colors.transparent,
-    );
-    expect(queueInk.splashFactory, same(NoSplash.splashFactory));
-    final removeIcon = tester.widget<Icon>(
-      find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byIcon(Icons.remove),
-      ),
-    );
-    expect(removeIcon.size, 18);
-    final removeButton = find.ancestor(
-      of: find.descendant(
-        of: queueTrackContentFinder,
-        matching: find.byIcon(Icons.remove),
-      ),
-      matching: find.byType(PlayerCompactAction),
-    );
-    expect(tester.getSize(removeButton), const Size(32, 32));
-    expect(
-      tester.getRect(removeButton).right,
-      closeTo(queueBoundary.right - 10, 0.01),
-    );
-    expect(
-      removeIcon.color,
-      Theme.of(
-        tester.element(queueTrackContentFinder),
-      ).colorScheme.onSurfaceVariant,
-    );
-    await tester.tapAt(
-      Offset(clearButtonRect.right - 2, clearButtonRect.center.dy),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Clear playback queue?'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      await tester.tap(find.byIcon(Icons.queue_music));
+      await tester.pumpAndSettle();
+      final queueBoundaryFinder = find.byKey(
+        const ValueKey('player-queue-width-boundary'),
+      );
+      final queueWidth = tester.getSize(queueBoundaryFinder).width;
+      final pageViewport = tester.getRect(
+        find.byKey(const ValueKey('player-queue-history-content')),
+      );
+      final queuePane = tester.getRect(
+        find.byKey(const ValueKey('player-queue-pane')),
+      );
+      expect(pageViewport.width, closeTo(839, 0.01));
+      expect(pageViewport.left, closeTo(queuePane.left, 0.01));
+      expect(pageViewport.right, closeTo(queuePane.right, 0.01));
+      expect(queueWidth, closeTo(coverWidth + 20, 0.01));
+      expect(queueWidth, lessThan(pageViewport.width));
+      expect(
+        find.byKey(const ValueKey('player-queue-now-playing')),
+        findsNothing,
+      );
+      final queueArtwork = find.byKey(
+        const ValueKey('player-queue-artwork-track-1'),
+      );
+      expect(tester.getSize(queueArtwork), const Size(64, 48));
+      final decoration =
+          tester
+                  .widget<DecoratedBox>(
+                    find.descendant(
+                      of: queueArtwork,
+                      matching: find.byType(DecoratedBox),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(decoration.borderRadius, BorderRadius.circular(10));
+      final queueBoundary = tester.getRect(queueBoundaryFinder);
+      expect(queueBoundary.center.dx, closeTo(pageViewport.center.dx, 0.01));
+      final titleBar = tester.getRect(
+        find.byKey(const ValueKey('player-queue-title-bar')),
+      );
+      final queueTrackFinder = find.byKey(
+        const ValueKey('player-queue-track-track-1'),
+      );
+      final queueTrackContentFinder = find.byKey(
+        const ValueKey('player-queue-track-content-track-1'),
+      );
+      final queueTrack = tester.getRect(queueTrackFinder);
+      final queueList = tester.widget<ReorderableListView>(
+        find.byKey(const ValueKey('player-queue-list')),
+      );
+      expect(queueList.clipBehavior, isNot(Clip.none));
+      expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
+      expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
+      expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
+      expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+      expect(
+        tester.getRect(queueArtwork).left,
+        closeTo(queueBoundary.left + 10, 0.01),
+      );
+      expect(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.text('Artist'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Artist · Album'), findsNothing);
+      final queueTitle = tester.widget<Text>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.text(_track.title),
+        ),
+      );
+      expect(queueTitle.style?.fontSize, 12.5);
+      expect(queueTitle.style?.height, 1.12);
+      final shiftedTextColumn = tester.widget<Transform>(
+        find
+            .descendant(
+              of: queueTrackContentFinder,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Transform &&
+                    (widget.transform.storage[13] - 1).abs() < 0.001,
+              ),
+            )
+            .first,
+      );
+      expect(shiftedTextColumn.transform.storage[13], closeTo(1, 0.001));
+      final countText = tester.widget<Text>(find.text('1 / 1'));
+      final clearText = tester.widget<Text>(find.text('Clear'));
+      expect(clearText.style?.fontSize, countText.style?.fontSize);
+      expect(clearText.style?.color, countText.style?.color);
+      final clearTextRect = tester.getRect(find.text('Clear'));
+      final clearButtonRect = tester.getRect(
+        find.byKey(const ValueKey('player-queue-clear-button')),
+      );
+      expect(clearTextRect.right, closeTo(queueBoundary.right - 10, 0.01));
+      expect(clearButtonRect.right, closeTo(queueBoundary.right, 0.01));
+      expect(clearButtonRect.width, closeTo(clearTextRect.width + 20, 0.01));
+      expect(clearButtonRect.center.dx, closeTo(clearTextRect.center.dx, 0.01));
+      final queueInk = tester.widget<InkWell>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(
+        queueInk.overlayColor?.resolve({WidgetState.pressed}),
+        Colors.transparent,
+      );
+      expect(queueInk.splashFactory, same(NoSplash.splashFactory));
+      final removeIcon = tester.widget<Icon>(
+        find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byIcon(Icons.remove),
+        ),
+      );
+      expect(removeIcon.size, 18);
+      final removeButton = find.ancestor(
+        of: find.descendant(
+          of: queueTrackContentFinder,
+          matching: find.byIcon(Icons.remove),
+        ),
+        matching: find.byType(PlayerCompactAction),
+      );
+      expect(tester.getSize(removeButton), const Size(32, 32));
+      expect(
+        tester.getRect(removeButton).right,
+        closeTo(queueBoundary.right - 10, 0.01),
+      );
+      expect(
+        removeIcon.color,
+        Theme.of(
+          tester.element(queueTrackContentFinder),
+        ).colorScheme.onSurfaceVariant,
+      );
+      await tester.tapAt(
+        Offset(clearButtonRect.right - 2, clearButtonRect.center.dy),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Clear playback queue?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'more uses full-width rows and closing it does not restore search input',

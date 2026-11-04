@@ -7,11 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
+import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/unified_search_history_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
+import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../../providers/works_provider.dart';
 import '../missav_client.dart';
@@ -1339,23 +1341,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
         ],
       );
-    } else if (link.kind == VideoLinkKind.playlist) {
-      final s = S.of(context);
-      trailing = PopupMenuButton<String>(
-        tooltip: link.label,
-        onSelected: (action) {
-          if (action == 'source') unawaited(_openSource(link.url));
-          if (action == 'rename') {
-            unawaited(_showPlaylistNameDialog(playlist: link));
-          }
-          if (action == 'delete') unawaited(_deletePlaylist(link));
-        },
-        itemBuilder: (_) => [
-          PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
-          PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
-          PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
-        ],
-      );
     }
     return ListTile(
       leading: link.kind == VideoLinkKind.actor && link.cover.isNotEmpty
@@ -1381,6 +1366,131 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       onTap: () => _loadUrl(link.url),
     );
   }
+
+  Widget _playlistLinkMenu(VideoLink link) {
+    final s = S.of(context);
+    return PopupMenuButton<String>(
+      tooltip: link.label,
+      padding: EdgeInsets.zero,
+      iconSize: 20,
+      onSelected: (action) {
+        if (action == 'source') unawaited(_openSource(link.url));
+        if (action == 'rename') {
+          unawaited(_showPlaylistNameDialog(playlist: link));
+        }
+        if (action == 'delete') unawaited(_deletePlaylist(link));
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
+        PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
+        PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
+      ],
+    );
+  }
+
+  Widget _playlistLinkCard(VideoLink link, LayoutType layoutType) =>
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final theme = Theme.of(context);
+          final isList = layoutType == LayoutType.list;
+          final titleStyle = theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            height: 1.2,
+          );
+          final listCoverSize = isList
+              ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+              : null;
+          final coverWidth = isList
+              ? listCoverSize!.width
+              : constraints.maxWidth;
+          final radius = collectionCoverRadius(coverWidth);
+          final fallback = ColoredBox(
+            color: theme.colorScheme.surfaceContainerHighest,
+            child: Center(
+              child: Icon(
+                Icons.playlist_play,
+                size: 32,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          );
+          final image = link.cover.isEmpty
+              ? fallback
+              : Image.network(
+                  link.cover,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  excludeFromSemantics: true,
+                  frameBuilder: (_, child, frame, _) =>
+                      frame == null ? fallback : child,
+                  errorBuilder: (_, _, _) => fallback,
+                );
+          final cover = ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: PrivacyBlurCover(
+              borderRadius: BorderRadius.circular(radius),
+              child: image,
+            ),
+          );
+          final info = Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    link.label,
+                    style: titleStyle,
+                    maxLines: collectionCardTitleMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                _playlistLinkMenu(link),
+              ],
+            ),
+          );
+
+          return Card(
+            key: ValueKey('video-playlist-card-${link.url}'),
+            elevation: 1,
+            margin: isList
+                ? const EdgeInsets.symmetric(vertical: 4)
+                : EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(isList ? 8 : radius),
+            ),
+            child: InkWell(
+              onTap: () => _loadUrl(link.url),
+              child: isList
+                  ? ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 76),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: listCoverSize!.width,
+                            height: listCoverSize.height,
+                            child: cover,
+                          ),
+                          Expanded(child: info),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: collectionCoverAspectRatio,
+                          child: cover,
+                        ),
+                        info,
+                      ],
+                    ),
+            ),
+          );
+        },
+      );
 
   Future<void> _loginRequired() async {
     if (!mounted) return;
@@ -1801,6 +1911,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               .take(pageSize)
               .toList(growable: false)
         : page.videos;
+    final displayedCollectionLinks = hasLocalPagination
+        ? collectionLinks
+              .skip((localPage - 1) * pageSize)
+              .take(pageSize)
+              .toList(growable: false)
+        : collectionLinks;
     final pagination = VirtualizedPagination(
       currentPage: _recommendationsActive
           ? recommendationPageNumber
@@ -1917,24 +2033,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                   ),
                 ),
               Expanded(
-                child: collectionLinks.isNotEmpty
-                    ? VirtualizedSliverCollection<VideoLink>(
-                        items: hasLocalPagination
-                            ? collectionLinks
-                                  .skip((localPage - 1) * pageSize)
-                                  .take(pageSize)
-                                  .toList(growable: false)
-                            : collectionLinks,
-                        itemId: (link) => link.url,
-                        itemBuilder: (context, link, _) =>
-                            _collectionLinkTile(link),
-                        controller: _scrollController,
-                        pageStorageKey: PageStorageKey<String>(
-                          'video-links-${page.url}',
-                        ),
-                        pagination: pagination,
-                      )
-                    : VideoCollectionView(
+                child: collectionLinks.isEmpty
+                    ? VideoCollectionView<VideoItem>(
                         items: videos,
                         layoutType: layoutType,
                         itemId: (video) => video.id,
@@ -1962,6 +2062,31 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                               : 'video-${page.url}',
                         ),
                         emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                        pagination: pagination,
+                      )
+                    : collectionLinks.first.kind == VideoLinkKind.playlist
+                    ? VideoCollectionView<VideoLink>(
+                        items: displayedCollectionLinks,
+                        layoutType: layoutType,
+                        itemId: (link) => link.url,
+                        itemBuilder: (_, link, _) =>
+                            _playlistLinkCard(link, layoutType),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-playlists-${page.url}',
+                        ),
+                        emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                        pagination: pagination,
+                      )
+                    : VirtualizedSliverCollection<VideoLink>(
+                        items: displayedCollectionLinks,
+                        itemId: (link) => link.url,
+                        itemBuilder: (context, link, _) =>
+                            _collectionLinkTile(link),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-links-${page.url}',
+                        ),
                         pagination: pagination,
                       ),
               ),

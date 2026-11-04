@@ -1636,17 +1636,16 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             onPressed: () =>
                 ref.read(videoBrowseLayoutProvider.notifier).cycle(),
           ),
-          if (_results != null || _loading)
-            IconButton(
-              key: const ValueKey('video-search-history-toggle'),
-              tooltip: _showHistory ? s.close : s.searchHistory,
-              icon: const Icon(Icons.history),
-              visualDensity: const VisualDensity(horizontal: -2),
-              onPressed: () {
-                _inputFocus.unfocus();
-                setState(() => _showHistory = !_showHistory);
-              },
-            ),
+          IconButton(
+            key: const ValueKey('video-search-history-toggle'),
+            tooltip: _showHistory ? s.close : s.searchHistory,
+            icon: const Icon(Icons.history),
+            visualDensity: const VisualDensity(horizontal: -2),
+            onPressed: () {
+              _inputFocus.unfocus();
+              setState(() => _showHistory = !_showHistory);
+            },
+          ),
         ],
       ),
       body: LayoutBuilder(

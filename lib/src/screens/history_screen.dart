@@ -76,9 +76,7 @@ class _HistoryContent extends ConsumerWidget {
         (value) => (host: value.host ?? '', token: value.token ?? ''),
       ),
     );
-    final layoutType = ref.watch(
-      collectionLayoutProvider(CollectionLayoutKey.history),
-    );
+    final layoutType = ref.watch(audioLayoutProvider);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
