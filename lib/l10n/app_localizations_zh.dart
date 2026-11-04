@@ -4313,6 +4313,21 @@ class SZh extends S {
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
+  String get videoJableAccount => 'Jable 账号';
+
+  @override
+  String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
+
+  @override
+  String get videoJableLoginHelp => '在 Jable 登录后，选择“检查登录状态”。';
+
+  @override
+  String get videoCheckLogin => '检查登录状态';
+
+  @override
+  String get videoJableSignedIn => '已登录 Jable';
+
+  @override
   String get videoCatalog => '视频目录';
 
   @override
@@ -4320,6 +4335,9 @@ class SZh extends S {
 
   @override
   String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoPopular => '热门';
 
   @override
   String get videoNewReleases => '新作上市';
@@ -9173,6 +9191,21 @@ class SZhHant extends SZh {
   String get videoSourceAccount => 'MissAV 帳號';
 
   @override
+  String get videoJableAccount => 'Jable 帳號';
+
+  @override
+  String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
+
+  @override
+  String get videoJableLoginHelp => '在 Jable 登入後，選擇「檢查登入狀態」。';
+
+  @override
+  String get videoCheckLogin => '檢查登入狀態';
+
+  @override
+  String get videoJableSignedIn => '已登入 Jable';
+
+  @override
   String get videoCatalog => '影片目錄';
 
   @override
@@ -9180,6 +9213,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoPopular => '熱門';
 
   @override
   String get videoNewReleases => '新作上市';

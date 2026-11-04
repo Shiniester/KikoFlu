@@ -9,6 +9,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,7 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
@@ -1248,10 +1250,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final appBar = find.byType(AppBar);
-      final title = find.descendant(
-        of: appBar,
-        matching: find.text('DVD-1'),
-      );
+      final title = find.descendant(of: appBar, matching: find.text('DVD-1'));
       final titleStyle = DefaultTextStyle.of(
         tester.element(title),
       ).style.merge(tester.widget<Text>(title).style);
@@ -1261,10 +1260,7 @@ void main() {
         find.descendant(of: appBar, matching: find.byType(BackButton)),
         findsOneWidget,
       );
-      expect(
-        tester.getTopLeft(title).dx,
-        closeTo(kToolbarHeight + 4, 0.1),
-      );
+      expect(tester.getTopLeft(title).dx, closeTo(kToolbarHeight + 4, 0.1));
       final l10n = await S.delegate.load(const Locale('en'));
       final actions = <Finder>[
         for (final label in [
@@ -5490,6 +5486,256 @@ void main() {
   });
 
   _testPlayerWidget(
+    'failed playback can open browser verification from video details',
+    (tester) async {
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      session.emitError('The media server requires browser verification.');
+      await tester.pump();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+      await tester.tap(find.text(l10n.videoVerifyAccess).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.videoVerificationHelp), findsOneWidget);
+    },
+  );
+
+  _testPlayerWidget(
+    'Jable details use the video source while MissAV remains selected',
+    (tester) async {
+      final missav = _TestMissavClient(_details());
+      final jable = _TestPlaybackJableClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      final session = _FakePlaybackSession();
+      const video = VideoItem(
+        id: 'jable-native-id',
+        sourceKey: 'jable',
+        title: 'Jable card title',
+        pageUrl: 'https://jable.tv/videos/jable-native-id/',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(jable.detailsCalls, 1);
+      expect(jable.requestedVideo?.storageKey, 'jable:jable-native-id');
+      expect(missav.detailsCalls, 0);
+      expect(find.text('Jable card title'), findsAtLeastNWidgets(1));
+      await tester.tap(find.byIcon(Icons.bookmark_outline));
+      await tester.pumpAndSettle();
+      final s = await S.delegate.load(const Locale('en'));
+      expect(find.text(s.videoJableLoginRequired), findsOneWidget);
+      expect(find.text(s.videoLoginRequired), findsNothing);
+      expect(missav.videoFavoriteChanges, isEmpty);
+      await tester.tap(find.text(s.login));
+      await tester.pumpAndSettle();
+      expect(find.text(s.videoJableAccount), findsOneWidget);
+      expect(find.text(s.videoJableLoginRequired), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _testPlayerWidget(
+    'Jable details add and remove a source favorite without moving playback',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+      });
+      addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+      final actions = <String>[];
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (request, handler) {
+              final uri = request.uri;
+              expect(uri.host, 'jable.tv');
+              final action = uri.queryParameters['action'];
+              final String body;
+              if (action != null) {
+                actions.add(action);
+                expect(uri.queryParameters['video_id'], '42');
+                body = '{"status":"success"}';
+              } else if (uri.path.startsWith('/my/favourites/')) {
+                body = '<div id="list_videos_my_favourite_videos"></div>';
+              } else {
+                body = '''
+              <section class="video-info"><button class="btn-action fav"
+                data-fav-video-id="42" data-fav-type="0"></button></section>
+              <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+            ''';
+              }
+              handler.resolve(
+                Response(requestOptions: request, statusCode: 200, data: body),
+              );
+            },
+          ),
+        );
+      addTearDown(() => dio.close(force: true));
+      final missav = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final session = _FakePlaybackSession();
+      const video = VideoItem(
+        id: 'sample',
+        title: 'Sample',
+        sourceKey: 'jable',
+        pageUrl: 'https://jable.tv/videos/sample/',
+      );
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          _TestVideoDownloads(client: missav, library: library),
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+          jableClient: JableClient(dio: dio),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final loadsBefore = session.loadStreamCount;
+      await tester.tap(find.byIcon(Icons.bookmark_outline));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.bookmark));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.bookmark_outline), findsOneWidget);
+      expect(actions, ['add_to_favourites', 'delete_from_favourites']);
+      expect(session.loadStreamCount, loadsBefore);
+      expect(missav.videoFavoriteChanges, isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final verificationSucceeds in [false, true]) {
+    _testPlayerWidget(
+      'Jable detail favorite after verification succeeds=$verificationSucceeds',
+      (tester) async {
+        FlutterSecureStorage.setMockInitialValues({
+          'jable_verified_session':
+              '{"cookie":"member=test","userAgent":"Test"}',
+        });
+        addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+        final requests = <String>[];
+        final appliedActions = <String>[];
+        final dio = Dio()
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (request, handler) {
+                final uri = request.uri;
+                expect(uri.host, 'jable.tv');
+                final action = uri.queryParameters['action'];
+                final String body;
+                if (action != null) {
+                  requests.add(action);
+                  expect(uri.queryParameters['video_id'], '42');
+                  if (requests.length == 1) {
+                    body = '<html><title>Just a moment...</title></html>';
+                  } else {
+                    appliedActions.add(action);
+                    body = '{"status":"success"}';
+                  }
+                } else if (uri.path.startsWith('/my/favourites/')) {
+                  body = '<div id="list_videos_my_favourite_videos"></div>';
+                } else {
+                  body = '''
+              <section class="video-info"><button class="btn-action fav"
+                data-fav-video-id="42" data-fav-type="0"></button></section>
+              <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+            ''';
+                }
+                handler.resolve(
+                  Response(
+                    requestOptions: request,
+                    statusCode: 200,
+                    data: body,
+                  ),
+                );
+              },
+            ),
+          );
+        addTearDown(() => dio.close(force: true));
+        final missav = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        final session = _FakePlaybackSession();
+        final verificationUrls = <String>[];
+        const video = VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          sourceKey: 'jable',
+          pageUrl: 'https://jable.tv/videos/sample/',
+        );
+
+        await tester.pumpWidget(
+          _app(
+            missav,
+            library,
+            _TestVideoDownloads(client: missav, library: library),
+            _testVideoDetailsScreen(
+              video: video,
+              sessionFactory: () => session,
+            ),
+            jableClient: JableClient(dio: dio),
+            jableVerificationResult: verificationSucceeds,
+            jableVerificationUrls: verificationUrls,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final loadsBefore = session.loadStreamCount;
+
+        await tester.tap(find.byIcon(Icons.bookmark_outline));
+        await tester.pumpAndSettle();
+
+        expect(verificationUrls, [video.pageUrl]);
+        expect(
+          requests,
+          verificationSucceeds
+              ? ['add_to_favourites', 'add_to_favourites']
+              : ['add_to_favourites'],
+        );
+        expect(
+          appliedActions,
+          verificationSucceeds ? ['add_to_favourites'] : isEmpty,
+        );
+        expect(
+          find.byIcon(
+            verificationSucceeds ? Icons.bookmark : Icons.bookmark_outline,
+          ),
+          findsOneWidget,
+        );
+        expect(session.loadStreamCount, loadsBefore);
+        expect(missav.videoFavoriteChanges, isEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  _testPlayerWidget(
     'fullscreen playback recovery stays usable on a narrow screen',
     (tester) async {
       tester.view.physicalSize = const Size(360, 800);
@@ -7440,12 +7686,32 @@ Widget _app(
   double textScale = 1,
   ThemeData? theme,
   AudioTrack? audioTrack,
+  JableClient? jableClient,
+  bool? jableVerificationResult,
+  List<String>? jableVerificationUrls,
   AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
     if (appNavigationController != null)
       authProvider.overrideWith((ref) => _TestNavigationAuth()),
     videoClientProvider.overrideWith((ref) => client),
+    videoSelectedSourceProvider.overrideWith((ref) => 'missav'),
+    jableVideoClientProvider.overrideWith((ref) {
+      final sourceClient = jableClient ?? JableClient();
+      ref.onDispose(sourceClient.dispose);
+      return sourceClient;
+    }),
+    if (jableVerificationResult != null)
+      jableAccessVerifierProvider.overrideWithValue((
+        _,
+        _, {
+        required sourceUrl,
+        requireLogin = false,
+      }) async {
+        expect(requireLogin, isFalse);
+        jableVerificationUrls?.add(sourceUrl);
+        return jableVerificationResult;
+      }),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
     currentTrackProvider.overrideWith((ref) => Stream.value(audioTrack)),
@@ -7525,6 +7791,32 @@ VideoDetails _details({
   sourceId: 'source-id',
   isFavorite: isFavorite,
 );
+
+class _TestPlaybackJableClient extends JableClient {
+  int detailsCalls = 0;
+  VideoItem? requestedVideo;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
+  }) async {
+    detailsCalls++;
+    requestedVideo = item;
+    final details = VideoDetails(
+      video: item,
+      streams: const [
+        VideoStream(label: 'Auto', url: 'https://cdn.example/jable.m3u8'),
+      ],
+    );
+    await onReady?.call(details);
+    return details;
+  }
+}
 
 class _TestMissavClient extends MissavClient {
   _TestMissavClient(

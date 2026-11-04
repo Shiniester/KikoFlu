@@ -18,9 +18,11 @@ import '../../widgets/search_history_section.dart';
 import '../../widgets/search_input_decoration.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
+import '../jable_client.dart';
 import '../missav_client.dart';
 import '../video_models.dart';
 import '../video_search_history.dart';
+import 'video_catalog_sort.dart';
 import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 
@@ -48,7 +50,7 @@ typedef VideoSearchResultItemBuilder =
 typedef VideoSearchAccessVerifier =
     Future<bool> Function(
       BuildContext context,
-      MissavVerificationRequiredException error,
+      VideoVerificationRequired error,
     );
 
 enum _VideoSearchInputType { keyword, genre, actor, studio, series }
@@ -91,8 +93,13 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
     this.initialQuery,
     this.initialFilters = const [],
     this.loadFilters,
+    this.searchFilterKinds = VideoSearchFilterKind.values,
     this.verifyAccess,
     this.accountClient,
+    this.jableAccount,
+    this.onOpenAccount,
+    this.isSourceCurrent,
+    this.sourceKey = 'missav',
     this.historyContext = const UnifiedSearchHistoryContext(
       contentType: 'video',
       entryScope: 'source-directory',
@@ -109,8 +116,13 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
   final String? initialQuery;
   final List<VideoLink> initialFilters;
   final VideoSearchFilterLoader? loadFilters;
+  final List<VideoSearchFilterKind> searchFilterKinds;
   final VideoSearchAccessVerifier? verifyAccess;
   final MissavClient? accountClient;
+  final JableAccount? jableAccount;
+  final Future<void> Function(BuildContext context)? onOpenAccount;
+  final bool Function()? isSourceCurrent;
+  final String sourceKey;
   final UnifiedSearchHistoryContext historyContext;
 
   @override
@@ -150,7 +162,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   int _localPage = 1;
   int _filterScopeRevision = 0;
   Object? _error;
-  MissavVerificationRequiredException? _verificationError;
+  VideoVerificationRequired? _verificationError;
   bool _loading = false;
   bool _verifyingAccess = false;
   bool _updateFailedShowingPrevious = false;
@@ -158,6 +170,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   int _request = 0;
   Future<void> Function()? _retryAction;
   ({bool loggedIn, String? accountName})? _accountIdentity;
+  ({bool loggedIn, int revision})? _jableAccountIdentity;
   late final UnifiedSearchHistorySession _historySession =
       UnifiedSearchHistorySession(
         ref.read(unifiedSearchHistoryProvider.notifier),
@@ -184,6 +197,8 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _inputFocus.addListener(_onInputFocusChanged);
     _accountIdentity = _readAccountIdentity(widget.accountClient);
     widget.accountClient?.addListener(_onAccountClientChanged);
+    _jableAccountIdentity = _readJableAccountIdentity(widget.jableAccount);
+    widget.jableAccount?.addListener(_onJableAccountChanged);
     final initialQuery = widget.initialQuery?.trim();
     _filters.addAll(widget.initialFilters);
     if ((initialQuery?.isNotEmpty ?? false) || _filters.isNotEmpty) {
@@ -201,6 +216,10 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     super.didUpdateWidget(oldWidget);
     var filterScopeChanged = false;
     if (oldWidget.loadFilters != widget.loadFilters ||
+        !_sameFilterKinds(
+          oldWidget.searchFilterKinds,
+          widget.searchFilterKinds,
+        ) ||
         oldWidget.historyContext.contentType !=
             widget.historyContext.contentType ||
         oldWidget.historyContext.entryScope !=
@@ -209,10 +228,31 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _clearLoadedFilterPages();
       filterScopeChanged = true;
     }
+    if (!_sameFilterKinds(
+      oldWidget.searchFilterKinds,
+      widget.searchFilterKinds,
+    )) {
+      final supportedKinds = widget.searchFilterKinds.toSet();
+      _filters.removeWhere(
+        (filter) => !_supportsFilter(filter, supportedKinds),
+      );
+      final selectedKind = _filterKind(_inputType);
+      if (selectedKind != null && !supportedKinds.contains(selectedKind)) {
+        _inputType = _VideoSearchInputType.keyword;
+        _filterQuery.clear();
+      }
+    }
     if (oldWidget.accountClient != widget.accountClient) {
       oldWidget.accountClient?.removeListener(_onAccountClientChanged);
       widget.accountClient?.addListener(_onAccountClientChanged);
       _accountIdentity = _readAccountIdentity(widget.accountClient);
+      _invalidateAccountResults();
+      filterScopeChanged = true;
+    }
+    if (oldWidget.jableAccount != widget.jableAccount) {
+      oldWidget.jableAccount?.removeListener(_onJableAccountChanged);
+      widget.jableAccount?.addListener(_onJableAccountChanged);
+      _jableAccountIdentity = _readJableAccountIdentity(widget.jableAccount);
       _invalidateAccountResults();
       filterScopeChanged = true;
     }
@@ -226,6 +266,38 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   ) => client == null
       ? null
       : (loggedIn: client.isLoggedIn, accountName: client.accountName);
+
+  ({bool loggedIn, int revision})? _readJableAccountIdentity(
+    JableAccount? account,
+  ) => account == null
+      ? null
+      : (loggedIn: account.isLoggedIn, revision: account.revision);
+
+  bool _sameFilterKinds(
+    List<VideoSearchFilterKind> first,
+    List<VideoSearchFilterKind> second,
+  ) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+
+  bool _supportsFilter(
+    VideoLink filter, [
+    Set<VideoSearchFilterKind>? supportedKinds,
+  ]) {
+    final kind = switch (filter.kind) {
+      VideoLinkKind.actor => VideoSearchFilterKind.actor,
+      VideoLinkKind.studio => VideoSearchFilterKind.studio,
+      VideoLinkKind.category ||
+      VideoLinkKind.tag => VideoSearchFilterKind.genre,
+      _ => null,
+    };
+    return kind != null &&
+        (supportedKinds ?? widget.searchFilterKinds.toSet()).contains(kind);
+  }
 
   void _onAccountClientChanged() {
     final identity = _readAccountIdentity(widget.accountClient);
@@ -244,6 +316,49 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _loadFocusedFilterPageAfterFrame();
     if (authenticationRequired && mounted) {
       _retryAction = retryAction;
+    }
+  }
+
+  void _onJableAccountChanged() {
+    final identity = _readJableAccountIdentity(widget.jableAccount);
+    if (identity == _jableAccountIdentity) return;
+    final previousIdentity = _jableAccountIdentity;
+    _jableAccountIdentity = identity;
+    if (widget.sourceKey != 'jable' ||
+        widget.historyContext.entryScope != 'favorites') {
+      return;
+    }
+    // Session import must keep the pending verification retry current.
+    if (_verifyingAccess) {
+      _clearLoadedFilterPages();
+      setState(() {
+        _results = null;
+        _resultsQuery = '';
+        _localPage = 1;
+        _updateFailedShowingPrevious = false;
+      });
+      return;
+    }
+    if (_loading &&
+        previousIdentity?.loggedIn == false &&
+        identity?.loggedIn == true) {
+      return;
+    }
+
+    final query = _query.text.trim();
+    final filters = List<VideoLink>.unmodifiable(_filters);
+    _invalidateAccountResults(
+      error: identity?.loggedIn == false
+          ? const JableLoginRequiredException()
+          : null,
+    );
+    if (identity?.loggedIn == true &&
+        (query.isNotEmpty || filters.isNotEmpty)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_runSearch(query, filters: filters, recordHistory: false));
+        }
+      });
     }
   }
 
@@ -269,6 +384,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _request++;
     _filterScopeRevision++;
     widget.accountClient?.removeListener(_onAccountClientChanged);
+    widget.jableAccount?.removeListener(_onJableAccountChanged);
     _query.dispose();
     _filterQuery.dispose();
     _inputFocus
@@ -398,7 +514,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final pageKey = (kind, pageUrl ?? '');
     final verification = _filterPageErrors[pageKey];
     final verifyAccess = widget.verifyAccess;
-    if (verification is! MissavVerificationRequiredException ||
+    if (verification is! VideoVerificationRequired ||
         verifyAccess == null ||
         _verifyingFilterPages.contains(pageKey)) {
       return;
@@ -495,9 +611,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error;
-        _verificationError = error is MissavVerificationRequiredException
-            ? error
-            : null;
+        _verificationError = error is VideoVerificationRequired ? error : null;
         _loading = false;
         _updateFailedShowingPrevious = _results != null;
       });
@@ -572,6 +686,17 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
         _VideoSearchInputType.studio => VideoSearchFilterKind.studio,
         _VideoSearchInputType.series => VideoSearchFilterKind.series,
       };
+
+  List<_VideoSearchInputType> get _searchTypes => [
+    _VideoSearchInputType.keyword,
+    for (final kind in widget.searchFilterKinds)
+      switch (kind) {
+        VideoSearchFilterKind.genre => _VideoSearchInputType.genre,
+        VideoSearchFilterKind.actor => _VideoSearchInputType.actor,
+        VideoSearchFilterKind.studio => _VideoSearchInputType.studio,
+        VideoSearchFilterKind.series => _VideoSearchInputType.series,
+      },
+  ];
 
   String _inputTypeTitle(_VideoSearchInputType type, S s) => switch (type) {
     _VideoSearchInputType.keyword => s.searchTypeKeyword,
@@ -746,7 +871,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: _VideoSearchInputType.values
+                  children: _searchTypes
                       .map((type) => _buildSearchTypeButton(type, s))
                       .toList(growable: false),
                 ),
@@ -941,7 +1066,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
           key: const ValueKey('video-search-directory-error'),
           padding: const EdgeInsets.all(12),
           child: Text(
-            pageError is MissavVerificationRequiredException
+            pageError is VideoVerificationRequired
                 ? s.videoVerificationRequired
                 : s.videoLoadFailed,
           ),
@@ -1038,7 +1163,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                     : () => _retryFilterPageLoad(filterKind, null),
                 child: Text(s.retry),
               ),
-            if (pageError is MissavVerificationRequiredException &&
+            if (pageError is VideoVerificationRequired &&
                 widget.verifyAccess != null)
               TextButton.icon(
                 key: const ValueKey('video-search-directory-verify'),
@@ -1349,9 +1474,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.toString();
-        _verificationError = error is MissavVerificationRequiredException
-            ? error
-            : null;
+        _verificationError = error is VideoVerificationRequired ? error : null;
         _loading = false;
         _updateFailedShowingPrevious = _results != null;
       });
@@ -1361,7 +1484,10 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   Future<void> _verifyAndRetry() async {
     final verification = _verificationError;
     final verifyAccess = widget.verifyAccess;
-    if (verification == null || verifyAccess == null || _verifyingAccess) {
+    if (verification == null ||
+        verifyAccess == null ||
+        _verifyingAccess ||
+        !(widget.isSourceCurrent?.call() ?? true)) {
       return;
     }
     final request = _request;
@@ -1376,6 +1502,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     }
     if (!mounted ||
         !verified ||
+        !(widget.isSourceCurrent?.call() ?? true) ||
         request != _request ||
         verification != _verificationError) {
       return;
@@ -1388,25 +1515,50 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     }
   }
 
-  void _openVideo(VideoItem video) {
+  Future<void> _openAccountAndRetry() async {
+    final openAccount = widget.onOpenAccount;
+    if (openAccount == null || !(widget.isSourceCurrent?.call() ?? true)) {
+      return;
+    }
+    await openAccount(context);
+    if (!mounted ||
+        !(widget.isSourceCurrent?.call() ?? true) ||
+        _error is! JableLoginRequiredException) {
+      return;
+    }
+    await _retryAction?.call();
+  }
+
+  Future<void> _openVideo(VideoItem video) async {
+    if (!(widget.isSourceCurrent?.call() ?? true)) return;
     final canOpen = widget.canOpenVideo?.call(video) ?? true;
     if (!canOpen) return;
     final callback = widget.onOpenVideo;
     if (callback != null) {
       callback(context, video);
-    } else {
-      final collectionKey = switch (widget.historyContext.entryScope) {
-        'favorites' || 'history' => widget.historyContext.entryScope,
-        _ => null,
-      };
-      pushWorkDetailRoute(
-        context,
-        builder: (_) => VideoDetailsScreen(
-          video: video,
-          searchCollectionKey: collectionKey,
-        ),
-      );
+      return;
     }
+    final jableAccount = widget.jableAccount;
+    final accountRevision = jableAccount?.revision;
+    final collectionKey = switch (widget.historyContext.entryScope) {
+      'favorites' || 'history' => widget.historyContext.entryScope,
+      _ => null,
+    };
+    await pushWorkDetailRoute(
+      context,
+      builder: (_) =>
+          VideoDetailsScreen(video: video, searchCollectionKey: collectionKey),
+    );
+    if (!mounted ||
+        !(widget.isSourceCurrent?.call() ?? true) ||
+        widget.sourceKey != 'jable' ||
+        widget.historyContext.entryScope != 'favorites' ||
+        jableAccount == null ||
+        jableAccount.revision != accountRevision ||
+        !jableAccount.isLoggedIn) {
+      return;
+    }
+    await _runSearch(_query.text, filters: _filters, recordHistory: false);
   }
 
   List<UnifiedSearchHistoryEntry> _historyEntries(
@@ -1416,6 +1568,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final entries = [
       ...history.itemsFor(context),
       if (context.entryScope == 'source-directory' &&
+          widget.sourceKey == 'missav' &&
           context != _legacyVideoHistoryContext)
         ...history.itemsFor(_legacyVideoHistoryContext),
     ]..sort((left, right) => right.timestamp.compareTo(left.timestamp));
@@ -1437,11 +1590,14 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   List<VideoLink> _historyFilters(UnifiedSearchHistoryEntry entry) {
     final filters = entry.payload['filters'];
     if (filters is! List) return const [];
-    return [
-      for (final filter in filters)
-        if (filter is Map)
-          VideoLink.fromJson(Map<String, dynamic>.from(filter)),
-    ];
+    final supportedKinds = widget.searchFilterKinds.toSet();
+    final result = <VideoLink>[];
+    for (final filter in filters) {
+      if (filter is! Map) continue;
+      final link = VideoLink.fromJson(Map<String, dynamic>.from(filter));
+      if (_supportsFilter(link, supportedKinds)) result.add(link);
+    }
+    return result;
   }
 
   void _replayHistory(UnifiedSearchHistoryEntry entry) {
@@ -1482,7 +1638,8 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     final history = ref.read(unifiedSearchHistoryProvider.notifier);
     final historyContext = _historyContext;
     await history.clear(historyContext);
-    if (historyContext.entryScope == 'source-directory') {
+    if (historyContext.entryScope == 'source-directory' &&
+        widget.sourceKey == 'missav') {
       await history.clear(_legacyVideoHistoryContext);
       await ref.read(videoSearchHistoryProvider.notifier).clear();
     }
@@ -1521,7 +1678,9 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       video: video,
       layoutType: layout,
       onTap: onTap,
-      onOpenLink: _selectFilter,
+      onOpenLink: (link) {
+        if (widget.isSourceCurrent?.call() ?? true) _selectFilter(link);
+      },
     );
   }
 
@@ -1583,11 +1742,18 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
           );
     return Column(
       children: [
+        if (widget.sourceKey == 'jable' && page?.navigation.isNotEmpty == true)
+          VideoCatalogSort(
+            options: page!.navigation,
+            currentUrl: page.url,
+            currentPage: page.currentPage,
+            onSelected: (option) => unawaited(_browsePage(option.url)),
+          ),
         Expanded(
           child: VideoCollectionView(
             items: videos,
             layoutType: layout,
-            itemId: (video) => video.id,
+            itemId: (video) => video.storageKey,
             controller: _scrollController,
             pageStorageKey: PageStorageKey<String>(
               'video-search-results-$_resultsQuery',
@@ -1667,7 +1833,9 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _error is MissavAuthenticationException
+                              _error is JableLoginRequiredException
+                                  ? s.videoJableLoginRequired
+                                  : _error is MissavAuthenticationException
                                   ? s.videoLoginRequired
                                   : _updateFailedShowingPrevious &&
                                         _results != null
@@ -1686,6 +1854,20 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                             Wrap(
                               alignment: WrapAlignment.end,
                               children: [
+                                if (_error is JableLoginRequiredException &&
+                                    widget.onOpenAccount != null)
+                                  TextButton.icon(
+                                    key: const ValueKey(
+                                      'video-search-open-account',
+                                    ),
+                                    onPressed: _loading
+                                        ? null
+                                        : _openAccountAndRetry,
+                                    icon: const Icon(
+                                      Icons.account_circle_outlined,
+                                    ),
+                                    label: Text(s.videoJableAccount),
+                                  ),
                                 if (_verificationError != null &&
                                     widget.verifyAccess != null)
                                   TextButton.icon(
@@ -1770,7 +1952,7 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
   VideoCatalogPage? _page;
   String? _requestedUrl;
   String? _error;
-  MissavVerificationRequiredException? _verificationError;
+  VideoVerificationRequired? _verificationError;
   bool _loading = true;
   bool _verifyingAccess = false;
   int _request = 0;
@@ -1818,9 +2000,7 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.toString();
-        _verificationError = error is MissavVerificationRequiredException
-            ? error
-            : null;
+        _verificationError = error is VideoVerificationRequired ? error : null;
         _loading = false;
       });
     }

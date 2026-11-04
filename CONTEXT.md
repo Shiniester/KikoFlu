@@ -58,7 +58,8 @@ A numbered portion of a video feed, search result, or download list.
 _Avoid_: Video Resume Position
 
 **Video Source (视频源)**:
-A provider of video catalogs and playback, such as MissAV (missav.ai).
+A provider of video catalogs and playback, such as MissAV (missav.ai) and
+Jable (jable.tv).
 _Avoid_: Audio Source, Comic Source
 
 **Video Source Account (视频源账号)**:
@@ -118,6 +119,7 @@ _Avoid_: System safe area, page margin
 
 **Video Source Favorite (视频源收藏)**:
 A video saved in a Video Source Account's collection, belonging to that account.
+On Jable, Favorites and Watch Later are separate collections.
 _Avoid_: Local Favorite, comic Source Favorite
 
 **Video Playlist (视频播放列表)**:

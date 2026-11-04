@@ -14,8 +14,16 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     required this.currentUrl,
     required this.navigateDocument,
     required this.disposeBrowser,
-  });
+  }) : _isJable = false;
 
+  MissavBrowserAdapter.jable({
+    required this.runJavaScript,
+    required this.currentUrl,
+    required this.navigateDocument,
+    required this.disposeBrowser,
+  }) : _isJable = true;
+
+  final bool _isJable;
   final Future<void> Function(String script) runJavaScript;
   final Future<String?> Function() currentUrl;
   final Future<String> Function(Uri uri, Future<void> cancelled)
@@ -34,16 +42,36 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   Future<void> get whenClosed => _cleanup ?? Future.value();
 
   static const channelName = 'KikoMissavHttp';
-  static const _origin = 'https://missav.ai';
   static const _requestTimeout = Duration(seconds: 30);
+  static const jableChannelName = 'KikoJableHttp';
 
-  static bool _isSource(String? value) {
+  String get _origin => _isJable ? 'https://jable.tv' : 'https://missav.ai';
+  String get _channelName => _isJable ? jableChannelName : channelName;
+  String get _requestMap =>
+      _isJable ? '__kikoJableRequests' : '__kikoMissavRequests';
+
+  bool _isSource(String? value) {
     final uri = Uri.tryParse(value ?? '');
     return uri?.scheme == 'https' &&
-        uri?.host == 'missav.ai' &&
+        uri?.host == (_isJable ? 'jable.tv' : 'missav.ai') &&
         uri?.port == 443 &&
         uri?.userInfo.isEmpty == true;
   }
+
+  VideoSourceException _unsupported(String operation, String url) => _isJable
+      ? VideoSourceException(
+          'Browser $operation outside Jable are not supported.',
+          sourceKey: 'jable',
+          sourceUrl: url,
+        )
+      : MissavUnsupportedException(
+          capability: 'browser $operation outside MissAV',
+          sourceUrl: url,
+        );
+
+  VideoSourceException _verificationRequired(String url) => _isJable
+      ? JableVerificationRequiredException(sourceUrl: url)
+      : MissavVerificationRequiredException(sourceUrl: url);
 
   void receiveMessage(Object? message, {String? origin}) {
     if (_closed || (origin != null && origin != _origin)) return;
@@ -84,10 +112,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     if (!_isSource(options.uri.toString())) {
-      throw MissavUnsupportedException(
-        capability: 'browser requests outside MissAV',
-        sourceUrl: options.uri.toString(),
-      );
+      throw _unsupported('requests', options.uri.toString());
     }
     final id = ++_nextId;
     final operation = _BrowserRequest(options);
@@ -127,10 +152,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
         );
       }
       if (!_isSource(data['url'] as String?)) {
-        throw MissavUnsupportedException(
-          capability: 'browser redirects outside MissAV',
-          sourceUrl: options.uri.toString(),
-        );
+        throw _unsupported('redirects', options.uri.toString());
       }
       final responseHeaders = data['headers'] as Map? ?? const {};
       return ResponseBody.fromString(
@@ -149,10 +171,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   /// rendered markup. API calls continue to use [fetch].
   Future<String> loadDocument(Uri uri, {CancelToken? cancelToken}) async {
     if (!_isSource(uri.toString())) {
-      throw MissavUnsupportedException(
-        capability: 'browser documents outside MissAV',
-        sourceUrl: uri.toString(),
-      );
+      throw _unsupported('documents', uri.toString());
     }
     final id = ++_nextId;
     final options = RequestOptions(
@@ -244,9 +263,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
     final url = await currentUrl();
     _checkActive(id, operation);
     if (!_isSource(url)) {
-      throw MissavVerificationRequiredException(
-        sourceUrl: operation.options.uri.toString(),
-      );
+      throw _verificationRequired(operation.options.uri.toString());
     }
     final body = requestStream == null
         ? null
@@ -284,13 +301,13 @@ const request = $request;
 const send = data => {
   const message = {...data, id:request.id, nonce:request.nonce, origin:location.origin};
   if (window.desktopWebview) {
-    window.desktopWebview.postMessage('$channelName', message);
+    window.desktopWebview.postMessage('$_channelName', message);
   } else {
-    window.$channelName.postMessage(JSON.stringify(message));
+    window.$_channelName.postMessage(JSON.stringify(message));
   }
 };
 if (location.origin !== '$_origin' || new URL(request.url).origin !== '$_origin') return;
-const controllers = window.__kikoMissavRequests ||= new Map();
+const controllers = window.$_requestMap ||= new Map();
 const controller = new AbortController();
 controllers.set(request.id, controller);
 const headers = request.headers;
@@ -323,9 +340,7 @@ fetch(request.url, {
       );
     }
     if (_closed || _pending[id] != operation) {
-      throw MissavVerificationRequiredException(
-        sourceUrl: operation.options.uri.toString(),
-      );
+      throw _verificationRequired(operation.options.uri.toString());
     }
     if (operation.cancelled ||
         operation.options.cancelToken?.isCancelled == true) {
@@ -382,7 +397,7 @@ fetch(request.url, {
   Future<void> _abort(int id) async {
     if (_closed) return;
     try {
-      await runJavaScript('window.__kikoMissavRequests?.get($id)?.abort();');
+      await runJavaScript('window.$_requestMap?.get($id)?.abort();');
     } catch (_) {
       // A closed browser has already cancelled its fetches.
     }
@@ -393,11 +408,7 @@ fetch(request.url, {
     if (_closed) return;
     _closed = true;
     for (final entry in _pending.entries.toList()) {
-      _finishOperation(
-        entry.key,
-        entry.value,
-        const MissavVerificationRequiredException(sourceUrl: _origin),
-      );
+      _finishOperation(entry.key, entry.value, _verificationRequired(_origin));
     }
     _pending.clear();
     _cleanup = Future<void>.sync(disposeBrowser);

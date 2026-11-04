@@ -145,7 +145,16 @@ typedef VideoPlaybackSessionFactory = VideoPlaybackSession Function();
 
 class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
   MediaKitVideoPlaybackSession({Player? player})
-    : _player = player ?? Player() {
+    : _player =
+          player ??
+          Player(
+            configuration: PlayerConfiguration(
+              protocolWhitelist: [
+                ...const PlayerConfiguration().protocolWhitelist,
+                'httpproxy',
+              ],
+            ),
+          ) {
     _controller = VideoController(
       _player,
       configuration: defaultTargetPlatform == TargetPlatform.iOS

@@ -51,6 +51,7 @@ void main() {
     () async {
       for (final uri in [
         'https://media.example.com/video',
+        'https://jable.tv/',
         'http://missav.ai/cn',
         'https://user@missav.ai/cn',
         'https://missav.ai:444/cn',

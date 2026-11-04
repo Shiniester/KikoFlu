@@ -4336,6 +4336,21 @@ class SJa extends S {
   String get videoSourceAccount => 'MissAV アカウント';
 
   @override
+  String get videoJableAccount => 'Jable アカウント';
+
+  @override
+  String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
+
+  @override
+  String get videoJableLoginHelp => 'Jable でログインしてから「ログイン状態を確認」を選択してください。';
+
+  @override
+  String get videoCheckLogin => 'ログイン状態を確認';
+
+  @override
+  String get videoJableSignedIn => 'Jable にログインしています';
+
+  @override
   String get videoCatalog => '動画一覧';
 
   @override
@@ -4343,6 +4358,9 @@ class SJa extends S {
 
   @override
   String get videoRecentlyUpdated => '最近の更新';
+
+  @override
+  String get videoPopular => '人気';
 
   @override
   String get videoNewReleases => '新作';
@@ -4384,17 +4402,17 @@ class SJa extends S {
   String get videoDownloads => '動画のダウンロード';
 
   @override
-  String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。MissAV で開いてください。';
+  String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。配信元サイトで開いてください。';
 
   @override
   String get videoVerificationRequired =>
-      'MissAV でブラウザー認証が必要です。アクセスを確認してから再試行してください。';
+      '配信元サイトでブラウザー認証が必要です。アクセスを確認してから再試行してください。';
 
   @override
   String get videoVerifyAccess => 'アクセス認証';
 
   @override
-  String get videoVerificationHelp => 'MissAV で認証を完了してから「アクセスを確認」を選択してください。';
+  String get videoVerificationHelp => '配信元サイトで認証を完了してから「アクセスを確認」を選択してください。';
 
   @override
   String get videoVerificationContinue => 'アクセスを確認';
@@ -4411,10 +4429,10 @@ class SJa extends S {
   String get videoLoginRequired => 'この機能を使うには MissAV にログインしてください。';
 
   @override
-  String get videoLoadFailed => '動画を読み込めません。再試行するか、MissAV を開いてください。';
+  String get videoLoadFailed => '動画を読み込めません。再試行するか、配信元サイトを開いてください。';
 
   @override
-  String get videoPlaybackFailed => '再生できません。再試行するか、MissAV を開いてください。';
+  String get videoPlaybackFailed => '再生できません。再試行するか、配信元サイトを開いてください。';
 
   @override
   String get videoDownloadFailed => 'ダウンロードできません。動画のダウンロード画面で再試行してください。';
@@ -4475,7 +4493,7 @@ class SJa extends S {
   String get videoDeletePlaylist => 'プレイリストを削除';
 
   @override
-  String get videoOpenSource => 'MissAV を開く';
+  String get videoOpenSource => '配信元サイトを開く';
 
   @override
   String get videoDownloadDeleteConfirm => 'ダウンロードを削除するとオフラインで再生できなくなります。';

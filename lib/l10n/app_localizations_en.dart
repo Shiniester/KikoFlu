@@ -4462,6 +4462,23 @@ class SEn extends S {
   String get videoSourceAccount => 'MissAV account';
 
   @override
+  String get videoJableAccount => 'Jable account';
+
+  @override
+  String get videoJableLoginRequired =>
+      'Sign in to Jable to view and manage your video favorites.';
+
+  @override
+  String get videoJableLoginHelp =>
+      'Sign in on Jable, then select Check sign-in.';
+
+  @override
+  String get videoCheckLogin => 'Check sign-in';
+
+  @override
+  String get videoJableSignedIn => 'Signed in to Jable';
+
+  @override
   String get videoCatalog => 'Browse videos';
 
   @override
@@ -4469,6 +4486,9 @@ class SEn extends S {
 
   @override
   String get videoRecentlyUpdated => 'Recently updated';
+
+  @override
+  String get videoPopular => 'Popular';
 
   @override
   String get videoNewReleases => 'New releases';
@@ -4511,18 +4531,18 @@ class SEn extends S {
 
   @override
   String get videoSourceUnavailable =>
-      'This source feature is unavailable in the app. Open it on MissAV.';
+      'This feature is unavailable in the app. Open the source website.';
 
   @override
   String get videoVerificationRequired =>
-      'MissAV requires browser verification. Verify access, then retry.';
+      'The video source requires browser verification. Verify access, then retry.';
 
   @override
   String get videoVerifyAccess => 'Verify access';
 
   @override
   String get videoVerificationHelp =>
-      'Complete verification on MissAV, then select Check access.';
+      'Complete verification on the source website, then select Check access.';
 
   @override
   String get videoVerificationContinue => 'Check access';
@@ -4541,10 +4561,11 @@ class SEn extends S {
 
   @override
   String get videoLoadFailed =>
-      'Videos could not be loaded. Retry or open MissAV.';
+      'Videos could not be loaded. Retry or open the source website.';
 
   @override
-  String get videoPlaybackFailed => 'Playback failed. Retry or open MissAV.';
+  String get videoPlaybackFailed =>
+      'Playback failed. Retry or open the source website.';
 
   @override
   String get videoDownloadFailed =>
@@ -4607,7 +4628,7 @@ class SEn extends S {
   String get videoDeletePlaylist => 'Delete playlist';
 
   @override
-  String get videoOpenSource => 'Open MissAV';
+  String get videoOpenSource => 'Open source website';
 
   @override
   String get videoDownloadDeleteConfirm =>

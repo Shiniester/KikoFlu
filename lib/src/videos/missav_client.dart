@@ -13,8 +13,9 @@ import 'package:html/parser.dart' as html_parser;
 import '../services/proxy_config.dart';
 import 'missav_browser_adapter.dart';
 import 'video_models.dart';
+import 'video_source_client.dart';
 
-class MissavClient extends ChangeNotifier {
+class MissavClient extends ChangeNotifier implements VideoSourceClient {
   MissavClient({
     Dio? dio,
     Dio? metadataDio,
@@ -104,10 +105,21 @@ class MissavClient extends ChangeNotifier {
   String? _recommendationScenario;
 
   bool get isLoggedIn => _isLoggedIn;
+  @override
+  String get sourceKey => 'missav';
   int get sessionGeneration => _sessionGeneration;
   String? get accountName => _accountName;
+  @override
   String get homeUrl => _homeUrl;
 
+  @override
+  String get defaultCatalogUrl => '$homeUrl/release';
+
+  @override
+  List<VideoSearchFilterKind> get searchFilterKinds =>
+      VideoSearchFilterKind.values;
+
+  @override
   bool setLocale(String languageTag) {
     final parts = languageTag.replaceAll('_', '-').toLowerCase().split('-');
     final locale = switch (parts.first) {
@@ -169,6 +181,7 @@ class MissavClient extends ChangeNotifier {
     notifyListeners();
   }
 
+  @override
   Future<void> initialize() async {
     if (_initialized) return;
     await (_initializing ??= _loadSession());
@@ -234,6 +247,7 @@ class MissavClient extends ChangeNotifier {
     }
   }
 
+  @override
   Future<VideoCatalogPage> browse(
     String url, {
     CancelToken? cancelToken,
@@ -628,11 +642,13 @@ class MissavClient extends ChangeNotifier {
     );
   }
 
+  @override
   Future<VideoCatalogPage> search(String query) async {
     final path = '$_localePrefix/search/${Uri.encodeComponent(query)}';
     return browse('$origin$path');
   }
 
+  @override
   Future<VideoCatalogPage> searchFilterOptions(
     VideoSearchFilterKind kind, {
     String? pageUrl,
@@ -687,6 +703,7 @@ class MissavClient extends ChangeNotifier {
     );
   }
 
+  @override
   Future<List<VideoItem>> searchWithFilters(
     String query,
     List<VideoLink> filters, {
@@ -697,43 +714,28 @@ class MissavClient extends ChangeNotifier {
     final locale = _locale;
     final keyword = query.trim();
     // shortcut: Large catalogs need full pagination until a native combined-search API is verified.
-    final sources = <String>{
+    final urls = <String>{
       if (keyword.isNotEmpty)
         '$origin$_localePrefix/search/${Uri.encodeComponent(keyword)}',
       for (final filter in filters) _localizedSourceUri(filter.url).toString(),
     };
-    final candidates = <String, VideoItem>{};
-    var firstSource = true;
-    for (final source in sources) {
-      final first = _localizedSourceUri(source).removeFragment();
-      final parameters = Map<String, String>.of(first.queryParameters)
-        ..remove('page');
-      String? next = first.replace(queryParameters: parameters).toString();
-      final visited = <String>{};
-      final matchingIds = <String>{};
-      while (next != null && visited.add(next)) {
-        if (isCurrent?.call() == false || _locale != locale) return [];
-        _checkGeneration(generation, first);
-        final page = await browse(next);
-        if (isCurrent?.call() == false || _locale != locale) return [];
-        _checkGeneration(generation, first);
-        for (final video in page.videos) {
-          if (firstSource) {
-            candidates.putIfAbsent(video.id, () => video);
-          } else if (candidates.containsKey(video.id)) {
-            matchingIds.add(video.id);
-          }
-        }
-        if (!firstSource && matchingIds.length == candidates.length) break;
-        next = page.nextUrl;
-      }
-      if (!firstSource) {
-        candidates.removeWhere((id, _) => !matchingIds.contains(id));
-      }
-      if (candidates.isEmpty) return [];
-      firstSource = false;
-    }
-    return candidates.values.toList(growable: false);
+    return intersectVideoCatalogs(
+      urls: urls,
+      browse: (url) async {
+        final requestUri = _localizedSourceUri(url);
+        final parameters = Map<String, String>.of(requestUri.queryParameters)
+          ..remove('page');
+        final sourceUri = requestUri.removeFragment().replace(
+          queryParameters: parameters,
+        );
+        _checkGeneration(generation, sourceUri);
+        final page = await browse(url);
+        if (isCurrent?.call() == false || _locale != locale) return page;
+        _checkGeneration(generation, sourceUri);
+        return page;
+      },
+      isCurrent: () => isCurrent?.call() != false && _locale == locale,
+    );
   }
 
   Future<List<VideoItem>> searchCollection(
@@ -769,6 +771,7 @@ class MissavClient extends ChangeNotifier {
     return matches;
   }
 
+  @override
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,

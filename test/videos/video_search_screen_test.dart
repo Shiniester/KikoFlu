@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
@@ -102,6 +103,263 @@ void main() {
     expect(history.hitTestable(), findsOneWidget);
     expect(find.text(l10n.noSearchHistory), findsOneWidget);
   });
+
+  for (final filtersOnly in [false, true]) {
+    testWidgets(
+      'Jable favorite search clears old and pending results after account change '
+      '(filtersOnly=$filtersOnly)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final account = _TestJableAccount();
+        final pendingResults = Completer<VideoSearchResults>();
+        var searchCount = 0;
+        const privateVideo = VideoItem(
+          id: 'private-favorite',
+          sourceKey: 'jable',
+          title: 'Private favorite',
+          pageUrl: 'https://jable.tv/videos/private-favorite/',
+        );
+        const filter = VideoLink(
+          label: 'Favorite genre',
+          url: 'https://jable.tv/categories/favorite-genre/',
+          kind: VideoLinkKind.category,
+        );
+
+        await tester.pumpWidget(
+          _app(
+            VideoSearchScreen(
+              title: 'Jable favorites',
+              sourceKey: 'jable',
+              historyContext: const UnifiedSearchHistoryContext(
+                contentType: 'video',
+                entryScope: 'favorites',
+                source: 'jable',
+              ),
+              jableAccount: account,
+              initialQuery: filtersOnly ? null : 'favorite query',
+              initialFilters: filtersOnly ? const [filter] : const [],
+              search: (query, filters, _) {
+                if (filtersOnly) {
+                  expect(query, isEmpty);
+                  expect(filters, const [filter]);
+                }
+                searchCount++;
+                return searchCount == 1
+                    ? Future.value(
+                        const VideoSearchResults.collection([privateVideo]),
+                      )
+                    : pendingResults.future;
+              },
+              browsePage: (url) async =>
+                  VideoCatalogPage(title: 'Results', url: url),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(searchCount, 1);
+        expect(find.text('Private favorite'), findsOneWidget);
+
+        account.changeRevision();
+        await tester.pump();
+        await tester.pump();
+        expect(searchCount, 2);
+        expect(find.text('Private favorite'), findsNothing);
+
+        account.expireSession();
+        await tester.pump();
+        final l10n = await S.delegate.load(const Locale('en'));
+        expect(find.text(l10n.videoJableLoginRequired), findsOneWidget);
+
+        pendingResults.complete(
+          const VideoSearchResults.collection([privateVideo]),
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('Private favorite'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+        account.dispose();
+      },
+    );
+  }
+
+  for (final verifiedImmediately in [true, false]) {
+    testWidgets(
+      'Jable favorite search retries after session import during verification '
+      '(verifiedImmediately=$verifiedImmediately)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final account = _TestJableAccount();
+        var attempts = 0;
+        var verified = verifiedImmediately;
+        await tester.pumpWidget(
+          _app(
+            VideoSearchScreen(
+              title: 'Jable favorites',
+              sourceKey: 'jable',
+              historyContext: const UnifiedSearchHistoryContext(
+                contentType: 'video',
+                entryScope: 'favorites',
+                source: 'jable',
+              ),
+              jableAccount: account,
+              initialQuery: 'favorite query',
+              search: (_, _, _) async {
+                attempts++;
+                if (attempts == 1) {
+                  throw const JableVerificationRequiredException(
+                    sourceUrl: JableAccount.favoritesUrl,
+                  );
+                }
+                return const VideoSearchResults.collection([
+                  VideoItem(
+                    id: 'verified-favorite',
+                    sourceKey: 'jable',
+                    title: 'Verified favorite result',
+                    pageUrl: 'https://jable.tv/videos/verified-favorite/',
+                  ),
+                ]);
+              },
+              browsePage: (url) async =>
+                  VideoCatalogPage(title: 'Results', url: url),
+              verifyAccess: (_, _) async {
+                account.expireSession();
+                return verified;
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.text(l10n.videoVerifyAccess));
+        await tester.pumpAndSettle();
+        if (!verifiedImmediately) {
+          expect(attempts, 1);
+          expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+          expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+          verified = true;
+          await tester.tap(find.text(l10n.videoVerifyAccess));
+          await tester.pumpAndSettle();
+        }
+
+        expect(attempts, 2);
+        expect(find.text('Verified favorite result'), findsOneWidget);
+        expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+        account.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'Jable search renders supported filters and source navigation choices',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final browsedUrls = <String>[];
+      const defaultSort = VideoLink(
+        label: 'Default',
+        url: 'https://jable.tv/hot/',
+        kind: VideoLinkKind.navigation,
+      );
+      const week = VideoLink(
+        label: 'This week',
+        url: 'https://jable.tv/hot/?time=week',
+        kind: VideoLinkKind.navigation,
+      );
+      const month = VideoLink(
+        label: 'This month',
+        url: 'https://jable.tv/hot/?time=month',
+        kind: VideoLinkKind.navigation,
+      );
+      const popular = VideoLink(
+        label: 'Most viewed',
+        url: 'https://jable.tv/hot/?sort_by=video_viewed',
+        kind: VideoLinkKind.navigation,
+      );
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Jable search',
+            sourceKey: 'jable',
+            initialQuery: 'test',
+            searchFilterKinds: const [
+              VideoSearchFilterKind.genre,
+              VideoSearchFilterKind.actor,
+            ],
+            search: (_, _, _) async => VideoSearchResults.catalog(
+              const VideoCatalogPage(
+                title: 'Hot videos',
+                url: 'https://jable.tv/hot/2/?from=20',
+                navigation: [defaultSort, week, month],
+                currentPage: 2,
+              ),
+            ),
+            loadFilters: (kind, _) async => _filterPage(kind),
+            browsePage: (url) async {
+              browsedUrls.add(url);
+              return VideoCatalogPage(
+                title: 'Hot videos',
+                url: url,
+                navigation: const [defaultSort, week, month, popular],
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('video-search-type-genre')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('video-search-type-actor')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('video-search-type-studio')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('video-search-type-series')),
+        findsNothing,
+      );
+
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Default'))
+            .selected,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'This week'))
+            .selected,
+        isFalse,
+      );
+      await tester.tap(find.widgetWithText(ChoiceChip, 'This month'));
+      await tester.pumpAndSettle();
+      expect(browsedUrls, ['https://jable.tv/hot/?time=month']);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'This month'))
+            .selected,
+        isTrue,
+      );
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Most viewed'));
+      await tester.pumpAndSettle();
+      expect(browsedUrls, [
+        'https://jable.tv/hot/?time=month',
+        'https://jable.tv/hot/?sort_by=video_viewed',
+      ]);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Most viewed'))
+            .selected,
+        isTrue,
+      );
+    },
+  );
 
   testWidgets('first input tap suggests history and fills only its keyword', (
     tester,
@@ -2255,6 +2513,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Jable filter picker verifies and retries a challenge page', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var loadCount = 0;
+    final verifiedSources = <String>[];
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Jable search',
+          sourceKey: 'jable',
+          searchFilterKinds: const [
+            VideoSearchFilterKind.genre,
+            VideoSearchFilterKind.actor,
+          ],
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          loadFilters: (kind, _) async {
+            loadCount++;
+            if (loadCount < 3) {
+              throw const JableVerificationRequiredException(
+                sourceUrl: 'https://jable.tv/categories/',
+              );
+            }
+            return _filterPage(kind, label: 'Verified category');
+          },
+          verifyAccess: (_, error) async {
+            verifiedSources.add(error.sourceUrl ?? '');
+            return true;
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _openFilterPicker(tester, VideoSearchFilterKind.genre);
+    final l10n = await S.delegate.load(const Locale('en'));
+    final sheet = find.byKey(const ValueKey('responsive-sheet-surface'));
+    final verify = find.descendant(
+      of: sheet,
+      matching: find.text(l10n.videoVerifyAccess),
+    );
+    expect(verify, findsOneWidget);
+    await tester.tap(verify);
+    await tester.pumpAndSettle();
+
+    expect(verifiedSources, ['https://jable.tv/categories/']);
+    expect(loadCount, 3);
+    expect(find.text('Verified category'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('filter picker follows previous and next catalog pages', (
     tester,
   ) async {
@@ -2623,4 +2935,35 @@ class _TestAccountClient extends MissavClient {
   }
 
   void notifyUnrelatedChange() => notifyListeners();
+}
+
+class _TestJableAccount extends ChangeNotifier implements JableAccount {
+  bool _loggedIn = true;
+  int _revision = 0;
+
+  @override
+  bool get isLoggedIn => _loggedIn;
+
+  @override
+  int get revision => _revision;
+
+  @override
+  Future<List<VideoItem>> searchFavorites(
+    String query, {
+    bool Function()? isCurrent,
+  }) async => const [];
+
+  void changeRevision() {
+    _revision++;
+    notifyListeners();
+  }
+
+  void expireSession() {
+    _loggedIn = false;
+    _revision++;
+    notifyListeners();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

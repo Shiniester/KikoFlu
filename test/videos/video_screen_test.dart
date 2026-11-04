@@ -15,13 +15,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
+import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
@@ -2303,7 +2306,359 @@ void main() {
       'bigGrid',
     );
     await openDrawer();
-    expect(find.byIcon(Icons.grid_view), findsOneWidget);
+    await scrollToDrawerLabel(l10n.layout);
+    expect(
+      find.descendant(of: drawer, matching: find.byIcon(Icons.grid_view)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'switching to Jable loads its catalog and ignores a late MissAV response',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final oldMissavResponse = Completer<VideoCatalogPage>();
+      late String oldMissavUrl;
+      final missav = _TestMissavClient(
+        browseHandler: (url, _) {
+          oldMissavUrl = url;
+          return oldMissavResponse.future;
+        },
+      );
+      final jable = _TestJableClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          jableClient: jable,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(missav.browsedUrls, hasLength(1));
+      expect(missav.browsedUrls.single, startsWith('https://missav.ai/'));
+
+      final menuButton = find.byKey(const ValueKey('library-menu-button'));
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Jable').last.hitTestable());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(jable.browsedUrls, ['https://jable.tv']);
+      expect(find.text('Jable catalog'), findsOneWidget);
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoJableAccount), findsOneWidget);
+      expect(find.text(l10n.videoFavorites), findsOneWidget);
+      expect(find.text(l10n.videoActorFavorites), findsNothing);
+      expect(find.text(l10n.playlists), findsNothing);
+      expect(find.text(l10n.videoWatchHistory), findsNothing);
+      expect(find.text(l10n.videoNewReleases), findsOneWidget);
+      expect(find.text(l10n.videoChineseSubtitles), findsOneWidget);
+
+      oldMissavResponse.complete(
+        VideoCatalogPage(title: 'Late MissAV catalog', url: oldMissavUrl),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+
+      expect(find.text('Jable catalog'), findsOneWidget);
+      expect(find.text('Late MissAV catalog'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'Jable favorite catalog offers account login after auth failure',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final missav = _TestMissavClient();
+      final jable = _TestJableClient(
+        browseHandler: (url) async {
+          if (JableAccount.isFavoritesUri(Uri.parse(url))) {
+            throw const JableLoginRequiredException();
+          }
+          return VideoCatalogPage(
+            title: 'Jable catalog',
+            url: url,
+            videos: const [
+              VideoItem(
+                id: 'public-catalog-item',
+                sourceKey: 'jable',
+                title: 'Public catalog item',
+                pageUrl: 'https://jable.tv/videos/public-catalog-item/',
+              ),
+            ],
+          );
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          selectedVideoSource: 'jable',
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Public catalog item'), findsOneWidget);
+
+      final menuButton = find.byKey(const ValueKey('library-menu-button'));
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.text(l10n.videoFavorites).last.hitTestable());
+      await tester.pumpAndSettle();
+
+      expect(jable.browsedUrls, contains(JableAccount.favoritesUrl));
+      expect(find.text(l10n.videoJableLoginRequired), findsOneWidget);
+      expect(find.text('Public catalog item'), findsNothing);
+      final openAccount = find.byKey(
+        const ValueKey('video-open-jable-account'),
+      );
+      expect(openAccount, findsOneWidget);
+      await tester.tap(openAccount);
+      await tester.pumpAndSettle();
+      expect(find.byType(JableAccountScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final verifiedImmediately in [true, false]) {
+    testWidgets(
+      'Jable favorites retry after session import during verification '
+      '(verifiedImmediately=$verifiedImmediately)',
+      (tester) async {
+        final account = _TestJableAccount(loggedIn: true, revision: 1);
+        var attempts = 0;
+        var verified = verifiedImmediately;
+        final missav = _TestMissavClient();
+        final jable = _TestJableClient(
+          account: account,
+          browseHandler: (url) async {
+            attempts++;
+            if (attempts == 1) {
+              throw const JableVerificationRequiredException(
+                sourceUrl: JableAccount.favoritesUrl,
+              );
+            }
+            return VideoCatalogPage(
+              title: 'Verified favorites',
+              url: url,
+              videos: const [
+                VideoItem(
+                  id: 'verified-favorite',
+                  sourceKey: 'jable',
+                  title: 'Verified favorite video',
+                  pageUrl: 'https://jable.tv/videos/verified-favorite/',
+                ),
+              ],
+            );
+          },
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: missav, library: library);
+        await tester.pumpWidget(
+          _app(
+            missav,
+            library,
+            downloads,
+            const VideoScreen.catalog(
+              url: JableAccount.favoritesUrl,
+              sourceKey: 'jable',
+            ),
+            jableClient: jable,
+            verifyJable:
+                (
+                  context,
+                  client, {
+                  required sourceUrl,
+                  requireLogin = false,
+                }) async {
+                  // Importing a verified session resets the account state.
+                  account.expireSession();
+                  return verified;
+                },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.text(l10n.videoVerifyAccess));
+        await tester.pumpAndSettle();
+        if (!verifiedImmediately) {
+          expect(attempts, 1);
+          expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+          expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+          verified = true;
+          await tester.tap(find.text(l10n.videoVerifyAccess));
+          await tester.pumpAndSettle();
+        }
+
+        expect(attempts, 2);
+        expect(find.text('Verified favorite video'), findsOneWidget);
+        expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('Jable favorite metadata filters stay within that collection', (
+    tester,
+  ) async {
+    const tag = VideoLink(
+      label: 'Favorite genre',
+      url: 'https://jable.tv/categories/favorite-genre/',
+      kind: VideoLinkKind.category,
+    );
+    const matching = VideoItem(
+      id: 'matching-favorite',
+      sourceKey: 'jable',
+      title: 'Matching favorite',
+      pageUrl: 'https://jable.tv/videos/matching-favorite/',
+    );
+    const otherFavorite = VideoItem(
+      id: 'other-favorite',
+      sourceKey: 'jable',
+      title: 'Other favorite',
+      pageUrl: 'https://jable.tv/videos/other-favorite/',
+    );
+    const outsideFavorite = VideoItem(
+      id: 'outside-favorite',
+      sourceKey: 'jable',
+      title: 'Outside favorite',
+      pageUrl: 'https://jable.tv/videos/outside-favorite/',
+    );
+    final client = _TestMissavClient();
+    addTearDown(client.dispose);
+    final jable = _TestJableClient(
+      account: _TestJableAccount(
+        loggedIn: true,
+        revision: 1,
+        favorites: const [matching, otherFavorite],
+      ),
+      filteredVideos: const [matching, outsideFavorite],
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        Builder(
+          builder: (context) => VideoScreen.searchScreen(
+            context,
+            client: jable,
+            collectionKey: 'favorites',
+            initialFilters: const [tag],
+          ),
+        ),
+        jableClient: jable,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(matching.title), findsOneWidget);
+    expect(find.text(otherFavorite.title), findsNothing);
+    expect(find.text(outsideFavorite.title), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Jable logout clears favorite content during page navigation', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    const favoritesPageTwo = 'https://jable.tv/my/favourites/videos/?page=2';
+    final pageTwo = Completer<VideoCatalogPage>();
+    final account = _TestJableAccount(loggedIn: true, revision: 1);
+    const privateVideo = VideoItem(
+      id: 'account-favorite',
+      sourceKey: 'jable',
+      title: 'Private account favorite',
+      pageUrl: 'https://jable.tv/videos/account-favorite/',
+    );
+    final missav = _TestMissavClient();
+    final jable = _TestJableClient(
+      account: account,
+      browseHandler: (url) => url == favoritesPageTwo
+          ? pageTwo.future
+          : Future.value(
+              url == JableAccount.favoritesUrl
+                  ? const VideoCatalogPage(
+                      title: 'Jable favorites',
+                      url: JableAccount.favoritesUrl,
+                      videos: [privateVideo],
+                      nextUrl: favoritesPageTwo,
+                    )
+                  : VideoCatalogPage(title: 'Jable catalog', url: url),
+            ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: missav, library: library);
+    await tester.pumpWidget(
+      _app(
+        missav,
+        library,
+        downloads,
+        const VideoScreen(),
+        selectedVideoSource: 'jable',
+        jableClient: jable,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final menuButton = find.byKey(const ValueKey('library-menu-button'));
+    Scaffold.of(tester.element(menuButton)).openDrawer();
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.videoFavorites).last.hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.text('Private account favorite'), findsOneWidget);
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pump();
+    expect(jable.browsedUrls, contains(favoritesPageTwo));
+    account.expireSession();
+    await tester.pump();
+    expect(find.text('Private account favorite'), findsNothing);
+    expect(find.text(l10n.videoJableLoginRequired), findsOneWidget);
+
+    pageTwo.complete(
+      const VideoCatalogPage(
+        title: 'Jable favorites',
+        url: favoritesPageTwo,
+        videos: [privateVideo],
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Private account favorite'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
@@ -4085,11 +4440,28 @@ Widget _app(
   Widget home, {
   double textScale = 1,
   Locale locale = const Locale('en'),
+  String selectedVideoSource = 'missav',
+  JableClient? jableClient,
+  Future<bool> Function(
+    BuildContext context,
+    JableClient client, {
+    required String sourceUrl,
+    bool requireLogin,
+  })?
+  verifyJable,
   Future<void> Function()? clearBrowserSession,
   NavigatorObserver? observer,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
+    videoSelectedSourceProvider.overrideWith((ref) => selectedVideoSource),
+    jableVideoClientProvider.overrideWith((ref) {
+      final sourceClient = jableClient ?? JableClient();
+      ref.onDispose(sourceClient.dispose);
+      return sourceClient;
+    }),
+    if (verifyJable != null)
+      jableAccessVerifierProvider.overrideWithValue(verifyJable),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
     videoBrowserSessionCleanupProvider.overrideWithValue(
@@ -4112,6 +4484,84 @@ Widget _app(
     home: home,
   ),
 );
+
+class _TestJableClient extends JableClient {
+  _TestJableClient({
+    this.browseHandler,
+    JableAccount? account,
+    this.filteredVideos = const [],
+  }) : _testAccount = account;
+
+  final browsedUrls = <String>[];
+  final Future<VideoCatalogPage> Function(String url)? browseHandler;
+  final List<VideoItem> filteredVideos;
+  JableAccount? _testAccount;
+
+  @override
+  JableAccount get account => _testAccount ?? super.account;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<List<VideoItem>> searchWithFilters(
+    String query,
+    List<VideoLink> filters, {
+    bool Function()? isCurrent,
+  }) async => filteredVideos;
+
+  @override
+  Future<VideoCatalogPage> browse(
+    String url, {
+    CancelToken? cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+  }) async {
+    browsedUrls.add(url);
+    final page =
+        await browseHandler?.call(url) ??
+        VideoCatalogPage(title: 'Jable catalog', url: url);
+    onParsed?.call(page);
+    return page;
+  }
+
+  @override
+  void dispose() {
+    _testAccount?.dispose();
+    _testAccount = null;
+    super.dispose();
+  }
+}
+
+class _TestJableAccount extends ChangeNotifier implements JableAccount {
+  _TestJableAccount({
+    required this.loggedIn,
+    required this.revision,
+    this.favorites = const [],
+  });
+
+  bool loggedIn;
+  final List<VideoItem> favorites;
+  @override
+  int revision;
+
+  @override
+  bool get isLoggedIn => loggedIn;
+
+  @override
+  Future<List<VideoItem>> searchFavorites(
+    String query, {
+    bool Function()? isCurrent,
+  }) async => favorites;
+
+  void expireSession() {
+    loggedIn = false;
+    revision++;
+    notifyListeners();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 Future<VideoLibrary> _testLibrary() async {
   SharedPreferences.setMockInitialValues({});

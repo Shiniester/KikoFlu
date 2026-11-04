@@ -59,7 +59,7 @@ class VideoDownloadTask {
       Map<String, dynamic>.from(json['video'] as Map),
     );
     return VideoDownloadTask(
-      id: json['id'] as String? ?? video.id,
+      id: json['id'] as String? ?? video.storageKey,
       video: video,
       quality: json['quality'] as String,
       isHls: json['isHls'] as bool? ?? false,

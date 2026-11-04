@@ -7936,6 +7936,36 @@ abstract class S {
   /// **'MissAV account'**
   String get videoSourceAccount;
 
+  /// No description provided for @videoJableAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Jable account'**
+  String get videoJableAccount;
+
+  /// No description provided for @videoJableLoginRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to Jable to view and manage your video favorites.'**
+  String get videoJableLoginRequired;
+
+  /// No description provided for @videoJableLoginHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in on Jable, then select Check sign-in.'**
+  String get videoJableLoginHelp;
+
+  /// No description provided for @videoCheckLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Check sign-in'**
+  String get videoCheckLogin;
+
+  /// No description provided for @videoJableSignedIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in to Jable'**
+  String get videoJableSignedIn;
+
   /// No description provided for @videoCatalog.
   ///
   /// In en, this message translates to:
@@ -7953,6 +7983,12 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Recently updated'**
   String get videoRecentlyUpdated;
+
+  /// No description provided for @videoPopular.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular'**
+  String get videoPopular;
 
   /// No description provided for @videoNewReleases.
   ///
@@ -8035,13 +8071,13 @@ abstract class S {
   /// No description provided for @videoSourceUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'This source feature is unavailable in the app. Open it on MissAV.'**
+  /// **'This feature is unavailable in the app. Open the source website.'**
   String get videoSourceUnavailable;
 
   /// No description provided for @videoVerificationRequired.
   ///
   /// In en, this message translates to:
-  /// **'MissAV requires browser verification. Verify access, then retry.'**
+  /// **'The video source requires browser verification. Verify access, then retry.'**
   String get videoVerificationRequired;
 
   /// No description provided for @videoVerifyAccess.
@@ -8053,7 +8089,7 @@ abstract class S {
   /// No description provided for @videoVerificationHelp.
   ///
   /// In en, this message translates to:
-  /// **'Complete verification on MissAV, then select Check access.'**
+  /// **'Complete verification on the source website, then select Check access.'**
   String get videoVerificationHelp;
 
   /// No description provided for @videoVerificationContinue.
@@ -8083,13 +8119,13 @@ abstract class S {
   /// No description provided for @videoLoadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Videos could not be loaded. Retry or open MissAV.'**
+  /// **'Videos could not be loaded. Retry or open the source website.'**
   String get videoLoadFailed;
 
   /// No description provided for @videoPlaybackFailed.
   ///
   /// In en, this message translates to:
-  /// **'Playback failed. Retry or open MissAV.'**
+  /// **'Playback failed. Retry or open the source website.'**
   String get videoPlaybackFailed;
 
   /// No description provided for @videoDownloadFailed.
@@ -8209,7 +8245,7 @@ abstract class S {
   /// No description provided for @videoOpenSource.
   ///
   /// In en, this message translates to:
-  /// **'Open MissAV'**
+  /// **'Open source website'**
   String get videoOpenSource;
 
   /// No description provided for @videoDownloadDeleteConfirm.
