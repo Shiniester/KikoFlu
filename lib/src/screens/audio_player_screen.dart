@@ -1634,33 +1634,39 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     double? horizontalPadding,
     PlayerVerticalDragCallbacks? dismissDrag,
   }) {
-    final controls = ValueListenableBuilder<String?>(
-      valueListenable: _workProgress,
-      builder: (_, progress, _) => PlayerControlsWidget(
-        isLandscape: isWide,
-        isSeekingManually: _isSeekingManually,
-        seekValue: _seekValue,
-        onSeekChanged: _handleSeekChanged,
-        onSeekEnd: _handleSeekEnd,
-        onSeekInteractionChanged: _setProgressGestureActive,
-        seekingPosition: _seekingPosition,
-        seekingPositionListenable: _seekPreview,
-        workId: track.workId,
-        currentProgress: progress,
-        onMarkPressed: track.workId == null
-            ? null
-            : () => _showMarkDialog(context, track.workId!, track.title),
-        onDetailPressed: track.workId == null
-            ? null
-            : () => _navigateToWorkDetail(context, track.workId!),
-        onQueuePressed: _showQueue,
-        visibleActionCount: 5,
-        additionalActionWidth: isWide || _compactSharedWidth == null
-            ? null
-            : _compactSharedWidth! + 24,
-      ),
-    );
-    Widget buildContent({int previewLineCount = 5}) => Align(
+    Widget buildControls(bool compactSpacing) =>
+        ValueListenableBuilder<String?>(
+          valueListenable: _workProgress,
+          builder: (_, progress, _) => PlayerControlsWidget(
+            isLandscape: isWide,
+            compactSpacing: compactSpacing,
+            isSeekingManually: _isSeekingManually,
+            seekValue: _seekValue,
+            onSeekChanged: _handleSeekChanged,
+            onSeekEnd: _handleSeekEnd,
+            onSeekInteractionChanged: _setProgressGestureActive,
+            seekingPosition: _seekingPosition,
+            seekingPositionListenable: _seekPreview,
+            workId: track.workId,
+            currentProgress: progress,
+            onMarkPressed: track.workId == null
+                ? null
+                : () => _showMarkDialog(context, track.workId!, track.title),
+            onDetailPressed: track.workId == null
+                ? null
+                : () => _navigateToWorkDetail(context, track.workId!),
+            onQueuePressed: _showQueue,
+            visibleActionCount: 5,
+            additionalActionWidth: isWide || _compactSharedWidth == null
+                ? null
+                : _compactSharedWidth! + 24,
+          ),
+        );
+    Widget buildContent({
+      int previewLineCount = 5,
+      double previewMaxHeight = double.infinity,
+      bool compactSpacing = false,
+    }) => Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: isWide ? 680 : double.infinity),
@@ -1703,15 +1709,18 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     key: const ValueKey('wide-controls-lyric-preview-surface'),
                     swipeDownDrag: dismissDrag,
                     pageDragCoordinator: _widePageHandoff,
-                    child: _buildLyricPreview(
-                      track,
-                      lineCount: previewLineCount,
-                      compact: previewLineCount == 3,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: previewMaxHeight),
+                      child: _buildLyricPreview(
+                        track,
+                        lineCount: previewLineCount,
+                        compact: previewLineCount == 3,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                 ],
-                controls,
+                buildControls(compactSpacing),
               ],
             ),
           ),
@@ -1734,7 +1743,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       children: [
         if (enableQueueGesture)
           SizedBox(
-            height: shortStage ? 48 : 72,
+            height: shortStage ? 24 : 72,
             width: double.infinity,
             child: PlayerVerticalSwipeRegion(
               key: const ValueKey('controls-queue-swipe-surface-wide'),
@@ -1748,19 +1757,33 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             builder: (context, constraints) {
               final timeStyle = Theme.of(context).textTheme.bodySmall;
               final timeLabelHeight =
-                  MediaQuery.textScalerOf(
-                    context,
-                  ).scale(timeStyle?.fontSize ?? 12) *
-                  (timeStyle?.height ?? 1);
-              // Reserve the progress row and playback buttons before expanding lyrics.
+                  (MediaQuery.textScalerOf(
+                            context,
+                          ).scale(timeStyle?.fontSize ?? 12) *
+                          (timeStyle?.height ?? 1))
+                      .ceilToDouble();
+              // Reserve every control row before expanding the lyric preview.
               const fullPreviewHeight = 144.0 + 20 + 12;
-              final primaryControlsHeight = 32 + timeLabelHeight + 18 + 62;
+              const minimumPreviewHeight = 32.0 + 20;
+              final fullControlsHeight =
+                  32 + timeLabelHeight + 18 + 62 + 16 + 48;
+              final verticalPadding = shortStage ? 0.0 : 36.0;
+              final compactSpacing =
+                  constraints.maxHeight <
+                  minimumPreviewHeight +
+                      12 +
+                      fullControlsHeight +
+                      verticalPadding;
+              final controlsHeight =
+                  fullControlsHeight - (compactSpacing ? 18 + 16 : 0);
               final fiveLineContentHeight =
-                  fullPreviewHeight +
-                  primaryControlsHeight +
-                  (shortStage ? 0 : 36);
+                  fullPreviewHeight + controlsHeight + verticalPadding;
               final previewLineCount =
                   constraints.maxHeight >= fiveLineContentHeight ? 5 : 3;
+              final previewMaxHeight = math.max(
+                minimumPreviewHeight,
+                constraints.maxHeight - controlsHeight - 12 - verticalPadding,
+              );
               return PlayerScrollEdgeActions(
                 pullDownDrag: dismissDrag,
                 child: KeyedSubtree(
@@ -1775,7 +1798,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         minHeight: constraints.maxHeight,
                       ),
                       child: Center(
-                        child: buildContent(previewLineCount: previewLineCount),
+                        child: buildContent(
+                          previewLineCount: previewLineCount,
+                          previewMaxHeight: previewMaxHeight,
+                          compactSpacing: compactSpacing,
+                        ),
                       ),
                     ),
                   ),

@@ -1,6 +1,6 @@
-# KikoFlu
+# Iroru
 
-KikoFlu combines audio playback, comic reading, and video playback. Audio uses a
+Iroru combines audio playback, comic reading, and video playback. Audio uses a
 persistent compact surface and a full-screen player; comics use source-backed
 libraries and a full-screen reader with shared playback access. Video uses a
 separate inline player with full-screen playback and local downloads.
@@ -650,16 +650,16 @@ Source independently determines whether anonymous access is permitted.
 _Avoid_: guest demo account, offline account
 
 **Update Channel (更新渠道)**:
-The release family selected for KikoFlu update checks: Stable Release or Beta
+The release family selected for Iroru update checks: Stable Release or Beta
 Release.
 
 **Stable Release (正式版)**:
-A published KikoFlu version intended for regular use.
+A published Iroru version intended for regular use.
 
 **Beta Release (测试版)**:
-A published KikoFlu version intended for testing changes before a Stable Release.
+A published Iroru version intended for testing changes before a Stable Release.
 _Avoid_: Development build, nightly build
 
-**KikoFlu Beta**:
-The Android testing edition of KikoFlu. It is installed alongside the stable app
+**Iroru Beta**:
+The Android testing edition of Iroru. It is installed alongside the stable app
 and keeps separate app data.

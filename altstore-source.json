@@ -1,15 +1,15 @@
 {
-  "name": "KikoFlu Source",
+  "name": "Iroru Source",
   "identifier": "com.meteor.kikoeruflutter.AltStore",
-  "subtitle": "KikoFlu AltStore Source",
-  "description": "AltStore source for KikoFlu - A cross-platform Kikoeru client",
+  "subtitle": "Iroru AltStore Source",
+  "description": "AltStore source for Iroru - A cross-platform Kikoeru client",
   "iconURL": "https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/assets/icons/app_icon_opaque.png",
   "headerURL": "https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/assets/icons/app_icon_opaque.png",
   "website": "https://github.com/pa-jesusf/KikoFlu",
   "sourceURL": "https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/altstore-source.json",
   "apps": [
     {
-      "name": "KikoFlu",
+      "name": "Iroru",
       "bundleIdentifier": "com.meteor.kikoeruflutter",
       "developerName": "pa-jesusf",
       "subtitle": "Kikoeru Client",

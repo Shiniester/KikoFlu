@@ -193,13 +193,13 @@ jobs:
 
           flutter build apk --release
           mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+            "dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
 
           # Preserve the legacy split APK versionCode scheme so existing
           # arm64 installations can be upgraded in place.
           flutter build apk --release --split-per-abi
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            "dist/KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+            "dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
       - name: Verify Android Package Compatibility
         env:
@@ -212,8 +212,8 @@ jobs:
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           aapt="$build_tools_dir/aapt"
           apksigner="$build_tools_dir/apksigner"
-          universal_apk="dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
-          arm64_apk="dist/KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+          universal_apk="dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+          arm64_apk="dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
@@ -317,20 +317,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           iscc /DMyAppVersion="${{ needs.prepare.outputs.version }}" installer_script.iss
-          Copy-Item -Path 'Output/KikoFlu-windows-setup.exe' -Destination "dist/KikoFlu-windows-setup_${{ needs.prepare.outputs.suffix }}.exe"
+          Copy-Item -Path 'Output/Iroru-windows-setup.exe' -Destination "dist/Iroru-windows-setup_${{ needs.prepare.outputs.suffix }}.exe"
 
       # Keep the legacy archive implementation and unsigned Windows outputs.
       - name: Create Windows Portable Archive
         uses: thedoctor0/zip-release@0.7.6
         with:
           type: 'zip'
-          filename: 'KikoFlu-windows.zip'
+          filename: 'Iroru-windows.zip'
           directory: 'build/windows/x64/runner/Release'
 
       - name: Rename Windows Portable Archive
         shell: pwsh
         run: |
-          Move-Item -Path 'build/windows/x64/runner/Release/KikoFlu-windows.zip' -Destination "dist/KikoFlu-windows_${{ needs.prepare.outputs.suffix }}.zip"
+          Move-Item -Path 'build/windows/x64/runner/Release/Iroru-windows.zip' -Destination "dist/Iroru-windows_${{ needs.prepare.outputs.suffix }}.zip"
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v6
@@ -372,7 +372,7 @@ jobs:
           mkdir -p build/Payload dist
           cp -R build/ios/iphoneos/Runner.app build/Payload/
           (cd build && zip -qr \
-            "$GITHUB_WORKSPACE/dist/KikoFlu-ios-unsigned_${{ needs.prepare.outputs.suffix }}.ipa" \
+            "$GITHUB_WORKSPACE/dist/Iroru-ios-unsigned_${{ needs.prepare.outputs.suffix }}.ipa" \
             Payload)
 
       - name: Upload iOS Artifact
@@ -413,11 +413,11 @@ jobs:
           set -euo pipefail
           rm -rf build/dmg dist
           mkdir -p build/dmg dist
-          cp -R build/macos/Build/Products/Release/KikoFlu.app build/dmg/
-          hdiutil create -volname "KikoFlu" \
+          cp -R build/macos/Build/Products/Release/Iroru.app build/dmg/
+          hdiutil create -volname "Iroru" \
             -srcfolder build/dmg \
             -ov -format UDZO \
-            "dist/KikoFlu-macos_${{ needs.prepare.outputs.suffix }}.dmg"
+            "dist/Iroru-macos_${{ needs.prepare.outputs.suffix }}.dmg"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v6
@@ -466,7 +466,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           (cd build/linux/x64/release/bundle && tar -czf \
-            "$GITHUB_WORKSPACE/dist/KikoFlu-linux-x64_${{ needs.prepare.outputs.suffix }}.tar.gz" .)
+            "$GITHUB_WORKSPACE/dist/Iroru-linux-x64_${{ needs.prepare.outputs.suffix }}.tar.gz" .)
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v6
@@ -519,7 +519,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           (cd build/linux/arm64/release/bundle && tar -czf \
-            "$GITHUB_WORKSPACE/dist/KikoFlu-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz" .)
+            "$GITHUB_WORKSPACE/dist/Iroru-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz" .)
 
       - name: Upload Linux ARM64 Artifact
         uses: actions/upload-artifact@v6
@@ -560,14 +560,14 @@ jobs:
           set -euo pipefail
 
           expected=(
-            "KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
-            "KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
-            "KikoFlu-ios-unsigned_${{ needs.prepare.outputs.suffix }}.ipa"
-            "KikoFlu-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz"
-            "KikoFlu-linux-x64_${{ needs.prepare.outputs.suffix }}.tar.gz"
-            "KikoFlu-macos_${{ needs.prepare.outputs.suffix }}.dmg"
-            "KikoFlu-windows-setup_${{ needs.prepare.outputs.suffix }}.exe"
-            "KikoFlu-windows_${{ needs.prepare.outputs.suffix }}.zip"
+            "Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+            "Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+            "Iroru-ios-unsigned_${{ needs.prepare.outputs.suffix }}.ipa"
+            "Iroru-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz"
+            "Iroru-linux-x64_${{ needs.prepare.outputs.suffix }}.tar.gz"
+            "Iroru-macos_${{ needs.prepare.outputs.suffix }}.dmg"
+            "Iroru-windows-setup_${{ needs.prepare.outputs.suffix }}.exe"
+            "Iroru-windows_${{ needs.prepare.outputs.suffix }}.zip"
           )
 
           assets=()

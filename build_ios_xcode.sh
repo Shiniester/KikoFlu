@@ -72,7 +72,7 @@ echo "� 打包无签名 IPA..."
 
 # 清理之前的打包文件
 rm -rf build/Payload
-rm -f KikoFlu-unsigned.ipa
+rm -f Iroru-unsigned.ipa
 
 # 创建 Payload 目录并复制 .app
 mkdir -p build/Payload
@@ -80,21 +80,21 @@ cp -r ios/build/Runner.xcarchive/Products/Applications/Runner.app build/Payload/
 
 # 打包成 IPA
 cd build
-zip -qr KikoFlu-unsigned.ipa Payload
+zip -qr Iroru-unsigned.ipa Payload
 cd ..
 
 # 移动到项目根目录
-mv build/KikoFlu-unsigned.ipa ./
+mv build/Iroru-unsigned.ipa ./
 
 # 验证文件
-if [ -f "KikoFlu-unsigned.ipa" ]; then
+if [ -f "Iroru-unsigned.ipa" ]; then
     echo "✅ 构建完成！"
     echo ""
     echo "📱 无签名 IPA 文件信息："
-    ls -lh KikoFlu-unsigned.ipa
+    ls -lh Iroru-unsigned.ipa
     echo ""
     echo "📍 文件位置:"
-    echo "$(pwd)/KikoFlu-unsigned.ipa"
+    echo "$(pwd)/Iroru-unsigned.ipa"
 else
     echo "❌ 打包失败"
     exit 1

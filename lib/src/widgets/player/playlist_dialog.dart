@@ -13,6 +13,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/playback_session_store.dart';
 import '../../utils/l10n_extensions.dart';
+import '../../utils/snackbar_util.dart';
+import '../../utils/string_utils.dart';
 import '../responsive_dialog.dart';
 import '../animated_menu_anchor.dart';
 import 'player_glass_surface.dart';
@@ -62,6 +64,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.positionCurrentTrack = false,
     this.onCurrentTrackPositioned,
     this.showTitleBar = true,
+    this.showFooter = true,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
   });
@@ -76,6 +79,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final bool positionCurrentTrack;
   final VoidCallback? onCurrentTrackPositioned;
   final bool showTitleBar;
+  final bool showFooter;
   final bool showCloseButton;
   final double horizontalPadding;
 
@@ -301,29 +305,41 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                     child: queueList,
                   ),
           ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              widget.horizontalPadding,
-              12,
-              widget.horizontalPadding,
-              16,
+          if (widget.showFooter)
+            _QueueFooter(horizontalPadding: widget.horizontalPadding),
+        ],
+      ),
+    );
+  }
+}
+
+class _QueueFooter extends StatelessWidget {
+  const _QueueFooter({required this.horizontalPadding});
+
+  final double horizontalPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        12,
+        horizontalPadding,
+        16,
+      ),
+      child: const Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _RepeatModePill(),
             ),
-            child: const Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: _RepeatModePill(),
-                  ),
-                ),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: PlaylistModePill(),
-                  ),
-                ),
-              ],
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: PlaylistModePill(),
             ),
           ),
         ],
@@ -378,6 +394,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
   int _currentPage = 0;
   int? _restoringHistoryIndex;
   int? _restoringTrackIndex;
+  ({PlaybackSessionSnapshot snapshot, int index})? _removingHistoricalTrack;
   int _restoreGeneration = 0;
   bool _initialPageScheduled = false;
   bool _initialPageSelected = false;
@@ -593,11 +610,35 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(S.of(context).errorWithMessage(error.toString())),
-        ),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
       );
+    }
+  }
+
+  Future<void> _removeHistoricalTrack(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) async {
+    if (_removingHistoricalTrack != null || _restoringHistoryIndex != null) {
+      return;
+    }
+    setState(
+      () => _removingHistoricalTrack = (snapshot: snapshot, index: index),
+    );
+    try {
+      await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .removeHistoricalTrackAt(snapshot, index);
+    } catch (error) {
+      if (!mounted) return;
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
+      );
+    } finally {
+      if (mounted) setState(() => _removingHistoricalTrack = null);
     }
   }
 
@@ -605,6 +646,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     PlaybackSessionSnapshot snapshot,
     int trackIndex,
   ) async {
+    if (_removingHistoricalTrack != null) return;
     if (_restoredPage != null) {
       _updatePages(ref.read(audioPlayerServiceProvider).historicalQueues);
     }
@@ -628,10 +670,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
       if (restored) _restoredPage = page;
     } catch (error) {
       if (!mounted || generation != _restoreGeneration) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(S.of(context).errorWithMessage(error.toString())),
-        ),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
       );
     } finally {
       if (mounted && generation == _restoreGeneration) {
@@ -790,6 +831,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     required ScrollController scrollController,
   }) {
     final trackMetadataHeight = _queueTrackMetadataHeight(context);
+    final pendingRemoval = _removingHistoricalTrack;
     Widget trackList = snapshot.queue.isEmpty
         ? Center(child: Text(S.of(context).playlistEmpty))
         : ListView.builder(
@@ -816,10 +858,17 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                   isCurrentTrack: false,
                   metadataHeight: trackMetadataHeight,
                   isLoading:
-                      _restoringHistoryIndex == historyIndex &&
-                      _restoringTrackIndex == index,
-                  onTap: () => _restoreHistoricalTrack(snapshot, index),
-                  onRemove: null,
+                      (_restoringHistoryIndex == historyIndex &&
+                          _restoringTrackIndex == index) ||
+                      (pendingRemoval?.snapshot.isSameQueue(snapshot) == true &&
+                          pendingRemoval?.index == index),
+                  onTap: pendingRemoval != null
+                      ? null
+                      : () => _restoreHistoricalTrack(snapshot, index),
+                  onRemove:
+                      pendingRemoval != null || _restoringHistoryIndex != null
+                      ? null
+                      : () => _removeHistoricalTrack(snapshot, index),
                 ),
               );
             },
@@ -904,6 +953,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                     child: _pages[index].snapshot == null
                         ? PlayerQueueSurface(
                             showTitleBar: false,
+                            showFooter: false,
                             onTrackSelected: widget.onTrackSelected,
                             onClear: widget.onClear,
                             onDismissRequested: widget.onDismissRequested,
@@ -929,13 +979,19 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
               ),
             ),
           ),
+          Center(
+            child: SizedBox(
+              width: widget.contentWidth,
+              child: _QueueFooter(horizontalPadding: widget.horizontalPadding),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _QueueTrackTile extends StatelessWidget {
+class _QueueTrackTile extends ConsumerWidget {
   const _QueueTrackTile({
     required this.track,
     required this.coverUrl,
@@ -952,12 +1008,24 @@ class _QueueTrackTile extends StatelessWidget {
   final bool isCurrentTrack;
   final double horizontalPadding;
   final double metadataHeight;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final VoidCallback? onRemove;
   final bool isLoading;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    var duration = track.duration;
+    if (isCurrentTrack &&
+        ref.watch(isTrackLoadingProvider).valueOrNull == false) {
+      final currentDuration = ref.watch(durationProvider).valueOrNull;
+      if (currentDuration != null && currentDuration > Duration.zero) {
+        duration = currentDuration;
+      }
+    }
+    final durationText = duration != null && duration > Duration.zero
+        ? formatDuration(duration)
+        : null;
+    final artist = track.artist?.trim() ?? '';
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final titleStyle =
@@ -1030,12 +1098,30 @@ class _QueueTrackTile extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: titleStyle,
                                 ),
-                                if (track.artist?.trim().isNotEmpty == true)
-                                  Text(
-                                    track.artist!.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: artistStyle,
+                                if (artist.isNotEmpty || durationText != null)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          artist,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: artistStyle,
+                                        ),
+                                      ),
+                                      if (durationText != null) ...[
+                                        if (artist.isNotEmpty)
+                                          const SizedBox(width: 4),
+                                        Text(
+                                          durationText,
+                                          key: ValueKey(
+                                            'player-queue-duration-${track.id}',
+                                          ),
+                                          maxLines: 1,
+                                          style: artistStyle,
+                                        ),
+                                      ],
+                                    ],
                                   ),
                               ],
                             ),

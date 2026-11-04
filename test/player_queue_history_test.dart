@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -10,10 +12,12 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,6 +56,20 @@ const _liveSnapshot = PlaybackSessionSnapshot(
 );
 
 void main() {
+  setUpAll(() async {
+    final fonts = Directory(
+      '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts',
+    );
+    final font = fonts.listSync().whereType<File>().singleWhere(
+      (file) =>
+          file.uri.pathSegments.last.toLowerCase() == 'roboto-regular.ttf',
+    );
+    await (FontLoader('QueueMetadataRoboto')..addFont(
+          font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+        ))
+        .load();
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
     await StorageService.initCritical(
@@ -59,12 +77,299 @@ void main() {
     );
   });
 
+  tearDown(AppFloatingNotice.clearAll);
+
+  for (final scenario in [
+    (size: const Size(390, 844), systemTextScale: 1.0),
+    (size: const Size(320, 740), systemTextScale: 2.0),
+    (size: const Size(1100, 800), systemTextScale: 1.0),
+  ]) {
+    for (final historical in [false, true]) {
+      testWidgets(
+        'queue durations share the artist row in history=$historical at $scenario',
+        (tester) async {
+          const tracks = [
+            AudioTrack(
+              id: 'duration-with-artist',
+              title: 'Track with a voice actor',
+              artist:
+                  'A voice actor name deliberately long enough to be truncated',
+              url: 'https://example.invalid/voice.mp3',
+              duration: Duration(hours: 1, minutes: 4, seconds: 9),
+            ),
+            AudioTrack(
+              id: 'duration-without-artist',
+              title: 'Track without a voice actor',
+              url: 'https://example.invalid/no-voice.mp3',
+              duration: Duration(minutes: 4, seconds: 9),
+            ),
+            AudioTrack(
+              id: 'duration-unknown',
+              title: 'Track without duration',
+              artist: 'Voice actor',
+              url: 'https://example.invalid/unknown.mp3',
+            ),
+            AudioTrack(
+              id: 'duration-zero',
+              title: 'Track with zero duration',
+              url: 'https://example.invalid/zero.mp3',
+              duration: Duration.zero,
+            ),
+          ];
+          const history = PlaybackSessionSnapshot(
+            queue: tracks,
+            currentIndex: 0,
+            position: Duration.zero,
+            ownerKey: _queueOwner,
+            markingQueueId: 'queue-with-durations',
+          );
+          await _pumpQueue(
+            tester,
+            size: scenario.size,
+            textScale: scenario.systemTextScale,
+            actions: _QueueActions(),
+            liveTrack: historical ? _liveTrack : tracks.first,
+            liveQueue: historical ? [_liveTrack] : tracks,
+            initialHistories: historical ? [history] : [_history],
+            playbackDuration: null,
+            screen: Theme(
+              data: ThemeData(fontFamily: 'QueueMetadataRoboto'),
+              child: AudioPlayerScreen(
+                initialSurface: PlayerInitialSurface.queue,
+                initialQueueHistory: historical,
+              ),
+            ),
+          );
+
+          for (final (track, label) in [
+            (tracks[0], '01:04:09'),
+            (tracks[1], '04:09'),
+          ]) {
+            final duration = find.byKey(
+              ValueKey('player-queue-duration-${track.id}'),
+            );
+            expect(duration.hitTestable(), findsOneWidget);
+            expect(tester.widget<Text>(duration).data, label);
+            expect(tester.getSemantics(duration).label, contains(label));
+            final metadata = find.byKey(
+              ValueKey('player-queue-metadata-${track.id}'),
+            );
+            expect(
+              tester.getRect(duration).right,
+              closeTo(tester.getRect(metadata).right, .01),
+            );
+            final row = find.byKey(
+              ValueKey('player-queue-track-content-${track.id}'),
+            );
+            final remove = find.descendant(
+              of: row,
+              matching: find.byTooltip('Remove'),
+            );
+            expect(
+              tester.getRect(duration).right,
+              lessThanOrEqualTo(tester.getRect(remove).left),
+            );
+          }
+          final artist = find.descendant(
+            of: find.byKey(
+              const ValueKey('player-queue-metadata-duration-with-artist'),
+            ),
+            matching: find.text(tracks.first.artist!),
+          );
+          final duration = find.byKey(
+            const ValueKey('player-queue-duration-duration-with-artist'),
+          );
+          expect(
+            tester.getRect(artist).center.dy,
+            closeTo(tester.getRect(duration).center.dy, .01),
+          );
+          expect(
+            tester.getRect(artist).right,
+            lessThan(tester.getRect(duration).left),
+          );
+          for (final id in ['duration-unknown', 'duration-zero']) {
+            expect(
+              find.byKey(ValueKey('player-queue-duration-$id')),
+              findsNothing,
+            );
+          }
+          expect(find.text('--:--'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  testWidgets('current queue duration updates when playback duration arrives', (
+    tester,
+  ) async {
+    final durations = StreamController<Duration?>();
+    addTearDown(durations.close);
+    await _pumpQueue(
+      tester,
+      actions: _QueueActions(),
+      playbackDuration: null,
+      durationStream: durations.stream,
+    );
+    final duration = find.byKey(const ValueKey('player-queue-duration-live'));
+    expect(duration, findsNothing);
+
+    durations.add(const Duration(minutes: 4, seconds: 9));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(duration).data, '04:09');
+
+    for (final missing in [Duration.zero, null]) {
+      durations.add(missing);
+      await tester.pumpAndSettle();
+      expect(duration, findsNothing);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('queue durations stay with their tracks while switching', (
+    tester,
+  ) async {
+    final currentTracks = StreamController<AudioTrack?>();
+    final durations = StreamController<Duration?>();
+    final loading = StreamController<bool>.broadcast();
+    addTearDown(currentTracks.close);
+    addTearDown(durations.close);
+    addTearDown(loading.close);
+    final firstTrack = _liveTrack.copyWith(
+      duration: const Duration(minutes: 3),
+    );
+    const nextTrack = AudioTrack(
+      id: 'next',
+      title: 'Next queue track',
+      url: 'https://example.invalid/next.mp3',
+    );
+    await _pumpQueue(
+      tester,
+      actions: _QueueActions(),
+      liveTrack: firstTrack,
+      liveQueue: [firstTrack, nextTrack],
+      currentTrackStream: currentTracks.stream,
+      playbackDuration: const Duration(minutes: 4, seconds: 9),
+      durationStream: durations.stream,
+      trackLoadingStream: loading.stream,
+    );
+    final firstDuration = find.byKey(
+      const ValueKey('player-queue-duration-live'),
+    );
+    final nextDuration = find.byKey(
+      const ValueKey('player-queue-duration-next'),
+    );
+    expect(tester.widget<Text>(firstDuration).data, '04:09');
+    expect(nextDuration, findsNothing);
+
+    loading.add(true);
+    durations.add(const Duration(minutes: 5, seconds: 31));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(nextDuration, findsNothing);
+
+    currentTracks.add(nextTrack);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(nextDuration, findsNothing);
+
+    loading.add(false);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(tester.widget<Text>(nextDuration).data, '05:31');
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [
     const Size(390, 844),
     const Size(900, 412),
     const Size(1100, 800),
   ]) {
-    testWidgets('swiping history only browses a read-only queue at $size', (
+    testWidgets(
+      'queue mode buttons stay fixed across queue switches at $size',
+      (tester) async {
+        final tracks = StreamController<AudioTrack?>();
+        final queues = StreamController<List<AudioTrack>>();
+        final histories = StreamController<List<PlaybackSessionSnapshot>>();
+        addTearDown(tracks.close);
+        addTearDown(queues.close);
+        addTearDown(histories.close);
+        final actions = _QueueActions()
+          ..onRestore = (snapshot, index) {
+            tracks.add(snapshot.queue[index]);
+            queues.add(snapshot.queue);
+            histories.add([_liveSnapshot]);
+          };
+        await _pumpQueue(
+          tester,
+          size: size,
+          actions: actions,
+          currentTrackStream: tracks.stream,
+          queueStream: queues.stream,
+          historyStream: histories.stream,
+          screen: const AudioPlayerScreen(
+            initialSurface: PlayerInitialSurface.queue,
+          ),
+        );
+        final buttons = [
+          find.byKey(const ValueKey('repeat-mode-pill-tap-target')),
+          find.byKey(const ValueKey('playlist-mode-pill-tap-target')),
+        ];
+        final bounds = buttons.map(tester.getRect).toList();
+        void expectFixedButtons() {
+          for (var index = 0; index < buttons.length; index++) {
+            expect(buttons[index].hitTestable(), findsOneWidget);
+            final actual = tester.getRect(buttons[index]);
+            expect(actual.top, bounds[index].top);
+            expect(actual.bottom, bounds[index].bottom);
+            expect(
+              index == 0 ? actual.left : actual.right,
+              index == 0 ? bounds[index].left : bounds[index].right,
+            );
+          }
+        }
+
+        expectFixedButtons();
+        final content = find.byKey(
+          const ValueKey('player-queue-history-content'),
+        );
+        final gesture = await tester.startGesture(tester.getCenter(content));
+        await gesture.moveBy(const Offset(24, 0));
+        await tester.pump();
+        await gesture.moveBy(Offset(tester.getSize(content).width * .65, 0));
+        await tester.pump();
+        expectFixedButtons();
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expectFixedButtons();
+
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlayerQueueBrowser)),
+        );
+        final addMode = container.read(audioTapPlaylistModeProvider);
+        await tester.tap(buttons.first);
+        await tester.pumpAndSettle();
+        expect(actions.repeatModes, hasLength(1));
+        await tester.tap(buttons.last);
+        await tester.pumpAndSettle();
+        expect(container.read(audioTapPlaylistModeProvider), isNot(addMode));
+        expect(actions.restored, isEmpty);
+        expect(container.read(currentTrackProvider).valueOrNull, _liveTrack);
+        expectFixedButtons();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey('player-queue-history-track-history-second'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(actions.restored, [(_history, 1)]);
+        expectFixedButtons();
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('swiping history only changes the browsed queue at $size', (
       tester,
     ) async {
       final actions = _QueueActions();
@@ -113,7 +418,7 @@ void main() {
       );
       expect(
         find.descendant(of: historyPage, matching: find.byTooltip('Remove')),
-        findsNothing,
+        findsNWidgets(_historyTracks.length),
       );
       expect(
         find.descendant(
@@ -777,6 +1082,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('second restore failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     tapFirst();
     await tester.pumpAndSettle();
     expect(actions.restored, [(_history, 0), (other, 0)]);
@@ -795,6 +1101,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('load failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     expect(
       find
           .byKey(const ValueKey('player-queue-history-track-history-first'))
@@ -961,6 +1268,133 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('removing historical tracks updates the list without playback', (
+    tester,
+  ) async {
+    final histories = StreamController<List<PlaybackSessionSnapshot>>();
+    addTearDown(histories.close);
+    final gate = Completer<void>();
+    final remaining = PlaybackSessionSnapshot(
+      queue: [_historyTracks.last],
+      currentIndex: 0,
+      position: Duration.zero,
+      ownerKey: _queueOwner,
+      markingQueueId: _history.markingQueueId,
+    );
+    final actions = _QueueActions()
+      ..removeGate = gate
+      ..onRemove = (snapshot, _) {
+        histories.add(identical(snapshot, _history) ? [remaining] : []);
+      };
+    await _pumpQueue(
+      tester,
+      actions: actions,
+      initialHistory: true,
+      historyStream: histories.stream,
+    );
+    final first = find.byKey(
+      const ValueKey('player-queue-history-track-history-first'),
+    );
+    await tester.tap(
+      find.descendant(of: first, matching: find.byTooltip('Remove')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('player-queue-history-track-history-second')),
+    );
+    expect(actions.restored, isEmpty);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(actions.removed, [(_history, 0)]);
+    expect(find.text(_historyTracks.first.title), findsNothing);
+    expect(find.text(_historyTracks.last.title).hitTestable(), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+    final last = find.byKey(
+      const ValueKey('player-queue-history-track-history-second'),
+    );
+    await tester.tap(
+      find.descendant(of: last, matching: find.byTooltip('Remove')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(actions.removed, [(_history, 0), (remaining, 0)]);
+    expect(find.text('1 / 1'), findsOneWidget);
+    expect(find.text(_liveTrack.title).hitTestable(), findsOneWidget);
+    expect(actions.restored, isEmpty);
+    expect(actions.skipped, isEmpty);
+    expect(actions.cleared, isEmpty);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(PlayerQueueBrowser)),
+    );
+    expect(container.read(currentTrackProvider).valueOrNull, _liveTrack);
+    expect(container.read(queueProvider).valueOrNull, [_liveTrack]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('restoring history blocks removal until the restore completes', (
+    tester,
+  ) async {
+    final histories = StreamController<List<PlaybackSessionSnapshot>>();
+    addTearDown(histories.close);
+    final gate = Completer<void>();
+    final actions = _QueueActions()
+      ..restoreGate = gate
+      ..onRestore = (_, _) => histories.add([]);
+    await _pumpQueue(
+      tester,
+      actions: actions,
+      initialHistory: true,
+      historyStream: histories.stream,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('player-queue-history-track-history-first')),
+    );
+    await tester.pump();
+
+    final historyPage = find.byKey(
+      const ValueKey('player-queue-history-page-0'),
+    );
+    expect(
+      find.descendant(of: historyPage, matching: find.byTooltip('Remove')),
+      findsNothing,
+    );
+    expect(actions.removed, isEmpty);
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(actions.restored, [(_history, 0)]);
+    expect(actions.removed, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'failed historical track removal keeps the track and shows the error',
+    (tester) async {
+      final actions = _QueueActions()
+        ..removeFailure = StateError('remove failed');
+      await _pumpQueue(tester, actions: actions, initialHistory: true);
+      final first = find.byKey(
+        const ValueKey('player-queue-history-track-history-first'),
+      );
+      await tester.tap(
+        find.descendant(of: first, matching: find.byTooltip('Remove')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('remove failed'), findsOneWidget);
+      expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
+      expect(
+        find.text(_historyTracks.first.title).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text('1 / 2'), findsOneWidget);
+      expect(actions.restored, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('clearing history requires confirmation and preserves playback', (
     tester,
   ) async {
@@ -1018,6 +1452,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('clear failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     expect(find.text('1 / 2'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('player-queue-history-page-0')),
@@ -1042,6 +1477,9 @@ Future<void> _pumpQueue(
   Stream<AudioTrack?>? currentTrackStream,
   Stream<List<AudioTrack>>? queueStream,
   Stream<List<PlaybackSessionSnapshot>>? historyStream,
+  Duration? playbackDuration = const Duration(minutes: 4),
+  Stream<Duration?>? durationStream,
+  Stream<bool>? trackLoadingStream,
   Widget? screen,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -1079,11 +1517,15 @@ Future<void> _pumpQueue(
         playerStateProvider.overrideWith(
           (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
         ),
-        isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+        isTrackLoadingProvider.overrideWith((ref) async* {
+          yield false;
+          if (trackLoadingStream != null) yield* trackLoadingStream;
+        }),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
-        durationProvider.overrideWith(
-          (ref) => Stream.value(const Duration(minutes: 4)),
-        ),
+        durationProvider.overrideWith((ref) async* {
+          yield playbackDuration;
+          if (durationStream != null) yield* durationStream;
+        }),
         manualSkipAvailabilityProvider.overrideWith(
           (ref) => Stream.value(ManualSkipAvailability.unavailable),
         ),
@@ -1119,14 +1561,20 @@ Future<void> _pumpQueue(
 }
 
 class _QueueActions {
+  final repeatModes = <LoopMode>[];
   final restored = <(PlaybackSessionSnapshot, int)>[];
+  final removed = <(PlaybackSessionSnapshot, int)>[];
   final skipped = <int>[];
   final cleared = <PlaybackSessionSnapshot>[];
   int currentCleared = 0;
   Object? failure;
   Object? clearFailure;
+  Object? removeFailure;
+  Completer<void>? removeGate;
+  Completer<void>? restoreGate;
   void Function(PlaybackSessionSnapshot, int)? onRestore;
   void Function(PlaybackSessionSnapshot)? onClear;
+  void Function(PlaybackSessionSnapshot, int)? onRemove;
 }
 
 class _QueueService implements AudioPlayerService {
@@ -1163,18 +1611,37 @@ class _QueueController extends AudioPlayerController {
   final _QueueActions actions;
 
   @override
+  Future<void> setRepeatMode(LoopMode mode) async {
+    actions.repeatModes.add(mode);
+    state = state.copyWith(repeatMode: mode);
+  }
+
+  @override
   Future<bool> restoreHistoricalQueue(
     PlaybackSessionSnapshot snapshot,
     int index,
   ) async {
     actions.restored.add((snapshot, index));
     if (actions.failure case final error?) throw error;
+    await actions.restoreGate?.future;
     actions.onRestore?.call(snapshot, index);
     return true;
   }
 
   @override
   Future<void> skipToIndex(int index) async => actions.skipped.add(index);
+
+  @override
+  Future<bool> removeHistoricalTrackAt(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) async {
+    actions.removed.add((snapshot, index));
+    if (actions.removeFailure case final error?) throw error;
+    await actions.removeGate?.future;
+    actions.onRemove?.call(snapshot, index);
+    return true;
+  }
 
   @override
   Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {

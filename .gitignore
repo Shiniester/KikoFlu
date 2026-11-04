@@ -94,6 +94,7 @@ app.*.map.json
 **/ios/Runner/GeneratedPluginRegistrant.*
 **/ios/build/
 **/KikoFlu-unsigned.ipa
+**/Iroru-unsigned.ipa
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
@@ -101,6 +102,7 @@ app.*.map.json
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
 KikoFlu-macOS.dmg
+Iroru-macOS.dmg
 /android/build/reports
 on_process.md
 

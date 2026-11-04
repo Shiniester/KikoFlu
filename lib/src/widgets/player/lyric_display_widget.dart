@@ -572,7 +572,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       );
     }
 
-    final previewHeight = widget.compact
+    final desiredHeight = widget.compact
         ? 70.0
         : (widget.lineCount == 5 ? 144.0 : 100.0);
     final itemExtent = (settings.smallFontSize * settings.smallLineHeight + 11)
@@ -603,7 +603,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       }
     }
 
-    return Semantics(
+    Widget buildPreview(double previewHeight) => Semantics(
       container: true,
       label: index >= 0 && index < lyrics.length ? lyrics[index].text : null,
       child: SizedBox(
@@ -740,6 +740,10 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
           ),
         ),
       ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          buildPreview(constraints.constrainHeight(desiredHeight)),
     );
   }
 }
