@@ -199,6 +199,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   final Set<VideoCoverImageKey> _stagingFailedCovers = {};
   final Set<VideoCoverImageKey> _publishedFailedCovers = {};
   CancelToken? _activeBrowseCancelToken;
+  final Map<String, String?> _playlistCoverResults = {};
+  final List<String> _queuedPlaylistCoverUrls = [];
+  CancelToken? _activePlaylistCoverCancelToken;
+  int _playlistCoverGeneration = 0;
+  String? _playlistCoverDirectoryPath;
+  bool _playlistCoverNeedsReload = false;
   VideoCatalogPage? _stagingPage;
   Completer<void>? _stagingReadyCompleter;
   int? _stagingRequest;
@@ -267,6 +273,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (_sourceLocaleTag == languageTag) return;
     _sourceLocaleTag = languageTag;
     _client.setLocale(languageTag);
+    _resetPlaylistCoverAccess(null);
     if (!_dependenciesReady) return;
     final recommendationsActive = _recommendationsActive;
     final url =
@@ -317,6 +324,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   @override
   void didUpdateWidget(VideoScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active &&
+        !widget.active &&
+        _playlistCoverDirectoryPath != null) {
+      _pausePlaylistCoverAccess();
+    }
+    if (!oldWidget.active &&
+        widget.active &&
+        _playlistCoverNeedsReload &&
+        ModalRoute.of(context)?.isCurrent != false) {
+      if (_resumePlaylistCoverAccess()) return;
+    }
     if (!oldWidget.active && widget.active && _page == null) {
       if (_recommendationsActive) {
         if (_pendingRecommendationReload) {
@@ -381,6 +399,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _accountName = accountName;
     _observedSessionGeneration = sessionGeneration;
     if (!mounted) return;
+    _resetPlaylistCoverAccess(null);
 
     final url =
         _loadingUrl ??
@@ -443,9 +462,18 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
     final url = _pendingAccountReloadUrl;
-    if (url == null || _route?.isCurrent != true || !widget.active) return;
-    _pendingAccountReloadUrl = null;
-    unawaited(_loadUrl(url));
+    if (url != null && _route?.isCurrent == true && widget.active) {
+      _pendingAccountReloadUrl = null;
+      unawaited(_loadUrl(url));
+      return;
+    }
+    if (_playlistCoverNeedsReload &&
+        _route?.isCurrent == true &&
+        widget.active) {
+      setState(() {
+        _resumePlaylistCoverAccess();
+      });
+    }
   }
 
   _VideoPageCacheKey _pageCacheKey(String url) => (
@@ -678,6 +706,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     } else if (!preserveCollection) {
       _activeCollectionKey = _collectionKeyForUrl(url);
     }
+    _resetPlaylistCoverAccess(url);
     final request = ++_request;
     _loadingUrl = url;
     final previousBrowseCancelToken = _activeBrowseCancelToken;
@@ -819,6 +848,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _search({List<VideoLink> initialFilters = const []}) async {
     final collectionKey = _activeCollectionKey;
+    _pausePlaylistCoverAccess();
     await pushWorkDetailRoute(
       context,
       builder: (searchContext) => VideoScreen.searchScreen(
@@ -903,6 +933,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _openRecommendations({int? pageSize, bool refresh = false}) {
+    _resetPlaylistCoverAccess(null);
     final int size = pageSize ?? ref.read<int>(pageSizeProvider);
     final clearPage =
         refresh ||
@@ -1232,15 +1263,24 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     ];
   }
 
-  Future<void> _openAccount() =>
-      pushBottomDockRoute(context, builder: (_) => const VideoAccountScreen());
+  Future<void> _openAccount() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoAccountScreen(),
+    );
+  }
 
-  Future<void> _openDownloads() => pushBottomDockRoute(
-    context,
-    builder: (_) => const VideoDownloadsScreen(),
-  );
+  Future<void> _openDownloads() {
+    _pausePlaylistCoverAccess();
+    return pushBottomDockRoute(
+      context,
+      builder: (_) => const VideoDownloadsScreen(),
+    );
+  }
 
   Future<void> _openDetails(VideoItem video) {
+    _pausePlaylistCoverAccess();
     final collectionKey = switch (_activeCollectionKey) {
       'favorites' || 'history' => _activeCollectionKey,
       _ => null,
@@ -1306,6 +1346,102 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       }
     }
     return null;
+  }
+
+  bool _isPlaylistDirectoryUrl(String url) =>
+      _collectionKeyForUrl(url) == 'playlists' &&
+      _catalogPath(url) == _catalogPath(_client.collectionUrl('playlists'));
+
+  void _resetPlaylistCoverAccess(String? url) {
+    _playlistCoverGeneration++;
+    final activeToken = _activePlaylistCoverCancelToken;
+    _activePlaylistCoverCancelToken = null;
+    if (activeToken != null && !activeToken.isCancelled) {
+      activeToken.cancel('Playlist directory changed.');
+    }
+    _queuedPlaylistCoverUrls.clear();
+    _playlistCoverResults.clear();
+    _playlistCoverDirectoryPath = url != null && _isPlaylistDirectoryUrl(url)
+        ? _catalogPath(url)
+        : null;
+    _playlistCoverNeedsReload = false;
+  }
+
+  void _pausePlaylistCoverAccess() {
+    if (_playlistCoverDirectoryPath == null) return;
+    _resetPlaylistCoverAccess(null);
+    _playlistCoverNeedsReload = true;
+  }
+
+  bool _resumePlaylistCoverAccess() {
+    final url = _loadingUrl ?? _page?.url;
+    _resetPlaylistCoverAccess(url);
+    return url != null && _isPlaylistDirectoryUrl(url);
+  }
+
+  void _onPlaylistItemsVisible(
+    String pageUrl,
+    int generation,
+    List<VideoLink> items,
+  ) {
+    final path = _catalogPath(pageUrl);
+    if (!mounted ||
+        !widget.active ||
+        generation != _playlistCoverGeneration ||
+        path == null ||
+        _playlistCoverDirectoryPath != path ||
+        _activeCollectionKey != 'playlists') {
+      return;
+    }
+    final visibleUrls = items.map((item) => item.url).toSet();
+    _queuedPlaylistCoverUrls.removeWhere((url) => !visibleUrls.contains(url));
+    for (final item in items) {
+      if (!_queuedPlaylistCoverUrls.contains(item.url) &&
+          !_playlistCoverResults.containsKey(item.url)) {
+        _queuedPlaylistCoverUrls.add(item.url);
+      }
+    }
+    _loadNextPlaylistCover(generation);
+  }
+
+  void _loadNextPlaylistCover(int generation) {
+    if (!mounted ||
+        generation != _playlistCoverGeneration ||
+        _activePlaylistCoverCancelToken != null ||
+        _queuedPlaylistCoverUrls.isEmpty) {
+      return;
+    }
+    final playlistUrl = _queuedPlaylistCoverUrls.removeAt(0);
+    _playlistCoverResults[playlistUrl] = null;
+    final cancelToken = CancelToken();
+    _activePlaylistCoverCancelToken = cancelToken;
+    unawaited(_readPlaylistCover(playlistUrl, generation, cancelToken));
+  }
+
+  Future<void> _readPlaylistCover(
+    String playlistUrl,
+    int generation,
+    CancelToken cancelToken,
+  ) async {
+    try {
+      final cover = await _client.loadPlaylistCover(
+        playlistUrl,
+        cancelToken: cancelToken,
+      );
+      if (!mounted ||
+          generation != _playlistCoverGeneration ||
+          cancelToken.isCancelled) {
+        return;
+      }
+      setState(() => _playlistCoverResults[playlistUrl] = cover);
+    } catch (_) {
+      // Retry this playlist when a new directory visit starts.
+    } finally {
+      if (identical(_activePlaylistCoverCancelToken, cancelToken)) {
+        _activePlaylistCoverCancelToken = null;
+        _loadNextPlaylistCover(generation);
+      }
+    }
   }
 
   Future<void> _openCollection(String key) =>
@@ -1391,6 +1527,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   Widget _playlistLinkCard(VideoLink link, LayoutType layoutType) =>
       LayoutBuilder(
         builder: (context, constraints) {
+          final coverUrl = _playlistCoverResults[link.url];
           final theme = Theme.of(context);
           final isList = layoutType == LayoutType.list;
           final titleStyle = theme.textTheme.titleSmall?.copyWith(
@@ -1414,10 +1551,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               ),
             ),
           );
-          final image = link.cover.isEmpty
+          final image = coverUrl == null || coverUrl.isEmpty
               ? fallback
               : Image.network(
-                  link.cover,
+                  coverUrl,
                   fit: BoxFit.cover,
                   width: double.infinity,
                   height: double.infinity,
@@ -1712,9 +1849,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   List<VideoLink> _collectionLinksForContent(VideoCatalogPage page) {
     final collectionKey = _collectionKeyForUrl(page.url);
     if (collectionKey != _activeCollectionKey) return const [];
-    if (collectionKey == 'playlists' &&
-        _catalogPath(page.url) !=
-            _catalogPath(_client.collectionUrl('playlists'))) {
+    if (collectionKey == 'playlists' && !_isPlaylistDirectoryUrl(page.url)) {
       return const [];
     }
     final kind = switch (collectionKey) {
@@ -1875,6 +2010,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (page == null) {
       return _withStaging(const SizedBox.shrink(), s, layoutType);
     }
+    final playlistCoverGeneration = _playlistCoverGeneration;
     final collectionLinks = _collectionLinksForContent(page);
     final pageSize = ref.watch(pageSizeProvider);
     final recommendationPageSize = _activeRecommendationPageSize ?? pageSize;
@@ -2066,6 +2202,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                       )
                     : collectionLinks.first.kind == VideoLinkKind.playlist
                     ? VideoCollectionView<VideoLink>(
+                        key: ValueKey(
+                          'video-playlists-$playlistCoverGeneration',
+                        ),
                         items: displayedCollectionLinks,
                         layoutType: layoutType,
                         itemId: (link) => link.url,
@@ -2077,6 +2216,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         ),
                         emptyBuilder: (_) => Center(child: Text(s.noResults)),
                         pagination: pagination,
+                        onVisibleItemsChanged: (items, _) =>
+                            _onPlaylistItemsVisible(
+                              page.url,
+                              playlistCoverGeneration,
+                              items,
+                            ),
                       )
                     : VirtualizedSliverCollection<VideoLink>(
                         items: displayedCollectionLinks,
@@ -2191,6 +2336,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   @override
   void dispose() {
+    _resetPlaylistCoverAccess(null);
     _client.removeListener(_onClientChanged);
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _request++;

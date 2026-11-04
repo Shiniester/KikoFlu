@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -57,6 +59,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.dismissDrag,
     this.scrollController,
     this.pageDragCoordinator,
+    this.positionCurrentTrack = false,
+    this.onCurrentTrackPositioned,
     this.showTitleBar = true,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
@@ -69,6 +73,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final PlayerVerticalDragCallbacks? dismissDrag;
   final ScrollController? scrollController;
   final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
+  final bool positionCurrentTrack;
+  final VoidCallback? onCurrentTrackPositioned;
   final bool showTitleBar;
   final bool showCloseButton;
   final double horizontalPadding;
@@ -78,6 +84,41 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
 }
 
 class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
+  bool _positionScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant PlayerQueueSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.positionCurrentTrack) _positionScheduled = false;
+  }
+
+  void _positionCurrentTrack(int currentIndex, double itemExtent) {
+    if (!widget.positionCurrentTrack ||
+        _positionScheduled ||
+        currentIndex < 0) {
+      return;
+    }
+    _positionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.positionCurrentTrack) return;
+      final controller = widget.scrollController;
+      if (controller == null || !controller.hasClients) return;
+      final position = controller.position;
+      final visibleRows = math.max(
+        1,
+        (position.viewportDimension / itemExtent).floor(),
+      );
+      final targetRow = (visibleRows * .4).ceil() - 1;
+      controller.jumpTo(
+        (8 + (currentIndex - targetRow) * itemExtent).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+      widget.onCurrentTrackPositioned?.call();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final queueAsync = ref.watch(queueProvider);
@@ -94,6 +135,8 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
       color: colorScheme.onSurfaceVariant,
     );
     final trackMetadataHeight = _queueTrackMetadataHeight(context);
+    final itemExtent = trackMetadataHeight + 16;
+    _positionCurrentTrack(currentIndex, itemExtent);
     final extendsBeyondContent = widget.horizontalPadding == 10;
     final titleSideWidth = extendsBeyondContent ? 78.0 : 68.0;
     final clearButton = TextButton(
@@ -130,6 +173,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                 parent: ClampingScrollPhysics(),
               ),
               itemCount: tracks.length,
+              itemExtent: itemExtent,
               buildDefaultDragHandles: false,
               proxyDecorator: (child, index, animation) => child,
               onReorderItem: (oldIndex, newIndex) {
@@ -292,26 +336,26 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
 class PlayerQueueBrowser extends ConsumerStatefulWidget {
   const PlayerQueueBrowser({
     super.key,
+    this.isActive = true,
     this.initialQueueHistory = false,
     this.onInitialHistorySelected,
     this.onTrackSelected,
     this.onClear,
     this.onDismissRequested,
     this.dismissDrag,
-    this.scrollController,
     this.pageDragCoordinator,
     this.showPageButtons = false,
     this.horizontalPadding = 8,
     this.contentWidth,
   });
 
+  final bool isActive;
   final bool initialQueueHistory;
   final VoidCallback? onInitialHistorySelected;
   final VoidCallback? onTrackSelected;
   final Future<void> Function()? onClear;
   final VoidCallback? onDismissRequested;
   final PlayerVerticalDragCallbacks? dismissDrag;
-  final ScrollController? scrollController;
   final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
   final bool showPageButtons;
   final double horizontalPadding;
@@ -321,18 +365,25 @@ class PlayerQueueBrowser extends ConsumerStatefulWidget {
   ConsumerState<PlayerQueueBrowser> createState() => _PlayerQueueBrowserState();
 }
 
+class _QueueBrowserPage {
+  _QueueBrowserPage(this.snapshot, this.scrollController);
+
+  PlaybackSessionSnapshot? snapshot;
+  ScrollController scrollController;
+}
+
 class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
   final PageController _pageController = PageController();
-  final Map<PlaybackSessionSnapshot, ScrollController>
-  _historyScrollControllers = {};
-  Set<PlaybackSessionSnapshot> _visibleHistory = {};
+  final List<_QueueBrowserPage> _pages = [];
   int _currentPage = 0;
   int? _restoringHistoryIndex;
   int? _restoringTrackIndex;
   int _restoreGeneration = 0;
   bool _initialPageScheduled = false;
   bool _initialPageSelected = false;
-  bool _historyCleanupScheduled = false;
+  bool _reorderOnEntry = true;
+  bool _positionCurrentOnEntry = true;
+  _QueueBrowserPage? _restoredPage;
 
   @override
   void initState() {
@@ -343,47 +394,130 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
   @override
   void didUpdateWidget(covariant PlayerQueueBrowser oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _reorderOnEntry = true;
+      _positionCurrentOnEntry = true;
+    }
     if (!identical(oldWidget.pageDragCoordinator, widget.pageDragCoordinator)) {
-      for (final controller in _historyScrollControllers.values) {
-        controller.dispose();
+      for (final page in _pages) {
+        final previous = page.scrollController;
+        page.scrollController = _createScrollController(
+          initialScrollOffset: previous.hasClients
+              ? previous.offset
+              : previous.initialScrollOffset,
+        );
+        WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
       }
-      _historyScrollControllers.clear();
     }
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    for (final controller in _historyScrollControllers.values) {
-      controller.dispose();
+    for (final page in _pages) {
+      page.scrollController.dispose();
     }
     super.dispose();
   }
 
-  ScrollController _historyScrollController(PlaybackSessionSnapshot snapshot) =>
-      _historyScrollControllers.putIfAbsent(
-        snapshot,
-        () =>
-            widget.pageDragCoordinator?.createScrollController(
-              debugLabel: 'player-queue-history',
-            ) ??
-            ScrollController(debugLabel: 'player-queue-history'),
-      );
+  ScrollController _createScrollController({double initialScrollOffset = 0}) {
+    final coordinator = widget.pageDragCoordinator;
+    return coordinator == null
+        ? ScrollController(initialScrollOffset: initialScrollOffset)
+        : PlayerScrollDragHandoffController(
+            coordinator: coordinator,
+            initialScrollOffset: initialScrollOffset,
+            debugLabel: 'player-queue',
+          );
+  }
 
-  void _scheduleHistoryControllerCleanup(
-    List<PlaybackSessionSnapshot> history,
-  ) {
-    _visibleHistory = Set<PlaybackSessionSnapshot>.identity()..addAll(history);
-    if (_historyCleanupScheduled) return;
-    _historyCleanupScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _historyCleanupScheduled = false;
-      if (!mounted) return;
-      for (final snapshot in _historyScrollControllers.keys.toList()) {
-        if (!_visibleHistory.contains(snapshot)) {
-          _historyScrollControllers.remove(snapshot)?.dispose();
-        }
+  void _removePage(_QueueBrowserPage page) {
+    _pages.remove(page);
+    final controller = page.scrollController;
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+  }
+
+  void _updatePages(List<PlaybackSessionSnapshot> history) {
+    if (_pages.isEmpty) {
+      _pages.add(_QueueBrowserPage(null, _createScrollController()));
+    }
+    final viewedPage = _pages[_currentPage];
+    final restoredPage = _restoredPage;
+    if (restoredPage != null) {
+      final restoredSnapshot = restoredPage.snapshot!;
+      if (history.any((item) => item.isSameQueue(restoredSnapshot))) return;
+      final outgoingPage = _pages.firstWhere((page) => page.snapshot == null);
+      final outgoingSnapshots = history.where(
+        (snapshot) => !_pages.any(
+          (page) =>
+              page.snapshot != null && page.snapshot!.isSameQueue(snapshot),
+        ),
+      );
+      if (outgoingSnapshots.isEmpty) {
+        _removePage(outgoingPage);
+      } else {
+        outgoingPage.snapshot = outgoingSnapshots.first;
       }
+      restoredPage.snapshot = null;
+      _restoredPage = null;
+      _restoringHistoryIndex = null;
+      _restoringTrackIndex = null;
+    } else if (_restoringHistoryIndex != null) {
+      return;
+    }
+
+    final remaining = history.toList();
+    for (final page in _pages.toList()) {
+      final snapshot = page.snapshot;
+      if (snapshot == null) continue;
+      final index = remaining.indexWhere((item) => item.isSameQueue(snapshot));
+      if (index < 0) {
+        _removePage(page);
+      } else {
+        page.snapshot = remaining.removeAt(index);
+      }
+    }
+    for (final snapshot in remaining) {
+      final historyIndex = history.indexOf(snapshot);
+      final nextIndex = _pages.indexWhere(
+        (page) =>
+            page.snapshot != null &&
+            history.indexWhere((item) => item.isSameQueue(page.snapshot!)) >
+                historyIndex,
+      );
+      _pages.insert(
+        nextIndex < 0 ? _pages.length : nextIndex,
+        _QueueBrowserPage(snapshot, _createScrollController()),
+      );
+    }
+    if (_reorderOnEntry) {
+      final livePage = _pages.firstWhere((page) => page.snapshot == null);
+      final ordered = [
+        livePage,
+        for (final snapshot in history)
+          _pages.firstWhere(
+            (page) =>
+                page.snapshot != null && page.snapshot!.isSameQueue(snapshot),
+          ),
+      ];
+      _pages
+        ..clear()
+        ..addAll(ordered);
+      _reorderOnEntry = false;
+      _selectPageAfterLayout(0);
+    } else {
+      final index = _pages.indexOf(viewedPage);
+      final target = index < 0
+          ? _pages.indexWhere((page) => page.snapshot == null)
+          : index;
+      if (target != _currentPage) _selectPageAfterLayout(target);
+    }
+  }
+
+  void _selectPageAfterLayout(int page) {
+    _currentPage = page;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToPage(_currentPage);
     });
   }
 
@@ -454,7 +588,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
       final cleared = await ref
           .read(audioPlayerControllerProvider.notifier)
           .clearHistoricalQueue(snapshot);
-      if (cleared && mounted) _jumpToPage(0);
+      if (cleared && mounted) {
+        _jumpToPage(_pages.indexWhere((page) => page.snapshot == null));
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -467,20 +603,29 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
 
   Future<void> _restoreHistoricalTrack(
     PlaybackSessionSnapshot snapshot,
-    int historyIndex,
     int trackIndex,
   ) async {
+    if (_restoredPage != null) {
+      _updatePages(ref.read(audioPlayerServiceProvider).historicalQueues);
+    }
+    final pageIndex = _pages.indexWhere(
+      (page) => page.snapshot != null && page.snapshot!.isSameQueue(snapshot),
+    );
+    if (pageIndex < 0) return;
+    final page = _pages[pageIndex];
     final generation = ++_restoreGeneration;
     setState(() {
-      _restoringHistoryIndex = historyIndex;
+      _restoringHistoryIndex = pageIndex - 1;
       _restoringTrackIndex = trackIndex;
+      _restoredPage = null;
+      _positionCurrentOnEntry = false;
     });
     try {
       final restored = await ref
           .read(audioPlayerControllerProvider.notifier)
           .restoreHistoricalQueue(snapshot, trackIndex);
       if (!mounted || generation != _restoreGeneration) return;
-      if (restored) _jumpToPage(0);
+      if (restored) _restoredPage = page;
     } catch (error) {
       if (!mounted || generation != _restoreGeneration) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -491,8 +636,10 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     } finally {
       if (mounted && generation == _restoreGeneration) {
         setState(() {
-          _restoringHistoryIndex = null;
-          _restoringTrackIndex = null;
+          if (_restoredPage == null) {
+            _restoringHistoryIndex = null;
+            _restoringTrackIndex = null;
+          }
         });
       }
     }
@@ -640,18 +787,20 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     required PlaybackSessionSnapshot snapshot,
     required int historyIndex,
     required AuthState authState,
+    required ScrollController scrollController,
   }) {
     final trackMetadataHeight = _queueTrackMetadataHeight(context);
     Widget trackList = snapshot.queue.isEmpty
         ? Center(child: Text(S.of(context).playlistEmpty))
         : ListView.builder(
-            key: PageStorageKey(snapshot),
-            controller: _historyScrollController(snapshot),
+            key: const PageStorageKey('player-queue-scroll'),
+            controller: scrollController,
             padding: const EdgeInsets.symmetric(vertical: 8),
             physics: const AlwaysScrollableScrollPhysics(
               parent: ClampingScrollPhysics(),
             ),
             itemCount: snapshot.queue.length,
+            itemExtent: trackMetadataHeight + 16,
             itemBuilder: (context, index) {
               final track = snapshot.queue[index];
               return KeyedSubtree(
@@ -669,8 +818,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                   isLoading:
                       _restoringHistoryIndex == historyIndex &&
                       _restoringTrackIndex == index,
-                  onTap: () =>
-                      _restoreHistoricalTrack(snapshot, historyIndex, index),
+                  onTap: () => _restoreHistoricalTrack(snapshot, index),
                   onRemove: null,
                 ),
               );
@@ -695,16 +843,10 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
     final historyAsync = ref.watch(historicalQueuesProvider);
     final history =
         historyAsync.valueOrNull ?? const <PlaybackSessionSnapshot>[];
-    _scheduleHistoryControllerCleanup(history);
-    final pageCount = history.length + 1;
+    _updatePages(history);
+    final pageCount = _pages.length;
     if (widget.initialQueueHistory && history.isNotEmpty) {
       _scheduleInitialHistoryPage();
-    }
-    if (_currentPage >= pageCount) {
-      _currentPage = pageCount - 1;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _jumpToPage(_currentPage);
-      });
     }
     final queueAsync = ref.watch(queueProvider);
     final currentQueue =
@@ -723,9 +865,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                 context,
                 pageCount: pageCount,
                 currentQueue: currentQueue,
-                historicalQueue: _currentPage == 0
-                    ? null
-                    : history[_currentPage - 1],
+                historicalQueue: _pages[_currentPage].snapshot,
               ),
             ),
           ),
@@ -747,29 +887,42 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
                 controller: _pageController,
                 reverse: true,
                 itemCount: pageCount,
+                findChildIndexCallback: (key) {
+                  final index = _pages.indexWhere(
+                    (page) => PageStorageKey(page) == key,
+                  );
+                  return index < 0 ? null : index;
+                },
                 itemBuilder: (context, index) => Center(
+                  key: PageStorageKey(_pages[index]),
                   child: SizedBox(
-                    key: index == 0
+                    key: _pages[index].snapshot == null
                         ? const ValueKey('player-queue-width-boundary')
                         : null,
                     width: widget.contentWidth,
                     height: double.infinity,
-                    child: index == 0
+                    child: _pages[index].snapshot == null
                         ? PlayerQueueSurface(
                             showTitleBar: false,
                             onTrackSelected: widget.onTrackSelected,
                             onClear: widget.onClear,
                             onDismissRequested: widget.onDismissRequested,
                             dismissDrag: widget.dismissDrag,
-                            scrollController: widget.scrollController,
+                            scrollController: _pages[index].scrollController,
+                            positionCurrentTrack:
+                                widget.isActive && _positionCurrentOnEntry,
+                            onCurrentTrackPositioned: () {
+                              _positionCurrentOnEntry = false;
+                            },
                             pageDragCoordinator: widget.pageDragCoordinator,
                             horizontalPadding: widget.horizontalPadding,
                           )
                         : _buildHistoryPage(
                             context,
-                            snapshot: history[index - 1],
+                            snapshot: _pages[index].snapshot!,
                             historyIndex: index - 1,
                             authState: authState,
+                            scrollController: _pages[index].scrollController,
                           ),
                   ),
                 ),

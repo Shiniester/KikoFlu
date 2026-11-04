@@ -619,112 +619,121 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                 topFadeExtent: 24,
                 bottomFadeExtent: 24,
               ).createShader(bounds),
-              child: NotificationListener<UserScrollNotification>(
-                onNotification: _handleUserScrollNotification,
-                child: ListView.builder(
-                  key: const ValueKey('compact-lyric-scroll-list'),
-                  controller: _scrollController,
-                  physics: const ClampingScrollPhysics(),
-                  itemExtent: itemExtent,
-                  scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
-                  padding: EdgeInsets.symmetric(
-                    vertical: (previewHeight - itemExtent) / 2,
-                  ),
-                  itemCount: lyrics.length,
-                  itemBuilder: (context, lyricIndex) {
-                    final distance = (lyricIndex - index).abs();
-                    final active = distance == 0;
-                    final lyricRow = Listener(
-                      behavior: widget.enableLineTapFeedback
-                          ? HitTestBehavior.opaque
-                          : HitTestBehavior.deferToChild,
-                      onPointerDown: widget.enableLineTapFeedback
-                          ? (event) => _pointerTracker.handlePointerDown(
-                              event,
-                              lyricIndex,
-                            )
-                          : null,
-                      onPointerMove: widget.enableLineTapFeedback
-                          ? _pointerTracker.handlePointerMove
-                          : null,
-                      onPointerUp: widget.enableLineTapFeedback
-                          ? _pointerTracker.handlePointerUp
-                          : null,
-                      onPointerCancel: widget.enableLineTapFeedback
-                          ? _pointerTracker.handlePointerCancel
-                          : null,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          key: ValueKey('compact-lyric-line-$lyricIndex'),
-                          overlayColor: widget.enableLineTapFeedback
-                              ? const WidgetStatePropertyAll(Colors.transparent)
-                              : null,
-                          splashFactory: widget.enableLineTapFeedback
-                              ? NoSplash.splashFactory
-                              : null,
-                          onTap: () {
-                            if (!_consumePointerFeedbackSuppression(
-                              lyricIndex,
-                            )) {
-                              _showTapFeedback(lyricIndex);
-                            }
-                            _seekToLine(lyricIndex, lyrics, itemExtent);
-                          },
-                          onDoubleTap: widget.onLineDoubleTap == null
-                              ? null
-                              : () {
-                                  if (!_consumePointerFeedbackSuppression(
-                                        lyricIndex,
-                                      ) &&
-                                      _tapFeedbackIndex != lyricIndex) {
-                                    _showTapFeedback(lyricIndex);
-                                  }
-                                  widget.onLineDoubleTap!.call();
-                                },
-                          child: Center(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: widget.textHorizontalPadding,
-                              ),
-                              child: _PreviewLine(
-                                text: lyrics[lyricIndex].text,
-                                fontSize: active
-                                    ? settings.smallFontSize +
-                                          (widget.compact ? 0 : 1)
-                                    : settings.smallFontSize - 1,
-                                lineHeight: settings.smallLineHeight,
-                                opacity: active
-                                    ? 1
-                                    : (distance == 1 ? 0.56 : 0.36),
-                                fontWeight: active
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
-                                maxLines: 1,
+              // Fractional mask edges can leave the last pixel unmasked.
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: 1 / MediaQuery.devicePixelRatioOf(context),
+                ),
+                child: NotificationListener<UserScrollNotification>(
+                  onNotification: _handleUserScrollNotification,
+                  child: ListView.builder(
+                    key: const ValueKey('compact-lyric-scroll-list'),
+                    controller: _scrollController,
+                    physics: const ClampingScrollPhysics(),
+                    itemExtent: itemExtent,
+                    scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
+                    padding: EdgeInsets.symmetric(
+                      vertical: (previewHeight - itemExtent) / 2,
+                    ),
+                    itemCount: lyrics.length,
+                    itemBuilder: (context, lyricIndex) {
+                      final distance = (lyricIndex - index).abs();
+                      final active = distance == 0;
+                      final lyricRow = Listener(
+                        behavior: widget.enableLineTapFeedback
+                            ? HitTestBehavior.opaque
+                            : HitTestBehavior.deferToChild,
+                        onPointerDown: widget.enableLineTapFeedback
+                            ? (event) => _pointerTracker.handlePointerDown(
+                                event,
+                                lyricIndex,
+                              )
+                            : null,
+                        onPointerMove: widget.enableLineTapFeedback
+                            ? _pointerTracker.handlePointerMove
+                            : null,
+                        onPointerUp: widget.enableLineTapFeedback
+                            ? _pointerTracker.handlePointerUp
+                            : null,
+                        onPointerCancel: widget.enableLineTapFeedback
+                            ? _pointerTracker.handlePointerCancel
+                            : null,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            key: ValueKey('compact-lyric-line-$lyricIndex'),
+                            overlayColor: widget.enableLineTapFeedback
+                                ? const WidgetStatePropertyAll(
+                                    Colors.transparent,
+                                  )
+                                : null,
+                            splashFactory: widget.enableLineTapFeedback
+                                ? NoSplash.splashFactory
+                                : null,
+                            onTap: () {
+                              if (!_consumePointerFeedbackSuppression(
+                                lyricIndex,
+                              )) {
+                                _showTapFeedback(lyricIndex);
+                              }
+                              _seekToLine(lyricIndex, lyrics, itemExtent);
+                            },
+                            onDoubleTap: widget.onLineDoubleTap == null
+                                ? null
+                                : () {
+                                    if (!_consumePointerFeedbackSuppression(
+                                          lyricIndex,
+                                        ) &&
+                                        _tapFeedbackIndex != lyricIndex) {
+                                      _showTapFeedback(lyricIndex);
+                                    }
+                                    widget.onLineDoubleTap!.call();
+                                  },
+                            child: Center(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: widget.textHorizontalPadding,
+                                ),
+                                child: _PreviewLine(
+                                  text: lyrics[lyricIndex].text,
+                                  fontSize: active
+                                      ? settings.smallFontSize +
+                                            (widget.compact ? 0 : 1)
+                                      : settings.smallFontSize - 1,
+                                  lineHeight: settings.smallLineHeight,
+                                  opacity: active
+                                      ? 1
+                                      : (distance == 1 ? 0.56 : 0.36),
+                                  fontWeight: active
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                  maxLines: 1,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                    final content = widget.enableLineTapFeedback
-                        ? _buildLyricTapFeedbackSurface(
-                            opacity: _tapFeedbackOpacity,
-                            active: _tapFeedbackIndex == lyricIndex,
-                            reducedMotion: MediaQuery.disableAnimationsOf(
-                              context,
-                            ),
-                            color: Theme.of(context).colorScheme.onSurface,
-                            keyValue: 'compact-lyric-tap-feedback-$lyricIndex',
-                            child: lyricRow,
-                          )
-                        : lyricRow;
-                    return Semantics(
-                      button: true,
-                      selected: active,
-                      child: content,
-                    );
-                  },
+                      );
+                      final content = widget.enableLineTapFeedback
+                          ? _buildLyricTapFeedbackSurface(
+                              opacity: _tapFeedbackOpacity,
+                              active: _tapFeedbackIndex == lyricIndex,
+                              reducedMotion: MediaQuery.disableAnimationsOf(
+                                context,
+                              ),
+                              color: Theme.of(context).colorScheme.onSurface,
+                              keyValue:
+                                  'compact-lyric-tap-feedback-$lyricIndex',
+                              child: lyricRow,
+                            )
+                          : lyricRow;
+                      return Semantics(
+                        button: true,
+                        selected: active,
+                        child: content,
+                      );
+                    },
+                  ),
                 ),
               ),
             ),

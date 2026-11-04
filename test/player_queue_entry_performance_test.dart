@@ -239,12 +239,13 @@ void main() {
       for (var entry = 0; entry < 2; entry++) {
         final queue = find.byKey(const ValueKey('player-queue-list'));
         final row = find.byKey(
-          const ValueKey('player-queue-track-content-motion-0'),
+          ValueKey('player-queue-track-content-motion-${count - 1}'),
         );
         final route = find.byKey(
           const ValueKey('player-route-vertical-translation'),
         );
         double? rowLocalY;
+        double? queueOffset;
         final offsets = <double>[];
         for (var frame = 0; frame < 40; frame++) {
           await tester.pump(const Duration(milliseconds: 16));
@@ -258,6 +259,8 @@ void main() {
           );
           final localY = tester.getTopLeft(row).dy - routeY;
           rowLocalY ??= localY;
+          final expectedQueueOffset = queueOffset ?? scroll.position.pixels;
+          queueOffset = expectedQueueOffset;
           expect(
             queuePages.controller!.page,
             0,
@@ -273,10 +276,14 @@ void main() {
           );
           expect(
             scroll.position.pixels,
-            0,
-            reason: 'Queue must not auto-scroll during entry',
+            closeTo(expectedQueueOffset, 0.001),
+            reason: 'Queue position must stay fixed during route entry',
           );
-          expect(scroll.position.isScrollingNotifier.value, isFalse);
+          expect(
+            scroll.position.isScrollingNotifier.value,
+            isFalse,
+            reason: 'Current-track positioning must not animate vertically',
+          );
           expect(
             localY,
             closeTo(rowLocalY, 0.001),
@@ -290,6 +297,7 @@ void main() {
         expect(offsets.length, greaterThan(20));
         expect(offsets.first, greaterThan(0));
         expect(offsets.last, 0);
+        expect(row.hitTestable(), findsOneWidget);
         if (entry == 0) {
           tester.view.physicalSize = const Size(1170, 1800);
           await tester.pumpAndSettle();

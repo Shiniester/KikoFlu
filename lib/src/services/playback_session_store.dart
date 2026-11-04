@@ -22,6 +22,12 @@ class PlaybackSessionSnapshot {
   final String ownerKey;
   final String? markingQueueId;
 
+  bool isSameQueue(PlaybackSessionSnapshot other) =>
+      ownerKey == other.ownerKey &&
+      (markingQueueId != null && other.markingQueueId != null
+          ? markingQueueId == other.markingQueueId
+          : identical(this, other));
+
   Map<String, dynamic> toJson() => {
     'version': version,
     'queue': queue.map((track) => track.toJson()).toList(),

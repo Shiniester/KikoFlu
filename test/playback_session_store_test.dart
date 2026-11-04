@@ -12,6 +12,31 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  test('queue identity uses owner and marking ID with legacy object fallback', () {
+    PlaybackSessionSnapshot snapshot({
+      String ownerKey = 'owner',
+      String? markingQueueId = 'queue',
+    }) => PlaybackSessionSnapshot(
+      queue: const [
+        AudioTrack(id: 'one', title: 'One', url: 'https://example.com/one.mp3'),
+      ],
+      currentIndex: 0,
+      position: Duration.zero,
+      ownerKey: ownerKey,
+      markingQueueId: markingQueueId,
+    );
+
+    final original = snapshot();
+    expect(original.isSameQueue(snapshot()), isTrue);
+    expect(original.isSameQueue(snapshot(ownerKey: 'other')), isFalse);
+    expect(original.isSameQueue(snapshot(markingQueueId: 'other')), isFalse);
+    expect(original.isSameQueue(snapshot(markingQueueId: null)), isFalse);
+    final legacy = snapshot(markingQueueId: null);
+    expect(legacy.isSameQueue(legacy), isTrue);
+    expect(legacy.isSameQueue(snapshot(markingQueueId: null)), isFalse);
+    expect(legacy.isSameQueue(original), isFalse);
+  });
+
   test('playback session preserves queue, index, and exact position', () async {
     const tracks = [
       AudioTrack(

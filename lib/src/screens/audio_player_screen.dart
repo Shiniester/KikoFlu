@@ -127,18 +127,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       _compactPageHandoff.createScrollController(
         debugLabel: 'compact-player-lyrics',
       );
-  late final ScrollController _compactQueueScrollController =
-      _compactPageHandoff.createScrollController(
-        debugLabel: 'compact-player-queue',
-      );
   late final ScrollController _wideDetailsScrollController = _widePageHandoff
       .createScrollController(debugLabel: 'wide-player-details');
   late final ScrollController _wideLyricsScrollController = _widePageHandoff
       .createScrollController(debugLabel: 'wide-player-lyrics');
   late final ScrollController _wideControlsScrollController = _widePageHandoff
       .createScrollController(debugLabel: 'wide-player-controls');
-  late final ScrollController _wideQueueScrollController = _widePageHandoff
-      .createScrollController(debugLabel: 'wide-player-queue');
+  final GlobalKey _queueBrowserKey = GlobalKey();
   final Map<PageController, int> _requestedPageTargets = {};
   final Map<PageController, int> _pageDragOrigins = {};
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'audio-player');
@@ -288,11 +283,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _wideVerticalPageController.dispose();
     _compactDetailsScrollController.dispose();
     _compactLyricsScrollController.dispose();
-    _compactQueueScrollController.dispose();
     _wideDetailsScrollController.dispose();
     _wideLyricsScrollController.dispose();
     _wideControlsScrollController.dispose();
-    _wideQueueScrollController.dispose();
     _keyboardFocusNode.dispose();
     _detachPaletteRouteListeners();
     _unlockButtonTimer?.cancel();
@@ -1598,30 +1591,36 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     int lineCount = 5,
     bool compact = false,
   }) {
-    return InkWell(
-      key: const ValueKey('player-lyric-preview'),
-      borderRadius: BorderRadius.circular(12),
-      onTap: _showLyrics,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Consumer(
-          builder: (context, ref, _) {
-            final hasLyrics = ref.watch(
-              lyricControllerProvider.select(
-                (state) => state.lyrics.isNotEmpty,
-              ),
-            );
-            return hasLyrics
-                ? ThreeLineLyricDisplay(
-                    onSeekRequested: (_) => _showLyrics(),
-                    compact: compact,
-                    lineCount: lineCount,
-                    textHorizontalPadding: 16,
-                  )
-                : LyricDisplay(albumName: track.album);
-          },
-        ),
-      ),
+    return Consumer(
+      builder: (context, ref, _) {
+        final hasLyrics = ref.watch(
+          lyricControllerProvider.select((state) => state.lyrics.isNotEmpty),
+        );
+        final preview = Padding(
+          key: const ValueKey('player-lyric-preview'),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: hasLyrics
+              ? ThreeLineLyricDisplay(
+                  onSeekRequested: (position) => unawaited(
+                    ref
+                        .read(audioPlayerControllerProvider.notifier)
+                        .seekAndPersist(position),
+                  ),
+                  onLineDoubleTap: _togglePlayback,
+                  compact: compact,
+                  lineCount: lineCount,
+                  textHorizontalPadding: 16,
+                )
+              : LyricDisplay(albumName: track.album),
+        );
+        return hasLyrics
+            ? preview
+            : InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _showLyrics,
+                child: preview,
+              );
+      },
     );
   }
 
@@ -1664,7 +1663,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     Widget buildContent({int previewLineCount = 5}) => Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
+        constraints: BoxConstraints(maxWidth: isWide ? 680 : double.infinity),
         child: SizedBox(
           width: double.infinity,
           child: Padding(
@@ -1851,29 +1850,36 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         child: Column(
           children: [
             Expanded(
-              child: PlayerQueueBrowser(
-                initialQueueHistory:
-                    widget.initialQueueHistory && !_initialQueueHistorySelected,
-                onInitialHistorySelected: () {
-                  _initialQueueHistorySelected = true;
-                },
-                onTrackSelected: () {},
-                onClear: _clearQueueAndClosePlayer,
-                onDismissRequested: directQueueOnly ? _dismissPlayer : null,
-                dismissDrag: directQueueDismissDrag,
-                scrollController: directQueueOnly
-                    ? null
-                    : isWide
-                    ? _wideQueueScrollController
-                    : _compactQueueScrollController,
-                pageDragCoordinator: directQueueOnly
-                    ? null
-                    : isWide
-                    ? _widePageHandoff
-                    : _compactPageHandoff,
-                showPageButtons: isWide,
-                horizontalPadding: isWide ? 0 : 10,
-                contentWidth: isWide ? null : _compactSharedWidth! + 20,
+              child: LayoutBuilder(
+                builder: (context, constraints) => ValueListenableBuilder<int>(
+                  valueListenable: _semanticPageRevision,
+                  builder: (context, _, __) => PlayerQueueBrowser(
+                    key: _queueBrowserKey,
+                    isActive:
+                        _rightPane == PlayerRightPane.queue ||
+                        _queueTransitionActive,
+                    initialQueueHistory:
+                        widget.initialQueueHistory &&
+                        !_initialQueueHistorySelected,
+                    onInitialHistorySelected: () {
+                      _initialQueueHistorySelected = true;
+                    },
+                    onTrackSelected: () {},
+                    onClear: _clearQueueAndClosePlayer,
+                    onDismissRequested: directQueueOnly ? _dismissPlayer : null,
+                    dismissDrag: directQueueDismissDrag,
+                    pageDragCoordinator: directQueueOnly
+                        ? null
+                        : isWide
+                        ? _widePageHandoff
+                        : _compactPageHandoff,
+                    showPageButtons: isWide,
+                    horizontalPadding: 10,
+                    contentWidth: isWide
+                        ? constraints.maxWidth - 20
+                        : _compactSharedWidth! + 20,
+                  ),
+                ),
               ),
             ),
           ],

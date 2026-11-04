@@ -800,7 +800,7 @@ void main() {
 
   for (final size in [const Size(1280, 720), const Size(900, 412)]) {
     testWidgets(
-      'wide subtitle preview shows five lines above controls at $size',
+      'wide subtitle preview seeks on tap and toggles on double tap at $size',
       (tester) async {
         final lyrics = List.generate(
           8,
@@ -837,21 +837,33 @@ void main() {
         expect(previewRect.bottom, lessThanOrEqualTo(controlsRect.top));
         expect(controlsRect.top - previewRect.bottom, lessThanOrEqualTo(24));
 
-        await tester.tap(
-          find.descendant(
-            of: preview,
-            matching: find.text('wide preview lyric 3'),
-          ),
+        final line = find.descendant(
+          of: preview,
+          matching: find.text('wide preview lyric 4'),
         );
+        final controller = ProviderScope.containerOf(
+          tester.element(find.byType(AudioPlayerScreen)),
+        ).read(audioPlayerControllerProvider.notifier);
+        final pages = tester.widget<PageView>(
+          find.byKey(const ValueKey('wide-right-pages')),
+        );
+        await tester.tap(line);
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
-              .controller!
-              .page,
-          closeTo(2, .001),
-        );
-        expect(seeks, isEmpty);
+        expect(pages.controller!.page, closeTo(1, .001));
+        expect(seeks, [const Duration(seconds: 4)]);
+        expect(controller.isPlaying, isFalse);
+
+        seeks.clear();
+        for (final playing in [true, false]) {
+          await tester.tap(line);
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.tap(line);
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(controller.isPlaying, playing);
+          expect(seeks, isEmpty);
+          expect(pages.controller!.page, closeTo(1, .001));
+        }
         expect(tester.takeException(), isNull);
       },
     );
@@ -1933,84 +1945,103 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact queue mounts on demand and retains its scroll state', (
-    tester,
-  ) async {
-    final tracks = List.generate(
-      40,
-      (index) => AudioTrack(
-        id: 'queue-$index',
-        title: 'Queue track $index',
-        url: 'https://example.invalid/$index.mp3',
-      ),
-    );
-    await _pumpPlayer(
-      tester,
-      const Size(390, 844),
-      queueStream: Stream.value(tracks),
-    );
-    final queue = find.byKey(
-      const ValueKey('player-queue-pane'),
-      skipOffstage: false,
-    );
-    expect(queue, findsNothing);
-    final gesture = await tester.startGesture(
-      tester.getCenter(
-        find.byKey(const ValueKey('compact-header-dismiss-surface')),
-      ),
-    );
-    await gesture.moveBy(const Offset(0, -20));
-    await tester.pump();
-    await gesture.moveBy(const Offset(0, -80));
-    await tester.pump();
-    final verticalPages = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-vertical-player-pages')),
-    );
-    expect(verticalPages.controller!.page, greaterThan(0));
-    expect(queue, findsOneWidget);
-    expect(_compactQueueProgress(tester), greaterThan(0));
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
-    await gesture.cancel();
-    await tester.pumpAndSettle();
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
-
-    Future<void> openQueue() async {
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
+  testWidgets(
+    'compact queue repositions current track after returning from details',
+    (tester) async {
+      final tracks = List.generate(
+        60,
+        (index) => AudioTrack(
+          id: 'queue-$index',
+          title: 'Queue track $index',
+          url: 'https://example.invalid/$index.mp3',
         ),
       );
+      final currentTrack = tracks[35];
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        queueStream: Stream.value(tracks),
+        track: currentTrack,
+      );
+      final horizontal = tester.widget<PageView>(
+        find.byKey(const ValueKey('compact-player-pages')),
+      );
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(320, 0),
+      );
       await tester.pumpAndSettle();
-    }
+      expect(horizontal.controller!.page, 0);
 
-    await openQueue();
-    final list = find.byKey(const ValueKey('player-queue-list'));
-    final scroll = tester.state<ScrollableState>(
-      find.descendant(of: list, matching: find.byType(Scrollable)),
-    );
-    scroll.position.jumpTo(350);
-    await tester.pump();
-    final position = scroll.position.pixels;
-    await tester.fling(
-      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
-      const Offset(0, 300),
-      1000,
-    );
-    await tester.pumpAndSettle();
-    expect(scroll.mounted, isTrue);
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
-    await openQueue();
-    expect(
-      tester.state<ScrollableState>(
+      Future<void> openQueueFromDetails() async {
+        await tester.drag(
+          find.byKey(const ValueKey('compact-header-dismiss-surface')),
+          const Offset(0, -600),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> closeQueueToDetails() async {
+        await tester.drag(
+          find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+          const Offset(0, 600),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      void expectCurrentAtTarget() {
+        final list = find.byKey(const ValueKey('player-queue-list'));
+        final listRect = tester.getRect(list);
+        final currentRow = find.byKey(
+          ValueKey('player-queue-track-content-${currentTrack.id}'),
+        );
+        expect(currentRow, findsOneWidget);
+        final rowRect = tester.getRect(currentRow);
+        final itemExtent = tester.widget<ReorderableListView>(list).itemExtent!;
+        final visibleRows = (listRect.height / itemExtent).floor();
+        final targetRow = (visibleRows * .4).ceil() - 1;
+        expect(rowRect.top, closeTo(listRect.top + targetRow * itemExtent, .5));
+      }
+
+      final queue = find.byKey(
+        const ValueKey('player-queue-pane'),
+        skipOffstage: false,
+      );
+      expect(queue, findsNothing);
+      await openQueueFromDetails();
+      expect(queue, findsOneWidget);
+      expect(_compactQueueProgress(tester), greaterThan(0));
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
+      final list = find.byKey(const ValueKey('player-queue-list'));
+      final scroll = tester.state<ScrollableState>(
         find.descendant(of: list, matching: find.byType(Scrollable)),
-      ),
-      same(scroll),
-    );
-    expect(scroll.position.pixels, position);
-    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      expectCurrentAtTarget();
+
+      scroll.position.jumpTo(0);
+      await tester.pump();
+      await closeQueueToDetails();
+      expect(horizontal.controller!.page, 0);
+      expect(scroll.mounted, isTrue);
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
+      final reentry = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('compact-header-dismiss-surface')),
+        ),
+      );
+      await reentry.moveBy(const Offset(0, -24));
+      await tester.pump();
+      await reentry.moveBy(const Offset(0, -140));
+      await tester.pump();
+      await tester.pump();
+      expect(_compactQueueProgress(tester), inExclusiveRange(0, .5));
+      expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
+      expectCurrentAtTarget();
+      await reentry.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact queue can reopen after a list-edge page handoff', (
     tester,
@@ -3331,6 +3362,53 @@ void main() {
     });
   }
 
+  for (final size in [
+    const Size(390, 844),
+    const Size(600, 960),
+    const Size(800, 1120),
+  ]) {
+    testWidgets('compact bottom actions respond to taps at $size', (
+      tester,
+    ) async {
+      final repeatModes = <LoopMode>[];
+      await _pumpPlayer(
+        tester,
+        size,
+        platform: TargetPlatform.android,
+        onRepeatModeChanged: repeatModes.add,
+      );
+      await tester.pumpAndSettle();
+
+      final controls = find.byKey(const ValueKey('controls-pane-compact'));
+      final repeat = find.descendant(
+        of: controls,
+        matching: find.byIcon(Icons.repeat),
+      );
+      final queue = find.descendant(
+        of: controls,
+        matching: find.byIcon(Icons.queue_music),
+      );
+      final coverRect = tester.getRect(
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      );
+      expect(tester.getRect(repeat).left, closeTo(coverRect.left, 0.01));
+      expect(tester.getRect(queue).right, closeTo(coverRect.right, 0.01));
+
+      await tester.tap(repeat);
+      await tester.pump();
+      expect(repeatModes, [LoopMode.one]);
+      expect(
+        find.descendant(of: controls, matching: find.byIcon(Icons.repeat_one)),
+        findsOneWidget,
+      );
+
+      await tester.tap(queue);
+      await tester.pumpAndSettle();
+      expect(_compactQueueProgress(tester), 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('compact header and five bottom action glyphs align', (
     tester,
   ) async {
@@ -3472,7 +3550,10 @@ void main() {
       textScale: 1.4,
       lyrics: lyrics,
     );
-    await tester.tap(find.byKey(const ValueKey('player-lyric-preview')));
+    await tester.drag(
+      find.byKey(const ValueKey('wide-right-pages')),
+      const Offset(-400, 0),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
     await tester.pumpAndSettle();
@@ -4959,6 +5040,7 @@ Future<void> _pumpPlayer(
   bool disableThemeArtwork = false,
   void Function(int oldIndex, int newIndex)? onQueueReorder,
   void Function(Duration position)? onSeek,
+  void Function(LoopMode mode)? onRepeatModeChanged,
   VoidCallback? onHostTap,
   bool mockArtworkSeed = false,
 }) async {
@@ -4975,7 +5057,11 @@ Future<void> _pumpPlayer(
           audioSliceStateProvider.overrideWith(
             (ref) => Stream.value(sliceState),
           ),
-        if (onSeek != null)
+        if (onRepeatModeChanged != null)
+          audioPlayerControllerProvider.overrideWith(
+            (ref) => _RepeatModeAudioController(ref, onRepeatModeChanged),
+          )
+        else if (onSeek != null)
           audioPlayerControllerProvider.overrideWith(
             (ref) => _SeekingAudioController(ref, onSeek),
           )
@@ -5079,6 +5165,19 @@ Future<void> _pumpPlayer(
   if (settleEntry) await tester.pump(const Duration(milliseconds: 350));
 }
 
+class _RepeatModeAudioController extends AudioPlayerController {
+  _RepeatModeAudioController(Ref ref, this.onRepeatModeChanged)
+    : super(ref.read(audioPlayerServiceProvider), ref);
+
+  final void Function(LoopMode mode) onRepeatModeChanged;
+
+  @override
+  Future<void> setRepeatMode(LoopMode mode) async {
+    onRepeatModeChanged(mode);
+    state = state.copyWith(repeatMode: mode);
+  }
+}
+
 class _ReorderingAudioController extends AudioPlayerController {
   _ReorderingAudioController(Ref ref, this.onReorder)
     : super(ref.read(audioPlayerServiceProvider), ref);
@@ -5096,6 +5195,20 @@ class _SeekingAudioController extends AudioPlayerController {
     : super(ref.read(audioPlayerServiceProvider), ref);
 
   final void Function(Duration position) onSeek;
+  bool _isPlaying = false;
+
+  @override
+  bool get isPlaying => _isPlaying;
+
+  @override
+  Future<void> play() async {
+    _isPlaying = true;
+  }
+
+  @override
+  Future<void> pause() async {
+    _isPlaying = false;
+  }
 
   @override
   Future<void> seekAndPersist(Duration position) async {

@@ -470,18 +470,6 @@ class AudioPlayerService {
     return List.unmodifiable(limited);
   }
 
-  bool _sameHistoricalQueue(
-    PlaybackSessionSnapshot first,
-    PlaybackSessionSnapshot second,
-  ) {
-    if (first.ownerKey != second.ownerKey) return false;
-    final firstId = first.markingQueueId;
-    final secondId = second.markingQueueId;
-    return firstId != null && secondId != null
-        ? firstId == secondId
-        : identical(first, second);
-  }
-
   bool _isUsedQueue(PlaybackSessionSnapshot? snapshot) =>
       snapshot != null &&
       snapshot.queue.isNotEmpty &&
@@ -494,7 +482,7 @@ class AudioPlayerService {
     await _enqueueQueueHistoryWrite(() async {
       final queue = snapshot!;
       final next = _storedHistoricalQueues
-          .where((item) => !_sameHistoricalQueue(item, queue))
+          .where((item) => !item.isSameQueue(queue))
           .toList();
       next.insert(0, queue);
       final limited = _limitHistoricalQueues(next);
@@ -532,13 +520,11 @@ class AudioPlayerService {
     _ensureCurrentTrackLoad(request);
     final previous = _storedHistoricalQueues;
     final next = previous.where((item) {
-      return (restoredQueue == null ||
-              !_sameHistoricalQueue(item, restoredQueue)) &&
-          (leavingQueue == null || !_sameHistoricalQueue(item, leavingQueue));
+      return (restoredQueue == null || !item.isSameQueue(restoredQueue)) &&
+          (leavingQueue == null || !item.isSameQueue(leavingQueue));
     }).toList();
     if (_isUsedQueue(leavingQueue) &&
-        (restoredQueue == null ||
-            !_sameHistoricalQueue(leavingQueue!, restoredQueue))) {
+        (restoredQueue == null || !leavingQueue!.isSameQueue(restoredQueue))) {
       next.insert(0, leavingQueue!);
     }
     final limited = _limitHistoricalQueues(next);
@@ -993,7 +979,7 @@ class AudioPlayerService {
         snapshot.currentIndex >= snapshot.queue.length ||
         index < 0 ||
         index >= snapshot.queue.length ||
-        !historicalQueues.any((item) => _sameHistoricalQueue(item, snapshot))) {
+        !historicalQueues.any((item) => item.isSameQueue(snapshot))) {
       return false;
     }
 
@@ -1050,9 +1036,7 @@ class AudioPlayerService {
       if (ownerKey == null || snapshot.ownerKey != ownerKey) return false;
 
       final previous = _storedHistoricalQueues;
-      final index = previous.indexWhere(
-        (item) => _sameHistoricalQueue(item, snapshot),
-      );
+      final index = previous.indexWhere((item) => item.isSameQueue(snapshot));
       if (index < 0) return false;
 
       final next = List<PlaybackSessionSnapshot>.of(previous)..removeAt(index);

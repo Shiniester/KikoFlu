@@ -356,6 +356,149 @@ void main() {
     },
   );
 
+  test('loads the first playlist cover from its first page', () async {
+    final source = _Adapter(
+      (_) => _response(_searchCatalogHtml(['first', 'second'])),
+    );
+    final metadata = _Adapter(
+      (_) => throw StateError('Unexpected metadata request.'),
+    );
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()..httpClientAdapter = metadata,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final cover = await client.loadPlaylistCover(
+      'https://missav.ai/cn/playlists/sample?page=4&sort=views&tag=a&tag=b',
+    );
+    await client.loadPlaylistCover(
+      'https://missav.ai/cn/playlists/sample?page=9',
+    );
+
+    expect(cover, 'https://media.example/first.jpg');
+    expect(source.requests, hasLength(2));
+    expect(source.requests.first.uri.queryParametersAll, {
+      'sort': ['views'],
+      'tag': ['a', 'b'],
+    });
+    expect(source.requests.last.uri.hasQuery, isFalse);
+    expect(
+      source.requests.last.uri.toString(),
+      'https://missav.ai/cn/playlists/sample',
+    );
+    expect(metadata.requests, isEmpty);
+  });
+
+  test(
+    'returns null for an empty playlist or a video without a cover',
+    () async {
+      final source = _Adapter(
+        (request) => _response(
+          request.uri.path.endsWith('/empty')
+              ? '<main></main>'
+              : '''
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="/cn/no-cover"><img alt="No cover"></a>
+</div>
+''',
+        ),
+      );
+      final metadata = _Adapter(
+        (_) => throw StateError('Unexpected metadata request.'),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      expect(
+        await client.loadPlaylistCover('https://missav.ai/cn/playlists/empty'),
+        isNull,
+      );
+      expect(
+        await client.loadPlaylistCover(
+          'https://missav.ai/cn/playlists/no-cover',
+        ),
+        isNull,
+      );
+      expect(source.requests, hasLength(2));
+      expect(metadata.requests, isEmpty);
+    },
+  );
+
+  test(
+    'propagates cancellation instead of returning a playlist cover',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<ResponseBody>();
+      final source = _Adapter((_) {
+        started.complete();
+        return response.future;
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final cancelToken = CancelToken();
+
+      final loading = client.loadPlaylistCover(
+        'https://missav.ai/cn/playlists/sample',
+        cancelToken: cancelToken,
+      );
+      final cancelled = expectLater(
+        loading,
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.cancel,
+          ),
+        ),
+      );
+      await started.future;
+      cancelToken.cancel('Playlist preview was cancelled.');
+      response.complete(_response(_searchCatalogHtml(['first'])));
+      await cancelled;
+    },
+  );
+
+  test(
+    'session changes cancel and reject an in-flight playlist cover',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<ResponseBody>();
+      final source = _Adapter((_) {
+        started.complete();
+        return response.future;
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final cancelToken = CancelToken();
+
+      final loading = client.loadPlaylistCover(
+        'https://missav.ai/cn/playlists/sample',
+        cancelToken: cancelToken,
+      );
+      final rejected = expectLater(loading, throwsA(isA<MissavException>()));
+      await started.future;
+      await client.logout();
+
+      expect(cancelToken.isCancelled, isTrue);
+      response.complete(_response(_searchCatalogHtml(['stale'])));
+      await rejected;
+    },
+  );
+
   test('keeps an actor cover when its image has no alt text', () async {
     const html = '''
       <!doctype html>

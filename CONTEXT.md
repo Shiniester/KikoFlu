@@ -124,6 +124,9 @@ _Avoid_: Local Favorite, comic Source Favorite
 A collection of videos stored by a Video Source for a Video Source Account.
 _Avoid_: Playback queue
 
+**Video Playlist Cover (视频播放列表封面)**:
+The cover of the first video in a Video Playlist, in Video Source order.
+
 **Video Watch History (视频观看历史)**:
 A Video Source Account's list of watched videos.
 _Avoid_: Video Resume Position, audio playback history
@@ -391,8 +394,8 @@ distinct from per-work playback history and account playlists.
 _Avoid_: Playback history, account playlist
 
 **Queue Ordinal (队列序号)**:
-The position of a playback queue among the current queue and retained Historical
-Playback Queues. It is distinct from a track's position within a queue.
+The position assigned to a playback queue during one visit to the Player Queue
+Page. It is distinct from a track's position within a queue.
 _Avoid_: Track position, track index
 
 **Audio Add Mode (音频添加模式)**:
