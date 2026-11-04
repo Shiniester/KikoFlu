@@ -27,6 +27,7 @@ export 'player_slice_progress.dart' show PlayerUniformSliderTrackShape;
 /// 播放器控制组件
 class PlayerControlsWidget extends ConsumerStatefulWidget {
   final bool isLandscape;
+  final bool compactSpacing;
   final bool isSeekingManually;
   final double seekValue;
   final ValueChanged<double> onSeekChanged;
@@ -49,6 +50,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   const PlayerControlsWidget({
     super.key,
     required this.isLandscape,
+    this.compactSpacing = false,
     required this.isSeekingManually,
     required this.seekValue,
     required this.onSeekChanged,
@@ -660,7 +662,9 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           seekingPositionListenable: widget.seekingPositionListenable,
           debugOnBuild: widget.debugOnProgressBuild,
         ),
-        SizedBox(height: widget.isLandscape ? 18 : 10),
+        SizedBox(
+          height: widget.compactSpacing ? 0 : (widget.isLandscape ? 18 : 10),
+        ),
         // Main controls
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -698,7 +702,9 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
             const PlayerSliceManagerButton(),
           ],
         ),
-        SizedBox(height: widget.isLandscape ? 16 : 10),
+        SizedBox(
+          height: widget.compactSpacing ? 0 : (widget.isLandscape ? 16 : 10),
+        ),
         // Additional controls
         Consumer(
           builder: (context, ref, child) {

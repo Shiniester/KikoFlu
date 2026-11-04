@@ -421,6 +421,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) =>
       _service.clearHistoricalQueue(snapshot);
 
+  Future<bool> removeHistoricalTrackAt(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) => _service.removeHistoricalTrackAt(snapshot, index);
+
   Future<void> _executeAudioAddMode(
     List<AudioTrack> tracks, {
     required int startIndex,

@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
@@ -64,7 +65,91 @@ void main() {
     const Size(900, 412),
     const Size(1100, 800),
   ]) {
-    testWidgets('swiping history only browses a read-only queue at $size', (
+    testWidgets(
+      'queue mode buttons stay fixed across queue switches at $size',
+      (tester) async {
+        final tracks = StreamController<AudioTrack?>();
+        final queues = StreamController<List<AudioTrack>>();
+        final histories = StreamController<List<PlaybackSessionSnapshot>>();
+        addTearDown(tracks.close);
+        addTearDown(queues.close);
+        addTearDown(histories.close);
+        final actions = _QueueActions()
+          ..onRestore = (snapshot, index) {
+            tracks.add(snapshot.queue[index]);
+            queues.add(snapshot.queue);
+            histories.add([_liveSnapshot]);
+          };
+        await _pumpQueue(
+          tester,
+          size: size,
+          actions: actions,
+          currentTrackStream: tracks.stream,
+          queueStream: queues.stream,
+          historyStream: histories.stream,
+          screen: const AudioPlayerScreen(
+            initialSurface: PlayerInitialSurface.queue,
+          ),
+        );
+        final buttons = [
+          find.byKey(const ValueKey('repeat-mode-pill-tap-target')),
+          find.byKey(const ValueKey('playlist-mode-pill-tap-target')),
+        ];
+        final bounds = buttons.map(tester.getRect).toList();
+        void expectFixedButtons() {
+          for (var index = 0; index < buttons.length; index++) {
+            expect(buttons[index].hitTestable(), findsOneWidget);
+            final actual = tester.getRect(buttons[index]);
+            expect(actual.top, bounds[index].top);
+            expect(actual.bottom, bounds[index].bottom);
+            expect(
+              index == 0 ? actual.left : actual.right,
+              index == 0 ? bounds[index].left : bounds[index].right,
+            );
+          }
+        }
+
+        expectFixedButtons();
+        final content = find.byKey(
+          const ValueKey('player-queue-history-content'),
+        );
+        final gesture = await tester.startGesture(tester.getCenter(content));
+        await gesture.moveBy(const Offset(24, 0));
+        await tester.pump();
+        await gesture.moveBy(Offset(tester.getSize(content).width * .65, 0));
+        await tester.pump();
+        expectFixedButtons();
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expectFixedButtons();
+
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlayerQueueBrowser)),
+        );
+        final addMode = container.read(audioTapPlaylistModeProvider);
+        await tester.tap(buttons.first);
+        await tester.pumpAndSettle();
+        expect(actions.repeatModes, hasLength(1));
+        await tester.tap(buttons.last);
+        await tester.pumpAndSettle();
+        expect(container.read(audioTapPlaylistModeProvider), isNot(addMode));
+        expect(actions.restored, isEmpty);
+        expect(container.read(currentTrackProvider).valueOrNull, _liveTrack);
+        expectFixedButtons();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey('player-queue-history-track-history-second'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(actions.restored, [(_history, 1)]);
+        expectFixedButtons();
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('swiping history only changes the browsed queue at $size', (
       tester,
     ) async {
       final actions = _QueueActions();
@@ -113,7 +198,7 @@ void main() {
       );
       expect(
         find.descendant(of: historyPage, matching: find.byTooltip('Remove')),
-        findsNothing,
+        findsNWidgets(_historyTracks.length),
       );
       expect(
         find.descendant(
@@ -961,6 +1046,132 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('removing historical tracks updates the list without playback', (
+    tester,
+  ) async {
+    final histories = StreamController<List<PlaybackSessionSnapshot>>();
+    addTearDown(histories.close);
+    final gate = Completer<void>();
+    final remaining = PlaybackSessionSnapshot(
+      queue: [_historyTracks.last],
+      currentIndex: 0,
+      position: Duration.zero,
+      ownerKey: _queueOwner,
+      markingQueueId: _history.markingQueueId,
+    );
+    final actions = _QueueActions()
+      ..removeGate = gate
+      ..onRemove = (snapshot, _) {
+        histories.add(identical(snapshot, _history) ? [remaining] : []);
+      };
+    await _pumpQueue(
+      tester,
+      actions: actions,
+      initialHistory: true,
+      historyStream: histories.stream,
+    );
+    final first = find.byKey(
+      const ValueKey('player-queue-history-track-history-first'),
+    );
+    await tester.tap(
+      find.descendant(of: first, matching: find.byTooltip('Remove')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('player-queue-history-track-history-second')),
+    );
+    expect(actions.restored, isEmpty);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(actions.removed, [(_history, 0)]);
+    expect(find.text(_historyTracks.first.title), findsNothing);
+    expect(find.text(_historyTracks.last.title).hitTestable(), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+    final last = find.byKey(
+      const ValueKey('player-queue-history-track-history-second'),
+    );
+    await tester.tap(
+      find.descendant(of: last, matching: find.byTooltip('Remove')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(actions.removed, [(_history, 0), (remaining, 0)]);
+    expect(find.text('1 / 1'), findsOneWidget);
+    expect(find.text(_liveTrack.title).hitTestable(), findsOneWidget);
+    expect(actions.restored, isEmpty);
+    expect(actions.skipped, isEmpty);
+    expect(actions.cleared, isEmpty);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(PlayerQueueBrowser)),
+    );
+    expect(container.read(currentTrackProvider).valueOrNull, _liveTrack);
+    expect(container.read(queueProvider).valueOrNull, [_liveTrack]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('restoring history blocks removal until the restore completes', (
+    tester,
+  ) async {
+    final histories = StreamController<List<PlaybackSessionSnapshot>>();
+    addTearDown(histories.close);
+    final gate = Completer<void>();
+    final actions = _QueueActions()
+      ..restoreGate = gate
+      ..onRestore = (_, _) => histories.add([]);
+    await _pumpQueue(
+      tester,
+      actions: actions,
+      initialHistory: true,
+      historyStream: histories.stream,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('player-queue-history-track-history-first')),
+    );
+    await tester.pump();
+
+    final historyPage = find.byKey(
+      const ValueKey('player-queue-history-page-0'),
+    );
+    expect(
+      find.descendant(of: historyPage, matching: find.byTooltip('Remove')),
+      findsNothing,
+    );
+    expect(actions.removed, isEmpty);
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(actions.restored, [(_history, 0)]);
+    expect(actions.removed, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'failed historical track removal keeps the track and shows the error',
+    (tester) async {
+      final actions = _QueueActions()
+        ..removeFailure = StateError('remove failed');
+      await _pumpQueue(tester, actions: actions, initialHistory: true);
+      final first = find.byKey(
+        const ValueKey('player-queue-history-track-history-first'),
+      );
+      await tester.tap(
+        find.descendant(of: first, matching: find.byTooltip('Remove')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('remove failed'), findsOneWidget);
+      expect(
+        find.text(_historyTracks.first.title).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text('1 / 2'), findsOneWidget);
+      expect(actions.restored, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('clearing history requires confirmation and preserves playback', (
     tester,
   ) async {
@@ -1119,14 +1330,20 @@ Future<void> _pumpQueue(
 }
 
 class _QueueActions {
+  final repeatModes = <LoopMode>[];
   final restored = <(PlaybackSessionSnapshot, int)>[];
+  final removed = <(PlaybackSessionSnapshot, int)>[];
   final skipped = <int>[];
   final cleared = <PlaybackSessionSnapshot>[];
   int currentCleared = 0;
   Object? failure;
   Object? clearFailure;
+  Object? removeFailure;
+  Completer<void>? removeGate;
+  Completer<void>? restoreGate;
   void Function(PlaybackSessionSnapshot, int)? onRestore;
   void Function(PlaybackSessionSnapshot)? onClear;
+  void Function(PlaybackSessionSnapshot, int)? onRemove;
 }
 
 class _QueueService implements AudioPlayerService {
@@ -1163,18 +1380,37 @@ class _QueueController extends AudioPlayerController {
   final _QueueActions actions;
 
   @override
+  Future<void> setRepeatMode(LoopMode mode) async {
+    actions.repeatModes.add(mode);
+    state = state.copyWith(repeatMode: mode);
+  }
+
+  @override
   Future<bool> restoreHistoricalQueue(
     PlaybackSessionSnapshot snapshot,
     int index,
   ) async {
     actions.restored.add((snapshot, index));
     if (actions.failure case final error?) throw error;
+    await actions.restoreGate?.future;
     actions.onRestore?.call(snapshot, index);
     return true;
   }
 
   @override
   Future<void> skipToIndex(int index) async => actions.skipped.add(index);
+
+  @override
+  Future<bool> removeHistoricalTrackAt(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) async {
+    actions.removed.add((snapshot, index));
+    if (actions.removeFailure case final error?) throw error;
+    await actions.removeGate?.future;
+    actions.onRemove?.call(snapshot, index);
+    return true;
+  }
 
   @override
   Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {

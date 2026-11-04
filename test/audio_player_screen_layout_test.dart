@@ -798,7 +798,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final size in [const Size(1280, 720), const Size(900, 412)]) {
+  for (final scenario in [
+    (size: const Size(1280, 720), visibleLines: [1, 2, 3, 4, 5]),
+    (size: const Size(900, 412), visibleLines: [2, 3, 4]),
+  ]) {
+    final size = scenario.size;
     testWidgets(
       'wide subtitle preview seeks on tap and toggles on double tap at $size',
       (tester) async {
@@ -821,7 +825,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final preview = find.byKey(const ValueKey('player-lyric-preview'));
-        for (final index in [1, 2, 3, 4, 5]) {
+        for (final index in scenario.visibleLines) {
           expect(
             find
                 .descendant(
@@ -884,6 +888,10 @@ void main() {
       size: const Size(568, 320),
       padding: const FakeViewPadding(left: 44, right: 21),
     ),
+    (
+      size: const Size(568, 320),
+      padding: const FakeViewPadding(top: 24, bottom: 48),
+    ),
     (size: const Size(640, 360), padding: const FakeViewPadding()),
     (
       size: const Size(640, 360),
@@ -908,7 +916,7 @@ void main() {
     (size: const Size(900, 412), padding: const FakeViewPadding()),
   ]) {
     testWidgets(
-      'short landscape keeps playback controls visible at ${scenario.size} '
+      'short landscape keeps all playback controls visible at ${scenario.size} '
       'with safe area ${scenario.padding.left},${scenario.padding.top},'
       '${scenario.padding.right},${scenario.padding.bottom}',
       (tester) async {
@@ -957,12 +965,17 @@ void main() {
         for (final control in [
           find.byType(PlayerProgressSection),
           find.byType(PlayerPlayPauseButton),
+          find.byType(PlayerControlsWidget),
         ]) {
           final rect = tester.getRect(control);
           expect(rect.top, greaterThanOrEqualTo(viewport.top));
           expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
           expect(control.hitTestable(), findsOneWidget);
         }
+        final controlsPosition = Scrollable.of(
+          tester.element(find.byType(PlayerControlsWidget)),
+        ).position;
+        expect(controlsPosition.maxScrollExtent, 0);
         expect(tester.takeException(), isNull);
       },
     );

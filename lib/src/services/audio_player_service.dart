@@ -978,10 +978,24 @@ class AudioPlayerService {
         snapshot.currentIndex < 0 ||
         snapshot.currentIndex >= snapshot.queue.length ||
         index < 0 ||
-        index >= snapshot.queue.length ||
-        !historicalQueues.any((item) => item.isSameQueue(snapshot))) {
+        index >= snapshot.queue.length) {
       return false;
     }
+
+    final history = historicalQueues;
+    final savedIndex = history.indexWhere((item) => item.isSameQueue(snapshot));
+    if (savedIndex < 0) return false;
+    final trackId = snapshot.queue[index].id;
+    snapshot = history[savedIndex];
+    index = snapshot.queue.indexWhere((track) => track.id == trackId);
+    if (index < 0) return false;
+
+    // Resolve pending edits before committing without delaying newer requests.
+    final savedSnapshot = _queueHistoryWrite.then((_) {
+      final history = historicalQueues;
+      final index = history.indexWhere((item) => item.isSameQueue(snapshot));
+      return index < 0 ? null : history[index];
+    });
 
     _pendingQueueReplacementSnapshot ??= _committedQueueSnapshot;
     _pendingHistoricalRestoreSnapshot = snapshot;
@@ -1004,6 +1018,22 @@ class AudioPlayerService {
       autoplay: true,
       direction: PlayerTrackChangeDirection.none,
       initialPosition: targetPosition,
+      beforeCommit: (request) async {
+        final latest = await savedSnapshot;
+        _ensureCurrentTrackLoad(request);
+        if (latest == null ||
+            !latest.queue.any((track) => track.id == request.track.id)) {
+          throw const _TrackLoadSuperseded();
+        }
+        if (!identical(snapshot, latest)) {
+          snapshot = latest;
+          _pendingHistoricalRestoreSnapshot = latest;
+          _queue
+            ..clear()
+            ..addAll(latest.queue.map(_refreshStoredTrackCredentials));
+          _queueController.add(List<AudioTrack>.from(_queue));
+        }
+      },
     );
     try {
       await request.future;
@@ -1028,7 +1058,44 @@ class AudioPlayerService {
     return request.committed;
   }
 
-  Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) async {
+  Future<bool> clearHistoricalQueue(PlaybackSessionSnapshot snapshot) =>
+      _updateHistoricalQueue(snapshot, (_) => null);
+
+  Future<bool> removeHistoricalTrackAt(
+    PlaybackSessionSnapshot snapshot,
+    int index,
+  ) => _updateHistoricalQueue(snapshot, (stored) {
+    if (index < 0 || index >= snapshot.queue.length) return stored;
+    // The restore may outlive the player page that started it.
+    if (_pendingHistoricalRestoreSnapshot?.isSameQueue(stored) == true) {
+      return stored;
+    }
+    // Resolve against saved tracks so rapid removals do not reuse stale indexes.
+    final removedIndex = stored.queue.indexWhere(
+      (track) => track.id == snapshot.queue[index].id,
+    );
+    if (removedIndex < 0) return stored;
+
+    final queue = List<AudioTrack>.of(stored.queue)..removeAt(removedIndex);
+    if (queue.isEmpty) return null;
+    final currentIndex = removedIndex < stored.currentIndex
+        ? stored.currentIndex - 1
+        : stored.currentIndex.clamp(0, queue.length - 1);
+    return PlaybackSessionSnapshot(
+      queue: List.unmodifiable(queue),
+      currentIndex: currentIndex,
+      position: removedIndex == stored.currentIndex
+          ? Duration.zero
+          : stored.position,
+      ownerKey: stored.ownerKey,
+      markingQueueId: stored.markingQueueId,
+    );
+  });
+
+  Future<bool> _updateHistoricalQueue(
+    PlaybackSessionSnapshot snapshot,
+    PlaybackSessionSnapshot? Function(PlaybackSessionSnapshot) update,
+  ) async {
     if (_disposed) throw StateError('AudioPlayerService is disposed');
     await _ensureHistoricalQueuesLoaded();
     return _enqueueQueueHistoryWrite(() async {
@@ -1039,7 +1106,14 @@ class AudioPlayerService {
       final index = previous.indexWhere((item) => item.isSameQueue(snapshot));
       if (index < 0) return false;
 
-      final next = List<PlaybackSessionSnapshot>.of(previous)..removeAt(index);
+      final replacement = update(previous[index]);
+      if (identical(replacement, previous[index])) return false;
+      final next = List<PlaybackSessionSnapshot>.of(previous);
+      if (replacement == null) {
+        next.removeAt(index);
+      } else {
+        next[index] = replacement;
+      }
       final updated = List<PlaybackSessionSnapshot>.unmodifiable(next);
       await _playbackQueueHistoryStore.save(updated);
       if (_currentSessionOwnerKey() != ownerKey) {

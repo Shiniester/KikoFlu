@@ -154,6 +154,306 @@ void main() {
     },
   );
 
+  test(
+    'removing historical tracks preserves playback and saved progress',
+    () async {
+      await service.updateQueue(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 1,
+        initialPosition: const Duration(seconds: 20),
+      );
+      await service.updateQueue([_track('other')]);
+      await service.updateQueue([_track('live')], autoplay: true);
+      await until(() => player.playing);
+      player.position = const Duration(seconds: 12);
+      await service.persistPlaybackSession();
+      final currentSnapshot = sessionStore.snapshot;
+      final history = service.historicalQueues.last;
+      final other = service.historicalQueues.first;
+      final loadedCount = player.loaded.length;
+      final playedCount = player.played.length;
+      final stopCount = player.stopCount;
+
+      expect(await service.removeHistoricalTrackAt(history, 0), isTrue);
+      final edited = service.historicalQueues.last;
+      expect(edited.queue.map((track) => track.id), ['b', 'c']);
+      expect(edited.currentIndex, 0);
+      expect(edited.position, const Duration(seconds: 20));
+      expect(edited.markingQueueId, history.markingQueueId);
+      expect(await service.removeHistoricalTrackAt(edited, 1), isTrue);
+      final saved = service.historicalQueues.last;
+      expect(saved.queue.single.id, 'b');
+      expect(saved.currentIndex, 0);
+      expect(saved.position, const Duration(seconds: 20));
+      expect(service.historicalQueues.first, same(other));
+      expect(historyStore.snapshots.last, same(saved));
+      expect(service.queue.single.id, 'live');
+      expect(service.currentTrack?.id, 'live');
+      expect(player.playing, isTrue);
+      expect(player.position, const Duration(seconds: 12));
+      expect(player.loaded, hasLength(loadedCount));
+      expect(player.played, hasLength(playedCount));
+      expect(player.stopCount, stopCount);
+      expect(sessionStore.snapshot, same(currentSnapshot));
+
+      final reloadedPlayer = _HistoryTestPlayer();
+      final reloaded = AudioPlayerService.forTesting(
+        reloadedPlayer,
+        sessionStore: MemorySessionStore(),
+        queueHistoryStore: historyStore,
+      );
+      addTearDown(reloaded.dispose);
+      expect(await reloaded.restoreHistoricalQueue(saved, 0), isTrue);
+      expect(reloaded.queue.single.id, 'b');
+      expect(reloadedPlayer.initialPositions.last, const Duration(seconds: 20));
+    },
+  );
+
+  for (final (index, replacement) in [(0, 'b'), (1, 'c'), (2, 'b')]) {
+    test(
+      'removing historical resume track $index selects $replacement from zero',
+      () async {
+        await service.updateQueue(
+          [_track('a'), _track('b'), _track('c')],
+          startIndex: index,
+          initialPosition: const Duration(seconds: 20),
+        );
+        await service.updateQueue([_track('live')]);
+
+        expect(
+          await service.removeHistoricalTrackAt(
+            service.historicalQueues.single,
+            index,
+          ),
+          isTrue,
+        );
+        final edited = service.historicalQueues.single;
+        expect(edited.queue[edited.currentIndex].id, replacement);
+        expect(edited.position, Duration.zero);
+        expect(
+          await service.restoreHistoricalQueue(edited, edited.currentIndex),
+          isTrue,
+        );
+        expect(service.currentTrack?.id, replacement);
+        expect(player.initialPositions.last, Duration.zero);
+      },
+    );
+  }
+
+  test('removing the last historical track removes only its queue', () async {
+    await service.updateQueue([_track('a')]);
+    await service.updateQueue([_track('other')]);
+    await service.updateQueue([_track('live')]);
+    final other = service.historicalQueues.first;
+    final history = service.historicalQueues.last;
+
+    expect(await service.removeHistoricalTrackAt(history, 0), isTrue);
+
+    expect(service.historicalQueues, [other]);
+    expect(historyStore.snapshots, [other]);
+    expect(service.currentTrack?.id, 'live');
+    expect(await service.removeHistoricalTrackAt(history, 0), isFalse);
+  });
+
+  test('rapid historical removals use the latest saved queue', () async {
+    await service.updateQueue([_track('a'), _track('b'), _track('c')]);
+    await service.updateQueue([_track('live')]);
+    final history = service.historicalQueues.single;
+    final gate = Completer<void>();
+    historyStore.saveGate = gate;
+    historyStore.saveStarted = Completer<void>();
+    final first = service.removeHistoricalTrackAt(history, 0);
+    await historyStore.saveStarted!.future;
+    final second = service.removeHistoricalTrackAt(history, 1);
+    gate.complete();
+
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(service.historicalQueues.single.queue.single.id, 'c');
+    expect(service.historicalQueues.single.currentIndex, 0);
+    expect(historyStore.snapshots.single.queue.single.id, 'c');
+  });
+
+  test(
+    'historical restore commits the latest snapshot after deletion',
+    () async {
+      await service.updateQueue(
+        [_track('a'), _track('b'), _track('c')],
+        startIndex: 2,
+        initialPosition: const Duration(seconds: 20),
+      );
+      await service.updateQueue([_track('live')]);
+      final history = service.historicalQueues.single;
+      final gate = Completer<void>();
+      historyStore.saveGate = gate;
+      historyStore.saveStarted = Completer<void>();
+      final removing = service.removeHistoricalTrackAt(history, 1);
+      await historyStore.saveStarted!.future;
+
+      final restoring = service.restoreHistoricalQueue(history, 2);
+      try {
+        await Future<void>.value();
+        expect(service.currentTrack?.id, 'live');
+      } finally {
+        gate.complete();
+        expect(await removing, isTrue);
+        expect(await restoring, isTrue);
+      }
+
+      expect(service.queue.map((track) => track.id), ['a', 'c']);
+      expect(service.currentTrack?.id, 'c');
+      expect(player.initialPositions.last, const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'deleting a pending restore target preserves current playback',
+    () async {
+      await service.updateQueue([_track('a'), _track('b')]);
+      await service.updateQueue([_track('live')]);
+      final history = service.historicalQueues.single;
+      final gate = Completer<void>();
+      historyStore.saveGate = gate;
+      historyStore.saveStarted = Completer<void>();
+      final removing = service.removeHistoricalTrackAt(history, 0);
+      await historyStore.saveStarted!.future;
+      final restoring = service.restoreHistoricalQueue(history, 0);
+      await Future<void>.value();
+      gate.complete();
+
+      expect(await removing, isTrue);
+      expect(await restoring, isFalse);
+      expect(service.currentTrack?.id, 'live');
+      expect(service.queue.single.id, 'live');
+      expect(service.historicalQueues.single.queue.single.id, 'b');
+    },
+  );
+
+  for (final length in [1, 2]) {
+    test(
+      'stale history cannot restore a deleted track from a $length-track queue',
+      () async {
+        await service.updateQueue([_track('a'), if (length == 2) _track('b')]);
+        await service.updateQueue([_track('live')]);
+        final history = service.historicalQueues.single;
+        expect(await service.removeHistoricalTrackAt(history, 0), isTrue);
+        final loadedCount = player.loaded.length;
+        final saved = historyStore.snapshots;
+
+        expect(await service.restoreHistoricalQueue(history, 0), isFalse);
+
+        expect(service.queue.single.id, 'live');
+        expect(service.currentTrack?.id, 'live');
+        expect(player.loaded, hasLength(loadedCount));
+        expect(historyStore.snapshots, same(saved));
+      },
+    );
+  }
+
+  test(
+    'a pending historical restore rejects track removal across callers',
+    () async {
+      await service.updateQueue([_track('a'), _track('b')]);
+      await service.updateQueue([_track('live')]);
+      final history = service.historicalQueues.single;
+      player.holdNextLoad = true;
+      final restoring = service.restoreHistoricalQueue(history, 0);
+      await until(() => player.pendingLoad != null);
+      final removed = await service.removeHistoricalTrackAt(history, 1);
+      player.finishLoad();
+
+      expect(await restoring, isTrue);
+      expect(removed, isFalse);
+      expect(service.queue.map((track) => track.id), ['a', 'b']);
+      expect(service.currentTrack?.id, 'a');
+    },
+  );
+
+  test(
+    'new playback supersedes a historical restore waiting for deletion',
+    () async {
+      await service.updateQueue([_track('a'), _track('b')]);
+      await service.updateQueue([_track('live')]);
+      final history = service.historicalQueues.single;
+      final gate = Completer<void>();
+      historyStore.saveGate = gate;
+      historyStore.saveStarted = Completer<void>();
+      final removing = service.removeHistoricalTrackAt(history, 1);
+      await historyStore.saveStarted!.future;
+      final restoring = service.restoreHistoricalQueue(history, 0);
+      await Future<void>.value();
+      final playing = service.updateQueue([_track('new')]);
+      gate.complete();
+
+      expect(await removing, isTrue);
+      expect(await restoring, isFalse);
+      await playing;
+      expect(service.currentTrack?.id, 'new');
+      expect(service.queue.single.id, 'new');
+    },
+  );
+
+  test(
+    'a newer historical restore supersedes an older history commit',
+    () async {
+      await service.updateQueue([_track('a')]);
+      await service.updateQueue([_track('b')]);
+      await service.updateQueue([_track('live')]);
+      final historyA = service.historicalQueues.last;
+      final historyB = service.historicalQueues.first;
+      final published = <String?>[];
+      final subscription = service.currentTrackStream.listen(
+        (track) => published.add(track?.id),
+      );
+      addTearDown(subscription.cancel);
+      final gate = Completer<void>();
+      historyStore.saveGate = gate;
+      historyStore.saveStarted = Completer<void>();
+      final first = service.restoreHistoricalQueue(historyA, 0);
+      await historyStore.saveStarted!.future;
+      final second = service.restoreHistoricalQueue(historyB, 0);
+      await Future<void>.value();
+      gate.complete();
+
+      expect(await first, isFalse);
+      expect(await second, isTrue);
+      expect(service.currentTrack?.id, 'b');
+      expect(published, isNot(contains('a')));
+    },
+  );
+
+  test('failed historical track removal preserves the saved queue', () async {
+    await service.updateQueue([_track('a'), _track('b')]);
+    await service.updateQueue([_track('live')]);
+    final history = service.historicalQueues.single;
+    final previous = historyStore.snapshots;
+    historyStore.failNextSave = true;
+
+    await expectLater(
+      service.removeHistoricalTrackAt(history, 0),
+      throwsStateError,
+    );
+
+    expect(historyStore.snapshots, same(previous));
+    expect(service.historicalQueues.single, same(history));
+    expect(service.currentTrack?.id, 'live');
+  });
+
+  test(
+    'invalid or foreign historical track removal leaves history intact',
+    () async {
+      await service.updateQueue([_track('a')]);
+      await service.updateQueue([_track('live')]);
+      final history = service.historicalQueues.single;
+      final previous = historyStore.snapshots;
+      expect(await service.removeHistoricalTrackAt(history, -1), isFalse);
+      expect(await service.removeHistoricalTrackAt(history, 1), isFalse);
+      await StorageService.setMap('current_user', {'name': 'bob'});
+      expect(await service.removeHistoricalTrackAt(history, 0), isFalse);
+      expect(historyStore.snapshots, same(previous));
+    },
+  );
+
   test('failed history deletion preserves the persisted queue', () async {
     await service.updateQueue([_track('a')]);
     await service.updateQueue([_track('b')]);
