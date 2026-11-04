@@ -349,7 +349,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   final _scroll = ScrollController();
   ComicPageBuffer? _buffer;
   List<Comic> _items = [];
-  bool _loading = false;
+  bool _loading = true;
   bool _onlineFavorites =
       StorageService.getBool('comic_online_favorites') ?? false;
   bool get _online => widget.tab == 1 && _onlineFavorites;
@@ -720,42 +720,36 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         ],
       ),
     );
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: NotificationListener<ScrollStartNotification>(
-            onNotification: (notification) {
-              final request = _scrollingRequest;
-              if (notification.dragDetails != null && request != null) {
-                _interruptedScrollRequest = request;
-              }
-              return false;
-            },
-            child: RefreshIndicator(
-              onRefresh: () => _loadPage(1, reset: true, clearItems: true),
-              child: ComicGrid(
-                comics: _items,
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                onLongPress: widget.tab == 1 || widget.tab == 2
-                    ? _removeFromLibrary
-                    : null,
-                footer: footer,
-              ),
-            ),
-          ),
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (notification) {
+        final request = _scrollingRequest;
+        if (notification.dragDetails != null && request != null) {
+          _interruptedScrollRequest = request;
+        }
+        return false;
+      },
+      child: RefreshIndicator(
+        onRefresh: () => _loadPage(1, reset: true, clearItems: true),
+        child: ComicGrid(
+          comics: _items,
+          controller: _scroll,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          onLongPress: widget.tab == 1 || widget.tab == 2
+              ? _removeFromLibrary
+              : null,
+          loadingContent: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : null,
+          emptyContent: _errors.isEmpty
+              ? null
+              : ComicErrorView(
+                  error: _errors.values.first,
+                  retry: () =>
+                      _loadPage(_pendingPage, retryFailures: _buffer != null),
+                ),
+          footer: footer,
         ),
-        if (_loading && _items.isEmpty)
-          const Center(child: CircularProgressIndicator()),
-        if (_errors.isNotEmpty && _items.isEmpty)
-          Positioned.fill(
-            child: ComicErrorView(
-              error: _errors.values.first,
-              retry: () =>
-                  _loadPage(_pendingPage, retryFailures: _buffer != null),
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

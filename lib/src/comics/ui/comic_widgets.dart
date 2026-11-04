@@ -691,6 +691,7 @@ class ComicGrid extends ConsumerStatefulWidget {
     this.padding,
     this.controller,
     this.onLongPress,
+    this.loadingContent,
     this.emptyContent,
     this.footer,
   });
@@ -698,6 +699,7 @@ class ComicGrid extends ConsumerStatefulWidget {
   final EdgeInsets? padding;
   final ScrollController? controller;
   final void Function(Comic)? onLongPress;
+  final Widget? loadingContent;
   final Widget? emptyContent;
   final Widget? footer;
 
@@ -1282,6 +1284,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 SliverFillRemaining(
                   hasScrollBody: false,
                   child:
+                      widget.loadingContent ??
                       widget.emptyContent ??
                       Padding(
                         padding: const EdgeInsets.all(32),

@@ -1412,6 +1412,9 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                       child: ComicGrid(
                         comics: items,
                         controller: _scroll,
+                        loadingContent: _pageLoading
+                            ? const SizedBox.shrink()
+                            : null,
                         emptyContent: _pageErrors.isNotEmpty && items.isEmpty
                             ? ComicErrorView(
                                 error: _pageErrors.values.first,

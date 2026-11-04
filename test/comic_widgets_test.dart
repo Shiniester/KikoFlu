@@ -4159,6 +4159,59 @@ void main() {
     expect(jumpedPages, [5]);
   });
 
+  for (final search in [false, true]) {
+    final entry = search ? 'paged search' : 'home';
+    testWidgets('comic first-page states on $entry', (tester) async {
+      final firstRequest = Completer<ComicResult>();
+      final retryRequest = Completer<ComicResult>();
+      final source = _Source()
+        ..searchGates[1] = firstRequest
+        ..searchGates[2] = retryRequest;
+      final screen = search
+          ? const ComicSearchScreen(
+              initialSource: 'fixture',
+              initialQuery: 'book',
+            )
+          : const ComicScreen();
+      await pump(tester, screen, _Library(), source, settle: false);
+      final s = S.of(tester.element(find.byWidget(screen)));
+      final empty = find.text(s.comicNoResults);
+      final retry = find.text(s.retry);
+
+      void expectLoading() {
+        expect(
+          find.byType(LinearProgressIndicator),
+          search ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byType(CircularProgressIndicator),
+          search ? findsNothing : findsOneWidget,
+        );
+        expect(empty, findsNothing);
+        expect(find.text(s.comicLoginRequired), findsNothing);
+        expect(retry, findsNothing);
+      }
+
+      expectLoading();
+      firstRequest.completeError(
+        const ComicSourceException('', loginRequired: true),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(s.comicLoginRequired), findsOneWidget);
+      expect(find.widgetWithText(TextButton, s.comicSettings), findsOneWidget);
+      expect(empty, findsNothing);
+
+      await tester.tap(retry);
+      await tester.pump();
+      expectLoading();
+
+      retryRequest.complete(const ComicResult([]));
+      await tester.pumpAndSettle();
+      expect(empty, findsOneWidget);
+      expect(retry, findsNothing);
+    });
+  }
+
   for (final layout in [LayoutType.bigGrid, LayoutType.smallGrid]) {
     for (final search in [false, true]) {
       testWidgets(
