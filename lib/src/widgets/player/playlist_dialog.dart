@@ -13,6 +13,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/playback_session_store.dart';
 import '../../utils/l10n_extensions.dart';
+import '../../utils/snackbar_util.dart';
 import '../../utils/string_utils.dart';
 import '../responsive_dialog.dart';
 import '../animated_menu_anchor.dart';
@@ -609,10 +610,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(S.of(context).errorWithMessage(error.toString())),
-        ),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
       );
     }
   }
@@ -633,10 +633,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
           .removeHistoricalTrackAt(snapshot, index);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(S.of(context).errorWithMessage(error.toString())),
-        ),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
       );
     } finally {
       if (mounted) setState(() => _removingHistoricalTrack = null);
@@ -671,10 +670,9 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
       if (restored) _restoredPage = page;
     } catch (error) {
       if (!mounted || generation != _restoreGeneration) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(S.of(context).errorWithMessage(error.toString())),
-        ),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).errorWithMessage(error.toString()),
       );
     } finally {
       if (mounted && generation == _restoreGeneration) {

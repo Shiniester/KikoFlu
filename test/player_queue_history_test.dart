@@ -17,6 +17,7 @@ import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,6 +76,8 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  tearDown(AppFloatingNotice.clearAll);
 
   for (final scenario in [
     (size: const Size(390, 844), systemTextScale: 1.0),
@@ -1079,6 +1082,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('second restore failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     tapFirst();
     await tester.pumpAndSettle();
     expect(actions.restored, [(_history, 0), (other, 0)]);
@@ -1097,6 +1101,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('load failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     expect(
       find
           .byKey(const ValueKey('player-queue-history-track-history-first'))
@@ -1379,6 +1384,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('remove failed'), findsOneWidget);
+      expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
       expect(
         find.text(_historyTracks.first.title).hitTestable(),
         findsOneWidget,
@@ -1446,6 +1452,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('clear failed'), findsOneWidget);
+    expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
     expect(find.text('1 / 2'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('player-queue-history-page-0')),

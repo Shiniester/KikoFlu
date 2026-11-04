@@ -26,6 +26,7 @@ Future<void> openQueue(
   bool settleEntry = true,
   AudioTrack? currentTrack,
   bool reduceMotion = false,
+  bool disableArtworkTheme = false,
   String? serverHost,
 }) async {
   SharedPreferences.setMockInitialValues({
@@ -63,6 +64,8 @@ Future<void> openQueue(
           ),
         ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
+        if (disableArtworkTheme)
+          themeArtworkDescriptorProvider.overrideWith((ref) => null),
       ],
       child: MaterialApp(
         builder: (context, child) => MediaQuery(
@@ -380,7 +383,7 @@ void main() {
             );
           }
         });
-        await openQueue(tester, tracks);
+        await openQueue(tester, tracks, disableArtworkTheme: true);
         List<ui.Image> decodedForTrack(int index) => tester
             .widgetList<RawImage>(
               find.descendant(
