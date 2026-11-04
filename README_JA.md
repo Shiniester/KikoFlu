@@ -1,11 +1,13 @@
 <div align="center">
-  <img src="assets/icons/app_icon_opaque.png" alt="KikoFlu" width="120" height="120">
+  <img src="assets/icons/app_icon_opaque.png" alt="Iroru" width="120" height="120">
 
-  # KikoFlu
+  # Iroru
+
+  *読み方：i-ro-ru（いろる）*
 
   [English](README_EN.md) | 日本語 | [简体中文](README.md)
   
-  クロスプラットフォーム同人音声クライアント。Kikoeru 自前サーバーおよびオンラインサービスに対応。
+  Iroru — ASMR、日本の漫画、日本の映像作品を楽しむための個人用メディアライブラリ。
 
   [![Flutter](https://img.shields.io/badge/Flutter-3.0+-02569B?logo=flutter)](https://flutter.dev)
   [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#)
@@ -15,7 +17,7 @@
 </div>
 
 <div align="center">
-  <img src="screenshots/8.png" width="900" alt="KikoFlu スクリーンショット">
+  <img src="screenshots/8.png" width="900" alt="Iroru スクリーンショット">
 </div>
 
 ## 機能
@@ -86,9 +88,11 @@
 
 対応プラットフォーム：Android（universal / arm64-v8a）、iOS（未署名 IPA）、Windows（インストーラー / ポータブル）、macOS（DMG）、Linux（x64 / arm64）
 
+**macOS のアップデート：** Iroru.app と旧版 KikoFlu.app は名前が異なります。Iroru.app をコピーした後も、KikoFlu.app は残ります。Iroru が既存データを読み込めることを確認してから、KikoFlu.app を削除できます。
+
 ### AltStore / SideStore
 
-iOS ユーザーは AltStore または SideStore にソースを追加して、KikoFlu を簡単にインストール・更新できます：
+iOS ユーザーは AltStore または SideStore に Iroru のソースを追加すると、アプリをインストール・更新できます：
 
 **ソース URL：** `https://raw.githubusercontent.com/pa-jesusf/KikoFlu/main/altstore-source.json`
 

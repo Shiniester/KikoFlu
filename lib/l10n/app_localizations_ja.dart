@@ -9,7 +9,7 @@ class SJa extends S {
   SJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get appTitle => 'KikoFlu';
+  String get appTitle => 'Iroru';
 
   @override
   String get navHome => 'ホーム';

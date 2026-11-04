@@ -26,7 +26,7 @@ class MainFlutterWindow: NSWindow {
         if enabled && self.videoScreenAssertion == 0 {
           let status = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn), "KikoFlu video playback" as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn), "Iroru video playback" as CFString,
             &self.videoScreenAssertion)
           if status != kIOReturnSuccess {
             result(FlutterError(code: "screen_awake_failed", message: nil, details: status))

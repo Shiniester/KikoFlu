@@ -666,7 +666,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
           builder: (context, navigator) =>
               AppNavigationShell(controller: _navigation, child: navigator!),
           scaffoldMessengerKey: rootScaffoldMessengerKey,
-          title: 'Kikoeru',
+          title: 'Iroru',
           debugShowCheckedModeBanner: false,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,

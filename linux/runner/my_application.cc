@@ -33,7 +33,7 @@ static void video_method_call(FlMethodChannel*, FlMethodCall* call, gpointer dat
   if (enabled && self->video_inhibit_cookie == 0) {
     self->video_inhibit_cookie = gtk_application_inhibit(
         GTK_APPLICATION(self), gtk_application_get_active_window(GTK_APPLICATION(self)),
-        GTK_APPLICATION_INHIBIT_IDLE, "KikoFlu video playback");
+        GTK_APPLICATION_INHIBIT_IDLE, "Iroru video playback");
     if (self->video_inhibit_cookie == 0) {
       g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_error_response_new(
           "screen_awake_failed", "Desktop session rejected display sleep inhibition.", nullptr));
@@ -138,11 +138,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "KikoFlu");
+    gtk_header_bar_set_title(header_bar, "Iroru");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "KikoFlu");
+    gtk_window_set_title(window, "Iroru");
   }
 
   gtk_window_set_default_size(window, 1280, 720);

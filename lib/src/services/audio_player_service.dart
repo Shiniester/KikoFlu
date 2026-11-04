@@ -635,7 +635,7 @@ class AudioPlayerService {
       config: const AudioServiceConfig(
         androidNotificationChannelId:
             'com.example.kikoeru_flutter.channel.audio',
-        androidNotificationChannelName: 'Kikoeru Audio',
+        androidNotificationChannelName: 'Iroru Audio',
         androidNotificationOngoing: false,
         androidStopForegroundOnPause: false,
         androidShowNotificationBadge: true,

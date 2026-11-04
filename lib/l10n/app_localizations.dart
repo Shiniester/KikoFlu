@@ -103,7 +103,7 @@ abstract class S {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'KikoFlu'**
+  /// **'Iroru'**
   String get appTitle;
 
   /// No description provided for @navHome.

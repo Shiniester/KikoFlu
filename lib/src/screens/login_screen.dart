@@ -646,7 +646,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'KikoFlu',
+                      S.of(context).appTitle,
                       style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(
                             color: Theme.of(context).colorScheme.primary,
@@ -693,7 +693,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'KikoFlu',
+                    S.of(context).appTitle,
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       color: Theme.of(context).colorScheme.primary,
                       fontWeight: FontWeight.bold,
