@@ -117,18 +117,20 @@ void main() {
     addTearDown(downloads.dispose);
     await downloads.ready;
     downloads.tasks.addAll([
-      for (final chapter in chapters)
+      for (final chapter in chapters.reversed)
         ComicDownloadTask(
           comic: comic,
           chapter: chapter,
           directory: root.path,
-          status: ComicDownloadStatus.complete,
+          status: chapter == chapters[1]
+              ? ComicDownloadStatus.paused
+              : ComicDownloadStatus.complete,
           coverPath: '${chapter.id}.png',
         ),
     ]);
     final completed = downloads.completedComics;
-    expect(completed.single.coverPage.localPath, '999.png');
-    expect(completed.single.chapters.length, 1000);
+    expect(completed.single.coverPage.localPath, '0.png');
+    expect(completed.single.chapters, chapters.where((c) => c != chapters[1]));
     expect(
       chapters.fold<int>(0, (count, chapter) => count + chapter.serializations),
       0,

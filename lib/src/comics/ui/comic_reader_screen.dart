@@ -72,10 +72,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     with WidgetsBindingObserver {
   late ComicChapter? _chapter = widget.chapter;
   late int _page = widget.initialPage;
-  late final ComicLibrary _library = ref.read(comicLibraryProvider);
+  late final ComicLibrary _library;
   late final StateController<bool> _active;
   List<ComicPage> _pages = [];
   bool _controls = false, _loading = true;
+  bool _openChapterAtEnd = false;
   bool _savingFavorite = false, _choosingDownload = false, _savingImage = false;
   Object? _error;
   int _generation = 0;
@@ -126,6 +127,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _loading = false;
       _resetLayout();
     } else {
+      _library = ref.read(comicLibraryProvider);
       _loadChapter();
     }
   }
@@ -331,7 +333,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       }
       final position = _continuousPosition;
       if (position == null || !position.hasContentDimensions) return;
-      final target = (position.pixels + 600)
+      final step = math.min(
+        600.0,
+        position.viewportDimension / _continuousTransform.getMaxScaleOnAxis(),
+      );
+      final target = (position.pixels + step)
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       if (target != position.pixels) {
@@ -420,7 +426,10 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       if (!mounted || generation != _generation) return;
       setState(() {
         _pages = pages;
-        _page = _page.clamp(0, pages.length - 1);
+        _page = _openChapterAtEnd
+            ? pages.length - 1
+            : _page.clamp(0, pages.length - 1);
+        _openChapterAtEnd = false;
         _loading = false;
         _resetLayout();
       });
@@ -602,7 +611,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     _changed(page);
   }
 
-  Future<void> _chapterBy(int delta) async {
+  Future<void> _chapterBy(int delta, {bool openAtEnd = false}) async {
     final comic = widget.comic;
     final chapter = _chapter;
     if (_loading || comic == null || chapter == null) return;
@@ -615,6 +624,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
     if (!mounted) return;
     _chapter = comic.chapters[index];
+    _openChapterAtEnd = openAtEnd;
     _page = 0;
     await _loadChapter();
   }
@@ -801,7 +811,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     if (target >= _pageCount) {
       _chapterBy(1);
     } else if (target < 0) {
-      _chapterBy(-1);
+      _chapterBy(-1, openAtEnd: true);
     } else if (animate &&
         mode != ComicReadingMode.continuous &&
         !MediaQuery.disableAnimationsOf(context) &&
@@ -1564,7 +1574,8 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     final targetY = (viewport.height * (1 - scale * itemTrailingEdge))
         .clamp(minY, 0.0)
         .toDouble();
-    final dy = (translation.y + (targetY - translation.y).clamp(-600.0, 0.0))
+    final step = math.min(600.0, viewport.height);
+    final dy = (translation.y + (targetY - translation.y).clamp(-step, 0.0))
         .clamp(minY, 0.0)
         .toDouble();
     if (dy == translation.y) return;

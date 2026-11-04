@@ -129,6 +129,7 @@ abstract interface class VideoPlaybackAdvancedSession
   Future<void> setLoopSingle(bool enabled);
   Future<void> setSubtitleOffset(double seconds);
   Future<void> loadExternalSubtitle(String path, {required String title});
+  Future<void> clearExternalSubtitle();
   Future<void> setSuperResolution(VideoSuperResolution mode);
 }
 
@@ -445,6 +446,12 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
   Future<void> loadExternalSubtitle(String path, {required String title}) =>
       _setExternalSubtitle(path, title);
 
+  @override
+  Future<void> clearExternalSubtitle() async {
+    _externalSubtitle = null;
+    _externalSubtitleDisabled = false;
+  }
+
   Future<void> _setExternalSubtitle(String path, String title) async {
     _externalSubtitle = (path, title);
     _externalSubtitleDisabled = false;
@@ -661,6 +668,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   double _pinchStartDistance = 0;
   double _pinchStartScale = 1;
   Offset _videoOffset = Offset.zero;
+  Size _viewportSize = Size.zero;
   Offset _pinchStartOffset = Offset.zero;
   Offset _pinchStartFocalPoint = Offset.zero;
   double _lastNonZeroVolume = 100;
@@ -690,6 +698,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Orientation? _fullscreenExitInitialOrientation;
   bool _disposed = false;
   bool _sourceLoaded = false;
+  bool _canSavePosition = true;
   bool? _appTabWasVisible;
   bool? _appTabWasSelected;
   int _pauseGeneration = 0;
@@ -965,13 +974,22 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         oldWidget.localPath != widget.localPath ||
         !listEquals(oldWidget.streams, widget.streams)) {
       _stopTemporaryRate();
-      if (videoIdChanged) _sourceLoaded = false;
+      if (videoIdChanged) {
+        _sourceLoaded = false;
+        _runtimeRate = null;
+        _settings.flipHorizontal = false;
+        _settings.flipVertical = false;
+        _settings.superResolution = VideoSuperResolution.off;
+        _videoScale = 1;
+        _videoOffset = Offset.zero;
+      }
       _streamIndex = 0;
       unawaited(
         _loadSource(
           position: widget.initialPosition,
           savePreviousPosition:
               videoIdChanged && widget.savePositionOnSourceChange,
+          newVideo: videoIdChanged,
         ),
       );
     }
@@ -1004,7 +1022,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _controlsTimer?.cancel();
       _showControls();
       if (_settings.autoPictureInPicture &&
-          state == AppLifecycleState.paused &&
+          (state == AppLifecycleState.hidden ||
+              state == AppLifecycleState.paused) &&
           _session.snapshot.value.playing &&
           _platform.supportsPictureInPicture) {
         unawaited(_enterPictureInPicture());
@@ -1070,6 +1089,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     required Duration position,
     bool resume = false,
     bool savePreviousPosition = false,
+    bool newVideo = false,
   }) {
     final sourceVideoId = widget.videoId;
     final sourceLocalPath = widget.localPath;
@@ -1112,6 +1132,14 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       }
       await _settings.initialize();
       if (_disposed || generation != _loadGeneration) return;
+      if (newVideo) {
+        await _rateTail;
+        final session = _session;
+        if (session is VideoPlaybackAdvancedSession) {
+          await session.clearExternalSubtitle();
+        }
+        if (_disposed || generation != _loadGeneration) return;
+      }
       final autoPlay =
           firstSourceLoad && (_settings.autoPlay || widget.autoPlayOnStart);
       var autoPlayStarted = false;
@@ -1138,6 +1166,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       }
       if (_disposed || generation != _loadGeneration) return;
       _sourceLoaded = true;
+      if (firstSourceLoad &&
+          pauseGeneration == _pauseGeneration &&
+          _isAppTabVisible &&
+          !_routeCovered &&
+          !_appSuspended) {
+        _canSavePosition = true;
+      }
       final playbackRate = _runtimeRate ?? _settings.defaultSpeed;
       _runtimeRate ??= playbackRate;
       if (playbackRate != _session.snapshot.value.rate) {
@@ -1432,6 +1467,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void _finishSeek([Duration? position]) {
     final target = position ?? _seekPreview;
     if (target == null) return;
+    _canSavePosition = true;
     final snapshot = _session.snapshot.value;
     final clamped = _clampPosition(target, snapshot.duration);
     _seekPreviewClearTimer?.cancel();
@@ -1648,11 +1684,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final scale = (_pinchStartScale * distance / _pinchStartDistance)
         .clamp(1.0, 4.0)
         .toDouble();
-    final screenSize = MediaQuery.sizeOf(context);
+    final viewportSize = _viewportSize;
     final aspectRatio = _viewportAspectRatio(context, fullscreen: _fullscreen);
-    final videoWidth = screenSize.width < screenSize.height * aspectRatio
-        ? screenSize.width
-        : screenSize.height * aspectRatio;
+    final videoWidth = viewportSize.width < viewportSize.height * aspectRatio
+        ? viewportSize.width
+        : viewportSize.height * aspectRatio;
     final videoHeight = videoWidth / aspectRatio;
     final maxX = videoWidth * (scale - 1) / 2;
     final maxY = videoHeight * (scale - 1) / 2;
@@ -1691,6 +1727,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _pauseGeneration++;
       unawaited(_invoke(_session.pause));
     } else {
+      _canSavePosition = true;
       unawaited(
         _invoke(() async {
           await _session.play();
@@ -1788,8 +1825,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         }
         return KeyEventResult.ignored;
       case LogicalKeyboardKey.keyP:
-        if (_isDesktop && !fullscreen && !pipMode) {
-          unawaited(_enterPictureInPicture());
+        if (_isDesktop && (pipMode || !fullscreen)) {
+          unawaited(
+            pipMode || _platform.pictureInPicture.value
+                ? _exitPictureInPicture()
+                : _enterPictureInPicture(),
+          );
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -1939,13 +1980,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _enteringPictureInPicture) {
       return;
     }
-    final fullscreenExit = _fullscreenExit;
-    if (fullscreenExit != null) await fullscreenExit;
-    if (!mounted) return;
     _enteringPictureInPicture = true;
     _controlsTimer?.cancel();
     var entered = false;
     try {
+      final fullscreenExit = _fullscreenExit;
+      if (fullscreenExit != null) await fullscreenExit;
+      if (!mounted) return;
       entered = await _platform.enterPictureInPicture(
         advanced.videoController,
         aspectRatio: advanced.sourceAspectRatio,
@@ -2130,7 +2171,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       return;
     }
     final previousIndex = _streamIndex;
-    final position = _pendingLoadPosition ?? _session.snapshot.value.position;
+    final position =
+        _seekPreview ??
+        _pendingSeekPosition ??
+        _pendingLoadPosition ??
+        _session.snapshot.value.position;
     final resume = _session.snapshot.value.playing;
     _updatePlayerState(() => _streamIndex = index);
     widget.onStreamChanged?.call(widget.streams[index]);
@@ -2172,13 +2217,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _controlsInteracting = false;
     _stopTemporaryRate();
     _controlsTimer?.cancel();
-    try {
-      await _rateTail;
-      await _session.pause();
-    } catch (_) {
-      // A player that failed to open still needs its last known position saved.
-    }
-    await _savePosition();
+    await Future.wait<void>([
+      _savePosition(release: true),
+      // A failed player still needs its last known position saved.
+      _rateTail.then((_) => _session.pause()).catchError((Object _) {}),
+    ]);
   }
 
   Future<void> _pauseForSleepTimer() async {
@@ -2304,7 +2347,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (!_disposed && mounted) await WidgetsBinding.instance.endOfFrame;
   }
 
-  Future<void> _savePosition() {
+  Future<void> _savePosition({bool release = false}) {
+    if (!_canSavePosition) return Future<void>.value();
+    if (release) _canSavePosition = false;
     if (widget.savePositionOnSourceChange) {
       final videoId = _loadedVideoId;
       if (videoId == null) return Future<void>.value();
@@ -2316,24 +2361,26 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
           sourceChangePosition != null &&
               sourceChangePosition.videoId == videoId
           ? sourceChangePosition.position
-          : pendingPosition ?? _session.snapshot.value.position;
+          : _pendingSeekPosition ??
+                pendingPosition ??
+                _session.snapshot.value.position;
       return widget.library.savePosition(videoId, position);
     }
     if (!_sourceLoaded && _pendingLoadPosition == null) return Future.value();
     return widget.library.savePosition(
       widget.videoId,
-      _pendingLoadPosition ?? _session.snapshot.value.position,
+      _pendingSeekPosition ??
+          _pendingLoadPosition ??
+          _session.snapshot.value.position,
     );
   }
 
   Future<void> _saveLoadedSourcePosition() async {
     if (_loadedVideoId == null) return;
-    try {
-      await _session.pause();
-    } catch (_) {
-      // A failed player still needs its last known position saved.
-    }
-    await _savePosition();
+    await Future.wait<void>([
+      _savePosition(release: true),
+      Future<void>.sync(_session.pause).catchError((Object _) {}),
+    ]);
   }
 
   void _startFullscreenStatusUpdates() {
@@ -2569,6 +2616,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             );
             final playerLayout = LayoutBuilder(
               builder: (context, constraints) {
+                _viewportSize = constraints.biggest;
                 if (!fullscreen && !pipMode) {
                   WidgetsBinding.instance.addPostFrameCallback(
                     (_) => _updateInlineMenuMaxHeight(context),
@@ -2676,7 +2724,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                     ValueListenableBuilder<VideoPlaybackSnapshot>(
                       valueListenable: _session.snapshot,
                       builder: (context, snapshot, _) {
-                        if (pipMode || constraints.maxWidth < 240) {
+                        if (pipMode || constraints.maxWidth < 48) {
                           return const SizedBox.shrink();
                         }
                         if (_error != null || snapshot.error != null) {
@@ -2747,7 +2795,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                       builder: (context, snapshot, _) {
                         final hasError =
                             _error != null || snapshot.error != null;
-                        final controlsVisible = _controlsVisible;
+                        final controlsVisible = _controlsVisible || hasError;
                         final seekPreview = _seekPreview;
                         final surfaceSeekFeedback = _surfaceSeekFeedback;
                         final temporaryRateDisplay = snapshot.playing
@@ -2761,7 +2809,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                             ? _gestureValueLabel
                             : '${_formatTime(seekPreview)} / ${_formatTime(snapshot.duration)}';
                         // Android can briefly report tiny bounds when leaving PiP.
-                        if (!pipMode && constraints.maxWidth < 240) {
+                        if (!pipMode && constraints.maxWidth < 98) {
                           return const SizedBox.shrink();
                         }
                         if (pipMode) {
@@ -2946,32 +2994,30 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   ),
                                 ),
                               ),
-                            if (!hasError)
-                              if (controlsVisible && !_controlsLocked)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  top: 0,
-                                  child: AnimatedOpacity(
-                                    opacity: controlsVisible ? 1 : 0,
-                                    duration: const Duration(milliseconds: 100),
-                                    child: SafeArea(
-                                      top: fullscreen,
-                                      left: fullscreen,
-                                      right: fullscreen,
-                                      bottom: false,
-                                      child: _buildTopControls(
-                                        context,
-                                        fullscreen: fullscreen,
-                                        onFullscreen: onFullscreen,
-                                        maxHeightListenable:
-                                            fullscreen || pipMode
-                                            ? null
-                                            : _inlineMenuMaxHeight,
-                                      ),
+                            if (controlsVisible && !_controlsLocked)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                top: 0,
+                                child: AnimatedOpacity(
+                                  opacity: controlsVisible ? 1 : 0,
+                                  duration: const Duration(milliseconds: 100),
+                                  child: SafeArea(
+                                    top: fullscreen,
+                                    left: fullscreen,
+                                    right: fullscreen,
+                                    bottom: false,
+                                    child: _buildTopControls(
+                                      context,
+                                      fullscreen: fullscreen,
+                                      onFullscreen: onFullscreen,
+                                      maxHeightListenable: fullscreen || pipMode
+                                          ? null
+                                          : _inlineMenuMaxHeight,
                                     ),
                                   ),
                                 ),
+                              ),
                             if (controlsVisible &&
                                 !_controlsLocked &&
                                 !pipMode &&
@@ -3153,6 +3199,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _platformReady &&
         _platform.supportsPictureInPicture &&
         _session is VideoPlaybackAdvancedSession;
+    final compact = _viewportSize.width < 210;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
@@ -3174,28 +3221,29 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                 ? onFullscreen
                 : () => Navigator.of(context).maybePop(),
           ),
-          IconButton(
-            key: const ValueKey('video-player-home'),
-            tooltip: s.navHome,
-            color: Colors.white,
-            icon: const Icon(Icons.home, size: 19),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 42, height: 34),
-            style: IconButton.styleFrom(
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              minimumSize: const Size(42, 34),
-              maximumSize: const Size(42, 34),
+          if (!compact)
+            IconButton(
+              key: const ValueKey('video-player-home'),
+              tooltip: s.navHome,
+              color: Colors.white,
+              icon: const Icon(Icons.home, size: 19),
               padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 42, height: 34),
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                minimumSize: const Size(42, 34),
+                maximumSize: const Size(42, 34),
+                padding: EdgeInsets.zero,
+              ),
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                if (_fullscreen || _fullscreenExit != null) {
+                  await _exitFullscreen();
+                }
+                if (!mounted || !navigator.mounted) return;
+                navigator.popUntil((route) => route.isFirst);
+              },
             ),
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              if (_fullscreen || _fullscreenExit != null) {
-                await _exitFullscreen();
-              }
-              if (!mounted || !navigator.mounted) return;
-              navigator.popUntil((route) => route.isFirst);
-            },
-          ),
           if (showTitle)
             Expanded(
               child: Text(
@@ -3209,7 +3257,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             )
           else
             const Spacer(),
-          if (fullscreen) ...[
+          if (fullscreen && !compact) ...[
             if (_settings.showFullscreenBattery &&
                 _platform.supportsBatteryStatus &&
                 _batteryStatus != null) ...[
@@ -3230,7 +3278,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               ).textTheme.labelSmall?.copyWith(color: Colors.white),
             ),
           ],
-          if (_isDesktop)
+          if (_isDesktop && !compact)
             IconButton(
               key: const ValueKey('video-player-always-on-top'),
               tooltip: _alwaysOnTop
@@ -3251,7 +3299,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               ),
               onPressed: () => unawaited(_toggleAlwaysOnTop()),
             ),
-          if (canPip)
+          if (canPip && !compact)
             IconButton(
               key: const ValueKey('video-player-pip'),
               tooltip: s.videoPlayerPictureInPicture,
@@ -4158,6 +4206,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void dispose() {
     _controlsInteracting = false;
     _stopTemporaryRate(updateUi: false);
+    unawaited(_savePosition(release: true).catchError((Object _) {}));
     _disposed = true;
     _fullscreenMetricsChanged?.complete();
     _fullscreenMetricsChanged = null;

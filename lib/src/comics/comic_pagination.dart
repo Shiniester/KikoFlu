@@ -74,7 +74,7 @@ class ComicPageBuffer {
         }
       }
     }
-    final blocked = <String>{};
+    final blocked = retryFailures ? errors.keys.toSet() : <String>{};
     while (_items.length < end) {
       if (!await _appendNext(blocked, errors)) break;
     }

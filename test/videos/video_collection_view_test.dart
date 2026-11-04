@@ -84,6 +84,30 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  testWidgets('video covers honor in-app privacy blur in every layout', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'privacy_mode_enabled': true,
+      'privacy_mode_blur_cover_in_app': true,
+    });
+
+    for (final layout in LayoutType.values) {
+      final width = layout == LayoutType.list ? 320.0 : 180.0;
+      await tester.pumpWidget(
+        _app(
+          SizedBox(
+            width: width,
+            child: VideoCard(video: _video, layoutType: layout, onTap: null),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ImageFiltered), findsOneWidget, reason: layout.name);
+    }
+  });
+
   test('catalog numbers omit source variants and survive saved video data', () {
     for (final (id, title, number) in [
       ('abc-123', 'Sample video', 'ABC-123'),

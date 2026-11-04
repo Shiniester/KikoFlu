@@ -38,10 +38,6 @@ class ComicSettingsScreen extends ConsumerWidget {
     final s = S.of(context);
     final layout = ref.watch(comicLayoutProvider);
     final pageSize = ref.watch(comicPageSizeProvider);
-    Future<void> save(String key, bool value) async {
-      await StorageService.setBool(key, value);
-      ref.read(comicSettingsRevisionProvider.notifier).state++;
-    }
 
     return SettingsSubpageScaffold(
       title: s.comicSettings,
@@ -91,14 +87,19 @@ class ComicSettingsScreen extends ConsumerWidget {
                 icon: Icons.preview_outlined,
                 value:
                     StorageService.getBool('comic_chapter_thumbnails') ?? true,
-                onChanged: (value) => save('comic_chapter_thumbnails', value),
+                onChanged: (value) async {
+                  await StorageService.setBool(
+                    'comic_chapter_thumbnails',
+                    value,
+                  );
+                  ref.read(comicSettingsRevisionProvider.notifier).state++;
+                },
               ),
               SettingsSwitchTile(
                 title: s.comicDefaultOnlineFavorites,
                 icon: Icons.cloud_outlined,
-                value:
-                    StorageService.getBool('comic_online_favorites') ?? false,
-                onChanged: (v) => save('comic_online_favorites', v),
+                value: ref.watch(comicOnlineFavoritesProvider),
+                onChanged: ref.read(comicOnlineFavoritesProvider.notifier).set,
               ),
               SettingsNavigationTile(
                 icon: Icons.format_list_numbered,
@@ -274,29 +275,31 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                   s,
                   ref.watch(comicReadingModeProvider),
                 ),
-                onTap: () async {
-                  final selected = await showDialog<ComicReadingMode>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.comicReadingMode),
-                      children: [
-                        for (final mode in ComicReadingMode.values)
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, mode),
-                            child: Text(comicModeLabel(s, mode)),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    ref.read(comicReadingModeProvider.notifier).state =
-                        selected;
-                    await StorageService.setString(
-                      'comic_reading_mode',
-                      selected.name,
-                    );
-                  }
-                },
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) =>
+                      CommonOptionDialog<ComicReadingMode>(
+                        title: s.comicReadingMode,
+                        icon: Icons.chrome_reader_mode,
+                        value: ref.read(comicReadingModeProvider),
+                        options: [
+                          for (final mode in ComicReadingMode.values)
+                            RadioOption(
+                              value: mode,
+                              title: Text(comicModeLabel(s, mode)),
+                            ),
+                        ],
+                        onChanged: (selected) async {
+                          ref.read(comicReadingModeProvider.notifier).state =
+                              selected;
+                          await StorageService.setString(
+                            'comic_reading_mode',
+                            selected.name,
+                          );
+                          return true;
+                        },
+                      ),
+                ),
               ),
               SettingsNavigationTile(
                 icon: Icons.screen_rotation,
@@ -305,30 +308,36 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                   s,
                   ref.watch(comicScreenOrientationProvider),
                 ),
-                onTap: () async {
-                  final selected = await showDialog<ComicScreenOrientation>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.comicScreenOrientation),
-                      children: [
-                        for (final orientation in ComicScreenOrientation.values)
-                          SimpleDialogOption(
-                            onPressed: () =>
-                                Navigator.pop(context, orientation),
-                            child: Text(comicOrientationLabel(s, orientation)),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    ref.read(comicScreenOrientationProvider.notifier).state =
-                        selected;
-                    await StorageService.setString(
-                      'comic_screen_orientation',
-                      selected.name,
-                    );
-                  }
-                },
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) =>
+                      CommonOptionDialog<ComicScreenOrientation>(
+                        title: s.comicScreenOrientation,
+                        icon: Icons.screen_rotation,
+                        value: ref.read(comicScreenOrientationProvider),
+                        options: [
+                          for (final orientation
+                              in ComicScreenOrientation.values)
+                            RadioOption(
+                              value: orientation,
+                              title: Text(
+                                comicOrientationLabel(s, orientation),
+                              ),
+                            ),
+                        ],
+                        onChanged: (selected) async {
+                          ref
+                                  .read(comicScreenOrientationProvider.notifier)
+                                  .state =
+                              selected;
+                          await StorageService.setString(
+                            'comic_screen_orientation',
+                            selected.name,
+                          );
+                          return true;
+                        },
+                      ),
+                ),
               ),
               SettingsSwitchTile(
                 title: s.comicTapToTurn,
@@ -406,25 +415,23 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                 title: s.comicPreload,
                 icon: Icons.layers_outlined,
                 subtitle: '${StorageService.getInt('comic_preload') ?? 3}',
-                onTap: () async {
-                  final selected = await showDialog<int>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.comicPreload),
-                      children: [
-                        for (final count in [0, 1, 3, 5, 10])
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, count),
-                            child: Text('$count'),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    await StorageService.setInt('comic_preload', selected);
-                    ref.read(comicSettingsRevisionProvider.notifier).state++;
-                  }
-                },
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => CommonOptionDialog<int>(
+                    title: s.comicPreload,
+                    icon: Icons.layers_outlined,
+                    value: StorageService.getInt('comic_preload') ?? 3,
+                    options: [
+                      for (final count in [0, 1, 3, 5, 10])
+                        RadioOption(value: count, title: Text('$count')),
+                    ],
+                    onChanged: (selected) async {
+                      await StorageService.setInt('comic_preload', selected);
+                      ref.read(comicSettingsRevisionProvider.notifier).state++;
+                      return true;
+                    },
+                  ),
+                ),
               ),
             ],
           ),

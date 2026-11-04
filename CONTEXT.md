@@ -558,6 +558,9 @@ _Avoid_: Works Home Tab, discovery page
 **Comic Details Screen (漫画详情页)**:
 The page describing one comic's synopsis, tags, chapters, and available actions.
 It is distinct from the Comic Screen and Comic Reader.
+Opening it from the Comic Home Page shows the current Comic Source catalog.
+Downloaded chapters remain readable if the Comic Source is unavailable.
+Opening it from Downloaded or its search shows only chapters downloaded in full.
 _Avoid_: Comic Screen, Comic Reader
 
 **Comic Reader (漫画阅读器)**:
