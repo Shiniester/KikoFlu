@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -53,11 +55,226 @@ const _liveSnapshot = PlaybackSessionSnapshot(
 );
 
 void main() {
+  setUpAll(() async {
+    final fonts = Directory(
+      '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts',
+    );
+    final font = fonts.listSync().whereType<File>().singleWhere(
+      (file) =>
+          file.uri.pathSegments.last.toLowerCase() == 'roboto-regular.ttf',
+    );
+    await (FontLoader('QueueMetadataRoboto')..addFont(
+          font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+        ))
+        .load();
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  for (final scenario in [
+    (size: const Size(390, 844), systemTextScale: 1.0),
+    (size: const Size(320, 740), systemTextScale: 2.0),
+    (size: const Size(1100, 800), systemTextScale: 1.0),
+  ]) {
+    for (final historical in [false, true]) {
+      testWidgets(
+        'queue durations share the artist row in history=$historical at $scenario',
+        (tester) async {
+          const tracks = [
+            AudioTrack(
+              id: 'duration-with-artist',
+              title: 'Track with a voice actor',
+              artist:
+                  'A voice actor name deliberately long enough to be truncated',
+              url: 'https://example.invalid/voice.mp3',
+              duration: Duration(hours: 1, minutes: 4, seconds: 9),
+            ),
+            AudioTrack(
+              id: 'duration-without-artist',
+              title: 'Track without a voice actor',
+              url: 'https://example.invalid/no-voice.mp3',
+              duration: Duration(minutes: 4, seconds: 9),
+            ),
+            AudioTrack(
+              id: 'duration-unknown',
+              title: 'Track without duration',
+              artist: 'Voice actor',
+              url: 'https://example.invalid/unknown.mp3',
+            ),
+            AudioTrack(
+              id: 'duration-zero',
+              title: 'Track with zero duration',
+              url: 'https://example.invalid/zero.mp3',
+              duration: Duration.zero,
+            ),
+          ];
+          const history = PlaybackSessionSnapshot(
+            queue: tracks,
+            currentIndex: 0,
+            position: Duration.zero,
+            ownerKey: _queueOwner,
+            markingQueueId: 'queue-with-durations',
+          );
+          await _pumpQueue(
+            tester,
+            size: scenario.size,
+            textScale: scenario.systemTextScale,
+            actions: _QueueActions(),
+            liveTrack: historical ? _liveTrack : tracks.first,
+            liveQueue: historical ? [_liveTrack] : tracks,
+            initialHistories: historical ? [history] : [_history],
+            playbackDuration: null,
+            screen: Theme(
+              data: ThemeData(fontFamily: 'QueueMetadataRoboto'),
+              child: AudioPlayerScreen(
+                initialSurface: PlayerInitialSurface.queue,
+                initialQueueHistory: historical,
+              ),
+            ),
+          );
+
+          for (final (track, label) in [
+            (tracks[0], '01:04:09'),
+            (tracks[1], '04:09'),
+          ]) {
+            final duration = find.byKey(
+              ValueKey('player-queue-duration-${track.id}'),
+            );
+            expect(duration.hitTestable(), findsOneWidget);
+            expect(tester.widget<Text>(duration).data, label);
+            expect(tester.getSemantics(duration).label, contains(label));
+            final metadata = find.byKey(
+              ValueKey('player-queue-metadata-${track.id}'),
+            );
+            expect(
+              tester.getRect(duration).right,
+              closeTo(tester.getRect(metadata).right, .01),
+            );
+            final row = find.byKey(
+              ValueKey('player-queue-track-content-${track.id}'),
+            );
+            final remove = find.descendant(
+              of: row,
+              matching: find.byTooltip('Remove'),
+            );
+            expect(
+              tester.getRect(duration).right,
+              lessThanOrEqualTo(tester.getRect(remove).left),
+            );
+          }
+          final artist = find.descendant(
+            of: find.byKey(
+              const ValueKey('player-queue-metadata-duration-with-artist'),
+            ),
+            matching: find.text(tracks.first.artist!),
+          );
+          final duration = find.byKey(
+            const ValueKey('player-queue-duration-duration-with-artist'),
+          );
+          expect(
+            tester.getRect(artist).center.dy,
+            closeTo(tester.getRect(duration).center.dy, .01),
+          );
+          expect(
+            tester.getRect(artist).right,
+            lessThan(tester.getRect(duration).left),
+          );
+          for (final id in ['duration-unknown', 'duration-zero']) {
+            expect(
+              find.byKey(ValueKey('player-queue-duration-$id')),
+              findsNothing,
+            );
+          }
+          expect(find.text('--:--'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  testWidgets('current queue duration updates when playback duration arrives', (
+    tester,
+  ) async {
+    final durations = StreamController<Duration?>();
+    addTearDown(durations.close);
+    await _pumpQueue(
+      tester,
+      actions: _QueueActions(),
+      playbackDuration: null,
+      durationStream: durations.stream,
+    );
+    final duration = find.byKey(const ValueKey('player-queue-duration-live'));
+    expect(duration, findsNothing);
+
+    durations.add(const Duration(minutes: 4, seconds: 9));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(duration).data, '04:09');
+
+    for (final missing in [Duration.zero, null]) {
+      durations.add(missing);
+      await tester.pumpAndSettle();
+      expect(duration, findsNothing);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('queue durations stay with their tracks while switching', (
+    tester,
+  ) async {
+    final currentTracks = StreamController<AudioTrack?>();
+    final durations = StreamController<Duration?>();
+    final loading = StreamController<bool>.broadcast();
+    addTearDown(currentTracks.close);
+    addTearDown(durations.close);
+    addTearDown(loading.close);
+    final firstTrack = _liveTrack.copyWith(
+      duration: const Duration(minutes: 3),
+    );
+    const nextTrack = AudioTrack(
+      id: 'next',
+      title: 'Next queue track',
+      url: 'https://example.invalid/next.mp3',
+    );
+    await _pumpQueue(
+      tester,
+      actions: _QueueActions(),
+      liveTrack: firstTrack,
+      liveQueue: [firstTrack, nextTrack],
+      currentTrackStream: currentTracks.stream,
+      playbackDuration: const Duration(minutes: 4, seconds: 9),
+      durationStream: durations.stream,
+      trackLoadingStream: loading.stream,
+    );
+    final firstDuration = find.byKey(
+      const ValueKey('player-queue-duration-live'),
+    );
+    final nextDuration = find.byKey(
+      const ValueKey('player-queue-duration-next'),
+    );
+    expect(tester.widget<Text>(firstDuration).data, '04:09');
+    expect(nextDuration, findsNothing);
+
+    loading.add(true);
+    durations.add(const Duration(minutes: 5, seconds: 31));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(nextDuration, findsNothing);
+
+    currentTracks.add(nextTrack);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(nextDuration, findsNothing);
+
+    loading.add(false);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(firstDuration).data, '03:00');
+    expect(tester.widget<Text>(nextDuration).data, '05:31');
+    expect(tester.takeException(), isNull);
   });
 
   for (final size in [
@@ -1253,6 +1470,9 @@ Future<void> _pumpQueue(
   Stream<AudioTrack?>? currentTrackStream,
   Stream<List<AudioTrack>>? queueStream,
   Stream<List<PlaybackSessionSnapshot>>? historyStream,
+  Duration? playbackDuration = const Duration(minutes: 4),
+  Stream<Duration?>? durationStream,
+  Stream<bool>? trackLoadingStream,
   Widget? screen,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -1290,11 +1510,15 @@ Future<void> _pumpQueue(
         playerStateProvider.overrideWith(
           (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
         ),
-        isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+        isTrackLoadingProvider.overrideWith((ref) async* {
+          yield false;
+          if (trackLoadingStream != null) yield* trackLoadingStream;
+        }),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
-        durationProvider.overrideWith(
-          (ref) => Stream.value(const Duration(minutes: 4)),
-        ),
+        durationProvider.overrideWith((ref) async* {
+          yield playbackDuration;
+          if (durationStream != null) yield* durationStream;
+        }),
         manualSkipAvailabilityProvider.overrideWith(
           (ref) => Stream.value(ManualSkipAvailability.unavailable),
         ),

@@ -13,6 +13,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/playback_session_store.dart';
 import '../../utils/l10n_extensions.dart';
+import '../../utils/string_utils.dart';
 import '../responsive_dialog.dart';
 import '../animated_menu_anchor.dart';
 import 'player_glass_surface.dart';
@@ -992,7 +993,7 @@ class _PlayerQueueBrowserState extends ConsumerState<PlayerQueueBrowser> {
   }
 }
 
-class _QueueTrackTile extends StatelessWidget {
+class _QueueTrackTile extends ConsumerWidget {
   const _QueueTrackTile({
     required this.track,
     required this.coverUrl,
@@ -1014,7 +1015,19 @@ class _QueueTrackTile extends StatelessWidget {
   final bool isLoading;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    var duration = track.duration;
+    if (isCurrentTrack &&
+        ref.watch(isTrackLoadingProvider).valueOrNull == false) {
+      final currentDuration = ref.watch(durationProvider).valueOrNull;
+      if (currentDuration != null && currentDuration > Duration.zero) {
+        duration = currentDuration;
+      }
+    }
+    final durationText = duration != null && duration > Duration.zero
+        ? formatDuration(duration)
+        : null;
+    final artist = track.artist?.trim() ?? '';
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final titleStyle =
@@ -1087,12 +1100,30 @@ class _QueueTrackTile extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                   style: titleStyle,
                                 ),
-                                if (track.artist?.trim().isNotEmpty == true)
-                                  Text(
-                                    track.artist!.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: artistStyle,
+                                if (artist.isNotEmpty || durationText != null)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          artist,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: artistStyle,
+                                        ),
+                                      ),
+                                      if (durationText != null) ...[
+                                        if (artist.isNotEmpty)
+                                          const SizedBox(width: 4),
+                                        Text(
+                                          durationText,
+                                          key: ValueKey(
+                                            'player-queue-duration-${track.id}',
+                                          ),
+                                          maxLines: 1,
+                                          style: artistStyle,
+                                        ),
+                                      ],
+                                    ],
                                   ),
                               ],
                             ),
