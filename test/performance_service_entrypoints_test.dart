@@ -58,4 +58,32 @@ void main() {
     expect(result.success, isTrue);
     expect(result.importedCount, 1);
   });
+
+  test('archive import reports progress before classification', () async {
+    final archive = Archive();
+    final contents = [1, 2, 3];
+    for (var index = 0; index < 250; index++) {
+      archive.addFile(
+        ArchiveFile('track$index.lrc', contents.length, contents),
+      );
+    }
+    final source = File(p.join(root.path, 'RJ123456.zip'));
+    await source.writeAsBytes(ZipEncoder().encode(archive)!);
+    final progress = <String>[];
+
+    final result = await SubtitleLibraryService.importArchiveFromPath(
+      source.path,
+      targetLibraryPath: p.join(root.path, 'target'),
+      refreshIndex: false,
+      onProgress: progress.add,
+    );
+
+    final extraction = progress.indexWhere(
+      (message) => message.startsWith('正在解压压缩包... 已解压 250 个字幕文件'),
+    );
+    final classification = progress.indexOf('正在分类和移动文件...');
+    expect(result.importedCount, 250);
+    expect(extraction, greaterThanOrEqualTo(0));
+    expect(classification, greaterThan(extraction));
+  });
 }

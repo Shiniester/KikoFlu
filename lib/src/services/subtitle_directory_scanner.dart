@@ -159,12 +159,7 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
     void scanDirectory(Directory directory) {
       if (directory.path.length > 240) return;
 
-      List<FileSystemEntity> entities;
-      try {
-        entities = directory.listSync(followLinks: false);
-      } on FileSystemException {
-        return;
-      }
+      final entities = directory.listSync(followLinks: false);
 
       for (final entity in entities) {
         scannedEntries++;
@@ -185,6 +180,7 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
 
         try {
           final stat = entity.statSync();
+          if (stat.type != FileSystemEntityType.file) continue;
           final fileName = p.basename(entity.path);
           final relativePath = p
               .relative(entity.path, from: rootPath)

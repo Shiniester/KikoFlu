@@ -215,6 +215,149 @@ void main() {
     );
   });
 
+  test('extracts consecutive and alternating subtitle directories', () {
+    const workId = 'RJ01015810';
+    final result = extract(
+      _zipWithFiles({
+        'first/one.lrc': [1],
+        'first/two.lrc': [2],
+        'second/three.lrc': [3],
+        'first/four.lrc': [4],
+      }),
+      workId,
+    );
+
+    expect(result.extractedCount, 4);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, 'first', 'one.lrc')).readAsBytesSync(),
+      [1],
+    );
+    expect(
+      File(p.join(targetPath, workId, 'first', 'two.lrc')).readAsBytesSync(),
+      [2],
+    );
+    expect(
+      File(p.join(targetPath, workId, 'second', 'three.lrc')).readAsBytesSync(),
+      [3],
+    );
+    expect(
+      File(p.join(targetPath, workId, 'first', 'four.lrc')).readAsBytesSync(),
+      [4],
+    );
+  });
+
+  test('later nested ZIP entries overwrite the same subtitle path', () {
+    const workId = 'RJ01015811';
+    final nestedZip = _zipWithFile('$workId/track.lrc', [4, 5]);
+    final result = extract(
+      _zipWithFiles({
+        '$workId/track.lrc': [1, 2, 3],
+        '$workId.zip': nestedZip,
+      }),
+      'collection',
+    );
+
+    expect(result.extractedCount, 2);
+    expect(result.errorCount, 0);
+    expect(File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(), [
+      4,
+      5,
+    ]);
+  });
+
+  test('keeps extracting when a subtitle path is an existing directory', () {
+    const workId = 'RJ01015812';
+    final result = extract(
+      _zipWithFiles({
+        'blocked.lrc/inside.srt': [1],
+        'blocked.lrc': Uint8List(2 * 1024 * 1024),
+        'later.lrc': [2],
+      }),
+      workId,
+    );
+
+    expect(result.extractedCount, 2);
+    expect(result.errorCount, 1);
+    expect(
+      File(
+        p.join(targetPath, workId, 'blocked.lrc', 'inside.srt'),
+      ).readAsBytesSync(),
+      [1],
+    );
+    expect(File(p.join(targetPath, workId, 'later.lrc')).readAsBytesSync(), [
+      2,
+    ]);
+  });
+
+  test('extracts small nested ZIPs without temporary archive files', () {
+    const workId = 'RJ01015808';
+    final lrcBytes = utf8.encode('[00:00.00]nested subtitle\n');
+    Directory(targetPath).createSync(recursive: true);
+    File(p.join(targetPath, '.nested_archives')).writeAsStringSync('occupied');
+
+    final result = extract(
+      _zipWithFile('$workId.zip', _zipWithFile('track.lrc', lrcBytes)),
+      'collection',
+    );
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.nestedArchiveCount, 1);
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(),
+      lrcBytes,
+    );
+  });
+
+  test('extracts large nested ZIPs and removes their temporary files', () {
+    const workId = 'RJ01015809';
+    final lrcBytes = Uint8List(4 * 1024 * 1024)..last = 1;
+    final nested = Archive()
+      ..addFile(ArchiveFile.noCompress('track.lrc', lrcBytes.length, lrcBytes));
+    final nestedBytes = ZipEncoder().encode(nested)!;
+    expect(nestedBytes.length, greaterThan(4 * 1024 * 1024));
+
+    final result = extract(
+      _zipWithFile('$workId.zip', nestedBytes),
+      'collection',
+    );
+
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(),
+      lrcBytes,
+    );
+    expect(
+      Directory(p.join(targetPath, '.nested_archives')).existsSync(),
+      isFalse,
+    );
+  });
+
+  test('reports extraction progress before the job completes', () async {
+    final files = <String, List<int>>{
+      for (var index = 0; index < 250; index++)
+        'track$index.lrc': utf8.encode('subtitle $index'),
+    };
+    final archivePath = p.join(tempDirectory.path, 'collection.zip');
+    File(archivePath).writeAsBytesSync(_zipWithFiles(files));
+    final progress = <(int, int)>[];
+
+    final result = await StreamingZipExtractor.extract(
+      StreamingZipExtractionRequest(
+        sourcePath: archivePath,
+        targetPath: targetPath,
+        archiveName: 'collection',
+      ),
+      onProgress: (files, archives) => progress.add((files, archives)),
+    );
+
+    expect(result.extractedCount, 250);
+    expect(progress, contains((250, 0)));
+  });
+
   test(
     'continues extracting other entries when one nested ZIP cannot decode',
     () {

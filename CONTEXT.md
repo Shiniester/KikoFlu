@@ -312,6 +312,12 @@ Viewing a work's resource images or cover with shared reader controls and settin
 It is separate from comic Reading Progress and does not add a comic history entry.
 _Avoid_: Comic chapter, Reading Progress
 
+**Partial Subtitle Archive Import (字幕压缩包部分导入)**:
+An archive import that saves at least one subtitle and reports at least one
+import failure. Saved subtitles remain in the subtitle library. The result
+reports both the imported and failed counts.
+_Avoid_: Complete import failure
+
 **Best Work Subtitle (最佳匹配作品字幕)**:
 The matching subtitle that first prefers the effective global translation target
 language, identified by explicit file or directory language labels, then match

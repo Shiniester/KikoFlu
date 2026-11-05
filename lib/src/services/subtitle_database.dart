@@ -153,9 +153,37 @@ class SubtitleDatabase {
 
   /// 批量插入（事务）
   Future<void> insertFiles(List<SubtitleFileRecord> records) async {
-    if (records.isEmpty) return;
+    await replaceFiles(records, relativePrefixes: const {});
+  }
+
+  /// 原子替换全部索引，或仅替换指定目录的索引。
+  Future<void> replaceFiles(
+    List<SubtitleFileRecord> records, {
+    Set<String>? relativePrefixes,
+  }) async {
+    if (records.isEmpty &&
+        relativePrefixes != null &&
+        relativePrefixes.isEmpty) {
+      return;
+    }
     final db = await database;
     final batch = db.batch();
+    if (relativePrefixes == null) {
+      batch.delete('subtitle_files');
+    } else {
+      for (final relativePrefix in relativePrefixes) {
+        final prefix = relativePrefix.endsWith('/')
+            ? relativePrefix
+            : '$relativePrefix/';
+        // “0”是“/”的下一个 ASCII 字符，可用索引匹配目录前缀。
+        final upperBound = '${prefix.substring(0, prefix.length - 1)}0';
+        batch.delete(
+          'subtitle_files',
+          where: 'relative_path >= ? AND relative_path < ?',
+          whereArgs: [prefix, upperBound],
+        );
+      }
+    }
     for (final record in records) {
       batch.insert('subtitle_files', record.toMap(),
           conflictAlgorithm: ConflictAlgorithm.replace);
@@ -168,16 +196,6 @@ class SubtitleDatabase {
     final db = await database;
     return await db.delete('subtitle_files',
         where: 'relative_path = ?', whereArgs: [relativePath]);
-  }
-
-  /// 按相对路径前缀删除（用于删除目录下所有文件）
-  Future<int> deleteByRelativePathPrefix(String relativePrefix) async {
-    final db = await database;
-    // 确保路径以 / 结尾，避免误删同前缀的其他目录
-    final prefix =
-        relativePrefix.endsWith('/') ? relativePrefix : '$relativePrefix/';
-    return await db.delete('subtitle_files',
-        where: 'relative_path LIKE ?', whereArgs: ['$prefix%']);
   }
 
   // ==================== 查询 ====================
@@ -287,11 +305,4 @@ class SubtitleDatabase {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  // ==================== 维护 ====================
-
-  /// 清空所有记录
-  Future<void> clear() async {
-    final db = await database;
-    await db.delete('subtitle_files');
-  }
 }

@@ -91,4 +91,18 @@ void main() {
     expect(result.value, hasLength(300));
     expect(result.value.map((entry) => entry.fileName).toSet(), hasLength(300));
   });
+
+  test('reports a directory that cannot be listed', () async {
+    final notDirectory = File(
+      '${root.path}${Platform.pathSeparator}not-a-directory',
+    )..writeAsStringSync('file');
+
+    await expectLater(
+      const SubtitleDirectoryScanner().scan(
+        request: ScanRequest(rootPath: root.path),
+        directoryPath: notDirectory.path,
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
 }
