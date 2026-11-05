@@ -81,7 +81,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   bool _loading = true;
   bool _favorite = false;
   bool _savingFavorite = false;
-  String? _error;
+  Object? _error;
   VideoVerificationRequired? _verificationError;
   bool _verifyingAccess = false;
   bool _accountChangedDuringVerification = false;
@@ -227,7 +227,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           _details = VideoDetails(
             video: task!.video,
             metadata: {
-              if (task.video.releaseDate != null)
+              if (task.video.sourceKey != 'jable' &&
+                  task.video.releaseDate != null)
                 S.of(context).releaseDateInfo: task.video.releaseDate!,
             },
           );
@@ -280,7 +281,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error = error;
         _verificationError = error is VideoVerificationRequired ? error : null;
       });
     }
@@ -375,7 +376,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           _favorite = false;
           _selectedStream = null;
           _loading = false;
-          _error = verification.toString();
+          _error = verification;
           _verificationError = verification;
         });
         return;
@@ -1013,6 +1014,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   Widget _buildLoadFailure(S s) {
     final label = _verificationError != null
         ? s.videoVerificationRequired
+        : _error is JableLoginRequiredException
+        ? s.permissionRequired(s.login)
         : _details != null
         ? s.loadFailed
         : s.videoLoadFailed;
@@ -1039,6 +1042,25 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     icon: const Icon(Icons.verified_user_outlined),
                     label: Text(s.videoVerifyAccess),
                   ),
+                if (_error is JableLoginRequiredException)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final error = _error;
+                      final videoKey = widget.video.storageKey;
+                      await pushBottomDockRoute(
+                        context,
+                        builder: (_) => const JableAccountScreen(),
+                      );
+                      if (mounted &&
+                          identical(_error, error) &&
+                          widget.video.storageKey == videoKey &&
+                          _jableAccount?.isLoggedIn == true) {
+                        await _initialize();
+                      }
+                    },
+                    icon: const Icon(Icons.account_circle_outlined),
+                    label: Text(s.videoJableAccount),
+                  ),
                 OutlinedButton.icon(
                   onPressed: () => unawaited(_openSource()),
                   icon: const Icon(Icons.open_in_new),
@@ -1062,7 +1084,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                   _missavRelated?.isNotEmpty == true)
         : related.isNotEmpty;
     final metadataSections = _metadataSections(s, details);
-    final basicMetadata = details.metadata.entries.where(
+    final metadata = <String, String>{
+      if (details.video.sourceKey == 'jable' &&
+          details.video.releaseDate != null)
+        s.releaseDateInfo: details.video.releaseDate!,
+      ...details.metadata,
+    };
+    final basicMetadata = metadata.entries.where(
       (entry) => !MissavClient.detailMetadataGroups.containsKey(
         entry.key.trim().toLowerCase(),
       ),
@@ -1096,12 +1124,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             ],
           ),
         ),
-      if (details.description.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        WorkDetailSectionTitle(s.description),
-        const SizedBox(height: 8),
-        SelectableText(details.description),
-      ],
       for (final section in metadataSections) ...[
         const SizedBox(height: 16),
         WorkDetailSectionTitle(section.title),

@@ -319,27 +319,9 @@ class JableClient implements VideoSourceClient {
     if (isCurrent?.call() == false) return parsedPage;
     if (cancelToken?.cancelError case final error?) throw error;
     onParsed?.call(parsedPage);
-    final videos = await _enrichVideos(
-      parsedPage.videos,
-      generation: generation,
-      locale: locale,
-      cancelToken: cancelToken,
-      isCurrent: isCurrent,
-    );
     _ensureRequestCurrent(generation, locale, uri, cancelToken);
     if (isCurrent?.call() == false) return parsedPage;
-    return VideoCatalogPage(
-      title: parsedPage.title,
-      url: parsedPage.url,
-      videos: videos,
-      links: parsedPage.links,
-      navigation: parsedPage.navigation,
-      nextUrl: parsedPage.nextUrl,
-      previousUrl: parsedPage.previousUrl,
-      currentPage: parsedPage.currentPage,
-      jumpMaxPage: parsedPage.jumpMaxPage,
-      pageUrlBuilder: parsedPage.pageUrlBuilder,
-    );
+    return parsedPage;
   }
 
   @override
@@ -428,6 +410,10 @@ class JableClient implements VideoSourceClient {
     final video = _parseVideoMetadata(document, uri, item);
     final streamUrl = _parseHlsUrl(document, uri);
     if (streamUrl == null) {
+      if (document.querySelector('.video-info .info-header') == null &&
+          document.querySelector('form input[type="password"]') != null) {
+        throw JableLoginRequiredException(sourceUrl: uri.toString());
+      }
       throw VideoSourceException(
         'Jable did not provide a playable video stream.',
         sourceKey: sourceKey,
@@ -441,7 +427,7 @@ class JableClient implements VideoSourceClient {
     final details = VideoDetails(
       video: video,
       description: _metaContent(document, 'description') ?? '',
-      related: onReady == null ? related : const [],
+      related: related,
       sourceId: marker?.id,
       isFavorite: marker?.selected,
       streams: [
@@ -454,60 +440,8 @@ class JableClient implements VideoSourceClient {
       ],
     );
     await onReady?.call(details);
-    if (onReady == null) return details;
-    // Non-interactive callers use parsed related cards and do not need extra page loads.
-    final enrichedRelated = await _enrichVideos(
-      related,
-      generation: generation,
-      locale: locale,
-    );
     _ensureRequestCurrent(generation, locale, uri, null);
-    return VideoDetails(
-      video: details.video,
-      description: details.description,
-      metadata: details.metadata,
-      related: enrichedRelated,
-      sourceId: details.sourceId,
-      isFavorite: details.isFavorite,
-      streams: details.streams,
-    );
-  }
-
-  Future<List<VideoItem>> _enrichVideos(
-    List<VideoItem> videos, {
-    required int generation,
-    required String? locale,
-    CancelToken? cancelToken,
-    bool Function()? isCurrent,
-  }) async {
-    final enriched = <VideoItem>[];
-    for (final video in videos) {
-      final uri = _sourceUri(Uri.parse(video.pageUrl));
-      _ensureRequestCurrent(generation, locale, uri, cancelToken);
-      if (isCurrent?.call() == false) return videos;
-      try {
-        final document = await _loadDocument(uri, cancelToken: cancelToken);
-        _ensureRequestCurrent(generation, locale, uri, cancelToken);
-        if (isCurrent?.call() == false) return videos;
-        if (document.querySelector('.video-info .info-header') == null &&
-            document.querySelector('form input[type="password"]') != null) {
-          throw JableLoginRequiredException(sourceUrl: uri.toString());
-        }
-        enriched.add(_parseVideoMetadata(document, uri, video));
-      } on JableVerificationRequiredException {
-        rethrow;
-      } on JableLoginRequiredException {
-        rethrow;
-      } on DioException catch (error) {
-        if (error.type == DioExceptionType.cancel) rethrow;
-        _ensureRequestCurrent(generation, locale, uri, cancelToken);
-        enriched.add(video);
-      } catch (_) {
-        _ensureRequestCurrent(generation, locale, uri, cancelToken);
-        enriched.add(video);
-      }
-    }
-    return enriched;
+    return details;
   }
 
   VideoItem _parseVideoMetadata(Document document, Uri uri, VideoItem item) {

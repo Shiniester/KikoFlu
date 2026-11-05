@@ -24,6 +24,7 @@ import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_settings_screen.dart';
@@ -1304,7 +1305,7 @@ void main() {
     );
     final client = _TestMissavClient(
       _details(
-        description: List.filled(50, 'Detail line').join('\n'),
+        metadata: {'Fixture info': List.filled(50, 'Detail line').join('\n')},
         tags: const [genre],
       ),
     );
@@ -1357,8 +1358,13 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       const playbackPosition = Duration(seconds: 45);
-      final description = List.filled(50, 'Detail line').join('\n');
-      final client = _TestMissavClient(_details(description: description));
+      final client = _TestMissavClient(
+        _details(
+          metadata: {
+            'Fixture info': List.filled(100, 'Detail line').join('\n'),
+          },
+        ),
+      );
       final library = await _testLibrary(position: playbackPosition);
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakeAdvancedPlaybackSession();
@@ -1838,9 +1844,11 @@ void main() {
         url: 'https://missav.ai/cn/genres/clickable-genre',
         kind: VideoLinkKind.category,
       );
-      final description = List.filled(50, 'Detail line').join('\n');
       final client = _TestMissavClient(
-        _details(description: description, tags: const [genre]),
+        _details(
+          metadata: {'Fixture info': List.filled(50, 'Detail line').join('\n')},
+          tags: const [genre],
+        ),
       );
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
@@ -2371,7 +2379,9 @@ void main() {
     tester.view.padding = const FakeViewPadding(top: 24, bottom: 16);
     addTearDown(tester.view.reset);
     final client = _TestMissavClient(
-      _details(description: List.filled(30, 'Video description').join('\n')),
+      _details(
+        metadata: {'Fixture info': List.filled(30, 'Detail line').join('\n')},
+      ),
     );
     final library = await _testLibrary();
     final downloads = _TestVideoDownloads(client: client, library: library);
@@ -5517,6 +5527,85 @@ void main() {
     },
   );
 
+  _testPlayerWidget('Jable detail login retries after sign-in', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({
+      'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+    });
+    addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+    var signedIn = false;
+    var detailRequests = 0;
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) {
+            final String body;
+            if (request.uri.path == '/my/favourites/videos/') {
+              body = signedIn
+                  ? '<div id="list_videos_my_favourite_videos"></div>'
+                  : '<form><input type="password"></form>';
+            } else {
+              expect(request.uri.path, '/videos/private/');
+              detailRequests++;
+              body = signedIn
+                  ? '''
+                    <div class="video-info"><div class="info-header"></div></div>
+                    <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+                  '''
+                  : '<form><input type="password"></form>';
+            }
+            handler.resolve(
+              Response(requestOptions: request, statusCode: 200, data: body),
+            );
+          },
+        ),
+      );
+    addTearDown(() => dio.close(force: true));
+    final missav = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final session = _FakePlaybackSession();
+    const video = VideoItem(
+      id: 'private',
+      title: 'Private video',
+      sourceKey: 'jable',
+      pageUrl: 'https://jable.tv/videos/private/',
+    );
+    await tester.pumpWidget(
+      _app(
+        missav,
+        library,
+        _TestVideoDownloads(client: missav, library: library),
+        _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+        jableClient: JableClient(dio: dio),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final s = await S.delegate.load(const Locale('en'));
+    expect(find.text(s.permissionRequired(s.login)), findsOneWidget);
+    final accountButton = find.widgetWithText(
+      OutlinedButton,
+      s.videoJableAccount,
+    );
+    expect(accountButton, findsOneWidget);
+    await tester.tap(accountButton);
+    await tester.pumpAndSettle();
+    expect(find.byType(JableAccountScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(detailRequests, 1);
+    expect(find.text(s.permissionRequired(s.login)), findsOneWidget);
+
+    signedIn = true;
+    await tester.tap(accountButton);
+    await tester.pumpAndSettle();
+    expect(find.text(s.videoJableSignedIn), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(detailRequests, 2);
+    expect(find.byType(VideoPlaybackPanel), findsOneWidget);
+    expect(session.loadStreamCount, 1);
+  });
+
   _testPlayerWidget(
     'Jable details use the video source while MissAV remains selected',
     (tester) async {
@@ -5530,6 +5619,7 @@ void main() {
         sourceKey: 'jable',
         title: 'Jable card title',
         pageUrl: 'https://jable.tv/videos/jable-native-id/',
+        releaseDate: '2025-01-02',
       );
 
       await tester.pumpWidget(
@@ -5547,9 +5637,13 @@ void main() {
       expect(jable.requestedVideo?.storageKey, 'jable:jable-native-id');
       expect(missav.detailsCalls, 0);
       expect(find.text('Jable card title'), findsAtLeastNWidgets(1));
+      final s = await S.delegate.load(const Locale('en'));
+      expect(
+        find.text('${s.releaseDateInfo}: 2025-01-02', findRichText: true),
+        findsOneWidget,
+      );
       await tester.tap(find.byIcon(Icons.bookmark_outline));
       await tester.pumpAndSettle();
-      final s = await S.delegate.load(const Locale('en'));
       expect(find.text(s.videoJableLoginRequired), findsOneWidget);
       expect(find.text(s.videoLoginRequired), findsNothing);
       expect(missav.videoFavoriteChanges, isEmpty);
@@ -6568,18 +6662,7 @@ void main() {
           const Offset(0, -400),
         );
         await tester.pumpAndSettle();
-        final descriptionText = find.byType(SelectableText);
-        await tester.scrollUntilVisible(
-          descriptionText,
-          200,
-          scrollable: detailsScrollable,
-        );
-        await tester.pumpAndSettle();
-        expect(descriptionText, findsOneWidget);
-        expect(
-          tester.widget<SelectableText>(descriptionText).data,
-          description,
-        );
+        expect(find.text(description, skipOffstage: false), findsNothing);
 
         final semantics = tester.ensureSemantics();
         try {
@@ -6970,6 +7053,68 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  _testPlayerWidget('offline Jable release date follows locale changes', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    const video = VideoItem(
+      id: 'offline-jable',
+      sourceKey: 'jable',
+      title: 'Offline Jable video',
+      pageUrl: 'https://jable.tv/videos/offline-jable/',
+      releaseDate: '2025-01-02',
+    );
+    const task = VideoDownloadTask(
+      id: 'jable:offline-jable',
+      video: video,
+      quality: 'Auto',
+      isHls: true,
+      status: VideoDownloadStatus.completed,
+      progress: 1,
+      localPath: '/offline/video/index.m3u8',
+    );
+    final downloads = _TestVideoDownloads(
+      client: client,
+      library: library,
+      task: task,
+    );
+    final session = _FakePlaybackSession();
+
+    Widget app(Locale locale) => _app(
+      client,
+      library,
+      downloads,
+      _testVideoDetailsScreen(
+        video: video,
+        downloadedTask: task,
+        sessionFactory: () => session,
+      ),
+      locale: locale,
+    );
+
+    final en = await S.delegate.load(const Locale('en'));
+    final zh = await S.delegate.load(const Locale('zh'));
+    await tester.pumpWidget(app(const Locale('en')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('${en.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(app(const Locale('zh')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('${zh.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('${en.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsNothing,
+    );
+    expect(session.loadFileCount, 1);
   });
 
   _testPlayerWidget(
@@ -7683,6 +7828,7 @@ Widget _app(
   VideoLibrary library,
   VideoDownloads downloads,
   Widget home, {
+  Locale locale = const Locale('en'),
   double textScale = 1,
   ThemeData? theme,
   AudioTrack? audioTrack,
@@ -7732,7 +7878,7 @@ Widget _app(
     ],
   ],
   child: MaterialApp(
-    locale: const Locale('en'),
+    locale: locale,
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     theme: theme ?? ThemeData(useMaterial3: true),
@@ -7780,10 +7926,12 @@ VideoItem _video({
 VideoDetails _details({
   bool isFavorite = false,
   String description = '',
+  Map<String, String> metadata = const {},
   List<VideoLink> tags = const [],
 }) => VideoDetails(
   video: _video(tags: tags),
   description: description,
+  metadata: metadata,
   streams: const [
     VideoStream(label: 'Auto', url: 'https://cdn.example/video.m3u8'),
     VideoStream(label: '720p', url: 'https://cdn.example/video-720.m3u8'),

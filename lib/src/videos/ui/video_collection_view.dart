@@ -310,7 +310,9 @@ class VideoCard extends ConsumerWidget {
       );
 
       final actors = video.actors;
-      final tags = video.cardTags;
+      final tags = video.sourceKey == 'jable'
+          ? const <VideoLink>[]
+          : video.cardTags;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
