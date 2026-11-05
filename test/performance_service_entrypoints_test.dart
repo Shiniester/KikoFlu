@@ -70,10 +70,11 @@ void main() {
     final source = File(p.join(root.path, 'RJ123456.zip'));
     await source.writeAsBytes(ZipEncoder().encode(archive)!);
     final progress = <String>[];
+    final targetPath = p.join(root.path, 'target');
 
     final result = await SubtitleLibraryService.importArchiveFromPath(
       source.path,
-      targetLibraryPath: p.join(root.path, 'target'),
+      targetLibraryPath: targetPath,
       refreshIndex: false,
       onProgress: progress.add,
     );
@@ -82,8 +83,16 @@ void main() {
       (message) => message.startsWith('正在解压压缩包... 已解压 250 个字幕文件'),
     );
     final classification = progress.indexOf('正在分类和移动文件...');
+    final cleanup = progress.indexOf('正在清理临时文件...');
     expect(result.importedCount, 250);
     expect(extraction, greaterThanOrEqualTo(0));
     expect(classification, greaterThan(extraction));
+    expect(cleanup, greaterThan(classification));
+    expect(
+      (await Directory(targetPath).list().toList()).where(
+        (entity) => p.basename(entity.path).startsWith('.temp_'),
+      ),
+      isEmpty,
+    );
   });
 }

@@ -6,6 +6,7 @@ import '../utils/file_tree_utils.dart';
 import 'generated_subtitle_store.dart';
 import 'subtitle_language.dart';
 import 'subtitle_library_service.dart';
+import 'subtitle_long_path.dart';
 import 'subtitle_matching.dart';
 
 class SubtitleAvailabilityScanner {
@@ -53,7 +54,13 @@ class SubtitleAvailabilityScanner {
           continue;
         }
 
-        final subtitleName = p.basename(entity.path);
+        final original = SubtitleLongPath.readFileSync(
+          entity.path,
+          allowRenamed: true,
+        );
+        final subtitleName = original == null
+            ? p.basename(entity.path)
+            : p.posix.basename(original.originalPath);
         if (SubtitleMatcher.prepareSubtitle(subtitleName) == null) continue;
 
         for (var index = unmatchedAudio.length - 1; index >= 0; index--) {

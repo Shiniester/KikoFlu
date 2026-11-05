@@ -9,6 +9,7 @@ import 'package:gbk_codec/gbk_codec.dart';
 import 'package:path/path.dart' as p;
 
 import 'subtitle_library_rules.dart';
+import 'subtitle_long_path.dart';
 
 /// Parameters for an archive extraction job.
 ///
@@ -216,13 +217,19 @@ class StreamingZipExtractor {
         continue;
       }
 
-      if (targetFilePath.length > state.request.maxPathLength) {
-        targetFilePath = _shortenPath(
-          targetBasePath,
-          targetFilePath,
-          fileName,
-          state.request.maxPathLength,
-        );
+      if (targetFilePath.length > state.request.maxPathLength ||
+          SubtitleLongPath.readFileSync(targetFilePath, allowRenamed: true) !=
+              null) {
+        try {
+          targetFilePath = _shortenPath(
+            targetBasePath,
+            targetFilePath,
+            state.request.maxPathLength,
+          );
+        } catch (_) {
+          state.errorCount++;
+          continue;
+        }
         if (targetFilePath == null) {
           state.skippedCount++;
           continue;
@@ -419,42 +426,29 @@ class StreamingZipExtractor {
   static String? _shortenPath(
     String rootPath,
     String fullPath,
-    String fileName,
     int maxPathLength,
   ) {
     final normalizedRoot = p.normalize(p.absolute(rootPath));
-    final extension = p.extension(fileName);
-    final baseName = p.basenameWithoutExtension(fileName);
-    final hash = _stableHash(fullPath).toRadixString(16).padLeft(8, '0');
-    final availableNameLength =
-        maxPathLength -
-        normalizedRoot.length -
-        hash.length -
-        extension.length -
-        8;
-    if (availableNameLength <= 0) {
-      return null;
-    }
-
-    final shortenedName = baseName.length > availableNameLength
-        ? baseName.substring(0, availableNameLength)
-        : baseName;
-    final candidate = p.join(
-      normalizedRoot,
-      '.long_paths',
-      hash,
-      '$shortenedName$extension',
+    final relativePath = p
+        .relative(p.normalize(p.absolute(fullPath)), from: normalizedRoot)
+        .replaceAll('\\', '/');
+    if (relativePath == '..' || relativePath.startsWith('../')) return null;
+    final pathParts = relativePath.split('/');
+    final workIndex = pathParts
+        .take(pathParts.length - 1)
+        .toList()
+        .indexWhere(SubtitleLibraryRules.matchesWorkFolderName);
+    final shorteningRoot = workIndex < 0
+        ? normalizedRoot
+        : p.join(normalizedRoot, pathParts[workIndex]);
+    final originalPath = workIndex < 0
+        ? relativePath
+        : pathParts.skip(workIndex + 1).join('/');
+    return SubtitleLongPath.resolve(
+      shorteningRoot,
+      originalPath,
+      maxPathLength: maxPathLength,
     );
-    return candidate.length <= maxPathLength ? candidate : null;
-  }
-
-  static int _stableHash(String value) {
-    var hash = 0x811c9dc5;
-    for (final codeUnit in value.codeUnits) {
-      hash ^= codeUnit;
-      hash = (hash * 0x01000193) & 0xffffffff;
-    }
-    return hash;
   }
 }
 

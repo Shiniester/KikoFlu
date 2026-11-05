@@ -316,6 +316,12 @@ Viewing a work's resource images or cover with shared reader controls and settin
 It is separate from comic Reading Progress and does not add a comic history entry.
 _Avoid_: Comic chapter, Reading Progress
 
+**Subtitle Archive Import (字幕压缩包导入)**:
+Adding subtitle files from an archive to the subtitle library, including making
+saved subtitles available there. If the library update fails, saved files remain
+and the import result reports the failure.
+_Avoid_: Archive extraction
+
 **Partial Subtitle Archive Import (字幕压缩包部分导入)**:
 An archive import that saves at least one subtitle and reports at least one
 import failure. Saved subtitles remain in the subtitle library. The result

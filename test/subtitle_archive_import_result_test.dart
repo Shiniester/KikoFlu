@@ -128,6 +128,105 @@ void main() {
     expect(result.message, contains('解压失败'));
   });
 
+  test(
+    'imports and re-imports long ZIP paths under their work folder',
+    () async {
+      const workFolder = 'RJ123456';
+      const fileName = 'track.lrc';
+      const extractionPathLength = 245;
+      final target = Directory(p.join(root.path, 'long_archive_library'));
+      final tempRootName = '.temp_${DateTime.now().millisecondsSinceEpoch}';
+      final tempRootLength = p.join(target.path, tempRootName).length;
+      final relativePathLength =
+          p.separator.length +
+          workFolder.length +
+          p.separator.length +
+          1 +
+          fileName.length;
+      final nestedFolderLength =
+          extractionPathLength - tempRootLength - relativePathLength;
+      expect(nestedFolderLength, greaterThan(0));
+      expect(nestedFolderLength, lessThan(255));
+      final nestedFolder = 'x' * nestedFolderLength;
+      final archivePath = p.join(root.path, '$workFolder.zip');
+
+      Future<void> writeArchiveWithContents(List<int> contents) async {
+        final archive = Archive()
+          ..addFile(
+            ArchiveFile(
+              '$workFolder/$nestedFolder/$fileName',
+              contents.length,
+              contents,
+            ),
+          );
+        await File(archivePath).writeAsBytes(ZipEncoder().encode(archive)!);
+      }
+
+      await writeArchiveWithContents([1]);
+      final firstResult = await SubtitleLibraryService.importArchiveFromPath(
+        archivePath,
+        targetLibraryPath: target.path,
+        refreshIndex: false,
+      );
+      final workDirectory = Directory(
+        p.join(
+          target.path,
+          SubtitleLibraryService.parsedFolderName,
+          workFolder,
+        ),
+      );
+      final firstImportedFiles = await workDirectory
+          .list(recursive: true)
+          .where(
+            (entity) => entity is File && p.extension(entity.path) == '.lrc',
+          )
+          .cast<File>()
+          .toList();
+      final firstRecords = await SubtitleLibraryService.scanDirectoryFromPath(
+        target.path,
+      );
+
+      expect(firstResult.success, isTrue);
+      expect(firstResult.importedCount, 1);
+      expect(firstResult.errorCount, 0);
+      expect(firstImportedFiles, hasLength(firstResult.importedCount));
+      expect(firstImportedFiles.single.path.length, lessThanOrEqualTo(240));
+      expect(await firstImportedFiles.single.readAsBytes(), [1]);
+      expect(firstRecords, hasLength(1));
+      expect(firstRecords.single.workId, 123456);
+      expect(
+        firstRecords.single.category,
+        SubtitleLibraryService.parsedFolderName,
+      );
+
+      await writeArchiveWithContents([2]);
+      final secondResult = await SubtitleLibraryService.importArchiveFromPath(
+        archivePath,
+        targetLibraryPath: target.path,
+        refreshIndex: false,
+      );
+      final secondImportedFiles = await workDirectory
+          .list(recursive: true)
+          .where(
+            (entity) => entity is File && p.extension(entity.path) == '.lrc',
+          )
+          .cast<File>()
+          .toList();
+      final secondRecords = await SubtitleLibraryService.scanDirectoryFromPath(
+        target.path,
+      );
+
+      expect(secondResult.success, isTrue);
+      expect(secondResult.importedCount, 1);
+      expect(secondResult.errorCount, 0);
+      expect(secondImportedFiles, hasLength(secondResult.importedCount));
+      expect(secondImportedFiles.single.path, firstImportedFiles.single.path);
+      expect(await secondImportedFiles.single.readAsBytes(), [2]);
+      expect(secondRecords, hasLength(1));
+      expect(secondRecords.single.workId, 123456);
+    },
+  );
+
   test('reports an index failure after saving subtitles', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

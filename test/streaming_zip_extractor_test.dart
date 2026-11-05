@@ -7,6 +7,7 @@ import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbk_codec/gbk_codec.dart';
 import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
+import 'package:kikoeru_flutter/src/services/subtitle_library_rules.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -266,6 +267,53 @@ void main() {
     ]);
   });
 
+  for (final workFolder in ['RJ123456', '']) {
+    test('protects mapped paths during extraction ($workFolder)', () {
+      final prefix = workFolder.isEmpty ? '' : '$workFolder/';
+      final originalPath = '${'x' * 220}/track.srt';
+      final hash = SubtitleLibraryRules.stablePathHash(
+        originalPath,
+      ).toRadixString(16).padLeft(8, '0');
+      final collidingPath = 'long_$hash/track.srt';
+      final result = extract(
+        _zipWithFiles({
+          '$prefix$originalPath': [1],
+          '$prefix$collidingPath': [2],
+        }),
+        'collection',
+      );
+
+      List<File> subtitles() => Directory(targetPath)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => p.extension(file.path) == '.srt')
+          .toList();
+
+      expect(result.errorCount, 0);
+      expect(result.extractedCount, 2);
+      final files = subtitles();
+      expect(files, hasLength(2));
+      expect(
+        files.map((file) => file.readAsBytesSync().single),
+        unorderedEquals([1, 2]),
+      );
+      final paths = files.map((file) => file.path).toSet();
+
+      final reimported = extract(
+        _zipWithFile('$prefix$collidingPath', [3]),
+        'collection',
+      );
+      final updatedFiles = subtitles();
+      expect(reimported.errorCount, 0);
+      expect(reimported.extractedCount, 1);
+      expect(updatedFiles.map((file) => file.path).toSet(), paths);
+      expect(
+        updatedFiles.map((file) => file.readAsBytesSync().single),
+        unorderedEquals([1, 3]),
+      );
+    });
+  }
+
   test('keeps extracting when a subtitle path is an existing directory', () {
     const workId = 'RJ01015812';
     final result = extract(
@@ -334,6 +382,66 @@ void main() {
       Directory(p.join(targetPath, '.nested_archives')).existsSync(),
       isFalse,
     );
+  });
+
+  test('extracts a subtitle when the shortened path fits the path limit', () {
+    const maxPathLength = 240;
+    const rootPathLength = 211;
+    const fileName = 'abcdefghijk.lrc';
+    String longTargetPath(String directoryName) {
+      final prefix = p.join(tempDirectory.path, directoryName);
+      final segmentLength = rootPathLength - prefix.length - p.separator.length;
+      expect(segmentLength, greaterThan(0));
+      expect(segmentLength, lessThan(255));
+      return p.join(prefix, 'x' * segmentLength);
+    }
+
+    final firstTargetPath = longTargetPath('outputA');
+    final secondTargetPath = longTargetPath('outputB');
+    expect(firstTargetPath.length, rootPathLength);
+    expect(secondTargetPath.length, rootPathLength);
+    final zipBytes = _zipWithFile(
+      'a-very-long-relative-directory-name/deeper/$fileName',
+      [7],
+    );
+
+    targetPath = firstTargetPath;
+    final firstResult = extract(zipBytes, 'collection');
+    final firstFiles = Directory(firstTargetPath)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => p.extension(file.path) == '.lrc')
+        .toList();
+
+    targetPath = secondTargetPath;
+    final secondResult = extract(zipBytes, 'collection');
+    final secondFiles = Directory(secondTargetPath)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => p.extension(file.path) == '.lrc')
+        .toList();
+    final firstRelativePath = p.relative(
+      firstFiles.single.path,
+      from: firstTargetPath,
+    );
+
+    expect(firstResult.extractedCount, 1);
+    expect(firstResult.errorCount, 0);
+    expect(firstResult.skippedCount, 0);
+    expect(secondResult.extractedCount, 1);
+    expect(secondResult.errorCount, 0);
+    expect(secondResult.skippedCount, 0);
+    expect(firstFiles, hasLength(1));
+    expect(secondFiles, hasLength(1));
+    expect(p.basename(firstFiles.single.path), 'abcdefghij.lrc');
+    expect(firstFiles.single.path.length, lessThanOrEqualTo(maxPathLength));
+    expect(firstFiles.single.readAsBytesSync(), [7]);
+    expect(p.split(firstRelativePath).first, startsWith('long_'));
+    expect(
+      firstRelativePath,
+      p.relative(secondFiles.single.path, from: secondTargetPath),
+    );
+    expect(secondFiles.single.readAsBytesSync(), [7]);
   });
 
   test('reports extraction progress before the job completes', () async {
