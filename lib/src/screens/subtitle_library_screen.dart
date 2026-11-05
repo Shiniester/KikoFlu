@@ -367,7 +367,15 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            SnackBarUtil.showSuccess(context, result.message);
+            if (result.errorCount > 0 || result.indexRefreshFailed) {
+              SnackBarUtil.showWarning(
+                context,
+                result.message,
+                duration: const Duration(seconds: 5),
+              );
+            } else {
+              SnackBarUtil.showSuccess(context, result.message);
+            }
           }
         });
       }

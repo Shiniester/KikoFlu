@@ -85,6 +85,37 @@ void main() {
     );
   });
 
+  test('tag conditions match original and translated names', () {
+    final value = work(id: 1549928, tags: const [Tag(id: 4, name: '纯爱/甜蜜')]);
+    for (final name in ['纯爱/甜蜜', '纯爱', '亲热/甜蜜', '亲热', 'lovey', '親熱', 'ラブラブ']) {
+      expect(
+        matchesSearchQuery(value, query([condition(SearchType.tag, name)])),
+        isTrue,
+        reason: name,
+      );
+      expect(
+        matchesSearchQuery(
+          value,
+          query([condition(SearchType.tag, name, exclude: true)]),
+        ),
+        isFalse,
+        reason: name,
+      );
+    }
+    final otherSource = work(
+      id: -12345,
+      tags: const [Tag(id: -4, name: '独自タグ')],
+    );
+    expect(
+      matchesSearchQuery(otherSource, query([condition(SearchType.tag, '独自')])),
+      isTrue,
+    );
+    expect(
+      matchesSearchQuery(otherSource, query([condition(SearchType.tag, '亲热')])),
+      isFalse,
+    );
+  });
+
   test('RJ input matches normalized local ids and alternate display ids', () {
     expect(
       matchesSearchQuery(

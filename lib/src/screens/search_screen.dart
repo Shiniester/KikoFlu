@@ -1406,7 +1406,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   IconData _layoutIcon(LayoutType layoutType) => switch (layoutType) {
     LayoutType.bigGrid => Icons.grid_view,
-    LayoutType.smallGrid => Icons.apps,
+    LayoutType.smallGrid => Icons.grid_on,
     LayoutType.list => Icons.view_list,
   };
 

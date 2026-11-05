@@ -597,16 +597,19 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     try {
       playlists = await _client.playlistsFor(widget.video);
     } on MissavAuthenticationException {
+      if (!mounted || !_routeReadiness.isIdle) return;
       await _loginRequired();
       return;
     } on MissavException catch (error) {
+      if (!mounted || !_routeReadiness.isIdle) return;
       await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl);
       return;
     } catch (_) {
+      if (!mounted || !_routeReadiness.isIdle) return;
       await _sourceFallback(widget.video.pageUrl);
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !_routeReadiness.isIdle) return;
     await showResponsiveBottomSheet<void>(
       context: context,
       builder: (_) => _PlaylistMenu(

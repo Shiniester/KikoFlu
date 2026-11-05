@@ -1629,7 +1629,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             tooltip: s.layout,
             icon: Icon(switch (layout) {
               LayoutType.bigGrid => Icons.grid_view,
-              LayoutType.smallGrid => Icons.apps,
+              LayoutType.smallGrid => Icons.grid_on,
               LayoutType.list => Icons.view_list,
             }),
             visualDensity: const VisualDensity(horizontal: -2),

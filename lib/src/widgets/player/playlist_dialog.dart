@@ -1140,14 +1140,19 @@ class _QueueTrackTile extends ConsumerWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
-                      )
-                    else if (onRemove != null)
-                      PlayerCompactAction(
+                      ),
+                    GestureDetector(
+                      onTap: onRemove == null ? () {} : null,
+                      excludeFromSemantics: true,
+                      child: PlayerCompactAction(
                         tooltip: S.of(context).remove,
                         onPressed: onRemove,
                         icon: Icons.remove,
-                        color: colorScheme.onSurfaceVariant,
+                        color: onRemove == null
+                            ? colorScheme.onSurfaceVariant.withValues(alpha: .5)
+                            : colorScheme.onSurfaceVariant,
                       ),
+                    ),
                   ],
                 ),
               ),

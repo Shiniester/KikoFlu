@@ -267,7 +267,7 @@ void main() {
       );
       expect(
         (tester.widget<IconButton>(layoutToggle).icon as Icon).icon,
-        Icons.apps,
+        Icons.grid_on,
       );
       await tester.tap(layoutToggle);
       await tester.pumpAndSettle();

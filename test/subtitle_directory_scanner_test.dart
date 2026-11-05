@@ -52,6 +52,29 @@ void main() {
     expect(result.scannedEntries, greaterThanOrEqualTo(4));
   });
 
+  test('keeps scanning when a long-path marker is not valid text', () async {
+    final workDirectory = Directory(
+      '${root.path}${Platform.pathSeparator}已解析'
+      '${Platform.pathSeparator}RJ00123456',
+    )..createSync(recursive: true);
+    File(
+      '${workDirectory.path}${Platform.pathSeparator}track.srt',
+    ).writeAsStringSync('subtitle');
+    File(
+      '${workDirectory.path}${Platform.pathSeparator}.i',
+    ).writeAsBytesSync(<int>[255]);
+
+    final result = await const SubtitleDirectoryScanner().scan(
+      request: ScanRequest(
+        rootPath: root.path,
+        operation: 'test-invalid-long-path-marker',
+      ),
+    );
+
+    expect(result.value, hasLength(1));
+    expect(result.value.single.fileName, 'track.srt');
+  });
+
   test('cancels an in-flight directory scan', () async {
     final directory = Directory(
       '${root.path}${Platform.pathSeparator}已解析'
@@ -90,5 +113,19 @@ void main() {
 
     expect(result.value, hasLength(300));
     expect(result.value.map((entry) => entry.fileName).toSet(), hasLength(300));
+  });
+
+  test('reports a directory that cannot be listed', () async {
+    final notDirectory = File(
+      '${root.path}${Platform.pathSeparator}not-a-directory',
+    )..writeAsStringSync('file');
+
+    await expectLater(
+      const SubtitleDirectoryScanner().scan(
+        request: ScanRequest(rootPath: root.path),
+        directoryPath: notDirectory.path,
+      ),
+      throwsA(isA<StateError>()),
+    );
   });
 }

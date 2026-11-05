@@ -225,6 +225,10 @@ The selected Audio Source's lists of tags, voice actors, and circles used to
 choose work search conditions. Catalog entries identify a tag, voice actor, or
 circle; they are distinct from the matching works.
 
+**Audio Tag (音声标签)**:
+A classification attached to an audio work. Its source-provided name and
+translated names refer to the same Audio Tag.
+
 **User-added Audio Tag (用户添加的标签)**:
 由音声源用户补充的作品标签，与作品默认标签区分。
 标签来源不表示票数高低。
@@ -311,6 +315,18 @@ child folders belong to their own folder.
 Viewing a work's resource images or cover with shared reader controls and settings.
 It is separate from comic Reading Progress and does not add a comic history entry.
 _Avoid_: Comic chapter, Reading Progress
+
+**Subtitle Archive Import (字幕压缩包导入)**:
+Adding subtitle files from an archive to the subtitle library, including making
+saved subtitles available there. If the library update fails, saved files remain
+and the import result reports the failure.
+_Avoid_: Archive extraction
+
+**Partial Subtitle Archive Import (字幕压缩包部分导入)**:
+An archive import that saves at least one subtitle and reports at least one
+import failure. Saved subtitles remain in the subtitle library. The result
+reports both the imported and failed counts.
+_Avoid_: Complete import failure
 
 **Best Work Subtitle (最佳匹配作品字幕)**:
 The matching subtitle that first prefers the effective global translation target
@@ -558,6 +574,9 @@ _Avoid_: Works Home Tab, discovery page
 **Comic Details Screen (漫画详情页)**:
 The page describing one comic's synopsis, tags, chapters, and available actions.
 It is distinct from the Comic Screen and Comic Reader.
+Opening it from the Comic Home Page shows the current Comic Source catalog.
+Downloaded chapters remain readable if the Comic Source is unavailable.
+Opening it from Downloaded or its search shows only chapters downloaded in full.
 _Avoid_: Comic Screen, Comic Reader
 
 **Comic Reader (漫画阅读器)**:

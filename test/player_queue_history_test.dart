@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -272,6 +273,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(firstDuration).data, '03:00');
     expect(nextDuration, findsNothing);
+    for (final id in ['live', 'next']) {
+      final remove = find.descendant(
+        of: find.byKey(ValueKey('player-queue-track-content-$id')),
+        matching: find.byTooltip('Remove'),
+      );
+      expect(remove.hitTestable(), findsOneWidget);
+      expect(
+        tester.getSemantics(remove).flagsCollection.isEnabled,
+        ui.Tristate.isTrue,
+      );
+    }
 
     loading.add(false);
     await tester.pumpAndSettle();
@@ -1299,10 +1311,18 @@ void main() {
       find.descendant(of: first, matching: find.byTooltip('Remove')),
     );
     await tester.pump();
+    final removeButtons = find.descendant(
+      of: find.byKey(const ValueKey('player-queue-history-page-0')),
+      matching: find.byTooltip('Remove'),
+    );
+    expect(removeButtons, findsNWidgets(2));
+    await tester.tap(removeButtons.last);
+    await tester.pump();
     await tester.tap(
       find.byKey(const ValueKey('player-queue-history-track-history-second')),
     );
     expect(actions.restored, isEmpty);
+    expect(actions.removed, [(_history, 0)]);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     gate.complete();
     await tester.pumpAndSettle();
@@ -1333,7 +1353,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('restoring history blocks removal until the restore completes', (
+  testWidgets('history removal buttons stay visible while restoring', (
     tester,
   ) async {
     final histories = StreamController<List<PlaybackSessionSnapshot>>();
@@ -1347,6 +1367,8 @@ void main() {
       actions: actions,
       initialHistory: true,
       historyStream: histories.stream,
+      size: const Size(320, 740),
+      textScale: 2,
     );
     await tester.tap(
       find.byKey(const ValueKey('player-queue-history-track-history-first')),
@@ -1356,16 +1378,38 @@ void main() {
     final historyPage = find.byKey(
       const ValueKey('player-queue-history-page-0'),
     );
-    expect(
-      find.descendant(of: historyPage, matching: find.byTooltip('Remove')),
-      findsNothing,
+    final removeButtons = find.descendant(
+      of: historyPage,
+      matching: find.byTooltip('Remove'),
     );
+    expect(removeButtons, findsNWidgets(2));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    for (final button in removeButtons.evaluate()) {
+      final finder = find.byWidget(button.widget);
+      expect(finder.hitTestable(), findsOneWidget);
+      expect(
+        tester.getSemantics(finder).flagsCollection.isEnabled,
+        ui.Tristate.isFalse,
+      );
+      await tester.tap(finder);
+      await tester.pump();
+    }
+    expect(actions.restored, [(_history, 0)]);
     expect(actions.removed, isEmpty);
     gate.complete();
     await tester.pumpAndSettle();
 
     expect(actions.restored, [(_history, 0)]);
     expect(actions.removed, isEmpty);
+    final currentRemove = find.descendant(
+      of: find.byKey(const ValueKey('player-queue-track-content-live')),
+      matching: find.byTooltip('Remove'),
+    );
+    expect(currentRemove.hitTestable(), findsOneWidget);
+    expect(
+      tester.getSemantics(currentRemove).flagsCollection.isEnabled,
+      ui.Tristate.isTrue,
+    );
     expect(tester.takeException(), isNull);
   });
 

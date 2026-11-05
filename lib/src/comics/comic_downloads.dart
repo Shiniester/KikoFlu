@@ -284,27 +284,37 @@ class ComicDownloads extends ChangeNotifier {
   }
 
   List<Comic> get completedComics {
-    final completed = <String, ComicDownloadTask>{
-      for (final task in tasks)
-        if (task.status == ComicDownloadStatus.complete) task.comic.key: task,
-    };
-    return [
-      for (final task in completed.values)
-        Comic(
-          source: task.comic.source,
-          id: task.comic.id,
-          title: task.comic.title,
-          cover: task.comic.cover,
-          description: task.comic.description,
-          tags: task.comic.tags,
-          chapters: task.comic.chapters,
-          rating: task.comic.rating,
-          extra: {
-            ...task.comic.extra,
-            if (task.coverPath != null) 'localCover': task.coverPath,
-          },
-        ),
-    ];
+    final completed = <String, List<ComicDownloadTask>>{};
+    for (final task in tasks) {
+      if (task.status == ComicDownloadStatus.complete) {
+        (completed[task.comic.key] ??= []).add(task);
+      }
+    }
+    return completed.values.map((group) {
+      final comic = group.last.comic;
+      final chapters = {
+        for (final task in group) task.chapter.id: task.chapter,
+      };
+      final cover = group.reversed
+          .map((task) => task.coverPath)
+          .nonNulls
+          .firstOrNull;
+      return Comic(
+        source: comic.source,
+        id: comic.id,
+        title: comic.title,
+        cover: comic.cover,
+        description: comic.description,
+        tags: comic.tags,
+        chapters: [
+          for (final chapter in comic.chapters)
+            if (chapters.remove(chapter.id) != null) chapter,
+          ...chapters.values,
+        ],
+        rating: comic.rating,
+        extra: {...comic.extra, if (cover != null) 'localCover': cover},
+      );
+    }).toList();
   }
 
   @override

@@ -65,6 +65,10 @@ final comicScreenOrientationProvider = StateProvider<ComicScreenOrientation>((
 final comicSelectedSourceProvider = StateProvider<String>(
   (ref) => StorageService.getString('comic_selected_source') ?? 'picacg',
 );
+final comicOnlineFavoritesProvider =
+    StateNotifierProvider<ComicOnlineFavoritesNotifier, bool>(
+      (ref) => ComicOnlineFavoritesNotifier(),
+    );
 final comicLayoutProvider =
     StateNotifierProvider<ComicLayoutNotifier, LayoutType>(
       (ref) => ComicLayoutNotifier(),
@@ -78,6 +82,19 @@ final comicCollectionPageOrderProvider =
     StateNotifierProvider<ComicCollectionPageOrderNotifier, List<int>>(
       (ref) => ComicCollectionPageOrderNotifier(),
     );
+
+class ComicOnlineFavoritesNotifier extends StateNotifier<bool> {
+  static const preferenceKey = 'comic_online_favorites';
+
+  ComicOnlineFavoritesNotifier()
+    : super(StorageService.getBool(preferenceKey) ?? false);
+
+  void set(bool online) {
+    if (state == online) return;
+    state = online;
+    unawaited(StorageService.setBool(preferenceKey, online));
+  }
+}
 
 class ComicPageSizeNotifier extends StateNotifier<int> {
   ComicPageSizeNotifier() : super(_initialPageSize());

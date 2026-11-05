@@ -150,6 +150,54 @@ void main() {
     },
   );
 
+  for (final status in [
+    VideoDownloadStatus.paused,
+    VideoDownloadStatus.failed,
+  ]) {
+    test('adding an existing ${status.name} download resumes it', () async {
+      final server = await _server((request) async {
+        await _send(request, _mp4Fixture(), contentType: 'video/mp4');
+      });
+      final video = _video(server, '/video/resume-${status.name}');
+      final stream = VideoStream(
+        label: '720p',
+        url: _url(server, '/resume.mp4'),
+      );
+      final saved = VideoDownloadTask(
+        id: video.id,
+        video: video,
+        quality: stream.label,
+        isHls: false,
+        status: status,
+        error: status == VideoDownloadStatus.failed ? 'Download failed' : null,
+      );
+      await preferences.setString(
+        'video_download_tasks_v1',
+        jsonEncode([saved.toJson()]),
+      );
+      final sourceClient = _fixtureClient(video, stream);
+      final downloads = await _downloads(sourceClient);
+
+      final task = await downloads.add(video, stream);
+
+      expect(task.status, isNot(status));
+      expect(task.error, isNull);
+      expect(downloads.tasks, hasLength(1));
+      await _until(
+        downloads,
+        (task) => task.status == VideoDownloadStatus.completed,
+      );
+      expect(
+        await File(downloads.forVideo(video.id)!.localPath!).readAsBytes(),
+        _mp4Fixture(),
+      );
+      final completed = await downloads.add(video, stream);
+      expect(completed.status, VideoDownloadStatus.completed);
+      expect(downloads.tasks, hasLength(1));
+      expect(sourceClient.detailsCalls, 1);
+    });
+  }
+
   test(
     'pause restores as paused and resumes an MP4 with an HTTP byte range',
     () async {

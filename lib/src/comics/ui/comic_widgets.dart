@@ -688,16 +688,20 @@ class ComicGrid extends ConsumerStatefulWidget {
   const ComicGrid({
     super.key,
     required this.comics,
+    this.downloadedOnly = false,
     this.padding,
     this.controller,
     this.onLongPress,
+    this.loadingContent,
     this.emptyContent,
     this.footer,
   });
   final List<Comic> comics;
+  final bool downloadedOnly;
   final EdgeInsets? padding;
   final ScrollController? controller;
   final void Function(Comic)? onLongPress;
+  final Widget? loadingContent;
   final Widget? emptyContent;
   final Widget? footer;
 
@@ -1282,6 +1286,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 SliverFillRemaining(
                   hasScrollBody: false,
                   child:
+                      widget.loadingContent ??
                       widget.emptyContent ??
                       Padding(
                         padding: const EdgeInsets.all(32),
@@ -1328,6 +1333,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             onTap: () => openComic(
                               context,
                               comics[i],
+                              downloadedOnly: widget.downloadedOnly,
                               gridCoverWidth: gridCoverWidth,
                               initialCoverWidth: comicListCoverWidth,
                             ),
@@ -1475,6 +1481,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                           onTap: () => openComic(
                             context,
                             comics[i],
+                            downloadedOnly: widget.downloadedOnly,
                             gridCoverWidth: gridCoverWidth,
                             initialCoverWidth: gridCoverWidth,
                           ),
@@ -1604,6 +1611,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
 void openComic(
   BuildContext context,
   Comic comic, {
+  bool downloadedOnly = false,
   double? gridCoverWidth,
   double? initialCoverWidth,
   double? initialCoverMaxHeight,
@@ -1621,6 +1629,7 @@ void openComic(
     context,
     builder: (_) => ComicDetailScreen(
       comic: comic,
+      downloadedOnly: downloadedOnly,
       initialGridCoverWidth: gridCoverWidth,
       initialWindowWidth: windowWidth,
       initialCoverCacheWidth: handoff?.cacheWidth,
