@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -384,6 +385,134 @@ void main() {
     );
   });
 
+  for (final nested in [false, true]) {
+    for (final stored in [false, true]) {
+      test('streams ${stored ? 'stored' : 'deflated'} '
+          '${nested ? 'large nested ZIPs' : 'subtitle entries'}', () {
+        const workId = 'RJ01015810';
+        final random = Random(0);
+        final contents = Uint8List(4 * 1024 * 1024 + 1);
+        for (var index = 0; index < contents.length; index++) {
+          contents[index] = random.nextInt(256);
+        }
+        final payload = nested
+            ? ZipEncoder().encode(
+                Archive()..addFile(
+                  ArchiveFile.noCompress(
+                    'track.lrc',
+                    contents.length,
+                    contents,
+                  ),
+                ),
+              )!
+            : contents;
+        final name = nested ? '$workId.zip' : '$workId/track.lrc';
+        final archive = Archive()
+          ..addFile(
+            stored
+                ? ArchiveFile.noCompress(name, payload.length, payload)
+                : ArchiveFile(name, payload.length, payload),
+          );
+        final source = File(p.join(tempDirectory.path, 'streaming.zip'));
+        source.writeAsBytesSync(ZipEncoder().encode(archive)!);
+        final reads = _ArchiveReadCounter();
+
+        final result = IOOverrides.runWithIOOverrides(
+          () => StreamingZipExtractor.extractSynchronously(
+            StreamingZipExtractionRequest(
+              sourcePath: source.path,
+              targetPath: targetPath,
+              archiveName: 'collection',
+            ),
+          ),
+          reads,
+        );
+
+        expect(result.extractedCount, 1);
+        expect(result.errorCount, 0);
+        expect(reads.largestRead, lessThanOrEqualTo(1024 * 1024));
+        expect(
+          File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(),
+          contents,
+        );
+        expect(
+          Directory(p.join(targetPath, '.nested_archives')).existsSync(),
+          isFalse,
+        );
+      });
+    }
+  }
+
+  test('extracts BZip2-compressed subtitle entries', () {
+    const workId = 'RJ01015811';
+    final contents = utf8.encode('[00:00.00]BZip2 subtitle\n');
+    final compressed = BZip2Encoder().encode(contents);
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.noCompress(
+          '$workId/track.lrc',
+          compressed.length,
+          compressed,
+        ),
+      );
+    final bytes = Uint8List.fromList(ZipEncoder().encode(archive)!);
+    final data = ByteData.sublistView(bytes);
+    for (var offset = 0; offset <= bytes.length - 4; offset++) {
+      final local = _hasSignature(bytes, offset, 0x04034b50);
+      final central = _hasSignature(bytes, offset, 0x02014b50);
+      if (!local && !central) continue;
+      data.setUint16(offset + (local ? 8 : 10), 12, Endian.little);
+      data.setUint32(
+        offset + (local ? 14 : 16),
+        getCrc32(contents),
+        Endian.little,
+      );
+      data.setUint32(
+        offset + (local ? 22 : 24),
+        contents.length,
+        Endian.little,
+      );
+    }
+
+    final result = extract(bytes, 'collection');
+
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 0);
+    expect(
+      File(p.join(targetPath, workId, 'track.lrc')).readAsBytesSync(),
+      contents,
+    );
+  });
+
+  test('reports encrypted entries without writing their raw bytes', () {
+    final archive = Archive()..addFile(ArchiveFile('track.lrc', 3, [1, 2, 3]));
+    final result = extract(
+      ZipEncoder(password: 'secret').encode(archive)!,
+      'collection',
+    );
+
+    expect(result.decodedRootArchive, isTrue);
+    expect(result.extractedCount, 0);
+    expect(result.errorCount, 1);
+    expect(File(p.join(targetPath, 'track.lrc')).existsSync(), isFalse);
+  });
+
+  test('continues extracting after an invalid DEFLATE block', () {
+    final bytes = _zipWithFiles({
+      'broken.lrc': utf8.encode('[00:00.00]broken subtitle\n'),
+      'valid.lrc': [7],
+    });
+    final offset = 30 + _readUint16(bytes, 26) + _readUint16(bytes, 28);
+    bytes[offset] = 0x07; // BFINAL=1, reserved BTYPE=3.
+
+    final result = extract(bytes, 'collection');
+
+    expect(result.extractedCount, 1);
+    expect(result.errorCount, 1);
+    expect(File(p.join(targetPath, 'broken.lrc')).existsSync(), isFalse);
+    expect(File(p.join(targetPath, 'valid.lrc')).readAsBytesSync(), [7]);
+  });
+
   test('extracts a subtitle when the shortened path fits the path limit', () {
     const maxPathLength = 240;
     const rootPathLength = 211;
@@ -489,6 +618,69 @@ void main() {
       );
     },
   );
+}
+
+final class _ArchiveReadCounter extends IOOverrides {
+  int largestRead = 0;
+
+  @override
+  File createFile(String path) {
+    final file = super.createFile(path);
+    return p.extension(path) == '.zip' ? _CountingFile(file, this) : file;
+  }
+}
+
+class _CountingFile implements File {
+  _CountingFile(this.file, this.counter);
+
+  final File file;
+  final _ArchiveReadCounter counter;
+
+  @override
+  RandomAccessFile openSync({FileMode mode = FileMode.read}) {
+    final handle = file.openSync(mode: mode);
+    return mode == FileMode.read ? _CountingHandle(handle, counter) : handle;
+  }
+
+  @override
+  void createSync({bool recursive = false, bool exclusive = false}) =>
+      file.createSync(recursive: recursive, exclusive: exclusive);
+
+  @override
+  bool existsSync() => file.existsSync();
+
+  @override
+  void deleteSync({bool recursive = false}) =>
+      file.deleteSync(recursive: recursive);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CountingHandle implements RandomAccessFile {
+  _CountingHandle(this.handle, this.counter);
+
+  final RandomAccessFile handle;
+  final _ArchiveReadCounter counter;
+
+  @override
+  int readIntoSync(List<int> buffer, [int start = 0, int? end]) {
+    final size = (end ?? buffer.length) - start;
+    counter.largestRead = max(counter.largestRead, size);
+    return handle.readIntoSync(buffer, start, end);
+  }
+
+  @override
+  void setPositionSync(int position) => handle.setPositionSync(position);
+
+  @override
+  int lengthSync() => handle.lengthSync();
+
+  @override
+  void closeSync() => handle.closeSync();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Uint8List _zipWithFile(String fileName, List<int> contents) {

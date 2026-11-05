@@ -67,6 +67,9 @@ class StreamingZipExtractionResult {
 class StreamingZipExtractor {
   const StreamingZipExtractor._();
 
+  // ArchiveFile does not expose ZIP encryption flags.
+  static final _encryptedEntries = Expando<bool>();
+
   static Future<StreamingZipExtractionResult> extract(
     StreamingZipExtractionRequest request, {
     void Function(int extractedCount, int nestedArchiveCount)? onProgress,
@@ -336,9 +339,45 @@ class StreamingZipExtractor {
   }
 
   static void _writeArchiveEntry(ArchiveFile file, String targetPath) {
-    final output = File(targetPath).openSync(mode: FileMode.write);
+    if (_encryptedEntries[file] == true) {
+      throw ArchiveException('Encrypted ZIP entries are not supported');
+    }
+    final output = OutputFileStream(targetPath);
     try {
-      output.writeFromSync(file.content as List<int>);
+      final input = file.rawContent!;
+      switch (file.compressionType) {
+        case ArchiveFile.STORE:
+          output.writeInputStream(input);
+        case ArchiveFile.DEFLATE:
+          final inflater = RawZLibFilter.inflateFilter(raw: true);
+          while (!input.isEOS) {
+            final chunk = input.readBytes(64 * 1024).toUint8List();
+            inflater.process(chunk, 0, chunk.length);
+            for (
+              var bytes = inflater.processed(flush: false);
+              bytes != null;
+              bytes = inflater.processed(flush: false)
+            ) {
+              output.writeBytes(bytes);
+            }
+          }
+          for (
+            var bytes = inflater.processed(end: true);
+            bytes != null;
+            bytes = inflater.processed(end: true)
+          ) {
+            output.writeBytes(bytes);
+          }
+        case ZipFile.zipCompressionBZip2:
+          BZip2Decoder().decodeStream(input, output);
+        default:
+          throw ArchiveException(
+            'Unsupported ZIP compression method ${file.compressionType}',
+          );
+      }
+      if (output.length != file.size) {
+        throw ArchiveException('Invalid ZIP entry size');
+      }
     } finally {
       output.closeSync();
     }
@@ -347,16 +386,17 @@ class StreamingZipExtractor {
   static Archive _decodeZipArchive(_Utf8TolerantInputFileStream input) {
     final decoder = ZipDecoder();
     final archive = decoder.decodeBuffer(input, verify: false);
-    final localHeaderOffsets = <String, int>{};
+    final headersByName = <String, ZipFileHeader>{};
     for (final header in decoder.directory.fileHeaders) {
-      localHeaderOffsets[header.filename.replaceAll('\\', '/')] =
-          header.localHeaderOffset!;
+      headersByName[header.filename.replaceAll('\\', '/')] = header;
     }
 
     for (final file in archive.files) {
       final archiveName = file.name.replaceAll('\\', '/');
-      final localHeaderOffset = localHeaderOffsets[archiveName];
-      if (localHeaderOffset == null) continue;
+      final header = headersByName[archiveName];
+      if (header == null) continue;
+      _encryptedEntries[file] = header.file!.flags & 1 != 0;
+      final localHeaderOffset = header.localHeaderOffset!;
 
       // ZIP local filenames start 30 bytes after their fixed-size header.
       final rawName = input.invalidUtf8Names[localHeaderOffset + 30];
