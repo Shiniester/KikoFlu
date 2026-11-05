@@ -4469,11 +4469,11 @@ class SEn extends S {
       'Sign in to Jable to view and manage your video favorites.';
 
   @override
-  String get videoJableLoginHelp =>
-      'Sign in on Jable, then select Check sign-in.';
+  String get videoLoginHelp =>
+      'Sign in on the source website, then select Done to check your sign-in status.';
 
   @override
-  String get videoCheckLogin => 'Check sign-in';
+  String get videoLoginComplete => 'Done';
 
   @override
   String get videoJableSignedIn => 'Signed in to Jable';
@@ -4570,22 +4570,6 @@ class SEn extends S {
   @override
   String get videoDownloadFailed =>
       'Download failed. Retry from video downloads.';
-
-  @override
-  String get videoEmail => 'Email';
-
-  @override
-  String get videoRegisterOnSource => 'Register on MissAV';
-
-  @override
-  String get videoResetPasswordOnSource => 'Reset password on MissAV';
-
-  @override
-  String get videoPasswordOnSource => 'Change password on MissAV';
-
-  @override
-  String get videoAccountSourceHint =>
-      'These actions open MissAV. Select registration or password management on the website.';
 
   @override
   String get videoQuality => 'Quality';

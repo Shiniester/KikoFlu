@@ -7916,6 +7916,10 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
+  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) async =>
+      (detailsForVideo?.call(video) ?? detailsResult).related;
+
+  @override
   Future<List<VideoLink>> playlistsFor(VideoItem item) async {
     playlistsCalls++;
     return playlists;

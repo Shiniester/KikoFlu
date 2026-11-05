@@ -1199,14 +1199,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
+  bool _isMetadataLink(VideoLink link) => switch (link.kind) {
+    VideoLinkKind.category ||
+    VideoLinkKind.actor ||
+    VideoLinkKind.tag ||
+    VideoLinkKind.studio => true,
+    _ => link.cardMetadataRoute != null,
+  };
+
   Future<void> _openCatalog(VideoLink link) {
-    final isMetadataLink = switch (link.kind) {
-      VideoLinkKind.category ||
-      VideoLinkKind.actor ||
-      VideoLinkKind.tag ||
-      VideoLinkKind.studio => true,
-      _ => link.cardMetadataRoute != null,
-    };
+    final isMetadataLink = _isMetadataLink(link);
     if (isMetadataLink) return _search(initialFilters: [link]);
     return _loadUrl(link.url);
   }
@@ -1818,6 +1820,26 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _ => Icons.explore_outlined,
   };
 
+  IconData _catalogDrawerIcon(VideoLink link) {
+    switch (_catalogPath(link.url)) {
+      case 'new':
+      case 'latest-updates':
+        return Icons.update;
+      case 'release':
+      case 'new-release':
+        return Icons.new_releases_outlined;
+      case 'chinese-subtitle':
+      case 'categories/chinese-subtitle':
+        return Icons.closed_caption_outlined;
+      case 'weekly-hot':
+      case 'hot':
+        return Icons.local_fire_department_outlined;
+      case 'uncensored-leak':
+        return Icons.visibility_outlined;
+    }
+    return _directoryIcon(link);
+  }
+
   Widget _collectionLinkTile(VideoLink link) {
     final icon = Icon(_directoryIcon(link));
     Widget? trailing;
@@ -2241,6 +2263,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   List<Widget> _drawer(LayoutType layoutType) {
     final s = S.of(context);
     final catalogLinks = _approvedCatalogLinks(s);
+    final displayedPage = _page;
+    final displayedPath = displayedPage == null
+        ? null
+        : _catalogPath(displayedPage.url);
+    final displayedCollectionKey = displayedPage == null
+        ? null
+        : _collectionKeyForUrl(displayedPage.url);
+    bool collectionSelected(String key) => displayedCollectionKey == key;
     return [
       LibraryDrawerSection(
         title: s.librarySources,
@@ -2265,6 +2295,30 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                   : s.videoSourceAccount,
               onTap: _openAccount,
             ),
+            LibraryDrawerTile(
+              icon: Icons.bookmark_outline,
+              title: s.videoFavorites,
+              selected: collectionSelected('favorites'),
+              onTap: () => _openCollection('favorites'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.person_outline,
+              title: s.videoActorFavorites,
+              selected: collectionSelected('actorFavorites'),
+              onTap: () => _openCollection('actorFavorites'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.playlist_play,
+              title: s.playlists,
+              selected: collectionSelected('playlists'),
+              onTap: () => _openCollection('playlists'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.history,
+              title: s.videoWatchHistory,
+              selected: collectionSelected('history'),
+              onTap: () => _openCollection('history'),
+            ),
           ],
         ),
       if (_sourceKey == 'jable')
@@ -2279,6 +2333,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
             LibraryDrawerTile(
               icon: Icons.bookmark_outline,
               title: s.videoFavorites,
+              selected: collectionSelected('favorites'),
               onTap: () => _openCollection('favorites'),
             ),
           ],
@@ -2288,14 +2343,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         children: [
           for (final link in catalogLinks)
             LibraryDrawerTile(
-              icon: _directoryIcon(link),
+              icon: _catalogDrawerIcon(link),
               title: link.label,
+              selected:
+                  displayedPath != null &&
+                  !_isMetadataLink(link) &&
+                  displayedPath == _catalogPath(link.url),
               onTap: () => _openCatalog(link),
             ),
           if (_sourceKey == 'missav')
             LibraryDrawerTile(
               icon: Icons.thumb_up_alt_outlined,
               title: s.videoRecommendedForYou,
+              selected: _isDisplayedRecommendationPage(s),
               onTap: _selectRecommendations,
             ),
         ],
@@ -2314,32 +2374,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           ),
         ],
       ),
-      if (_sourceKey == 'missav')
-        LibraryDrawerSection(
-          title: s.videoSourceAccount,
-          children: [
-            LibraryDrawerTile(
-              icon: Icons.bookmark_outline,
-              title: s.videoFavorites,
-              onTap: () => _openCollection('favorites'),
-            ),
-            LibraryDrawerTile(
-              icon: Icons.person_outline,
-              title: s.videoActorFavorites,
-              onTap: () => _openCollection('actorFavorites'),
-            ),
-            LibraryDrawerTile(
-              icon: Icons.playlist_play,
-              title: s.playlists,
-              onTap: () => _openCollection('playlists'),
-            ),
-            LibraryDrawerTile(
-              icon: Icons.history,
-              title: s.videoWatchHistory,
-              onTap: () => _openCollection('history'),
-            ),
-          ],
-        ),
       LibraryDrawerSection(
         title: s.videoDownloads,
         children: [
@@ -2351,6 +2385,37 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         ],
       ),
     ];
+  }
+
+  String _displayedPageTitle(S s) {
+    final page = _page;
+    if (page == null) return s.navVideos;
+    if (_isDisplayedRecommendationPage(s)) {
+      return s.videoRecommendedForYou;
+    }
+    final collectionTitle = switch (_collectionKeyForUrl(page.url)) {
+      'favorites' => s.videoFavorites,
+      'actorFavorites' => s.videoActorFavorites,
+      'playlists' when _isPlaylistDirectoryUrl(page.url) => s.playlists,
+      'history' => s.videoWatchHistory,
+      _ => null,
+    };
+    if (collectionTitle != null) return collectionTitle;
+
+    final pagePath = _catalogPath(page.url);
+    for (final link in _approvedCatalogLinks(s)) {
+      if (!_isMetadataLink(link) && _catalogPath(link.url) == pagePath) {
+        return link.label;
+      }
+    }
+    return page.title.isNotEmpty ? page.title : s.navVideos;
+  }
+
+  bool _isDisplayedRecommendationPage(S s) {
+    final page = _page;
+    return page != null &&
+        page.url == _sourceClient.homeUrl &&
+        page.title == s.videoRecommendedForYou;
   }
 
   Widget _content(S s, LayoutType layoutType) {
@@ -2733,7 +2798,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       }
     });
     final layoutType = ref.watch(videoBrowseLayoutProvider);
-    final title = _page?.title.isNotEmpty == true ? _page!.title : s.navVideos;
+    final title = _displayedPageTitle(s);
     final page = LibraryPageScaffold(
       title: title,
       searchHint: s.videoSearchHint,

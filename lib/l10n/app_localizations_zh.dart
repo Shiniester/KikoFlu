@@ -4319,10 +4319,10 @@ class SZh extends S {
   String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
 
   @override
-  String get videoJableLoginHelp => '在 Jable 登录后，选择“检查登录状态”。';
+  String get videoLoginHelp => '在源站登录后，点击“完成”检查登录状态。';
 
   @override
-  String get videoCheckLogin => '检查登录状态';
+  String get videoLoginComplete => '完成';
 
   @override
   String get videoJableSignedIn => '已登录 Jable';
@@ -4411,21 +4411,6 @@ class SZh extends S {
 
   @override
   String get videoDownloadFailed => '视频下载失败，可在视频下载中重试。';
-
-  @override
-  String get videoEmail => '邮箱';
-
-  @override
-  String get videoRegisterOnSource => '在源站注册';
-
-  @override
-  String get videoResetPasswordOnSource => '在源站重置密码';
-
-  @override
-  String get videoPasswordOnSource => '在源站修改密码';
-
-  @override
-  String get videoAccountSourceHint => '以下操作会打开源站页面。请在源站选择注册或密码管理。';
 
   @override
   String get videoQuality => '画质';
@@ -9197,10 +9182,10 @@ class SZhHant extends SZh {
   String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
 
   @override
-  String get videoJableLoginHelp => '在 Jable 登入後，選擇「檢查登入狀態」。';
+  String get videoLoginHelp => '在來源網站登入後，按一下「完成」檢查登入狀態。';
 
   @override
-  String get videoCheckLogin => '檢查登入狀態';
+  String get videoLoginComplete => '完成';
 
   @override
   String get videoJableSignedIn => '已登入 Jable';
@@ -9289,21 +9274,6 @@ class SZhHant extends SZh {
 
   @override
   String get videoDownloadFailed => '影片下載失敗，可在影片下載中重試。';
-
-  @override
-  String get videoEmail => '電子郵件';
-
-  @override
-  String get videoRegisterOnSource => '在來源網站註冊';
-
-  @override
-  String get videoResetPasswordOnSource => '在來源網站重設密碼';
-
-  @override
-  String get videoPasswordOnSource => '在來源網站變更密碼';
-
-  @override
-  String get videoAccountSourceHint => '以下操作會開啟來源網站。請在來源網站選擇註冊或密碼管理。';
 
   @override
   String get videoQuality => '畫質';

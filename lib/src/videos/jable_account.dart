@@ -230,7 +230,7 @@ class JableAccount extends ChangeNotifier {
 
     while (true) {
       if (isCurrent?.call() == false) break;
-      final page = await _client.browse(uri.toString());
+      final page = await _client.browse(uri.toString(), isCurrent: isCurrent);
       _client._ensureGeneration(generation, Uri.parse(page.url));
       if (isCurrent?.call() == false) break;
       for (final video in page.videos) {

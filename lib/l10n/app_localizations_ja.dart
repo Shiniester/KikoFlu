@@ -4342,10 +4342,10 @@ class SJa extends S {
   String get videoJableLoginRequired => 'Jable にログインすると、お気に入りの動画を表示・管理できます。';
 
   @override
-  String get videoJableLoginHelp => 'Jable でログインしてから「ログイン状態を確認」を選択してください。';
+  String get videoLoginHelp => '配信元サイトでログインしてから「完了」を選択してログイン状態を確認してください。';
 
   @override
-  String get videoCheckLogin => 'ログイン状態を確認';
+  String get videoLoginComplete => '完了';
 
   @override
   String get videoJableSignedIn => 'Jable にログインしています';
@@ -4436,22 +4436,6 @@ class SJa extends S {
 
   @override
   String get videoDownloadFailed => 'ダウンロードできません。動画のダウンロード画面で再試行してください。';
-
-  @override
-  String get videoEmail => 'メールアドレス';
-
-  @override
-  String get videoRegisterOnSource => 'MissAV で登録';
-
-  @override
-  String get videoResetPasswordOnSource => 'MissAV でパスワードを再設定';
-
-  @override
-  String get videoPasswordOnSource => 'MissAV でパスワードを変更';
-
-  @override
-  String get videoAccountSourceHint =>
-      '以下の操作は MissAV を開きます。サイトで登録またはパスワード管理を選択してください。';
 
   @override
   String get videoQuality => '画質';

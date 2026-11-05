@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../providers/works_provider.dart';
+import '../../utils/collection_grid_layout.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
@@ -17,7 +18,6 @@ import '../../widgets/work_detail/work_detail_section_title.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../jable_client.dart';
 import '../missav_client.dart';
-import '../missav_verification.dart';
 import '../jable_verification.dart';
 import '../video_download_task.dart';
 import '../video_downloads.dart';
@@ -73,6 +73,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   VideoDetails? _details;
   VideoDownloadTask? _downloadedTask;
   VideoStream? _selectedStream;
+  List<VideoItem>? _missavRelated;
+  String? _missavRelatedVideoKey;
+  int _missavRelatedRequestGeneration = 0;
+  bool _missavRelatedLoading = false;
+  bool _missavRelatedFailed = false;
   bool _loading = true;
   bool _favorite = false;
   bool _savingFavorite = false;
@@ -183,6 +188,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (!await _waitForRouteIdle(generation)) return;
     setState(() {
       _details = null;
+      _resetMissavRelated();
       _favorite = false;
       _selectedStream = null;
       _error = null;
@@ -243,6 +249,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                 : details.streams.first;
           }
         });
+        if (widget.video.sourceKey == 'missav' && !_isOffline) {
+          _startMissavRelated(details.video);
+        }
       }
 
       final details = switch ((widget.video.sourceKey, supplement)) {
@@ -264,6 +273,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         }
         _loading = false;
       });
+      if (widget.video.sourceKey == 'missav' && !_isOffline) {
+        _startMissavRelated(details.video);
+      }
     } catch (error) {
       if (!await _waitForRouteIdle(generation)) return;
       setState(() {
@@ -291,13 +303,16 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         _sessionGeneration = _client.sessionGeneration;
       }
     }
-    if (oldWidget.video.storageKey != widget.video.storageKey ||
+    if (oldWidget.video.sourceKey != widget.video.sourceKey ||
+        oldWidget.video.storageKey != widget.video.storageKey ||
         oldWidget.downloadedTask != widget.downloadedTask) {
-      if (oldWidget.video.storageKey != widget.video.storageKey) {
+      if (oldWidget.video.sourceKey != widget.video.sourceKey ||
+          oldWidget.video.storageKey != widget.video.storageKey) {
         _playerKey = GlobalKey();
         _fullscreen = false;
         _fullscreenTransition.value = 0;
       }
+      _resetMissavRelated();
       _loadGeneration++;
       _scheduleInitialize();
     }
@@ -340,7 +355,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
               ref.read(jableVideoClientProvider),
               sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
             )
-          : await verifyMissavAccess(
+          : await ref.read(missavAccessVerifierProvider)(
               context,
               _client,
               sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
@@ -353,6 +368,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (!await _routeReadiness.waitForIdle() || !mounted) return;
     if (_accountChangedDuringVerification) {
       _accountChangedDuringVerification = false;
+      _resetMissavRelated();
       if (!verified) {
         setState(() {
           _details = null;
@@ -841,6 +857,61 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     return pushWorkDetailRoute(context, builder: builder);
   }
 
+  void _resetMissavRelated() {
+    _missavRelated = null;
+    _missavRelatedVideoKey = null;
+    _missavRelatedRequestGeneration++;
+    _missavRelatedLoading = false;
+    _missavRelatedFailed = false;
+  }
+
+  void _startMissavRelated(VideoItem video) {
+    if (_missavRelatedVideoKey == video.storageKey) return;
+    _missavRelatedVideoKey = video.storageKey;
+    unawaited(_loadMissavRelated(video));
+  }
+
+  Future<void> _loadMissavRelated(VideoItem video) async {
+    final requestGeneration = ++_missavRelatedRequestGeneration;
+    final sessionGeneration = _client.sessionGeneration;
+    setState(() {
+      _missavRelated = null;
+      _missavRelatedLoading = true;
+      _missavRelatedFailed = false;
+    });
+    try {
+      final related = await _client.loadRelatedRecommendations(video);
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          requestGeneration != _missavRelatedRequestGeneration ||
+          sessionGeneration != _client.sessionGeneration ||
+          widget.video.storageKey != video.storageKey) {
+        return;
+      }
+      setState(() {
+        _missavRelated = related;
+        _missavRelatedLoading = false;
+      });
+    } catch (_) {
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          requestGeneration != _missavRelatedRequestGeneration ||
+          sessionGeneration != _client.sessionGeneration ||
+          widget.video.storageKey != video.storageKey) {
+        return;
+      }
+      setState(() {
+        _missavRelatedLoading = false;
+        _missavRelatedFailed = true;
+      });
+    }
+  }
+
+  void _retryMissavRelated() {
+    final video = _details?.video;
+    if (video != null) unawaited(_loadMissavRelated(video));
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
@@ -982,7 +1053,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
-    final nextRelated = _firstRelated(details);
+    final related = _relatedVideos(details);
+    final nextRelated = _firstRelated(details, related);
+    final showRelated = widget.video.sourceKey == 'missav'
+        ? !_isOffline &&
+              (_missavRelatedLoading ||
+                  _missavRelatedFailed ||
+                  _missavRelated?.isNotEmpty == true)
+        : related.isNotEmpty;
     final metadataSections = _metadataSections(s, details);
     final basicMetadata = details.metadata.entries.where(
       (entry) => !MissavClient.detailMetadataGroups.containsKey(
@@ -1040,32 +1118,23 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           ],
         ),
       ],
-      if (details.related.isNotEmpty) ...[
+      if (showRelated) ...[
         const SizedBox(height: 16),
         WorkDetailSectionTitle(s.videoRelated),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final columns = (constraints.maxWidth / 180)
-                .floor()
-                .clamp(1, 4)
-                .toInt();
-            return MasonryGridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: details.related.length,
-              crossAxisCount: columns,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              itemBuilder: (context, index) => VideoCard(
-                video: details.related[index],
-                layoutType: LayoutType.bigGrid,
-                onTap: () => _openRelated(details.related[index]),
-                onOpenLink: _openCatalog,
-              ),
-            );
-          },
-        ),
+        if (widget.video.sourceKey == 'missav' && _missavRelatedLoading)
+          _buildRelatedGrid(related, loading: true)
+        else if (widget.video.sourceKey == 'missav' && _missavRelatedFailed)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _retryMissavRelated,
+              icon: const Icon(Icons.refresh),
+              label: Text(s.loadFailedRetry),
+            ),
+          )
+        else
+          _buildRelatedGrid(related),
       ],
     ];
     final player = RepaintBoundary(
@@ -1216,12 +1285,72 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     );
   }
 
-  VideoItem? _firstRelated(VideoDetails details) {
-    for (final related in details.related) {
+  List<VideoItem> _relatedVideos(VideoDetails details) =>
+      widget.video.sourceKey == 'missav'
+      ? (_missavRelated ?? const [])
+      : details.related;
+
+  VideoItem? _firstRelated(
+    VideoDetails details,
+    List<VideoItem> relatedVideos,
+  ) {
+    for (final related in relatedVideos) {
       if (related.storageKey != details.video.storageKey) return related;
     }
     return null;
   }
+
+  Widget _buildRelatedGrid(List<VideoItem> related, {bool loading = false}) =>
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final metrics = resolveCollectionGridMetrics(
+            context,
+            layoutType: LayoutType.bigGrid,
+            availableWidth: constraints.maxWidth,
+            padding: const EdgeInsets.only(bottom: 16),
+          );
+          return MasonryGridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: metrics.padding,
+            itemCount: loading ? 6 : related.length,
+            crossAxisCount: metrics.crossAxisCount,
+            crossAxisSpacing: metrics.spacing,
+            mainAxisSpacing: metrics.spacing,
+            itemBuilder: (context, index) {
+              if (!loading) {
+                return VideoCard(
+                  video: related[index],
+                  layoutType: LayoutType.bigGrid,
+                  onTap: () => _openRelated(related[index]),
+                  onOpenLink: _openCatalog,
+                );
+              }
+              final color = Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: collectionCoverAspectRatio,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(height: 14, width: 100, color: color),
+                  const SizedBox(height: 4),
+                  Container(height: 12, width: 60, color: color),
+                ],
+              );
+            },
+          );
+        },
+      );
 }
 
 enum _VideoMetadataTone { primary, secondary, tertiary, error }

@@ -425,9 +425,14 @@ const _documentMarkupScript = '''
   const visitorCookie = document.cookie.split(';').map(value => value.trim())
     .find(value => value.startsWith('user_uuid='));
   const navigation = performance.getEntriesByType('navigation')[0];
+  const accountRoot = document.querySelector('[x-data*="user"]');
+  const runtimeUser = accountRoot && window.Alpine?.\$data
+    ? window.Alpine.\$data(accountRoot).user
+    : null;
   return JSON.stringify({
     url:location.href,
     html:root.outerHTML,
+    runtimeUser,
     responseStatus: navigation && navigation.responseStatus,
     recommendationContext: {
       userId: window.user_uuid || (visitorCookie ? decodeURIComponent(visitorCookie.substring('user_uuid='.length)) : null),
@@ -499,11 +504,18 @@ Future<String> navigateMissavDocument(
       );
     }
     documentRead = true;
-    final html = document['html'] as String;
+    var html = document['html'] as String;
     final status = document['responseStatus'];
     if (status is int && status >= 400) {
       return '$html<script id="kiko-missav-response-status" '
           'type="application/json">$status</script>';
+    }
+    final runtimeUser = document['runtimeUser'];
+    if (runtimeUser is Map) {
+      final userJson = jsonEncode(runtimeUser).replaceAll('<', r'\u003c');
+      html +=
+          '<script id="kiko-missav-runtime-user" '
+          'type="application/json">$userJson</script>';
     }
     final recommendationContext = document['recommendationContext'];
     if (recommendationContext is! Map ||
@@ -764,6 +776,7 @@ Future<void> connectMissavBrowserSession(
   int? androidProxyGeneration,
   bool preserveMobilePageOnFailure = true,
   bool checkAccess = true,
+  bool requireLogin = false,
 }) async {
   if (expectedGeneration != null &&
       client.sessionGeneration != expectedGeneration) {
@@ -979,9 +992,12 @@ Future<void> connectMissavBrowserSession(
           stop: () => mobile.runJavaScript('window.stop();'),
           releaseDocument: Platform.isAndroid
               ? (documentRead) async {
-                  if (documentRead ||
-                      connected ||
-                      !preserveMobilePageOnFailure) {
+                  final preserveLoginPage =
+                      requireLogin && !connected && preserveMobilePageOnFailure;
+                  if (!preserveLoginPage &&
+                      (documentRead ||
+                          connected ||
+                          !preserveMobilePageOnFailure)) {
                     await parkMissavMobileBrowser(
                       mobile,
                       ensureActive: () => ensureMissavBrowserConnectionCurrent(
@@ -1140,6 +1156,21 @@ Future<void> connectMissavBrowserSession(
         clientGeneration: clientGeneration,
       );
     }
+    if (requireLogin && !client.isLoggedIn) {
+      throw StateError('MissAV sign-in could not be confirmed.');
+    }
+    if (requireLogin && mobile != null && Platform.isAndroid) {
+      await parkMissavMobileBrowser(
+        mobile,
+        ensureActive: () => ensureMissavBrowserConnectionCurrent(
+          connectionGeneration,
+          cancelSignal,
+          client: client,
+          clientGeneration: clientGeneration,
+          browserAdapter: adapter,
+        ),
+      );
+    }
     connected = true;
   } catch (_) {
     preserveMobilePage = mobile != null && preserveMobilePageOnFailure;
@@ -1229,6 +1260,7 @@ Future<bool> verifyMissavAccess(
   BuildContext context,
   MissavClient client, {
   required String sourceUrl,
+  bool requireLogin = false,
 }) async {
   if (!isMissavVerificationUrl(sourceUrl)) return false;
   final pageUrl = Uri.parse(sourceUrl).pathSegments.contains('api')
@@ -1246,6 +1278,7 @@ Future<bool> verifyMissavAccess(
       builder: (_) => _MissavVerification(
         client: client,
         sourceUrl: pageUrl,
+        requireLogin: requireLogin,
         androidProxyGeneration: proxyGeneration,
       ),
     );
@@ -1322,11 +1355,13 @@ class _MissavVerification extends StatefulWidget {
   const _MissavVerification({
     required this.client,
     required this.sourceUrl,
+    required this.requireLogin,
     this.androidProxyGeneration,
   });
 
   final MissavClient client;
   final String sourceUrl;
+  final bool requireLogin;
   final int? androidProxyGeneration;
 
   @override
@@ -1471,6 +1506,7 @@ class _MissavVerificationState extends State<_MissavVerification> {
           mobile: _isDesktop ? null : _mobile,
           cancelSignal: cancellation,
           androidProxyGeneration: widget.androidProxyGeneration,
+          requireLogin: widget.requireLogin,
         );
         final connectionGeneration = _browserConnectionGeneration;
         await connection;
@@ -1596,7 +1632,9 @@ class _MissavVerificationState extends State<_MissavVerification> {
     return PopScope(
       canPop: !_checking || _connectingBrowser,
       child: AlertDialog(
-        title: Text(s.videoVerifyAccess),
+        title: Text(
+          widget.requireLogin ? s.videoSourceAccount : s.videoVerifyAccess,
+        ),
         content: SizedBox(
           width: _isDesktop ? 420 : 720,
           height: _isDesktop ? null : MediaQuery.sizeOf(context).height * .65,
@@ -1604,7 +1642,11 @@ class _MissavVerificationState extends State<_MissavVerification> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(s.videoVerificationHelp),
+              Text(
+                widget.requireLogin
+                    ? s.videoLoginHelp
+                    : s.videoVerificationHelp,
+              ),
               if (_starting) ...[
                 const SizedBox(height: 16),
                 const Center(child: CircularProgressIndicator()),
@@ -1616,7 +1658,9 @@ class _MissavVerificationState extends State<_MissavVerification> {
               if (_failed) ...[
                 const SizedBox(height: 12),
                 Text(
-                  s.videoVerificationFailed,
+                  widget.requireLogin
+                      ? s.loginFailed
+                      : s.videoVerificationFailed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
@@ -1648,7 +1692,11 @@ class _MissavVerificationState extends State<_MissavVerification> {
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text(s.videoVerificationContinue),
+                : Text(
+                    widget.requireLogin
+                        ? s.videoLoginComplete
+                        : s.videoVerificationContinue,
+                  ),
           ),
         ],
       ),

@@ -7948,17 +7948,17 @@ abstract class S {
   /// **'Sign in to Jable to view and manage your video favorites.'**
   String get videoJableLoginRequired;
 
-  /// No description provided for @videoJableLoginHelp.
+  /// Instruction shown in the source website login dialog before confirming account status.
   ///
   /// In en, this message translates to:
-  /// **'Sign in on Jable, then select Check sign-in.'**
-  String get videoJableLoginHelp;
+  /// **'Sign in on the source website, then select Done to check your sign-in status.'**
+  String get videoLoginHelp;
 
-  /// No description provided for @videoCheckLogin.
+  /// Action that checks account status after sign-in on the source website.
   ///
   /// In en, this message translates to:
-  /// **'Check sign-in'**
-  String get videoCheckLogin;
+  /// **'Done'**
+  String get videoLoginComplete;
 
   /// No description provided for @videoJableSignedIn.
   ///
@@ -8133,36 +8133,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Download failed. Retry from video downloads.'**
   String get videoDownloadFailed;
-
-  /// No description provided for @videoEmail.
-  ///
-  /// In en, this message translates to:
-  /// **'Email'**
-  String get videoEmail;
-
-  /// No description provided for @videoRegisterOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Register on MissAV'**
-  String get videoRegisterOnSource;
-
-  /// No description provided for @videoResetPasswordOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset password on MissAV'**
-  String get videoResetPasswordOnSource;
-
-  /// No description provided for @videoPasswordOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Change password on MissAV'**
-  String get videoPasswordOnSource;
-
-  /// Explains that account actions open the source website, where the user selects the corresponding form.
-  ///
-  /// In en, this message translates to:
-  /// **'These actions open MissAV. Select registration or password management on the website.'**
-  String get videoAccountSourceHint;
 
   /// No description provided for @videoQuality.
   ///

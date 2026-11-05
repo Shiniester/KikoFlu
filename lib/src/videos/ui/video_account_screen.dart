@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
-import '../missav_verification.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
 
@@ -21,8 +19,6 @@ class VideoAccountScreen extends ConsumerStatefulWidget {
 
 class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   late final MissavClient _client;
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
   bool _loading = false;
   bool _ready = false;
   String? _error;
@@ -38,6 +34,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   Future<void> _initialize() async {
     try {
       await _client.initialize();
+      await _client.checkBrowserAccess();
       if (mounted) setState(() => _ready = true);
     } catch (error) {
       if (mounted) {
@@ -58,41 +55,28 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _login() async {
+  Future<void> _openBrowser({required bool requireLogin}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await _client.login(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
-      if (!mounted) return;
-      _passwordController.clear();
-      setState(() {
-        _loading = false;
-        _error = null;
-        _verificationError = null;
-      });
-      SnackBarUtil.showFromSnackBar(
+      final verified = await ref.read(missavAccessVerifierProvider)(
         context,
-        SnackBar(content: Text(S.of(context).loginSuccess)),
+        _client,
+        sourceUrl: requireLogin
+            ? _client.homeUrl
+            : _verificationError?.sourceUrl ?? _client.homeUrl,
+        requireLogin: requireLogin,
       );
-    } on MissavVerificationRequiredException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = S.of(context).videoVerificationRequired;
-        _verificationError = error;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = S.of(context).loginFailed;
-        _verificationError = null;
-      });
+      if (mounted && verified) {
+        setState(() {
+          _error = null;
+          _verificationError = null;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -122,35 +106,12 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   }
 
   Future<void> _verifyAccess() async {
-    final verified = await verifyMissavAccess(
-      context,
-      _client,
-      sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
-    );
-    if (!mounted || !verified) return;
-    setState(() {
-      _error = null;
-      _verificationError = null;
-    });
-  }
-
-  Future<void> _openSource() async {
-    final uri = Uri.tryParse(_client.homeUrl);
-    if (uri == null) return;
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
-      SnackBarUtil.showFromSnackBar(
-        context,
-        SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
-      );
-    }
+    await _openBrowser(requireLogin: false);
   }
 
   @override
   void dispose() {
     _client.removeListener(_accountChanged);
-    _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -190,29 +151,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                         ),
                       ] else ...[
                         Text(s.videoLoginRequired, textAlign: TextAlign.center),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const [AutofillHints.username],
-                          decoration: InputDecoration(
-                            labelText: s.videoEmail,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          textInputAction: TextInputAction.done,
-                          autofillHints: const [AutofillHints.password],
-                          onSubmitted: (_) => unawaited(_login()),
-                          decoration: InputDecoration(
-                            labelText: s.password,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
                         if (_error != null) ...[
                           const SizedBox(height: 12),
                           Text(
@@ -224,16 +162,19 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           ),
                         ],
                         const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: _loading ? null : _login,
-                          child: _loading
+                        FilledButton.icon(
+                          onPressed: _loading
+                              ? null
+                              : () => _openBrowser(requireLogin: true),
+                          icon: _loading
                               ? const SizedBox.square(
                                   dimension: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : Text(s.login),
+                              : const Icon(Icons.login),
+                          label: Text(s.login),
                         ),
                         OutlinedButton.icon(
                           onPressed: _loading ? null : _verifyAccess,
@@ -241,31 +182,6 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           label: Text(s.videoVerifyAccess),
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      Text(
-                        s.videoAccountSourceHint,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      if (!loggedIn) ...[
-                        TextButton(
-                          onPressed: _openSource,
-                          child: Text(s.videoRegisterOnSource),
-                        ),
-                        TextButton(
-                          onPressed: _openSource,
-                          child: Text(s.videoResetPasswordOnSource),
-                        ),
-                      ],
-                      TextButton(
-                        onPressed: _openSource,
-                        child: Text(s.videoPasswordOnSource),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _openSource,
-                        icon: const Icon(Icons.open_in_new),
-                        label: Text(s.videoOpenSource),
-                      ),
                     ],
                   ),
                 ),

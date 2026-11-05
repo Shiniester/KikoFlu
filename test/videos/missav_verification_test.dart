@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/src/utils/global_keys.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
@@ -925,6 +927,157 @@ void main() {
       expect(storage.writeCalls, 0);
     },
   );
+
+  test(
+    'an account snapshot cannot restore a replaced browser session',
+    () async {
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+      final reading = Completer<void>();
+      final document = Completer<Object?>();
+      final adapter = MissavBrowserAdapter(
+        runJavaScript: (_) async {},
+        currentUrl: () async => client.homeUrl,
+        navigateDocument: (uri, cancelled) => navigateMissavDocument(
+          uri,
+          cancelled,
+          navigate: (_) async {},
+          read: (_) {
+            reading.complete();
+            return document.future;
+          },
+          stop: () async {},
+        ),
+        disposeBrowser: () async {},
+      );
+      client.useVerifiedBrowserTransport(adapter);
+      final result = expectLater(
+        client.checkBrowserAccess(),
+        throwsA(isA<MissavException>()),
+      );
+      await reading.future;
+      client.restoreNativeTransport();
+      document.complete({
+        'url': client.homeUrl,
+        'html': '<html><body x-data="{user: null}"></body></html>',
+        'runtimeUser': {'username': 'old-browser-viewer'},
+      });
+      await result;
+      expect(client.isLoggedIn, isFalse);
+      expect(client.accountName, isNull);
+    },
+  );
+
+  testWidgets(
+    'required login accepts a confirmed account when markup still says user null',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'verified',
+            domain: 'missav.ai',
+          ),
+        ]),
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final sourcePage = mobile.platform as _FakeWebViewController;
+      sourcePage.htmlDocument =
+          '<html><body x-data="{user: null}"></body></html>';
+      sourcePage.runtimeUser = {'username': 'browser-viewer'};
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      await tester.runAsync(() async {
+        final connection = connectMissavBrowserSession(
+          client,
+          mobile: mobile,
+          requireLogin: true,
+        );
+        var finished = false;
+        final result = connection
+            .timeout(const Duration(seconds: 5))
+            .whenComplete(() => finished = true);
+        // The media relay needs widget frames and real socket events to finish.
+        await Future.wait([
+          result,
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(client.isLoggedIn, isTrue);
+      expect(client.accountName, 'browser-viewer');
+    },
+  );
+
+  testWidgets(
+    'a failed required login check keeps the mobile source page available',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'guest',
+            domain: 'missav.ai',
+          ),
+        ]),
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      final sourcePage = mobile.platform as _FakeWebViewController;
+      sourcePage.htmlDocument =
+          '<html><body x-data="{user: null}"></body></html>';
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      await tester.runAsync(() async {
+        final connection = connectMissavBrowserSession(
+          client,
+          mobile: mobile,
+          requireLogin: true,
+        );
+        var finished = false;
+        final result = expectLater(
+          connection.timeout(const Duration(seconds: 5)),
+          throwsA(isA<StateError>()),
+        ).whenComplete(() => finished = true);
+        // The media relay needs widget frames and real socket events to finish.
+        await Future.wait([
+          result,
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(client.isLoggedIn, isFalse);
+      expect(await mobile.currentUrl(), 'https://missav.ai/cn');
+      expect(sourcePage.htmlDocument, contains('user: null'));
+    },
+  );
 }
 
 class _DesktopBrowser extends Fake implements Webview {
@@ -980,6 +1133,18 @@ class _FakeWebViewPlatform extends WebViewPlatform {
   PlatformWebViewCookieManager createPlatformCookieManager(
     PlatformWebViewCookieManagerCreationParams params,
   ) => _FakeCookieManager(params, cookies, cookiesRequested);
+
+  @override
+  PlatformWebViewWidget createPlatformWebViewWidget(
+    PlatformWebViewWidgetCreationParams params,
+  ) => _FakeWebViewWidget(params);
+}
+
+class _FakeWebViewWidget extends PlatformWebViewWidget {
+  _FakeWebViewWidget(super.params) : super.implementation();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
 }
 
 class _FakeWebViewController extends PlatformWebViewController {
@@ -996,9 +1161,11 @@ class _FakeWebViewController extends PlatformWebViewController {
   String? _url;
   String? documentUrl;
   String htmlDocument = '';
+  Map<String, Object?>? runtimeUser;
   bool hasDocumentElement = true;
   String? documentElementId;
   String documentReadyState = 'complete';
+  int loadHtmlStringCalls = 0;
   bool documentNavigationPending = false;
   bool cloudflareChallenge = false;
   int networkNavigations = 0;
@@ -1060,6 +1227,7 @@ class _FakeWebViewController extends PlatformWebViewController {
 
   @override
   Future<void> loadHtmlString(String html, {String? baseUrl}) async {
+    loadHtmlStringCalls++;
     if (!htmlLoadStarted.isCompleted) htmlLoadStarted.complete();
     unawaited(() async {
       await onLoadHtml?.call();
@@ -1094,6 +1262,16 @@ class _FakeWebViewController extends PlatformWebViewController {
 
   @override
   Future<Object> runJavaScriptReturningResult(String javaScript) async {
+    if (javaScript.contains('const root = document.documentElement;')) {
+      final document = <String, Object?>{
+        'url': documentUrl ?? _url ?? 'https://missav.ai/cn',
+        'html': htmlDocument.isEmpty
+            ? '<html><body x-data="{user: null}"></body></html>'
+            : htmlDocument,
+      };
+      if (runtimeUser != null) document['runtimeUser'] = runtimeUser;
+      return document;
+    }
     if (javaScript.contains('__kikofluMissavNavigationPending')) {
       if (!verificationReadyCheckStarted.isCompleted) {
         verificationReadyCheckStarted.complete();

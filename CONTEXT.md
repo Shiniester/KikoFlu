@@ -79,6 +79,11 @@ Switching to another App Tab Bar entry pauses the Video Player. The Video Player
 remains paused on return until playback is resumed manually.
 _Avoid_: Video Screen, source website
 
+**Video Related Recommendations (视频相关推荐)**:
+Videos related to the current video and shown in its Video Details Screen. For
+MissAV, they come from the Video Source's recommendations for that video.
+_Avoid_: Recommended for You
+
 **Video Basic Information (视频基础信息)**:
 A video's source-provided information outside its genre, maker, label, series,
 director, and actor classifications, such as its catalog number, release date,

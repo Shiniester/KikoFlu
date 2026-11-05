@@ -1166,6 +1166,50 @@ void main() {
   );
 
   test(
+    'account checks restore a saved browser session before reading the page',
+    () async {
+      final native = _Adapter(
+        (_) => throw StateError('The saved session must use the browser.'),
+      );
+      final browser = _Adapter(
+        (_) => _response(
+          '<html><body x-data="{user: {name: \'Saved viewer\'}}"></body></html>',
+        ),
+      );
+      final storage = _storedBrowserSession();
+      var restoreCalls = 0;
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: storage,
+        restoreSavedSession: (client, expectedGeneration) async {
+          restoreCalls++;
+          await client.importVerifiedSession(
+            cookieHeader: 'session=saved',
+            userAgent: 'Saved Browser UA',
+            expectedGeneration: expectedGeneration,
+          );
+          client.useVerifiedBrowserTransport(browser);
+        },
+      );
+      addTearDown(client.dispose);
+
+      await client.checkBrowserAccess();
+
+      expect(restoreCalls, 1);
+      expect(native.requests, isEmpty);
+      expect(browser.requests, hasLength(1));
+      expect(_cookieHeader(browser.requests.single), 'session=saved');
+      expect(
+        _headerValue(browser.requests.single, 'User-Agent'),
+        'Saved Browser UA',
+      );
+      expect(client.accountName, 'Saved viewer');
+      expect(client.isLoggedIn, isTrue);
+    },
+  );
+
+  test(
     'account request failure still publishes enriched playable details',
     () async {
       final fixture = await File(

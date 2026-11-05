@@ -1,0 +1,44 @@
+[
+  {
+    "code": 200,
+    "json": {
+      "recommId": "side-recommendation-id",
+      "numberNextRecommsCalls": 0,
+      "recomms": [
+        {
+          "id": "side-first",
+          "values": {
+            "title_en": "Side item",
+            "title_cn": "侧边项目",
+            "dm": 0
+          }
+        },
+        {
+          "id": "shared-item",
+          "values": {"title_en": "Shared item", "dm": 120}
+        }
+      ]
+    }
+  },
+  {
+    "code": 200,
+    "json": {
+      "recommId": "bottom-recommendation-id",
+      "numberNextRecommsCalls": 0,
+      "recomms": [
+        {
+          "id": "shared-item",
+          "values": {"title_en": "Duplicate", "dm": 120}
+        },
+        {
+          "id": "bottom-item",
+          "values": {"title_en": "Bottom item", "dm": 350}
+        },
+        {
+          "id": "current-video",
+          "values": {"title_en": "Current item", "dm": 0}
+        }
+      ]
+    }
+  }
+]

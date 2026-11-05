@@ -984,6 +984,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         ),
       );
     }
+    if (!videoIdChanged &&
+        oldWidget.onPlayNextRelated == null &&
+        widget.onPlayNextRelated != null &&
+        _session.snapshot.value.completed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onSnapshotChanged());
+    }
   }
 
   @override
@@ -1241,6 +1247,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _appTabWasSelected = tabSelected;
     _appTabWasVisible = visible;
     if (wasTabSelected == true && !tabSelected) {
+      // Returning to this tab keeps the completed video paused.
+      if (_session.snapshot.value.completed) _autoAdvanceScheduled = true;
       _stopTemporaryRate();
       unawaited(_pauseAndSave(force: true));
     } else if (wasVisible == true && !visible) {
@@ -2100,6 +2108,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _settings.autoPlayRelated &&
         _settings.repeatMode == VideoPlayerRepeatMode.related &&
         widget.onPlayNextRelated != null &&
+        _isAppTabVisible &&
         !_loading &&
         !_enteringFullscreen &&
         !_settingsOpen &&
@@ -2272,7 +2281,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   Future<void> _advanceToRelated() async {
     if (_fullscreen || _fullscreenExit != null) await _exitFullscreen();
-    if (mounted) await widget.onPlayNextRelated?.call();
+    if (mounted && _isAppTabVisible) {
+      await widget.onPlayNextRelated?.call();
+    }
   }
 
   Future<void> _restoreFullscreenOrientation() async {

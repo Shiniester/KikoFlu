@@ -313,6 +313,11 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   Future<void> checkBrowserAccess() async {
     await initialize();
+    final browser = _browserAdapter;
+    if (browser == null ||
+        (browser is MissavBrowserAdapter && browser.isClosed)) {
+      await _prepareOnlineAccess();
+    }
     final generation = _sessionGeneration;
     final locale = _locale;
     final uri = _localizedSourceUri(homeUrl);
@@ -459,30 +464,12 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
         }
         final id = entry['id'] as String;
         final values = entry['values'] as Map;
-        final title = values[locale == 'ja' ? 'title' : 'title_$locale'];
-        final dm = values['dm'];
-        final prefix = dm is num && dm > 0 ? '/dm${dm.toInt()}' : '';
-        final duration = values['duration'];
         videos.add(
-          _withVideoMetadata(
-            VideoItem(
-              id: id,
-              title: title is String && title.isNotEmpty
-                  ? '${id.toUpperCase().replaceAll(RegExp(r'-(UNCENSORED-LEAK|CHINESE-SUBTITLE|ENGLISH-SUBTITLE)'), '')} $title'
-                  : id.toUpperCase(),
-              pageUrl: Uri.parse(
-                '$origin$prefix$_localePrefix/${Uri.encodeComponent(id)}',
-              ).replace(fragment: '${recommId}_$scenario').toString(),
-              cover:
-                  'https://fourhoi.com/${Uri.encodeComponent(id)}/cover-t.jpg',
-              durationSeconds: duration is num ? duration.round() : null,
-              hasSubtitles:
-                  values['has_chinese_subtitle'] == true ||
-                  values['has_english_subtitle'] == true,
-              isUncensored: values['is_uncensored_leak'] == true,
-            ),
+          _recommendationVideo(
+            id,
             values,
-            _localePrefix,
+            locale,
+            fragment: '${recommId}_$scenario',
           ),
         );
       }
@@ -497,6 +484,143 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
       );
     } finally {
       _browseCancelTokens.remove(requestCancelToken);
+    }
+  }
+
+  VideoItem _recommendationVideo(
+    String id,
+    Map values,
+    String titleLocale, {
+    String? fragment,
+  }) {
+    final title = values[titleLocale == 'ja' ? 'title' : 'title_$titleLocale'];
+    final dm = values['dm'];
+    final prefix = dm is num && dm > 0 ? '/dm${dm.toInt()}' : '';
+    final duration = values['duration'];
+    return _withVideoMetadata(
+      VideoItem(
+        id: id,
+        title: title is String && title.isNotEmpty
+            ? '${id.toUpperCase().replaceAll(RegExp(r'-(UNCENSORED-LEAK|CHINESE-SUBTITLE|ENGLISH-SUBTITLE)'), '')} $title'
+            : id.toUpperCase(),
+        pageUrl: Uri.parse(
+          '$origin$prefix$_localePrefix/${Uri.encodeComponent(id)}',
+        ).replace(fragment: fragment).toString(),
+        cover: 'https://fourhoi.com/${Uri.encodeComponent(id)}/cover-t.jpg',
+        durationSeconds: duration is num ? duration.round() : null,
+        hasSubtitles:
+            values['has_chinese_subtitle'] == true ||
+            values['has_english_subtitle'] == true,
+        isUncensored: values['is_uncensored_leak'] == true,
+      ),
+      values,
+      _localePrefix,
+    );
+  }
+
+  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) async {
+    await _prepareOnlineAccess();
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final uri = _localizedSourceUri(video.pageUrl);
+    final visitor = _recommendationUserId ?? 'anonymous';
+    try {
+      final data = await _requestRecommendations('/missav-default/batch/', {
+        'distinctRecomms': true,
+        'requests': [
+          for (final scenario in [
+            'desktop-watch-next-side',
+            'desktop-watch-next-bottom',
+          ])
+            {
+              'method': 'POST',
+              'path': '/recomms/items/${Uri.encodeComponent(video.id)}/items/',
+              'params': {
+                'targetUserId': visitor,
+                'count': 24,
+                'scenario': scenario,
+                'returnProperties': true,
+                'includedProperties': [
+                  'title_en',
+                  if (locale != 'en')
+                    locale == 'ja' ? 'title' : 'title_$locale',
+                  'dm',
+                ],
+                'cascadeCreate': true,
+              },
+            },
+        ],
+      });
+      _checkGeneration(generation, uri);
+      if (_locale != locale) {
+        throw MissavException(
+          'MissAV language changed during the request.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      if (data is! List || data.length != 2) {
+        throw MissavException(
+          'MissAV returned invalid related recommendations.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      final videos = <VideoItem>[];
+      final seen = {video.id.toLowerCase()};
+      for (final result in data) {
+        if (result is! Map ||
+            result['code'] is! int ||
+            (result['code'] as int) < 200 ||
+            (result['code'] as int) >= 300 ||
+            result['json'] is! Map) {
+          throw MissavException(
+            'MissAV returned invalid related recommendations.',
+            sourceUrl: uri.toString(),
+          );
+        }
+        final body = result['json'] as Map;
+        if (body['recommId'] is! String || body['recomms'] is! List) {
+          throw MissavException(
+            'MissAV returned invalid related recommendations.',
+            sourceUrl: uri.toString(),
+          );
+        }
+        for (final entry in body['recomms'] as List) {
+          if (entry is! Map ||
+              entry['id'] is! String ||
+              entry['values'] is! Map) {
+            throw MissavException(
+              'MissAV returned an invalid related recommendation.',
+              sourceUrl: uri.toString(),
+            );
+          }
+          final id = entry['id'] as String;
+          if (id.isEmpty || !seen.add(id.toLowerCase())) continue;
+          final values = entry['values'] as Map;
+          final localizedTitle =
+              values[locale == 'ja' ? 'title' : 'title_$locale'];
+          final titleLocale =
+              localizedTitle is String && localizedTitle.isNotEmpty
+              ? locale
+              : 'en';
+          videos.add(_recommendationVideo(id, values, titleLocale));
+        }
+      }
+      final enriched = await _enrichVideos(videos);
+      _checkGeneration(generation, uri);
+      if (_locale != locale) {
+        throw MissavException(
+          'MissAV language changed during the request.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      return enriched;
+    } on DioException catch (error) {
+      if (error.type == DioExceptionType.cancel) rethrow;
+      throw MissavException(
+        'MissAV related recommendations could not be loaded.',
+        sourceUrl: uri.toString(),
+        cause: error,
+      );
     }
   }
 
@@ -1655,13 +1779,22 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
 
   void _updateAccountFromPage(Document document) {
     final sourceUser = _readAccountFromPage(document);
-    // Public markup initializes user before /view confirms the session.
+    // Public user:null markup needs runtime state or /view to confirm sign-in.
     if (sourceUser is Map) {
       _updateAccountFromSource(sourceUser);
     }
   }
 
   static Object? _readAccountFromPage(Document document) {
+    final runtimeUser = document.querySelector('#kiko-missav-runtime-user');
+    if (runtimeUser != null) {
+      try {
+        final user = jsonDecode(runtimeUser.text);
+        if (user is Map) return user;
+      } on FormatException {
+        // Fall back to page markup if the runtime snapshot is invalid.
+      }
+    }
     for (final element in document.querySelectorAll('[x-data]')) {
       final source = element.attributes['x-data'] ?? '';
       final match = RegExp(r'\buser\s*:\s*(null|\{)').firstMatch(source);

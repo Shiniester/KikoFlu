@@ -1910,8 +1910,14 @@
   "videoSourceAccount": "MissAV account",
   "videoJableAccount": "Jable account",
   "videoJableLoginRequired": "Sign in to Jable to view and manage your video favorites.",
-  "videoJableLoginHelp": "Sign in on Jable, then select Check sign-in.",
-  "videoCheckLogin": "Check sign-in",
+  "videoLoginHelp": "Sign in on the source website, then select Done to check your sign-in status.",
+  "@videoLoginHelp": {
+    "description": "Instruction shown in the source website login dialog before confirming account status."
+  },
+  "videoLoginComplete": "Done",
+  "@videoLoginComplete": {
+    "description": "Action that checks account status after sign-in on the source website."
+  },
   "videoJableSignedIn": "Signed in to Jable",
   "videoCatalog": "Browse videos",
   "videoContent": "Content",
@@ -1947,14 +1953,6 @@
   "videoLoadFailed": "Videos could not be loaded. Retry or open the source website.",
   "videoPlaybackFailed": "Playback failed. Retry or open the source website.",
   "videoDownloadFailed": "Download failed. Retry from video downloads.",
-  "videoEmail": "Email",
-  "videoRegisterOnSource": "Register on MissAV",
-  "videoResetPasswordOnSource": "Reset password on MissAV",
-  "videoPasswordOnSource": "Change password on MissAV",
-  "videoAccountSourceHint": "These actions open MissAV. Select registration or password management on the website.",
-  "@videoAccountSourceHint": {
-    "description": "Explains that account actions open the source website, where the user selects the corresponding form."
-  },
   "videoQuality": "Quality",
   "videoRelated": "Related videos",
   "videoDownloadQueued": "Queued",

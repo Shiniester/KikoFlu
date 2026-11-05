@@ -261,7 +261,12 @@ class JableClient implements VideoSourceClient {
   }
 
   Future<void> checkBrowserAccess() async {
-    await browse(homeUrl);
+    await _prepareOnlineAccess();
+    final uri = _sourceUri(Uri.parse(homeUrl));
+    final generation = _generation;
+    final locale = _locale;
+    await _loadDocument(uri);
+    _ensureRequestCurrent(generation, locale, uri, null);
   }
 
   int _advanceSessionGeneration() {
@@ -284,6 +289,7 @@ class JableClient implements VideoSourceClient {
     String url, {
     CancelToken? cancelToken,
     void Function(VideoCatalogPage page)? onParsed,
+    bool Function()? isCurrent,
   }) async {
     final uri = _sourceUri(Uri.parse(url));
     await _prepareOnlineAccess();
@@ -293,30 +299,47 @@ class JableClient implements VideoSourceClient {
       );
     }
     final generation = _generation;
+    final locale = _locale;
     final document = await _loadDocument(uri, cancelToken: cancelToken);
-    _ensureGeneration(generation, uri);
-    if (JableAccount.isFavoritesUri(uri)) {
-      final page = account._parseFavoritesPage(document, uri);
-      if (cancelToken?.cancelError case final error?) throw error;
-      onParsed?.call(page);
-      return page;
-    }
-    final currentPage = _currentPage(document, uri);
-    final parsedPage = VideoCatalogPage(
-      title: _pageTitle(document, uri),
-      url: uri.toString(),
-      videos: _parseVideos(document, uri),
-      links: _parseDirectoryLinks(document, uri),
-      navigation: _parseNavigation(document, uri),
-      nextUrl: _paginationUrl(document, uri, next: true),
-      previousUrl: _paginationUrl(document, uri, next: false),
-      currentPage: currentPage,
-      jumpMaxPage: _jumpMaxPage(document, uri),
-      pageUrlBuilder: _pageUrlBuilder(document, uri),
-    );
+    _ensureRequestCurrent(generation, locale, uri, cancelToken);
+    final parsedPage = JableAccount.isFavoritesUri(uri)
+        ? account._parseFavoritesPage(document, uri)
+        : VideoCatalogPage(
+            title: _pageTitle(document, uri),
+            url: uri.toString(),
+            videos: _parseVideos(document, uri),
+            links: _parseDirectoryLinks(document, uri),
+            navigation: _parseNavigation(document, uri),
+            nextUrl: _paginationUrl(document, uri, next: true),
+            previousUrl: _paginationUrl(document, uri, next: false),
+            currentPage: _currentPage(document, uri),
+            jumpMaxPage: _jumpMaxPage(document, uri),
+            pageUrlBuilder: _pageUrlBuilder(document, uri),
+          );
+    if (isCurrent?.call() == false) return parsedPage;
     if (cancelToken?.cancelError case final error?) throw error;
     onParsed?.call(parsedPage);
-    return parsedPage;
+    final videos = await _enrichVideos(
+      parsedPage.videos,
+      generation: generation,
+      locale: locale,
+      cancelToken: cancelToken,
+      isCurrent: isCurrent,
+    );
+    _ensureRequestCurrent(generation, locale, uri, cancelToken);
+    if (isCurrent?.call() == false) return parsedPage;
+    return VideoCatalogPage(
+      title: parsedPage.title,
+      url: parsedPage.url,
+      videos: videos,
+      links: parsedPage.links,
+      navigation: parsedPage.navigation,
+      nextUrl: parsedPage.nextUrl,
+      previousUrl: parsedPage.previousUrl,
+      currentPage: parsedPage.currentPage,
+      jumpMaxPage: parsedPage.jumpMaxPage,
+      pageUrlBuilder: parsedPage.pageUrlBuilder,
+    );
   }
 
   @override
@@ -374,14 +397,16 @@ class JableClient implements VideoSourceClient {
       if (keyword.isNotEmpty) '$origin/search/${Uri.encodeComponent(keyword)}/',
       for (final filter in filters) _filterCatalogUrl(filter.url),
     };
+    bool isCurrentNow() =>
+        !_disposed &&
+        generation == _generation &&
+        locale == _locale &&
+        (isCurrent?.call() ?? true);
+
     return intersectVideoCatalogs(
       urls: urls,
-      browse: browse,
-      isCurrent: () =>
-          !_disposed &&
-          generation == _generation &&
-          locale == _locale &&
-          (isCurrent?.call() ?? true),
+      browse: (url) => browse(url, isCurrent: isCurrentNow),
+      isCurrent: isCurrentNow,
     );
   }
 
@@ -394,43 +419,13 @@ class JableClient implements VideoSourceClient {
     final uri = _sourceUri(Uri.parse(item.pageUrl));
     await _prepareOnlineAccess();
     final generation = _generation;
+    final locale = _locale;
     final document = await _loadDocument(uri);
-    _ensureGeneration(generation, uri);
+    _ensureRequestCurrent(generation, locale, uri, null);
     final marker = includeAccountState
         ? account._favoriteControl(document)
         : null;
-    final title =
-        _metaContent(document, 'og:title') ??
-        document.querySelector('h1')?.text.trim();
-    final cover = _metaContent(document, 'og:image');
-    final date = document
-        .querySelector('.video-info .info-header .inactive-color')
-        ?.text
-        .trim();
-    final actors = _parseNamedLinks(document, uri, 'models');
-    final tags = [
-      ..._parseNamedLinks(document, uri, 'categories'),
-      ..._parseNamedLinks(document, uri, 'tags'),
-    ];
-    final video = VideoItem(
-      id: item.id,
-      sourceKey: sourceKey,
-      title: title?.isNotEmpty == true ? title! : item.title,
-      pageUrl: uri.toString(),
-      cover: cover == null || cover.isEmpty
-          ? item.cover
-          : _absoluteUrl(uri, cover),
-      durationSeconds: item.durationSeconds,
-      releaseDate: date?.isNotEmpty == true ? date : item.releaseDate,
-      actors: _mergeLinks(actors, item.actors),
-      tags: _mergeLinks(tags, item.tags),
-      makers: item.makers,
-      labels: item.labels,
-      series: item.series,
-      directors: item.directors,
-      hasSubtitles: item.hasSubtitles,
-      isUncensored: item.isUncensored,
-    );
+    final video = _parseVideoMetadata(document, uri, item);
     final streamUrl = _parseHlsUrl(document, uri);
     if (streamUrl == null) {
       throw VideoSourceException(
@@ -439,10 +434,14 @@ class JableClient implements VideoSourceClient {
         sourceUrl: uri.toString(),
       );
     }
+    final related = _parseVideos(
+      document,
+      uri,
+    ).where((video) => video.id != item.id).toList(growable: false);
     final details = VideoDetails(
       video: video,
       description: _metaContent(document, 'description') ?? '',
-      related: _parseVideos(document, uri),
+      related: onReady == null ? related : const [],
       sourceId: marker?.id,
       isFavorite: marker?.selected,
       streams: [
@@ -455,7 +454,135 @@ class JableClient implements VideoSourceClient {
       ],
     );
     await onReady?.call(details);
-    return details;
+    if (onReady == null) return details;
+    // Non-interactive callers use parsed related cards and do not need extra page loads.
+    final enrichedRelated = await _enrichVideos(
+      related,
+      generation: generation,
+      locale: locale,
+    );
+    _ensureRequestCurrent(generation, locale, uri, null);
+    return VideoDetails(
+      video: details.video,
+      description: details.description,
+      metadata: details.metadata,
+      related: enrichedRelated,
+      sourceId: details.sourceId,
+      isFavorite: details.isFavorite,
+      streams: details.streams,
+    );
+  }
+
+  Future<List<VideoItem>> _enrichVideos(
+    List<VideoItem> videos, {
+    required int generation,
+    required String? locale,
+    CancelToken? cancelToken,
+    bool Function()? isCurrent,
+  }) async {
+    final enriched = <VideoItem>[];
+    for (final video in videos) {
+      final uri = _sourceUri(Uri.parse(video.pageUrl));
+      _ensureRequestCurrent(generation, locale, uri, cancelToken);
+      if (isCurrent?.call() == false) return videos;
+      try {
+        final document = await _loadDocument(uri, cancelToken: cancelToken);
+        _ensureRequestCurrent(generation, locale, uri, cancelToken);
+        if (isCurrent?.call() == false) return videos;
+        if (document.querySelector('.video-info .info-header') == null &&
+            document.querySelector('form input[type="password"]') != null) {
+          throw JableLoginRequiredException(sourceUrl: uri.toString());
+        }
+        enriched.add(_parseVideoMetadata(document, uri, video));
+      } on JableVerificationRequiredException {
+        rethrow;
+      } on JableLoginRequiredException {
+        rethrow;
+      } on DioException catch (error) {
+        if (error.type == DioExceptionType.cancel) rethrow;
+        _ensureRequestCurrent(generation, locale, uri, cancelToken);
+        enriched.add(video);
+      } catch (_) {
+        _ensureRequestCurrent(generation, locale, uri, cancelToken);
+        enriched.add(video);
+      }
+    }
+    return enriched;
+  }
+
+  VideoItem _parseVideoMetadata(Document document, Uri uri, VideoItem item) {
+    final header = document.querySelector('.video-info .info-header');
+    final title =
+        _metaContent(document, 'og:title') ??
+        document.querySelector('h1')?.text.trim();
+    final cover = _metaContent(document, 'og:image');
+    final rawDate = header?.querySelector('.inactive-color')?.text.trim();
+    final date = rawDate?.takeIfNotEmpty;
+    final actors = _parseNamedLinks(document, uri, 'models');
+    final tags = [
+      ..._parseNamedLinks(document, uri, 'categories'),
+      ..._parseNamedLinks(document, uri, 'tags'),
+    ];
+    final signals = [
+      item.title,
+      if (title?.isNotEmpty == true) title!,
+      if (header != null) header.text,
+      ...tags.map((tag) => tag.label),
+    ].join(' ');
+    return VideoItem(
+      id: item.id,
+      sourceKey: sourceKey,
+      title: title?.isNotEmpty == true ? title! : item.title,
+      pageUrl: uri.toString(),
+      cover: cover == null || cover.isEmpty
+          ? item.cover
+          : _absoluteUrl(uri, cover),
+      durationSeconds: item.durationSeconds,
+      releaseDate: _releaseDate(rawDate) ?? date ?? item.releaseDate,
+      actors: _mergeLinks(actors, item.actors),
+      tags: _mergeLinks(tags, item.tags),
+      makers: item.makers,
+      labels: item.labels,
+      series: item.series,
+      directors: item.directors,
+      hasSubtitles:
+          item.hasSubtitles ||
+          RegExp(r'(字幕|subtitle)', caseSensitive: false).hasMatch(signals) ||
+          tags.any(
+            (tag) => _segments(Uri.parse(tag.url)).contains('chinese-subtitle'),
+          ),
+      isUncensored:
+          item.isUncensored ||
+          RegExp(
+            r'(无码|無碼|无修正|無修正|uncensored)',
+            caseSensitive: false,
+          ).hasMatch(signals) ||
+          tags.any(
+            (tag) => _segments(Uri.parse(tag.url)).contains('uncensored'),
+          ),
+    );
+  }
+
+  String? _releaseDate(String? value) {
+    if (value == null || value.isEmpty) return null;
+    return RegExp(r'\d{4}-\d{2}-\d{2}').firstMatch(value)?.group(0);
+  }
+
+  void _ensureRequestCurrent(
+    int generation,
+    String? locale,
+    Uri uri,
+    CancelToken? cancelToken,
+  ) {
+    if (cancelToken?.cancelError case final error?) throw error;
+    _ensureGeneration(generation, uri);
+    if (_locale != locale) {
+      throw VideoSourceException(
+        'Jable language changed during the request.',
+        sourceKey: sourceKey,
+        sourceUrl: uri.toString(),
+      );
+    }
   }
 
   Future<Document> _loadDocument(Uri uri, {CancelToken? cancelToken}) async {

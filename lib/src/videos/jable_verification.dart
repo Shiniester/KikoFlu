@@ -948,7 +948,7 @@ class _JableVerificationState extends State<_JableVerification> {
             children: [
               Text(
                 widget.requireLogin
-                    ? s.videoJableLoginHelp
+                    ? s.videoLoginHelp
                     : s.videoVerificationHelp,
               ),
               if (_proxyUnsupported) ...[
@@ -994,7 +994,7 @@ class _JableVerificationState extends State<_JableVerification> {
                   )
                 : Text(
                     widget.requireLogin
-                        ? s.videoCheckLogin
+                        ? s.videoLoginComplete
                         : s.videoVerificationContinue,
                   ),
           ),

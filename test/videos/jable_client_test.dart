@@ -360,11 +360,20 @@ void main() {
     ]);
 
     expect(results.map((video) => video.id), ['match']);
-    expect(adapter.requests.map((request) => request.uri.path), [
+    final catalogs = adapter.requests
+        .where((request) => !request.uri.path.startsWith('/videos/'))
+        .toList();
+    expect(catalogs.map((request) => request.uri.path), [
       '/search/needle%20words/',
       '/tags/drama/',
     ]);
-    expect(adapter.requests.last.uri.queryParameters, {'sort_by': 'post_date'});
+    expect(catalogs.last.uri.queryParameters, {'sort_by': 'post_date'});
+    expect(
+      adapter.requests.where(
+        (request) => request.uri.path.startsWith('/videos/'),
+      ),
+      hasLength(4),
+    );
     client.dispose();
   });
 
@@ -439,6 +448,335 @@ void main() {
     },
   );
 
+  test('returns catalog cards after optional metadata is complete', () async {
+    final adapter = _Adapter((request) {
+      if (request.uri.path == '/hot/') {
+        return _html('''
+          <html><body><div id="list_videos_hot_videos_list">
+            <div class="video-img-box"><a href="/videos/marked/"></a>
+              <div class="detail"><h6 class="title">Marked card</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/unavailable/"></a>
+              <div class="detail"><h6 class="title">Unavailable card</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/clean/"></a>
+              <div class="detail"><h6 class="title">中文剧情泄露</h6></div>
+            </div>
+          </div></body></html>
+        ''');
+      }
+      if (request.uri.path == '/videos/unavailable/') {
+        return _html('<html><body>Unavailable</body></html>', statusCode: 500);
+      }
+      if (request.uri.path == '/videos/clean/') {
+        return _html('''
+          <html><body>
+            <div class="video-info"><div class="info-header">
+              <span class="inactive-color">2025-02-03</span>
+            </div></div>
+            <form><input type="password" name="account-password"></form>
+            <aside>无码推荐广告</aside>
+          </body></html>
+        ''');
+      }
+      return _html('''
+        <html><head>
+          <meta property="og:title" content="Marked title">
+          <meta property="og:image" content="/covers/marked.jpg">
+        </head><body>
+          <div class="video-info">
+            <div class="info-header">
+              <span class="inactive-color">上市於 2025-01-02</span>
+              <div class="models"><a class="model" href="/models/sample-model/">
+                <span class="rounded-circle" data-original-title="Sample model"></span>
+              </a></div>
+            </div>
+            <div class="tags">
+              <a class="cat" href="/categories/chinese-subtitle/">Chinese subtitle</a>
+              <a class="cat" href="/categories/uncensored/">Uncensored</a>
+              <a href="/tags/drama/">Drama</a>
+            </div>
+          </div>
+        </body></html>
+      ''');
+    });
+    final client = _client(adapter);
+    VideoCatalogPage? staged;
+
+    final page = await client.browse(
+      'https://jable.tv/hot/',
+      onParsed: (value) => staged = value,
+    );
+
+    expect(staged!.videos.first.actors, isEmpty);
+    expect(page.videos.first.title, 'Marked title');
+    expect(page.videos.first.cover, 'https://jable.tv/covers/marked.jpg');
+    expect(page.videos.first.releaseDate, '2025-01-02');
+    expect(page.videos.first.actors.single.label, 'Sample model');
+    expect(page.videos.first.tags.map((tag) => tag.label), [
+      'Chinese subtitle',
+      'Uncensored',
+      'Drama',
+    ]);
+    expect(page.videos.first.hasSubtitles, isTrue);
+    expect(page.videos.first.isUncensored, isTrue);
+    expect(page.videos[1].title, 'Unavailable card');
+    expect(page.videos[1].actors, isEmpty);
+    expect(page.videos[2].title, '中文剧情泄露');
+    expect(page.videos[2].hasSubtitles, isFalse);
+    expect(page.videos[2].isUncensored, isFalse);
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/hot/',
+      '/videos/marked/',
+      '/videos/unavailable/',
+      '/videos/clean/',
+    ]);
+    client.dispose();
+  });
+
+  test(
+    'stops catalog enrichment when a video requires browser verification',
+    () async {
+      final adapter = _Adapter((request) {
+        if (request.uri.path == '/hot/') {
+          return _html('''
+          <div id="list_videos_hot_videos_list">
+            <div class="video-img-box"><a href="/videos/blocked/"></a>
+              <div class="detail"><h6>Blocked</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/later/"></a>
+              <div class="detail"><h6>Later</h6></div>
+            </div>
+          </div>
+        ''');
+        }
+        return _html('<html><body>Denied</body></html>', statusCode: 403);
+      });
+      final client = _client(adapter);
+
+      await expectLater(
+        client.browse('https://jable.tv/hot/'),
+        throwsA(isA<JableVerificationRequiredException>()),
+      );
+
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/hot/',
+        '/videos/blocked/',
+      ]);
+      client.dispose();
+    },
+  );
+
+  test(
+    'stops catalog enrichment on a login page without video metadata',
+    () async {
+      final adapter = _Adapter((request) {
+        if (request.uri.path == '/hot/') {
+          return _html('''
+          <div id="list_videos_hot_videos_list">
+            <div class="video-img-box"><a href="/videos/guest/"></a>
+              <div class="detail"><h6>Guest video</h6></div>
+            </div>
+          </div>
+        ''');
+        }
+        return _html('''
+        <html><body><form action="/login/">
+          <input type="password" name="password">
+        </form></body></html>
+      ''');
+      });
+      final client = _client(adapter);
+
+      await expectLater(
+        client.browse('https://jable.tv/hot/'),
+        throwsA(isA<JableLoginRequiredException>()),
+      );
+      expect(adapter.requests, hasLength(2));
+      client.dispose();
+    },
+  );
+
+  test('stops remaining metadata requests when the session changes', () async {
+    final detailStarted = Completer<void>();
+    final finishDetail = Completer<ResponseBody>();
+    final adapter = _Adapter((request) async {
+      if (request.uri.path == '/hot/') {
+        return _html('''
+          <div id="list_videos_hot_videos_list">
+            <div class="video-img-box"><a href="/videos/first/"></a>
+              <div class="detail"><h6>First</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/second/"></a>
+              <div class="detail"><h6>Second</h6></div>
+            </div>
+          </div>
+        ''');
+      }
+      detailStarted.complete();
+      return finishDetail.future;
+    });
+    final client = _client(adapter);
+    final browse = client.browse('https://jable.tv/hot/');
+    await detailStarted.future;
+
+    await client.clearSession();
+    finishDetail.complete(_html('<html><body>Late response</body></html>'));
+    await expectLater(browse, throwsA(anything));
+
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/hot/',
+      '/videos/first/',
+    ]);
+    client.dispose();
+  });
+
+  test('stops catalog enrichment if the locale changes mid-request', () async {
+    final detailStarted = Completer<void>();
+    final finishDetail = Completer<ResponseBody>();
+    final adapter = _Adapter((request) async {
+      if (request.uri.path == '/hot/') {
+        return _html('''
+          <div id="list_videos_hot_videos_list">
+            <div class="video-img-box"><a href="/videos/first/"></a>
+              <div class="detail"><h6>First</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/second/"></a>
+              <div class="detail"><h6>Second</h6></div>
+            </div>
+          </div>
+        ''');
+      }
+      detailStarted.complete();
+      return finishDetail.future;
+    });
+    final client = _client(adapter);
+    final browse = client.browse('https://jable.tv/hot/');
+    await detailStarted.future;
+
+    client.setLocale('ja-JP');
+    finishDetail.complete(_html('<html><body>Late response</body></html>'));
+    await expectLater(browse, throwsA(isA<VideoSourceException>()));
+
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/hot/',
+      '/videos/first/',
+    ]);
+    client.dispose();
+  });
+
+  test(
+    'stops stale filtered search during the first metadata request',
+    () async {
+      final detailStarted = Completer<void>();
+      final finishDetail = Completer<ResponseBody>();
+      final adapter = _Adapter((request) async {
+        if (request.uri.path == '/search/needle/') {
+          return _html('''
+          <div id="list_videos_search_videos_list">
+            <div class="video-img-box"><a href="/videos/first/"></a>
+              <div class="detail"><h6>First</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/second/"></a>
+              <div class="detail"><h6>Second</h6></div>
+            </div>
+          </div>
+        ''');
+        }
+        detailStarted.complete();
+        return finishDetail.future;
+      });
+      final client = _client(adapter);
+      var current = true;
+      final search = client.searchWithFilters(
+        'needle',
+        const [],
+        isCurrent: () => current,
+      );
+      await detailStarted.future;
+
+      current = false;
+      finishDetail.complete(_html('<html><body>Late response</body></html>'));
+      expect(await search, isEmpty);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/search/needle/',
+        '/videos/first/',
+      ]);
+      client.dispose();
+    },
+  );
+
+  test('enriches related cards after the current video is ready', () async {
+    VideoDetails? ready;
+    final adapter = _Adapter((request) {
+      if (request.uri.path == '/videos/current/') {
+        return _html('''
+          <html><body><div class="video-info">
+            <div class="info-header"><span class="inactive-color">2025-01-01</span></div>
+          </div>
+          <div class="video-img-box"><a href="/videos/related/"></a>
+            <div class="detail"><h6>Related card</h6></div>
+          </div>
+          <script>var hlsUrl = "https://media.example/current.m3u8";</script>
+        </body></html>
+        ''');
+      }
+      expect(ready!.streams, isNotEmpty);
+      expect(ready!.related, isEmpty);
+      return _html('''
+        <html><head><meta property="og:title" content="Related title"></head>
+        <body><div class="video-info">
+          <div class="info-header"><span class="inactive-color">2025-01-02</span>
+            <div class="models"><a class="model" href="/models/related-model/">
+              <span class="rounded-circle" data-original-title="Related model"></span>
+            </a></div>
+          </div>
+          <div class="tags"><a href="/tags/drama/">Drama</a></div>
+        </div></body></html>
+      ''');
+    });
+    final client = _client(adapter);
+
+    final details = await client.details(
+      const VideoItem(
+        id: 'current',
+        sourceKey: 'jable',
+        title: 'Current',
+        pageUrl: 'https://jable.tv/videos/current/',
+      ),
+      onReady: (value) => ready = value,
+    );
+
+    expect(ready!.streams.single.url, 'https://media.example/current.m3u8');
+    expect(ready!.related, isEmpty);
+    expect(details.related.single.title, 'Related title');
+    expect(details.related.single.releaseDate, '2025-01-02');
+    expect(details.related.single.actors.single.label, 'Related model');
+    expect(details.related.single.tags.single.label, 'Drama');
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/videos/current/',
+      '/videos/related/',
+    ]);
+
+    final unobserved = await client.details(
+      const VideoItem(
+        id: 'current',
+        sourceKey: 'jable',
+        title: 'Current',
+        pageUrl: 'https://jable.tv/videos/current/',
+      ),
+      includeAccountState: false,
+    );
+    expect(unobserved.related.single.title, 'Related card');
+    expect(unobserved.related.single.actors, isEmpty);
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/videos/current/',
+      '/videos/related/',
+      '/videos/current/',
+    ]);
+    client.dispose();
+  });
+
   test(
     'adds a selected locale to document requests but not catalog URLs',
     () async {
@@ -494,7 +832,8 @@ void main() {
         </head><body>
           <div class="video-info">
             <div class="info-header">
-              <span class="inactive-color">2025-01-02</span>
+              <span class="inactive-color">上市於 2025-01-02</span>
+              <span class="badge">无码</span>
               <div class="models">
                 <a class="model" href="/models/sample-model/">
                   <span class="rounded-circle" data-original-title="Sample model"></span>
@@ -510,6 +849,7 @@ void main() {
           <aside class="sidebar">
             <a href="/models/sidebar-model/">Sidebar model</a>
             <a href="/categories/sidebar-tag/">Sidebar tag</a>
+            <span>无码推荐广告</span>
           </aside>
           <script>var hlsUrl = "https://media.example/stream/master.m3u8";</script>
         </body></html>
@@ -545,6 +885,8 @@ void main() {
       expect(details.video.title, 'Sample title');
       expect(details.video.sourceKey, 'jable');
       expect(details.video.releaseDate, '2025-01-02');
+      expect(details.video.hasSubtitles, isTrue);
+      expect(details.video.isUncensored, isTrue);
       expect(details.video.durationSeconds, 7439);
       expect(details.video.actors.map((link) => link.label), [
         'Sample model',
@@ -641,11 +983,23 @@ void main() {
               _html('<html><head><title>Native fallback</title></head></html>'),
         );
       var documentNavigations = 0;
+      final documentPaths = <String>[];
       final browser = MissavBrowserAdapter.jable(
         runJavaScript: (_) async {},
         currentUrl: () async => 'https://jable.tv/',
-        navigateDocument: (_, __) async {
+        navigateDocument: (uri, __) async {
           documentNavigations++;
+          documentPaths.add(uri.path);
+          if (uri.path.isEmpty || uri.path == '/') {
+            return '''<html><body><div id="list_videos_home_videos_list">
+              <div class="video-img-box"><a href="/videos/one/"></a>
+                <div class="detail"><h6>One</h6></div>
+              </div>
+              <div class="video-img-box"><a href="/videos/two/"></a>
+                <div class="detail"><h6>Two</h6></div>
+              </div>
+            </div></body></html>''';
+          }
           return '<html><head><title>Restored browser</title></head></html>';
         },
         disposeBrowser: () async {},
@@ -666,6 +1020,7 @@ void main() {
 
       expect(page.title, 'Restored browser');
       expect(documentNavigations, 2);
+      expect(documentPaths, ['', '/latest-updates/']);
       client.dispose();
       dio.close(force: true);
     },
@@ -683,7 +1038,7 @@ ResponseBody _html(String body, {int statusCode = 200}) =>
 class _Adapter implements HttpClientAdapter {
   _Adapter(this.respond);
 
-  final ResponseBody Function(RequestOptions) respond;
+  final FutureOr<ResponseBody> Function(RequestOptions) respond;
   final requests = <RequestOptions>[];
 
   @override
@@ -693,7 +1048,18 @@ class _Adapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
-    return respond(options);
+    final response = Future<ResponseBody>.sync(() => respond(options));
+    if (cancelFuture == null) return response;
+    return Future.any([
+      response,
+      cancelFuture.then<ResponseBody>(
+        (_) => throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.cancel,
+          message: 'Request cancelled by test',
+        ),
+      ),
+    ]);
   }
 
   @override

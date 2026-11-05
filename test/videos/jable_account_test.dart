@@ -259,6 +259,24 @@ void main() {
     'searches only favorites pages in server order and supports cancellation',
     () async {
       final adapter = _Adapter((request) {
+        if (request.uri.path == '/videos/alpha/') {
+          return _html('''
+            <html><body><div class="video-info">
+              <div class="info-header">
+                <span class="inactive-color">上市於 2025-01-02</span>
+                <div class="models"><a class="model" href="/models/alpha-model/">
+                  <span class="rounded-circle" data-original-title="Alpha model"></span>
+                </a></div>
+              </div>
+              <div class="tags">
+                <a class="cat" href="/categories/chinese-subtitle/">Chinese subtitle</a>
+              </div>
+            </div></body></html>
+          ''');
+        }
+        if (request.uri.path.startsWith('/videos/')) {
+          return _html('<html><body>Metadata unavailable</body></html>');
+        }
         if (request.uri.queryParameters['from_my_fav_videos'] == '2') {
           return _html('''
           <div class="list-videos">
@@ -315,18 +333,30 @@ void main() {
         'Delta',
         'Gamma',
       ]);
-      expect(adapter.requests, hasLength(4));
-      expect(adapter.requests[1].uri.queryParameters['function'], 'get_block');
+      expect(results.first.releaseDate, '2025-01-02');
+      expect(results.first.actors.single.label, 'Alpha model');
+      expect(results.first.hasSubtitles, isTrue);
+      final favoriteRequests = adapter.requests
+          .where((request) => JableAccount.isFavoritesUri(request.uri))
+          .toList();
+      expect(favoriteRequests, hasLength(4));
+      expect(favoriteRequests[1].uri.queryParameters['function'], 'get_block');
       expect(
-        adapter.requests[1].uri.queryParameters['block_id'],
+        favoriteRequests[1].uri.queryParameters['block_id'],
         'list_videos_my_favourite_videos',
+      );
+      expect(
+        adapter.requests.where(
+          (request) => request.uri.path.startsWith('/videos/'),
+        ),
+        hasLength(5),
       );
       expect(
         adapter.requests.every((request) => request.uri.host == 'jable.tv'),
         isTrue,
       );
       final secondPage = await testClient.client.browse(
-        adapter.requests[1].uri.toString(),
+        favoriteRequests[1].uri.toString(),
       );
       expect(secondPage.currentPage, 2);
       expect(secondPage.jumpMaxPage, 4);
@@ -340,7 +370,18 @@ void main() {
         Uri.parse(secondPage.pageUrl(4)).queryParameters['from_my_fav_videos'],
         '4',
       );
-      expect(adapter.requests, hasLength(5));
+      expect(
+        adapter.requests.where(
+          (request) => JableAccount.isFavoritesUri(request.uri),
+        ),
+        hasLength(5),
+      );
+      expect(
+        adapter.requests.where(
+          (request) => request.uri.path.startsWith('/videos/'),
+        ),
+        hasLength(6),
+      );
       testClient.dispose();
 
       final cancelledAdapter = _Adapter((_) => _html(_favoritesPage()));
@@ -354,6 +395,46 @@ void main() {
       );
       expect(cancelledAdapter.requests, isEmpty);
       cancelled.dispose();
+    },
+  );
+
+  test(
+    'stops remaining favorite metadata requests after search becomes stale',
+    () async {
+      final detailStarted = Completer<void>();
+      final finishDetail = Completer<ResponseBody>();
+      final adapter = _Adapter((request) {
+        if (request.uri.path == '/my/favourites/videos/') {
+          return _html('''
+          <html><body><div id="list_videos_my_favourite_videos">
+            <div class="video-img-box"><a href="/videos/first/"></a>
+              <div class="detail"><h6>First</h6></div>
+            </div>
+            <div class="video-img-box"><a href="/videos/second/"></a>
+              <div class="detail"><h6>Second</h6></div>
+            </div>
+          </div></body></html>
+        ''');
+        }
+        detailStarted.complete();
+        return finishDetail.future;
+      });
+      final testClient = _createClient(adapter);
+      var current = true;
+      final search = testClient.client.account.searchFavorites(
+        '',
+        isCurrent: () => current,
+      );
+      await detailStarted.future;
+
+      current = false;
+      finishDetail.complete(_html('<html><body>Late response</body></html>'));
+      expect(await search, isEmpty);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/my/favourites/videos/',
+        '/videos/first/',
+      ]);
+      testClient.dispose();
     },
   );
 
