@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'work_detail_section_title.dart';
-
 class WorkDetailDate extends StatelessWidget {
   const WorkDetailDate({super.key, required this.label, required this.date});
 
@@ -9,15 +7,17 @@ class WorkDetailDate extends StatelessWidget {
   final String date;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 4,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    children: [
-      WorkDetailSectionTitle(label),
-      Text(
-        date.split('T').first,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final style = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600], fontSize: 12);
+    return Wrap(
+      spacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(label, style: style),
+        Text(date.split('T').first, style: style),
+      ],
+    );
+  }
 }

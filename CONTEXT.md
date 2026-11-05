@@ -563,7 +563,8 @@ Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
 
 **Comic Details Screen (漫画详情页)**:
-The page describing one comic's synopsis, tags, chapters, and available actions.
+The page describing one comic's synopsis, tags, chapters, available source comments,
+and actions.
 It is distinct from the Comic Screen and Comic Reader.
 _Avoid_: Comic Screen, Comic Reader
 

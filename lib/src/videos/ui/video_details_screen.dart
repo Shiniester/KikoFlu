@@ -1107,19 +1107,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             runSpacing: 8,
             children: [
               for (final entry in basicMetadata)
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${entry.key}: ',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      TextSpan(text: entry.value),
-                    ],
+                Text(
+                  '${entry.key}: ${entry.value}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                    fontSize: 12,
                   ),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontSize: 12),
                 ),
             ],
           ),

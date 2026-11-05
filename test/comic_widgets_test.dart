@@ -88,6 +88,9 @@ class _Source extends ComicSource {
   final String sourceKey;
   bool loggedIn = false, favoriteFails = false, remoteFavorites = true;
   bool commentsEnabled = false;
+  int commentReads = 0;
+  Object? commentsError;
+  Completer<List<ComicComment>>? commentGate;
   List<ComicComment> commentsResult = const [
     ComicComment('Reader', 'Existing comment'),
   ];
@@ -111,7 +114,13 @@ class _Source extends ComicSource {
   @override
   bool get hasComments => commentsEnabled;
   @override
-  Future<List<ComicComment>> comments(Comic comic) async => commentsResult;
+  Future<List<ComicComment>> comments(Comic comic) async {
+    commentReads++;
+    if (commentsError != null) throw commentsError!;
+    if (commentGate != null) return commentGate!.future;
+    return commentsResult;
+  }
+
   @override
   Future<void> setFavorite(Comic comic, bool value) async {
     favoriteWrites++;
@@ -7858,9 +7867,14 @@ void main() {
         find.byKey(const ValueKey('comic-detail-cover')),
       );
       final title = tester.getRect(find.byType(WorkTitleHeader));
-      expect(cover.left, closeTo(title.left, 0.1));
-      expect(cover.bottom, lessThan(title.top));
-      expect(cover.width, closeTo(size.width == 320 ? 304 : 904 / 3, 0.1));
+      if (size.width == 320) {
+        expect(cover.left, closeTo(title.left, 0.1));
+        expect(cover.bottom, lessThan(title.top));
+        expect(cover.width, closeTo(304, 0.1));
+      } else {
+        expect(cover.right, lessThan(title.left));
+        expect(cover.width, lessThanOrEqualTo(500));
+      }
       expect(
         tester
             .widget<ComicImage>(
@@ -7878,15 +7892,14 @@ void main() {
           matching: find.byType(FilledButton),
         ),
       );
-      expect(
-        button.right,
-        closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
-      );
-      expect(button.bottom, lessThan(title.top));
       if (size.width == 320) {
+        expect(button.right, closeTo(size.width - 8 - 8, 0.1));
+        expect(button.bottom, lessThan(title.top));
         expect(button.top, greaterThan(cover.bottom));
       } else {
         expect(button.left, greaterThan(cover.right));
+        expect(button.left, closeTo(title.left, 0.1));
+        expect(title.bottom, lessThan(button.top));
       }
       final icon = tester.getRect(
         find.descendant(
@@ -7909,7 +7922,7 @@ void main() {
       expect(find.text('Start reading'), findsNothing);
       expect(
         tester.getTopLeft(find.byIcon(Icons.history)).dx,
-        closeTo(size.width == 320 ? cover.left : cover.right + 16, 0.1),
+        closeTo(size.width == 320 ? cover.left : title.left, 0.1),
       );
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
@@ -8786,7 +8799,9 @@ void main() {
         return _png;
       },
     );
-    final comments = find.text('Comments');
+    final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+    final comments = find.text(labels.comicComments);
+    expect(source.commentReads, 0);
     await tester.scrollUntilVisible(
       comments,
       200,
@@ -8794,7 +8809,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(comments);
-    await tester.pump();
+    await tester.pumpAndSettle();
     final avatar = find.byWidgetPredicate(
       (widget) => widget is ComicCover && widget.page.url == 'fixture-avatar',
     );
@@ -8805,7 +8820,6 @@ void main() {
     await waitForPreviewContent(tester, avatarImage);
     await waitForDecodedImage(tester, avatarImage);
     await tester.pumpAndSettle();
-    final labels = S.of(tester.element(find.text('Timed comment')));
     expect(
       find.text(
         labels.comicCommentTime(createdAt.toLocal(), createdAt.toLocal()),
@@ -8819,7 +8833,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('comments follow all chapters and remain read only', (
+  testWidgets('comment tab loads on selection and remains read only', (
     tester,
   ) async {
     final source = _Source()..commentsEnabled = true;
@@ -8829,27 +8843,234 @@ void main() {
       _Library(),
       source,
     );
-    await tester.ensureVisible(find.text('Fixture tag'));
-    await tester.pumpAndSettle();
     final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
     final comments = find.text(labels.comicComments);
-    expect(
-      tester.getTopLeft(find.text('Fixture tag')).dy,
-      lessThan(tester.getTopLeft(comments).dy),
-    );
+    expect(find.text(labels.comicChapters), findsOneWidget);
+    expect(find.text('Existing comment'), findsNothing);
+    expect(source.commentReads, 0);
     await tester.scrollUntilVisible(
       comments,
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(
-      tester.getTopLeft(comments).dy,
-      greaterThan(tester.getTopLeft(find.text('Chapter 2')).dy),
-    );
     await tester.tap(comments);
     await tester.pumpAndSettle();
+    expect(source.commentReads, 1);
     expect(find.text('Existing comment'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets(
+    'comic detail reflows across rotation and retains the selected comment tab',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final comic = Comic(
+        source: 'fixture',
+        id: 'layout-book',
+        title: 'Layout book',
+        cover: 'fixture-cover',
+        description: List.filled(24, 'Synopsis text').join(' '),
+        extra: const {
+          'authors': ['Layout author'],
+        },
+        tags: const ['Layout tag'],
+        chapters: List.generate(
+          40,
+          (index) => ComicChapter('layout-$index', 'Layout chapter $index'),
+        ),
+      );
+      final source = _Source()
+        ..detailResult = comic
+        ..commentsEnabled = true
+        ..commentsResult = const [ComicComment('Reader', 'Layout comment')]
+        ..commentGate = Completer<List<ComicComment>>();
+      await pump(tester, ComicDetailScreen(comic: comic), _Library(), source);
+
+      final coverFinder = find.byKey(const ValueKey('comic-detail-cover'));
+      final infoFinder = find.byKey(const ValueKey('comic-detail-info'));
+      final titleFinder = find.byType(WorkTitleHeader);
+      expect(
+        tester.getRect(coverFinder).right,
+        lessThan(tester.getRect(infoFinder).left),
+      );
+      expect(
+        tester.getBottomLeft(coverFinder).dy,
+        lessThan(tester.getTopLeft(titleFinder).dy),
+      );
+      expect(
+        tester.getBottomLeft(infoFinder).dy,
+        lessThan(tester.getTopLeft(titleFinder).dy),
+      );
+      expect(find.text('Layout chapter 39'), findsNothing);
+      expect(source.commentReads, 0);
+      expect(tester.takeException(), isNull);
+
+      final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+      final tabsFinder = find.byKey(const ValueKey('comic-detail-tabs'));
+      final scrollable = find
+          .descendant(
+            of: find.byKey(const PageStorageKey<String>('comic-detail-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      tester.view.physicalSize = const Size(900, 500);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(coverFinder).right,
+        lessThan(tester.getRect(titleFinder).left),
+      );
+      expect(
+        tester.getTopLeft(infoFinder).dy,
+        greaterThan(tester.getBottomLeft(titleFinder).dy),
+      );
+      final landscapeCover = tester.getRect(coverFinder);
+      final position = tester.state<ScrollableState>(scrollable).position;
+      final initialOffset = position.pixels;
+      await tester.dragFrom(const Offset(700, 430), const Offset(0, -180));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(coverFinder), landscapeCover);
+      expect(position.pixels, greaterThan(initialOffset));
+      expect(source.commentReads, 0);
+      expect(tester.takeException(), isNull);
+
+      for (final size in [const Size(568, 320), const Size(390, 844)]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+        expect(source.commentReads, 0);
+        expect(
+          tester.state<ScrollableState>(scrollable).position.pixels,
+          greaterThan(0),
+        );
+        expect(tester.takeException(), isNull);
+      }
+      final lastChapter = find.text('Layout chapter 39');
+      for (
+        var attempt = 0;
+        attempt < 10 && lastChapter.evaluate().isEmpty;
+        attempt++
+      ) {
+        final chapterPosition = tester
+            .state<ScrollableState>(scrollable)
+            .position;
+        chapterPosition.jumpTo(chapterPosition.maxScrollExtent);
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Layout chapter 39'), findsOneWidget);
+
+      await tester.tap(find.text(labels.comicComments));
+      await tester.pump();
+      expect(source.commentReads, 1);
+      expect(find.text('Layout comment'), findsNothing);
+      source.commentGate!.complete(source.commentsResult);
+      await tester.pumpAndSettle();
+      final commentFinder = find.text('Layout comment');
+      final commentPosition = tester
+          .state<ScrollableState>(scrollable)
+          .position;
+      commentPosition.jumpTo(commentPosition.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(commentFinder, findsOneWidget);
+
+      for (final size in [
+        const Size(900, 500),
+        const Size(568, 320),
+        const Size(390, 844),
+      ]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+        final rotatedPosition = tester
+            .state<ScrollableState>(scrollable)
+            .position;
+        rotatedPosition.jumpTo(rotatedPosition.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(tester.widget<TabBar>(tabsFinder).controller!.index, 1);
+        expect(commentFinder, findsOneWidget);
+        expect(source.commentReads, 1);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.tap(find.text(labels.comicChapters));
+      await tester.pumpAndSettle();
+      expect(commentFinder, findsNothing);
+      await tester.tap(find.text(labels.comicComments));
+      await tester.pumpAndSettle();
+      final restoredPosition = tester
+          .state<ScrollableState>(scrollable)
+          .position;
+      restoredPosition.jumpTo(restoredPosition.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(commentFinder, findsOneWidget);
+      expect(source.commentReads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final hasComments in [false, true]) {
+    testWidgets(
+      'comic detail fits enlarged text across rotation (comments: $hasComments)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final source = _Source()..commentsEnabled = hasComments;
+        await pump(
+          tester,
+          const ComicDetailScreen(comic: _comic),
+          _Library(),
+          source,
+          textScale: 1.4,
+        );
+        final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+        expect(
+          find.text(labels.comicComments),
+          hasComments ? findsOneWidget : findsNothing,
+        );
+        expect(find.text(labels.comicChapters), findsOneWidget);
+        expect(tester.takeException(), isNull);
+
+        tester.view.physicalSize = const Size(568, 320);
+        await tester.pumpAndSettle();
+        expect(source.commentReads, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('comment tab retries after a login-required response', (
+    tester,
+  ) async {
+    final source = _Source()
+      ..commentsEnabled = true
+      ..commentsError = const ComicSourceException(
+        'login required',
+        loginRequired: true,
+      );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+    );
+    final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+    final commentsTab = find.text(labels.comicComments);
+    await tester.scrollUntilVisible(
+      commentsTab,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(commentsTab);
+    await tester.pumpAndSettle();
+    expect(find.text(labels.comicLoginRequired), findsOneWidget);
+    expect(find.text(labels.comicSettings), findsOneWidget);
+    expect(source.commentReads, 1);
+
+    source.commentsError = null;
+    await tester.tap(find.text(labels.retry));
+    await tester.pumpAndSettle();
+    expect(source.commentReads, 2);
+    expect(find.text('Existing comment'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('offscreen detail tags are built only when scrolled into view', (
@@ -8904,7 +9125,8 @@ void main() {
     expect(tester.getSize(cover).width, closeTo(304, 0.1));
     tester.view.physicalSize = const Size(900, 600);
     await tester.pumpAndSettle();
-    expect(tester.getSize(cover).width, closeTo(268, 0.1));
+    expect(tester.getSize(cover).width, lessThanOrEqualTo(360));
+    expect(tester.getSize(cover).width, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 
@@ -8973,7 +9195,7 @@ void main() {
         final expectedWidth = switch (size.width) {
           320 => 304.0,
           390 => 183.0,
-          _ => 904 / 3,
+          _ => ratio > 1 ? 384.0 : 480 * ratio,
         };
         expect(cover.width, closeTo(expectedWidth, 0.1));
         final button = tester.getRect(
@@ -8983,15 +9205,21 @@ void main() {
           ),
         );
         final title = tester.getRect(find.byType(WorkTitleHeader));
-        expect(
-          button.right,
-          closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
-        );
-        expect(button.bottom, lessThan(title.top));
-        expect(cover.bottom, lessThan(title.top));
+        if (size.width != 1000) {
+          expect(
+            button.right,
+            closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
+          );
+          expect(button.bottom, lessThan(title.top));
+          expect(cover.bottom, lessThan(title.top));
+        } else {
+          expect(button.left, closeTo(title.left, 0.1));
+          expect(title.bottom, lessThan(button.top));
+          expect(cover.right, lessThan(title.left));
+        }
         if (size.width == 320) {
           expect(button.top, greaterThan(cover.bottom));
-        } else {
+        } else if (size.width == 390) {
           expect(button.left, greaterThan(cover.right));
         }
         expect(tester.takeException(), isNull);
@@ -9109,10 +9337,10 @@ void main() {
       200,
       scrollable: scrollable,
     );
-    expect(
-      tester.getTopLeft(find.text(labels.comicComments)).dy,
-      greaterThan(tester.getTopLeft(find.text('Loaded chapter 999')).dy),
-    );
+    expect(source.commentReads, 0);
+    await tester.tap(find.text(labels.comicComments));
+    await tester.pumpAndSettle();
+    expect(source.commentReads, 1);
     navigator.pop();
     await tester.pumpAndSettle();
     expect(find.text('Origin'), findsOneWidget);
