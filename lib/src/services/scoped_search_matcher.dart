@@ -1,6 +1,7 @@
 import '../models/search_query.dart';
 import '../models/search_type.dart';
 import '../models/work.dart';
+import '../utils/tag_translations.dart';
 import 'work_id_parser.dart';
 
 bool workNeedsSearchMetadata(Work work, SearchQuery query) {
@@ -81,7 +82,14 @@ bool? _matchesCondition(Work work, SearchCondition condition) {
     case SearchType.tag:
       final tags = work.tags;
       if (tags == null) return null;
-      return tags.any((tag) => tag.name.toLowerCase().contains(value));
+      return tags.any(
+        (tag) =>
+            tag.name.toLowerCase().contains(value) ||
+            (tagTranslations[tag.id]?.values.any(
+                  (name) => name.toLowerCase().contains(value),
+                ) ??
+                false),
+      );
     case SearchType.va:
       final vas = work.vas;
       if (vas == null) return null;

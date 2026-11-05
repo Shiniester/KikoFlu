@@ -225,6 +225,10 @@ The selected Audio Source's lists of tags, voice actors, and circles used to
 choose work search conditions. Catalog entries identify a tag, voice actor, or
 circle; they are distinct from the matching works.
 
+**Audio Tag (音声标签)**:
+A classification attached to an audio work. Its source-provided name and
+translated names refer to the same Audio Tag.
+
 **User-added Audio Tag (用户添加的标签)**:
 由音声源用户补充的作品标签，与作品默认标签区分。
 标签来源不表示票数高低。
