@@ -935,6 +935,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             ? null
             : AppBar(
                 centerTitle: false,
+                scrolledUnderElevation: extendLandscapeDetailsBehindAppBar
+                    ? 0
+                    : null,
                 titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
                 title: Text(
                   details?.video.catalogNumber ??

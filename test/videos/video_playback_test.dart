@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -22,6 +23,7 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
@@ -1348,6 +1350,69 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final theme in [AppTheme.lightTheme(null), AppTheme.darkTheme(null)]) {
+    _testPlayerWidget('landscape detail scrolling keeps the app bar color', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final client = _TestMissavClient(
+        _details(
+          metadata: {
+            'Fixture info': List.filled(100, 'Detail line').join('\n'),
+          },
+        ),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const ValueKey('video-details-paint'),
+          child: _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+            ),
+            theme: theme,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<int> appBarPixel() async => (await tester.runAsync(() async {
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('video-details-paint')),
+        );
+        final image = await boundary.toImage();
+        final data = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        final pixel = data.getUint32((20 * image.width + 600) * 4);
+        image.dispose();
+        return pixel;
+      }))!;
+
+      final before = await appBarPixel();
+      final info = find.byKey(
+        const PageStorageKey<String>('video-details-landscape-dvd-1'),
+      );
+      await tester.drag(info, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(of: info, matching: find.byType(Scrollable)),
+          )
+          .position;
+      expect(position.pixels, greaterThan(0));
+      expect(await appBarPixel(), before);
+    });
+  }
 
   _testPlayerWidget(
     'video details keep a centered 40:60 landscape layout and restore its scroll after fullscreen',

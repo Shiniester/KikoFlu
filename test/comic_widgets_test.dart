@@ -7818,6 +7818,96 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(390, 844), const Size(900, 500)]) {
+    testWidgets('comic detail title spacing at $size', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const comic = Comic(
+        source: 'fixture',
+        id: 'spacing',
+        title: 'Spacing title',
+        description: 'Spacing synopsis',
+      );
+      await pump(
+        tester,
+        const ComicDetailScreen(comic: comic),
+        _Library(),
+        _Source()..detailResult = comic,
+      );
+      final title = find.byType(WorkTitleHeader);
+      final following = size.width < size.height
+          ? find.byWidgetPredicate(
+              (widget) =>
+                  widget is SelectableText && widget.data == 'Spacing synopsis',
+            )
+          : find.byKey(const ValueKey('comic-detail-info'));
+      expect(
+        tester.getTopLeft(following).dy - tester.getBottomLeft(title).dy,
+        closeTo(8, 0.1),
+      );
+    });
+  }
+
+  testWidgets('landscape tall comic cover clips the image corners', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 350);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final image = img.Image(width: 100, height: 220);
+    img.fill(image, color: img.ColorRgb8(255, 0, 255));
+    final imageBytes = Uint8List.fromList(img.encodePng(image));
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      _Source(),
+      appNavigation: true,
+      track: const AudioTrack(
+        id: 'cover-test-audio',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+      loadImage: (_) async => imageBytes,
+    );
+    final cover = find.byKey(const ValueKey('comic-detail-cover'));
+    final decodedSize = await waitForDecodedImage(
+      tester,
+      find.descendant(of: cover, matching: find.byType(Image)),
+    );
+    final clip = find.descendant(
+      of: cover,
+      matching: find.byType(WorkCoverClip),
+    );
+    final clipRect = tester.getRect(clip);
+    final imageRect = Alignment.center.inscribe(
+      applyBoxFit(BoxFit.contain, decodedSize, clipRect.size).destination,
+      clipRect,
+    );
+    final pixels = await tester.runAsync(() async {
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('app-paint')),
+      );
+      final image = await boundary.toImage();
+      final data = (await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      ))!;
+      int pixelAt(Offset position) => data.getUint32(
+        (position.dy.floor() * image.width + position.dx.floor()) * 4,
+      );
+      final result = [
+        pixelAt(imageRect.topLeft + const Offset(2, 2)),
+        pixelAt(imageRect.center),
+      ];
+      image.dispose();
+      return result;
+    });
+    expect(pixels![1], 0xff00ffff);
+    expect(pixels[0], isNot(0xff00ffff));
+    expect(clipRect.size.aspectRatio, closeTo(100 / 220, 0.001));
+  });
+
   for (final size in [const Size(320, 640), const Size(1000, 600)]) {
     testWidgets('comic details keep toolbar actions and shared tags at $size', (
       tester,

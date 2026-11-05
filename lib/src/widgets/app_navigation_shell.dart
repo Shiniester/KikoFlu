@@ -96,10 +96,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       _audioMiniPlayerHeight = miniPlayer is RenderBox && miniPlayer.hasSize
           ? miniPlayer.size.height
           : dock is RenderBox && dock.hasSize
-          ? (dock.size.height - AppBottomDock.layoutExtent(context)).clamp(
-              0.0,
-              double.infinity,
-            )
+          ? (dock.size.height -
+                    (MediaQuery.orientationOf(context) == Orientation.landscape
+                        ? MediaQuery.paddingOf(context).bottom
+                        : AppBottomDock.layoutExtent(context)))
+                .clamp(0.0, double.infinity)
           : ((bottomInset ?? MediaQuery.paddingOf(context).bottom) -
                     MediaQuery.paddingOf(context).bottom)
                 .clamp(0.0, double.infinity);
@@ -377,6 +378,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             ),
             enabled: visible,
           );
+    final landscapePlayback = navigationOnstage
+        ? playback
+        : playerTransition != null && playback != null
+        ? Offstage(child: playback)
+        : null;
     if (layoutVisible && isLandscape) {
       final showRail = !explicitTransition || progress < 1;
       final paddingFactor = explicitTransition ? 1 - progress : 1.0;
@@ -417,25 +423,46 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                 removeRight: true,
                 removeBottom: true,
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    0,
-                    0,
-                    safePadding.right * paddingFactor,
-                    safePadding.bottom * paddingFactor,
+                  padding: EdgeInsets.only(
+                    right: safePadding.right * paddingFactor,
                   ),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: safePadding.left * paddingFactor,
-                          ),
-                          child: child,
-                        ),
+                  child: Scaffold(
+                    extendBody: true,
+                    resizeToAvoidBottomInset: false,
+                    body: Padding(
+                      padding: EdgeInsets.only(
+                        left: safePadding.left * paddingFactor,
                       ),
-                      if (playback != null)
-                        keyboardVisible ? Offstage(child: playback) : playback,
-                    ],
+                      child: child,
+                    ),
+                    bottomNavigationBar:
+                        landscapePlayback == null && safePadding.bottom == 0
+                        ? null
+                        : ClipPath(
+                            key: _dockClipKey,
+                            clipBehavior: sheets.isEmpty
+                                ? Clip.none
+                                : Clip.hardEdge,
+                            clipper: _DockSheetClipper(_dockClipKey, sheets),
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                bottom: safePadding.bottom * paddingFactor,
+                              ),
+                              child: landscapePlayback == null
+                                  ? const SizedBox.shrink()
+                                  : keyboardVisible
+                                  ? Offstage(
+                                      child: OverflowBox(
+                                        alignment: Alignment.bottomCenter,
+                                        maxHeight: MediaQuery.sizeOf(
+                                          context,
+                                        ).height,
+                                        child: landscapePlayback,
+                                      ),
+                                    )
+                                  : landscapePlayback,
+                            ),
+                          ),
                   ),
                 ),
               ),

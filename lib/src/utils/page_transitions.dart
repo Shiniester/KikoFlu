@@ -178,44 +178,80 @@ class _PageTransitionState extends State<_PageTransition>
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final navigation = AppNavigationScope.maybeOf(context);
     final routeName = widget.route.settings.name;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isRootNavigator = identical(
+      widget.route.navigator,
+      navigation?.navigator,
+    );
+    final isOrdinaryPage =
+        routeName != appImmersiveRouteSettings.name &&
+        routeName != appAudioPlayerRouteSettings.name;
+    // The host page keeps tab Navigators full-height for their popup routes.
+    final isShellHost = isRootNavigator && widget.route.isFirst;
+    final content = SafeArea(
+      top: false,
+      left: false,
+      right: false,
+      bottom:
+          navigation != null &&
+          isLandscape &&
+          isOrdinaryPage &&
+          !isShellHost &&
+          (navigation.navigationVisible ||
+              navigation.playerLaunchPreviewActive ||
+              (navigation.audioPlayerNavigationTransition != null &&
+                  (!isRootNavigator ||
+                      navigation.isBelowAudioPlayer(widget.route)))),
+      child: widget.child,
+    );
     final landscapeInsets =
         navigation != null &&
-            MediaQuery.orientationOf(context) == Orientation.landscape &&
-            identical(widget.route.navigator, navigation.navigator) &&
+            isLandscape &&
+            isRootNavigator &&
             navigation.isBelowAudioPlayer(widget.route) &&
             !navigation.playerLaunchPreviewActive &&
             !navigation.navigationVisible &&
-            routeName != appImmersiveRouteSettings.name &&
-            routeName != appAudioPlayerRouteSettings.name
+            isOrdinaryPage
         ? navigation.audioPlayerLandscapeInsets
         : null;
     final page = landscapeInsets == null
-        ? widget.child
+        ? content
         : LayoutBuilder(
             builder: (context, constraints) {
-              final size = MediaQuery.sizeOf(context);
+              final mediaQuery = MediaQuery.of(context);
+              final size = mediaQuery.size;
               // Gesture handoff can still lay out this route in its old viewport.
               final horizontal =
                   (constraints.maxWidth -
                           (size.width - landscapeInsets.horizontal))
                       .clamp(0.0, landscapeInsets.horizontal);
+              // Keep the Navigator full-height; only page content consumes padding.
               final vertical =
-                  (constraints.maxHeight -
-                          (size.height - landscapeInsets.vertical))
-                      .clamp(0.0, landscapeInsets.vertical);
-              return MediaQuery.removePadding(
-                context: context,
-                removeLeft: true,
-                removeRight: true,
-                removeBottom: true,
+                  (constraints.maxHeight - (size.height - landscapeInsets.top))
+                      .clamp(0.0, landscapeInsets.top);
+              return MediaQuery(
+                data: mediaQuery
+                    .removePadding(
+                      removeLeft: true,
+                      removeRight: true,
+                      removeBottom: true,
+                    )
+                    .copyWith(
+                      padding: mediaQuery.padding.copyWith(
+                        left: 0,
+                        right: 0,
+                        bottom: landscapeInsets.bottom,
+                      ),
+                    ),
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
                     math.min(landscapeInsets.left, horizontal),
                     math.min(landscapeInsets.top, vertical),
                     math.max(0, horizontal - landscapeInsets.left),
-                    math.max(0, vertical - landscapeInsets.top),
+                    0,
                   ),
-                  child: widget.child,
+                  child: content,
                 ),
               );
             },

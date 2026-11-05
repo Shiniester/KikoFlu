@@ -4136,6 +4136,15 @@ class SJa extends S {
   String get librarySources => 'ソース';
 
   @override
+  String get libraryAccount => 'アカウント';
+
+  @override
+  String get libraryContent => 'コンテンツ';
+
+  @override
+  String get libraryLocal => 'ローカル';
+
+  @override
   String get libraryPages => 'ページ';
 
   @override
@@ -4165,7 +4174,7 @@ class SJa extends S {
   }
 
   @override
-  String get libraryPageOrderDescription => 'ドラッグしてサイドバーのページ順を変更します。';
+  String get libraryPageOrderDescription => 'ドラッグしてサイドバーの各グループ内のページ順を変更します。';
 
   @override
   String get jpAsmrVerificationTitle => 'JP-ASMR へのアクセスを確認';

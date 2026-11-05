@@ -207,6 +207,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
 
   Widget _drawerContent() => SafeArea(
     child: ListView(
+      key: const PageStorageKey('library-drawer-scroll'),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       children: [
         ...widget.drawerChildren,

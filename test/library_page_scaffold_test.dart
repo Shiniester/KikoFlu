@@ -11,6 +11,8 @@ void main() {
     VoidCallback? onSelect,
     VoidCallback? onAlternate,
     VoidCallback? onSettings,
+    Key? pageKey,
+    ScrollController? bodyScrollController,
     double textScale = 1,
     Brightness brightness = Brightness.light,
     TargetPlatform? platform,
@@ -32,6 +34,7 @@ void main() {
       child: child!,
     ),
     home: LibraryPageScaffold(
+      key: pageKey,
       title: '热门',
       searchHint: '搜索热门',
       onSearch: onSearch ?? () {},
@@ -95,6 +98,7 @@ void main() {
       body:
           body ??
           ListView.builder(
+            controller: bodyScrollController,
             itemCount: 80,
             itemBuilder: (_, index) => ListTile(title: Text('作品 $index')),
           ),
@@ -152,6 +156,98 @@ void main() {
     expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('drawer opens without restoring the body offset ($platform)', (
+      tester,
+    ) async {
+      final bodyScroll = ScrollController();
+      addTearDown(bodyScroll.dispose);
+      await tester.pumpWidget(
+        app(
+          platform: platform,
+          pageKey: const PageStorageKey('library-screen'),
+          bodyScrollController: bodyScroll,
+          longDrawer: false,
+        ),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -620));
+      await tester.pumpAndSettle();
+      final bodyOffset = bodyScroll.offset;
+      expect(bodyOffset, greaterThan(0));
+
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pump();
+      final drawerScroll = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byType(Drawer),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      for (var frame = 0; frame < 8; frame++) {
+        expect(drawerScroll.position.pixels, 0);
+        expect(bodyScroll.offset, bodyOffset);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'drawer keeps its own offset when reopened after body scrolling',
+    (tester) async {
+      final bodyScroll = ScrollController();
+      addTearDown(bodyScroll.dispose);
+      await tester.pumpWidget(
+        app(
+          pageKey: const PageStorageKey('library-screen'),
+          bodyScrollController: bodyScroll,
+        ),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -620));
+      await tester.pumpAndSettle();
+      final bodyOffset = bodyScroll.offset;
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      final drawerList = find.descendant(
+        of: find.byType(Drawer),
+        matching: find.byType(ListView),
+      );
+      await tester.drag(drawerList, const Offset(0, -420));
+      await tester.pumpAndSettle();
+      final drawerOffset = tester
+          .state<ScrollableState>(
+            find.descendant(of: drawerList, matching: find.byType(Scrollable)),
+          )
+          .position
+          .pixels;
+      expect(drawerOffset, greaterThan(0));
+      expect(bodyScroll.offset, bodyOffset);
+
+      await tester.tapAt(const Offset(500, 300));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      final nextBodyOffset = bodyScroll.offset;
+      expect(nextBodyOffset, greaterThan(bodyOffset));
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .state<ScrollableState>(
+              find.descendant(
+                of: drawerList,
+                matching: find.byType(Scrollable),
+              ),
+            )
+            .position
+            .pixels,
+        closeTo(drawerOffset, 0.1),
+      );
+      expect(bodyScroll.offset, nextBodyOffset);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('horizontal content keeps its own drag gesture', (tester) async {
     final scroll = ScrollController(initialScrollOffset: 300);

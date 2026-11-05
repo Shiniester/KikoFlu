@@ -887,7 +887,7 @@ void main() {
 
     final drawer = find.byKey(const ValueKey('library-drawer'));
     expect(
-      find.descendant(of: drawer, matching: find.text(l10n.videoSourceAccount)),
+      find.descendant(of: drawer, matching: find.text(l10n.libraryAccount)),
       findsOneWidget,
     );
     expect(
@@ -2440,7 +2440,12 @@ void main() {
     }
 
     await openDrawer();
-    expect(find.text(l10n.videoContent), findsOneWidget);
+    expect(find.text(l10n.libraryContent), findsOneWidget);
+    await scrollToDrawerLabel(l10n.libraryBrowseOptions);
+    expect(
+      tester.getTopLeft(find.text(l10n.libraryLocal)).dy,
+      lessThan(tester.getTopLeft(find.text(l10n.libraryBrowseOptions)).dy),
+    );
     expect(
       find.descendant(of: drawer, matching: find.text(l10n.navHome)),
       findsNothing,

@@ -236,7 +236,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       rect.left,
       rect.top,
       media.size.width - rect.right,
-      media.size.height - rect.bottom,
+      media.padding.bottom,
     );
   }
 

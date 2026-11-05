@@ -9,6 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
+import 'package:kikoeru_flutter/src/comics/comic_library.dart';
+import 'package:kikoeru_flutter/src/comics/comic_models.dart';
+import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_download_screen.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/user.dart';
@@ -139,6 +144,11 @@ class _OfflineAuthNotifier extends AuthNotifier {
       error: 'offline',
     );
   }
+}
+
+class _ComicTaskLibrary extends ComicLibrary {
+  @override
+  Future<List<Map<String, dynamic>>> loadTasks() async => [];
 }
 
 Future<AppNavigationController> _pumpShell(
@@ -497,6 +507,214 @@ void main() {
       expect(find.byType(AppBottomDock).hitTestable(), findsOneWidget);
     });
   }
+
+  testWidgets('landscape sheet covers Mini Player without resizing the page', (
+    tester,
+  ) async {
+    const size = Size(1280, 720);
+    final navigation = await _pumpShell(
+      tester,
+      size: size,
+      safePadding: const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    );
+    final home = find.byKey(const ValueKey('home-viewport'));
+    final initialHomeRect = tester.getRect(home);
+    final miniPlayerRect = tester.getRect(find.byType(MiniPlayer));
+
+    final result = showResponsiveBottomSheet<String>(
+      context: tester.element(home),
+      isDismissible: false,
+      builder: (sheetContext) => Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          height: 56,
+          child: TextButton(
+            onPressed: () => Navigator.of(sheetContext).pop('selected'),
+            child: const Text('Select from landscape sheet'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey('responsive-sheet-surface'));
+    expect(tester.getRect(sheet).bottom, closeTo(size.height, 0.1));
+    expect(tester.getRect(sheet).overlaps(miniPlayerRect), isTrue);
+    expect(tester.getRect(home), initialHomeRect);
+    expect(
+      find.text('Select from landscape sheet').hitTestable(),
+      findsOneWidget,
+    );
+
+    await tester.tapAt(
+      Offset(miniPlayerRect.left + 20, miniPlayerRect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Select from landscape sheet'), findsOneWidget);
+
+    await tester.tap(find.text('Select from landscape sheet'));
+    await tester.pumpAndSettle();
+    expect(await result, 'selected');
+    expect(tester.getRect(home), initialHomeRect);
+    expect(find.byType(MiniPlayer).hitTestable(), findsOneWidget);
+    expect(navigation.navigationVisible, isTrue);
+  });
+
+  testWidgets('landscape sheet keeps a nested dialog above Mini Player', (
+    tester,
+  ) async {
+    await _pumpShell(tester, size: const Size(1280, 720));
+    final miniPlayer = tester.getRect(find.byType(MiniPlayer));
+    final context = tester.element(find.byKey(const ValueKey('home-viewport')));
+    unawaited(
+      showResponsiveBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => BottomSheetMenu(
+          children: [
+            ListTile(
+              title: const Text('Open landscape dialog'),
+              onTap: () => showDialog<void>(
+                context: sheetContext,
+                builder: (dialogContext) => AlertDialog(
+                  content: const Text('Landscape nested dialog'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Close landscape dialog'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open landscape dialog'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byType(AlertDialog)).bottom,
+      lessThanOrEqualTo(miniPlayer.top),
+    );
+    expect(find.text('Close landscape dialog').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Close landscape dialog'));
+    await tester.pumpAndSettle();
+    expect(find.text('Open landscape dialog').hitTestable(), findsOneWidget);
+  });
+
+  for (final size in [const Size(640, 360), const Size(1280, 720)]) {
+    for (final rootPage in [false, true]) {
+      testWidgets('landscape page FAB clears playback at $size '
+          '(root=$rootPage)', (tester) async {
+        var taps = 0;
+        final page = Scaffold(
+          body: const SizedBox.expand(key: ValueKey('ordinary-page-body')),
+          floatingActionButton: FloatingActionButton(
+            key: const ValueKey('ordinary-page-fab'),
+            onPressed: () => taps++,
+            child: const Icon(Icons.add),
+          ),
+        );
+        final navigation = await _pumpShell(
+          tester,
+          size: size,
+          homeBuilder: (navigation) => _tabHome(
+            navigation,
+            rootPage ? const Scaffold(body: Text('Home')) : page,
+          ),
+        );
+        if (rootPage) {
+          unawaited(
+            navigation.navigator!.push(
+              MaterialPageRoute<void>(builder: (_) => page),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        final fab = find.byKey(const ValueKey('ordinary-page-fab'));
+        final mini = tester.getRect(find.byType(MiniPlayer));
+        expect(tester.getRect(fab).bottom, lessThanOrEqualTo(mini.top));
+        expect(fab.hitTestable(), findsOneWidget);
+        await tester.tap(fab);
+        await tester.pump();
+        expect(taps, 1);
+
+        final body = find.byKey(const ValueKey('ordinary-page-body'));
+        final bodyRect = tester.getRect(body);
+        unawaited(
+          showResponsiveBottomSheet<void>(
+            context: tester.element(body),
+            builder: (_) => const Text('Full-height sheet'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final panel = tester.getRect(
+          find.byKey(const ValueKey('responsive-sheet-surface')),
+        );
+        expect(panel.bottom, closeTo(size.height, 0.1));
+        expect(panel.overlaps(mini), isTrue);
+        expect(tester.getRect(body), bodyRect);
+      });
+    }
+  }
+
+  testWidgets('landscape comic download actions scroll above playback', (
+    tester,
+  ) async {
+    final downloads = ComicDownloads(
+      _ComicTaskLibrary(),
+      (_) => throw UnimplementedError(),
+    );
+    await downloads.ready;
+    downloads.tasks.addAll(
+      List.generate(
+        12,
+        (index) => ComicDownloadTask(
+          comic: Comic(source: 'fixture', id: '$index', title: 'Task $index'),
+          chapter: const ComicChapter('chapter', 'Chapter'),
+          directory: 'unused',
+          status: ComicDownloadStatus.complete,
+          pages: const [ComicPage('unused')],
+          completed: 1,
+        ),
+      ),
+    );
+    await _pumpShell(
+      tester,
+      size: const Size(844, 390),
+      homeBuilder: (navigation) => _tabHome(
+        navigation,
+        ProviderScope(
+          overrides: [comicDownloadsProvider.overrideWith((ref) => downloads)],
+          child: const ComicDownloadScreen(),
+        ),
+      ),
+    );
+    final list = find.descendant(
+      of: find.byType(ComicDownloadScreen),
+      matching: find.byType(ListView),
+    );
+    await tester.drag(list, const Offset(0, -6000));
+    await tester.pumpAndSettle();
+    final lastCard = find.ancestor(
+      of: find.text('Task 11'),
+      matching: find.byType(Card),
+    );
+    final delete = find.descendant(
+      of: lastCard,
+      matching: find.byIcon(Icons.delete_outline),
+    );
+    expect(
+      tester.getRect(delete).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(MiniPlayer)).top),
+    );
+    expect(delete.hitTestable(), findsOneWidget);
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
 
   for (final themedShape in [false, true]) {
     testWidgets('sheet corners retain the Dock (themedShape=$themedShape)', (
@@ -1427,7 +1645,11 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.getRect(home), duringExit);
-        expect(tester.getRect(home).bottom, startingPlaying ? 648 : 632);
+        expect(
+          tester.getRect(home).bottom,
+          closeTo(tester.getRect(find.byType(MiniPlayer)).top, 0.01),
+        );
+        expect(MediaQuery.paddingOf(tester.element(home)).bottom, 0);
         expect(tester.takeException(), isNull);
       },
     );
@@ -1466,6 +1688,7 @@ void main() {
 
     expect(tester.getRect(home), duringExit);
     expect(tester.getRect(home).bottom, closeTo(720 - miniPlayerHeight, 0.01));
+    expect(MediaQuery.paddingOf(tester.element(home)).bottom, 0);
     expect(tester.takeException(), isNull);
   });
 
@@ -1533,7 +1756,11 @@ void main() {
     tester,
   ) async {
     const size = Size(1280, 720);
-    final navigation = await _pumpShell(tester, size: size);
+    final navigation = await _pumpShell(
+      tester,
+      size: size,
+      safePadding: const FakeViewPadding(bottom: 20),
+    );
     final home = find.byKey(
       const ValueKey('home-viewport'),
       skipOffstage: false,

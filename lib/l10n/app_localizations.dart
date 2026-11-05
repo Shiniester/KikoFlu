@@ -7582,6 +7582,24 @@ abstract class S {
   /// **'Sources'**
   String get librarySources;
 
+  /// Sidebar group for source sign-in and account collections.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get libraryAccount;
+
+  /// Sidebar group for browsing content without an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get libraryContent;
+
+  /// Sidebar group for on-device collections and files.
+  ///
+  /// In en, this message translates to:
+  /// **'Local'**
+  String get libraryLocal;
+
   /// No description provided for @libraryPages.
   ///
   /// In en, this message translates to:
@@ -7639,7 +7657,7 @@ abstract class S {
   /// No description provided for @libraryPageOrderDescription.
   ///
   /// In en, this message translates to:
-  /// **'Drag to change the page order in the sidebar.'**
+  /// **'Drag to change the page order within each sidebar group.'**
   String get libraryPageOrderDescription;
 
   /// No description provided for @jpAsmrVerificationTitle.

@@ -443,9 +443,11 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       builder: (context, constraints) {
         final availableWidth = widget.maxWidth ?? constraints.maxWidth;
         final width = math.min(availableWidth, constraints.maxWidth);
-        final coverWidth = widget.maxHeight == null
-            ? width
-            : math.min(width, widget.maxHeight! * ratio);
+        final maxHeight = math.min(
+          widget.maxHeight ?? double.infinity,
+          constraints.maxHeight,
+        );
+        final coverWidth = math.min(width, maxHeight * ratio);
         final content = ComicImage._(
           widget.page,
           picture,

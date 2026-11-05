@@ -4117,6 +4117,15 @@ class SZh extends S {
   String get librarySources => '来源';
 
   @override
+  String get libraryAccount => '账号';
+
+  @override
+  String get libraryContent => '内容';
+
+  @override
+  String get libraryLocal => '本地';
+
+  @override
   String get libraryPages => '页面';
 
   @override
@@ -4146,7 +4155,7 @@ class SZh extends S {
   }
 
   @override
-  String get libraryPageOrderDescription => '拖动调整侧栏中的页面顺序。';
+  String get libraryPageOrderDescription => '拖动调整侧栏各分组内的页面顺序。';
 
   @override
   String get jpAsmrVerificationTitle => '验证 JP-ASMR 访问';
@@ -8980,6 +8989,15 @@ class SZhHant extends SZh {
   String get librarySources => '來源';
 
   @override
+  String get libraryAccount => '帳號';
+
+  @override
+  String get libraryContent => '內容';
+
+  @override
+  String get libraryLocal => '本機';
+
+  @override
   String get libraryPages => '頁面';
 
   @override
@@ -9009,7 +9027,7 @@ class SZhHant extends SZh {
   }
 
   @override
-  String get libraryPageOrderDescription => '拖動調整側欄中的頁面順序。';
+  String get libraryPageOrderDescription => '拖動調整側欄各分組內的頁面順序。';
 
   @override
   String get jpAsmrVerificationTitle => '驗證 JP-ASMR 存取';

@@ -154,8 +154,10 @@ adjustable volume.
 The app page that contains the Works Home Page and the user's online marks,
 history, playlists, downloads, and subtitle library pages. A fixed header shows
 the menu button, current page name, and an entry to the scoped search screen.
-The sidebar shows the current page's options beneath its page entry, with shared
-browsing options in a separate group; swiping right across the main content opens it.
+The sidebar separates source-account entries, including sign-in, from public
+browsing and local collections. The current page's options appear beneath its
+entry, with shared browsing options in a separate group; swiping right across
+the main content opens it.
 _Avoid_: Home page, My page
 
 **Audio Collection Layout (音声集合布局)**:

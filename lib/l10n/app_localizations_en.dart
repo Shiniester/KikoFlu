@@ -4255,6 +4255,15 @@ class SEn extends S {
   String get librarySources => 'Sources';
 
   @override
+  String get libraryAccount => 'Account';
+
+  @override
+  String get libraryContent => 'Content';
+
+  @override
+  String get libraryLocal => 'Local';
+
+  @override
   String get libraryPages => 'Pages';
 
   @override
@@ -4285,7 +4294,7 @@ class SEn extends S {
 
   @override
   String get libraryPageOrderDescription =>
-      'Drag to change the page order in the sidebar.';
+      'Drag to change the page order within each sidebar group.';
 
   @override
   String get jpAsmrVerificationTitle => 'Verify JP-ASMR access';

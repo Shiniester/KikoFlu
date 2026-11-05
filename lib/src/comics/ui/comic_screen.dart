@@ -116,6 +116,10 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
   }
 
   void _search(String? sourceKey) {
+    final source = ref
+        .read(enabledComicSourcesProvider)
+        .where((source) => source.key == sourceKey)
+        .firstOrNull;
     pushWorkDetailRoute(
       context,
       builder: (_) => ComicSearchScreen(
@@ -123,6 +127,7 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
         libraryTab: _currentTab == 0 ? null : _currentTab,
         onlineFavorites:
             _currentTab == 1 &&
+            source?.hasRemoteFavorites == true &&
             (StorageService.getBool('comic_online_favorites') ?? false),
       ),
     );
@@ -180,11 +185,12 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     );
   }
 
-  String _collectionTitle(S s, int tab) => switch (tab) {
-    1 => s.libraryFavorites,
-    2 => s.libraryHistory,
-    _ => s.libraryDownloads,
-  };
+  String _collectionTitle(S s, int tab, {bool onlineFavorites = false}) =>
+      switch (tab) {
+        1 => onlineFavorites ? s.comicOnlineFavorites : s.comicLocalFavorites,
+        2 => s.libraryHistory,
+        _ => s.libraryDownloads,
+      };
 
   IconData _collectionIcon(int tab) => switch (tab) {
     1 => Icons.bookmark_outline,
@@ -202,12 +208,57 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     final currentSource =
         sources.where((source) => source.key == selectedSource).firstOrNull ??
         sources.firstOrNull;
+    final onlineFavorites =
+        currentSource?.hasRemoteFavorites == true &&
+        (StorageService.getBool('comic_online_favorites') ?? false);
     final pageTitle = _currentTab == 0
         ? s.navHome
-        : _collectionTitle(s, _currentTab);
-    final onlineFavorites =
-        StorageService.getBool('comic_online_favorites') ?? false;
+        : _collectionTitle(s, _currentTab, onlineFavorites: onlineFavorites);
     final downloads = ref.watch(comicDownloadsProvider);
+    final accountChildren = <Widget>[
+      if (currentSource?.hasAccount == true)
+        LibraryDrawerTile(
+          icon: Icons.account_circle_outlined,
+          title: currentSource!.isLoggedIn ? s.accountManagement : s.login,
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => ComicSourceSettingsScreen(source: currentSource),
+            ),
+          ),
+        ),
+      if (currentSource?.hasRemoteFavorites == true && pageOrder.contains(1))
+        LibraryDrawerTile(
+          icon: Icons.cloud_outlined,
+          title: s.comicOnlineFavorites,
+          selected: _currentTab == 1 && onlineFavorites,
+          onTap: () async {
+            await _setOnlineFavorites(true);
+            if (!mounted) return;
+            _selectTab(1);
+          },
+        ),
+    ];
+    final localChildren = <Widget>[
+      for (final tab in pageOrder)
+        if (tab == 1)
+          LibraryDrawerTile(
+            icon: Icons.bookmark,
+            title: s.comicLocalFavorites,
+            selected: _currentTab == 1 && !onlineFavorites,
+            onTap: () async {
+              await _setOnlineFavorites(false);
+              if (!mounted) return;
+              _selectTab(1);
+            },
+          )
+        else
+          LibraryDrawerTile(
+            icon: _collectionIcon(tab),
+            title: _collectionTitle(s, tab),
+            selected: _currentTab == tab,
+            onTap: () => _selectTab(tab),
+          ),
+    ];
 
     return LibraryPageScaffold(
       title: pageTitle,
@@ -226,8 +277,13 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
               ),
           ],
         ),
+        if (accountChildren.isNotEmpty)
+          LibraryDrawerSection(
+            title: s.libraryAccount,
+            children: accountChildren,
+          ),
         LibraryDrawerSection(
-          title: s.libraryPages,
+          title: s.libraryContent,
           children: [
             LibraryDrawerTile(
               icon: Icons.home,
@@ -241,33 +297,10 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
                 title: s.comicCategories,
                 onTap: () => _categories(currentSource.key),
               ),
-            for (final tab in pageOrder)
-              LibraryDrawerTile(
-                icon: _collectionIcon(tab),
-                title: _collectionTitle(s, tab),
-                selected: _currentTab == tab,
-                children: tab == 1 && _currentTab == 1
-                    ? [
-                        LibraryDrawerTile(
-                          icon: Icons.bookmark,
-                          title: s.comicLocalFavorites,
-                          selected: !onlineFavorites,
-                          closeOnTap: false,
-                          onTap: () => _setOnlineFavorites(false),
-                        ),
-                        LibraryDrawerTile(
-                          icon: Icons.cloud_outlined,
-                          title: s.comicOnlineFavorites,
-                          selected: onlineFavorites,
-                          closeOnTap: false,
-                          onTap: () => _setOnlineFavorites(true),
-                        ),
-                      ]
-                    : const [],
-                onTap: () => _selectTab(tab),
-              ),
           ],
         ),
+        if (localChildren.isNotEmpty)
+          LibraryDrawerSection(title: s.libraryLocal, children: localChildren),
         LibraryDrawerSection(
           title: s.libraryBrowseOptions,
           children: [
@@ -350,8 +383,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   ComicPageBuffer? _buffer;
   List<Comic> _items = [];
   bool _loading = false;
-  bool _onlineFavorites =
-      StorageService.getBool('comic_online_favorites') ?? false;
+  late bool _onlineFavorites;
   bool get _online => widget.tab == 1 && _onlineFavorites;
   Map<String, Object> _errors = {};
   bool _hasMore = false;
@@ -402,8 +434,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       _interruptedScrollRequest = _scrollingRequest;
     }
     if (widget.tab == 1 &&
-        oldWidget.onlineFavorites != widget.onlineFavorites &&
-        _onlineFavorites != widget.onlineFavorites) {
+        oldWidget.onlineFavorites != widget.onlineFavorites) {
       _onlineFavorites = widget.onlineFavorites;
       Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
     }
@@ -412,6 +443,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   @override
   void initState() {
     super.initState();
+    _onlineFavorites = widget.onlineFavorites;
     Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
   }
 
@@ -655,8 +687,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       (_, __) => _loadPage(1, reset: true, clearItems: true),
     );
     ref.listen(comicSettingsRevisionProvider, (_, __) {
-      _onlineFavorites =
-          StorageService.getBool('comic_online_favorites') ?? false;
+      _onlineFavorites = widget.onlineFavorites;
       _loadPage(1, reset: true, clearItems: true);
     });
     ref.listen(comicRemoteFavoritesRevisionProvider, (_, __) {

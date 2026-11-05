@@ -414,16 +414,45 @@ LibraryDrawerSection _section(WidgetTester tester, String title) =>
         .whereType<LibraryDrawerSection>()
         .firstWhere((section) => section.title == title);
 
+String _audioPageSection(S s, String page) => switch (page) {
+  'onlineMarks' || 'playlists' => s.libraryAccount,
+  'popular' || 'recommended' || 'home' => s.libraryContent,
+  _ => s.libraryLocal,
+};
+
+List<LibraryDrawerSection> _audioPageSections(WidgetTester tester) {
+  final s = S.of(tester.element(find.byType(AudioScreen)));
+  return _library(tester).drawerChildren
+      .whereType<LibraryDrawerSection>()
+      .where(
+        (section) =>
+            section.title == s.libraryAccount ||
+            section.title == s.libraryContent ||
+            section.title == s.libraryLocal,
+      )
+      .toList();
+}
+
+List<LibraryDrawerTile> _audioPageTiles(WidgetTester tester) {
+  final s = S.of(tester.element(find.byType(AudioScreen)));
+  return _audioPageSections(tester)
+      .expand((section) => section.children.whereType<LibraryDrawerTile>())
+      .where(
+        (tile) => tile.title != s.accountManagement && tile.title != s.login,
+      )
+      .toList();
+}
+
 LibraryDrawerTile _audioPageTile(WidgetTester tester, String page) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
-  return _section(tester, s.libraryPages).children
+  return _section(tester, _audioPageSection(s, page)).children
       .whereType<LibraryDrawerTile>()
       .singleWhere((tile) => tile.title == _pageLabel(s, page));
 }
 
 void _requestAudioPage(WidgetTester tester, String page) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
-  final section = _section(tester, s.libraryPages);
+  final section = _section(tester, _audioPageSection(s, page));
   final tiles = section.children.whereType<LibraryDrawerTile>();
   final tile = tiles.firstWhere((tile) => tile.title == _pageLabel(s, page));
   tile.onTap!();
@@ -459,9 +488,9 @@ ScrollController _worksScroll(WidgetTester tester) => tester
 
 LibraryDrawerTile _browseTile(WidgetTester tester, String title) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
-  final pageOptions = _section(tester, s.libraryPages).children
-      .whereType<LibraryDrawerTile>()
-      .expand((page) => page.children.whereType<LibraryDrawerTile>());
+  final pageOptions = _audioPageTiles(
+    tester,
+  ).expand((page) => page.children.whereType<LibraryDrawerTile>());
   final browseOptions = _section(
     tester,
     s.libraryBrowseOptions,
@@ -515,7 +544,7 @@ void main() {
         .singleWhere((tile) => tile.key == entryKey);
     final s = S.of(tester.element(find.byType(AudioScreen)));
     expect(
-      _section(tester, s.libraryPages).children
+      _section(tester, s.libraryLocal).children
           .whereType<LibraryDrawerTile>()
           .where((tile) => tile.key == entryKey),
       isEmpty,
@@ -531,6 +560,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('audio account entry is available in the account section', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    final account = _section(tester, s.libraryAccount).children
+        .whereType<LibraryDrawerTile>()
+        .singleWhere((tile) => tile.title == s.accountManagement);
+    expect(account.onTap, isNotNull);
   });
 
   testWidgets(
@@ -615,16 +658,20 @@ void main() {
       await _pumpAudioScreen(tester, reduced);
 
       final s = S.of(tester.element(find.byType(AudioScreen)));
-      List<String> pageTitles() => _section(tester, s.libraryPages).children
-          .whereType<LibraryDrawerTile>()
-          .map((tile) => tile.title)
-          .toList();
+      List<String> pageTitles() =>
+          _audioPageTiles(tester).map((tile) => tile.title).toList();
       expect(pageTitles(), [
         s.navHome,
         s.displayModePopular,
         s.libraryHistory,
         s.libraryDownloads,
       ]);
+      expect(
+        _library(tester).drawerChildren.whereType<LibraryDrawerSection>().any(
+          (section) => section.title == s.libraryAccount,
+        ),
+        isFalse,
+      );
       expect(find.byType(TabBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
@@ -634,12 +681,12 @@ void main() {
       await tester.tap(one);
       await tester.pumpAndSettle();
       expect(pageTitles(), [
+        s.libraryMarks,
+        s.libraryFavorites,
         s.navHome,
         s.displayModePopular,
         s.displayModeRecommended,
-        s.libraryMarks,
         s.libraryHistory,
-        s.libraryFavorites,
         s.libraryDownloads,
       ]);
       expect(_library(tester).title, s.navHome);
@@ -1661,7 +1708,8 @@ void main() {
       await tester.pumpAndSettle();
       final s = S.of(tester.element(find.byType(AudioScreen)));
       final home =
-          _section(tester, s.libraryPages).children.first as LibraryDrawerTile;
+          _section(tester, s.libraryContent).children.first
+              as LibraryDrawerTile;
       expect(home.title, s.navHome);
       home.onTap!();
       await tester.pumpAndSettle();
@@ -1924,7 +1972,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(_audioPageTile(tester, 'home').children, isEmpty);
     expect(
-      _section(tester, s.libraryPages).children
+      _section(tester, s.libraryAccount).children
           .whereType<LibraryDrawerTile>()
           .where((tile) => tile.children.isNotEmpty)
           .map((tile) => tile.title),

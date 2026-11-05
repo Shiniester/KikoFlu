@@ -897,7 +897,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                         children: [
                           if (isLandscape) ...[
                             title,
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
                             info,
                           ] else if (stacked)
                             Column(
@@ -924,7 +924,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                             const SizedBox(height: 16),
                             title,
                           ],
-                          const SizedBox(height: 16),
+                          SizedBox(height: isLandscape ? 16 : 8),
                           if (_busy)
                             const RepaintBoundary(
                               child: LinearProgressIndicator(),
@@ -941,7 +941,12 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                             ),
                           if (_metadataError != null)
                             _retryBanner(_metadataError!, _loadMetadata),
-                          const SizedBox(height: 16),
+                          if (isLandscape ||
+                              _busy ||
+                              _favoriteError != null ||
+                              _metadataLoading ||
+                              _metadataError != null)
+                            const SizedBox(height: 16),
                         ],
                       ),
                     ),

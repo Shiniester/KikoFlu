@@ -2286,7 +2286,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       ),
       if (_sourceKey == 'missav')
         LibraryDrawerSection(
-          title: s.videoSourceAccount,
+          title: s.libraryAccount,
           children: [
             LibraryDrawerTile(
               icon: Icons.account_circle_outlined,
@@ -2323,7 +2323,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         ),
       if (_sourceKey == 'jable')
         LibraryDrawerSection(
-          title: s.videoSourceAccount,
+          title: s.libraryAccount,
           children: [
             LibraryDrawerTile(
               icon: Icons.account_circle_outlined,
@@ -2339,7 +2339,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           ],
         ),
       LibraryDrawerSection(
-        title: s.videoContent,
+        title: s.libraryContent,
         children: [
           for (final link in catalogLinks)
             LibraryDrawerTile(
@@ -2361,6 +2361,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         ],
       ),
       LibraryDrawerSection(
+        title: s.libraryLocal,
+        children: [
+          LibraryDrawerTile(
+            icon: Icons.download_outlined,
+            title: s.videoDownloads,
+            onTap: _openDownloads,
+          ),
+        ],
+      ),
+      LibraryDrawerSection(
         title: s.libraryBrowseOptions,
         children: [
           LibraryDrawerTile(
@@ -2371,16 +2381,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
             },
             title: s.layout,
             onTap: () => ref.read(videoBrowseLayoutProvider.notifier).cycle(),
-          ),
-        ],
-      ),
-      LibraryDrawerSection(
-        title: s.videoDownloads,
-        children: [
-          LibraryDrawerTile(
-            icon: Icons.download_outlined,
-            title: s.videoDownloads,
-            onTap: _openDownloads,
           ),
         ],
       ),

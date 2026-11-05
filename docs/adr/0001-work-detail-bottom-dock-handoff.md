@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, revised on 2026-11-02.
+Accepted, revised on 2026-11-05.
 
 ## Context
 
@@ -24,7 +24,7 @@ Online and offline Work Details navigation continues to use `pushWorkDetailRoute
 
 ## Consequences
 
-The shared navigation stays outside page transition movement. Portrait content retains `Scaffold.extendBody` and trailing padding so nested controls stay above the Dock. Landscape navigation stays on the left; playback retains its existing compact placement below the content. Media entry and return use the full viewport, and outgoing media keeps that viewport until its close transition completes. Playback state remains in Riverpod. No additional dependency is required.
+The shared navigation stays outside page transition movement. Both orientations use `Scaffold.extendBody` and trailing padding so nested controls stay above the Mini Player and navigation. Landscape navigation stays on the left; the Mini Player remains at the bottom while the Navigator retains the full height. Ordinary landscape page routes consume the bottom inset before laying out their page Scaffolds. The root host page keeps tab Navigators at full height so responsive modal side panels can cover the intersecting Mini Player area. Media entry and return use the full viewport, and outgoing media keeps that viewport until its close transition completes. Playback state remains in Riverpod. No additional dependency is required.
 
 Switching away from Video Details pauses playback and saves its position. Returning leaves the video paused until the user resumes playback.
 
