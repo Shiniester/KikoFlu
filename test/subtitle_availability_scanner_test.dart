@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:kikoeru_flutter/src/services/generated_subtitle_store.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_availability_scanner.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
+import 'package:kikoeru_flutter/src/services/subtitle_long_path.dart';
 
 Map<String, dynamic> fileItem(String title, {String type = 'file'}) {
   return {
@@ -152,6 +153,47 @@ void main() {
         }
       },
     );
+
+    for (final category in [
+      SubtitleLibraryService.parsedFolderName,
+      SubtitleLibraryService.savedFolderName,
+    ]) {
+      test('matches shortened subtitles in $category after a folder rename',
+          () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'kikoflu_shortened_subtitle_',
+        );
+        try {
+          final folder = category == SubtitleLibraryService.parsedFolderName
+              ? p.join(tempDir.path, category, 'RJ123456')
+              : p.join(tempDir.path, category);
+          final title = 'track_${'n' * 130}';
+          final path = SubtitleLongPath.resolve(
+            folder,
+            '简体中文/$title.srt',
+            maxPathLength: folder.length + 40,
+          )!;
+          final subtitle = File(path);
+          await subtitle.writeAsString('sub');
+          expect(p.basename(path), isNot('$title.srt'));
+
+          for (final renameFolder in [false, true]) {
+            if (renameFolder) {
+              await subtitle.parent.rename(p.join(folder, 'renamed'));
+            }
+            final matches = await const SubtitleAvailabilityScanner()
+                .findAudioTitlesWithSubtitles(
+              libraryDir: tempDir,
+              workId: 123456,
+              fileTree: [fileItem('$title.wav'), fileItem('other.wav')],
+            );
+            expect(matches, {'$title.wav'});
+          }
+        } finally {
+          await tempDir.delete(recursive: true);
+        }
+      });
+    }
 
     test('returns empty set when library directory is missing', () async {
       final tempDir = await Directory.systemTemp.createTemp(

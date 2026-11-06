@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:gbk_codec/gbk_codec.dart';
 import 'package:path/path.dart' as p;
 
 import 'subtitle_library_rules.dart';
+import 'subtitle_long_path.dart';
 
 /// Parameters for an archive extraction job.
 ///
@@ -58,23 +61,65 @@ class StreamingZipExtractionResult {
 
 /// Extracts ZIP entries one at a time from an [InputFileStream].
 ///
-/// This avoids loading the complete archive with `File.readAsBytes` and writes
-/// nested archives to temporary files before decoding them. The async entry
-/// point executes the entire job in a background isolate.
+/// This avoids loading the complete archive with `File.readAsBytes`. Small
+/// nested archives are decoded in memory; larger ones use temporary files.
+/// The async entry point executes the entire job in a background isolate.
 class StreamingZipExtractor {
   const StreamingZipExtractor._();
 
+  // ArchiveFile does not expose ZIP encryption flags.
+  static final _encryptedEntries = Expando<bool>();
+
   static Future<StreamingZipExtractionResult> extract(
+    StreamingZipExtractionRequest request, {
+    void Function(int extractedCount, int nestedArchiveCount)? onProgress,
+  }) async {
+    if (onProgress == null) {
+      return Isolate.run(() => extractSynchronously(request));
+    }
+
+    final progressPort = ReceivePort();
+    final progressComplete = Completer<void>();
+    progressPort.listen((message) {
+      if (message == null) {
+        progressComplete.complete();
+      } else {
+        final (extractedCount, nestedArchiveCount) = message as (int, int);
+        onProgress(extractedCount, nestedArchiveCount);
+      }
+    });
+    final sender = progressPort.sendPort;
+    try {
+      final result = await Isolate.run(_progressJob(request, sender));
+      await progressComplete.future;
+      return result;
+    } finally {
+      progressPort.close();
+    }
+  }
+
+  static StreamingZipExtractionResult Function() _progressJob(
     StreamingZipExtractionRequest request,
+    SendPort sender,
   ) {
-    return Isolate.run(() => extractSynchronously(request));
+    return () {
+      try {
+        return extractSynchronously(
+          request,
+          onProgress: (extracted, nested) => sender.send((extracted, nested)),
+        );
+      } finally {
+        sender.send(null);
+      }
+    };
   }
 
   /// Synchronous implementation exposed for deterministic unit benchmarks.
   static StreamingZipExtractionResult extractSynchronously(
-    StreamingZipExtractionRequest request,
-  ) {
-    final state = _ExtractionState(request);
+    StreamingZipExtractionRequest request, {
+    void Function(int extractedCount, int nestedArchiveCount)? onProgress,
+  }) {
+    final state = _ExtractionState(request, onProgress);
     final nestedTempDirectory = Directory(
       p.join(request.targetPath, '.nested_archives'),
     );
@@ -175,13 +220,19 @@ class StreamingZipExtractor {
         continue;
       }
 
-      if (targetFilePath.length > state.request.maxPathLength) {
-        targetFilePath = _shortenPath(
-          targetBasePath,
-          targetFilePath,
-          fileName,
-          state.request.maxPathLength,
-        );
+      if (targetFilePath.length > state.request.maxPathLength ||
+          SubtitleLongPath.readFileSync(targetFilePath, allowRenamed: true) !=
+              null) {
+        try {
+          targetFilePath = _shortenPath(
+            targetBasePath,
+            targetFilePath,
+            state.request.maxPathLength,
+          );
+        } catch (_) {
+          state.errorCount++;
+          continue;
+        }
         if (targetFilePath == null) {
           state.skippedCount++;
           continue;
@@ -190,9 +241,14 @@ class StreamingZipExtractor {
 
       final targetFile = File(targetFilePath);
       try {
-        targetFile.parent.createSync(recursive: true);
+        final parent = targetFile.parent;
+        if (state.lastCreatedDirectory != parent.path) {
+          parent.createSync(recursive: true);
+          state.lastCreatedDirectory = parent.path;
+        }
         _writeArchiveEntry(file, targetFile.path);
         state.extractedCount++;
+        if (state.extractedCount % 250 == 0) state.reportProgress();
       } catch (_) {
         state.errorCount++;
         if (targetFile.existsSync()) {
@@ -212,6 +268,7 @@ class StreamingZipExtractor {
     required int depth,
   }) {
     state.nestedArchiveCount++;
+    if (state.nestedArchiveCount % 100 == 0) state.reportProgress();
 
     if (depth + 1 > state.request.maxDepth) {
       state.errorCount++;
@@ -224,16 +281,23 @@ class StreamingZipExtractor {
       return;
     }
 
-    nestedTempDirectory.createSync(recursive: true);
-    final nestedPath = p.join(
-      nestedTempDirectory.path,
-      '${depth + 1}_${state.nextNestedArchiveId++}.zip',
-    );
-
+    String? nestedPath;
     _Utf8TolerantInputFileStream? nestedInput;
     try {
-      _writeArchiveEntry(file, nestedPath);
-      nestedInput = _Utf8TolerantInputFileStream(nestedPath);
+      const maxInMemoryArchiveSize = 4 * 1024 * 1024;
+      if (file.size <= maxInMemoryArchiveSize) {
+        nestedInput = _Utf8TolerantInputFileStream.memory(
+          file.content as List<int>,
+        );
+      } else {
+        nestedTempDirectory.createSync(recursive: true);
+        nestedPath = p.join(
+          nestedTempDirectory.path,
+          '${depth + 1}_${state.nextNestedArchiveId++}.zip',
+        );
+        _writeArchiveEntry(file, nestedPath);
+        nestedInput = _Utf8TolerantInputFileStream(nestedPath);
+      }
       final nestedArchive = _decodeZipArchive(nestedInput);
 
       final zipNameWithoutExtension = decodedName.replaceAll(
@@ -264,17 +328,56 @@ class StreamingZipExtractor {
       state.decodeErrorCount++;
     } finally {
       nestedInput?.closeSync();
-      final nestedFile = File(nestedPath);
-      if (nestedFile.existsSync()) {
-        nestedFile.deleteSync();
+      file.clear();
+      if (nestedPath != null) {
+        final nestedFile = File(nestedPath);
+        if (nestedFile.existsSync()) {
+          nestedFile.deleteSync();
+        }
       }
     }
   }
 
   static void _writeArchiveEntry(ArchiveFile file, String targetPath) {
+    if (_encryptedEntries[file] == true) {
+      throw ArchiveException('Encrypted ZIP entries are not supported');
+    }
     final output = OutputFileStream(targetPath);
     try {
-      file.writeContent(output);
+      final input = file.rawContent!;
+      switch (file.compressionType) {
+        case ArchiveFile.STORE:
+          output.writeInputStream(input);
+        case ArchiveFile.DEFLATE:
+          final inflater = RawZLibFilter.inflateFilter(raw: true);
+          while (!input.isEOS) {
+            final chunk = input.readBytes(64 * 1024).toUint8List();
+            inflater.process(chunk, 0, chunk.length);
+            for (
+              var bytes = inflater.processed(flush: false);
+              bytes != null;
+              bytes = inflater.processed(flush: false)
+            ) {
+              output.writeBytes(bytes);
+            }
+          }
+          for (
+            var bytes = inflater.processed(end: true);
+            bytes != null;
+            bytes = inflater.processed(end: true)
+          ) {
+            output.writeBytes(bytes);
+          }
+        case ZipFile.zipCompressionBZip2:
+          BZip2Decoder().decodeStream(input, output);
+        default:
+          throw ArchiveException(
+            'Unsupported ZIP compression method ${file.compressionType}',
+          );
+      }
+      if (output.length != file.size) {
+        throw ArchiveException('Invalid ZIP entry size');
+      }
     } finally {
       output.closeSync();
     }
@@ -283,16 +386,17 @@ class StreamingZipExtractor {
   static Archive _decodeZipArchive(_Utf8TolerantInputFileStream input) {
     final decoder = ZipDecoder();
     final archive = decoder.decodeBuffer(input, verify: false);
-    final localHeaderOffsets = <String, int>{};
+    final headersByName = <String, ZipFileHeader>{};
     for (final header in decoder.directory.fileHeaders) {
-      localHeaderOffsets[header.filename.replaceAll('\\', '/')] =
-          header.localHeaderOffset!;
+      headersByName[header.filename.replaceAll('\\', '/')] = header;
     }
 
     for (final file in archive.files) {
       final archiveName = file.name.replaceAll('\\', '/');
-      final localHeaderOffset = localHeaderOffsets[archiveName];
-      if (localHeaderOffset == null) continue;
+      final header = headersByName[archiveName];
+      if (header == null) continue;
+      _encryptedEntries[file] = header.file!.flags & 1 != 0;
+      final localHeaderOffset = header.localHeaderOffset!;
 
       // ZIP local filenames start 30 bytes after their fixed-size header.
       final rawName = input.invalidUtf8Names[localHeaderOffset + 30];
@@ -362,48 +466,44 @@ class StreamingZipExtractor {
   static String? _shortenPath(
     String rootPath,
     String fullPath,
-    String fileName,
     int maxPathLength,
   ) {
     final normalizedRoot = p.normalize(p.absolute(rootPath));
-    final extension = p.extension(fileName);
-    final baseName = p.basenameWithoutExtension(fileName);
-    final hash = _stableHash(fullPath).toRadixString(16).padLeft(8, '0');
-    final availableNameLength =
-        maxPathLength -
-        normalizedRoot.length -
-        hash.length -
-        extension.length -
-        8;
-    if (availableNameLength <= 0) {
-      return null;
-    }
-
-    final shortenedName = baseName.length > availableNameLength
-        ? baseName.substring(0, availableNameLength)
-        : baseName;
-    final candidate = p.join(
-      normalizedRoot,
-      '.long_paths',
-      hash,
-      '$shortenedName$extension',
+    final relativePath = p
+        .relative(p.normalize(p.absolute(fullPath)), from: normalizedRoot)
+        .replaceAll('\\', '/');
+    if (relativePath == '..' || relativePath.startsWith('../')) return null;
+    final pathParts = relativePath.split('/');
+    final workIndex = pathParts
+        .take(pathParts.length - 1)
+        .toList()
+        .indexWhere(SubtitleLibraryRules.matchesWorkFolderName);
+    final shorteningRoot = workIndex < 0
+        ? normalizedRoot
+        : p.join(normalizedRoot, pathParts[workIndex]);
+    final originalPath = workIndex < 0
+        ? relativePath
+        : pathParts.skip(workIndex + 1).join('/');
+    return SubtitleLongPath.resolve(
+      shorteningRoot,
+      originalPath,
+      maxPathLength: maxPathLength,
     );
-    return candidate.length <= maxPathLength ? candidate : null;
-  }
-
-  static int _stableHash(String value) {
-    var hash = 0x811c9dc5;
-    for (final codeUnit in value.codeUnits) {
-      hash ^= codeUnit;
-      hash = (hash * 0x01000193) & 0xffffffff;
-    }
-    return hash;
   }
 }
 
 class _Utf8TolerantInputFileStream extends InputFileStream {
   _Utf8TolerantInputFileStream(String path)
     : super.withFileHandle(FileHandle(path));
+
+  _Utf8TolerantInputFileStream.memory(List<int> bytes)
+    : super.withFileHandle(
+        RamFileHandle.fromRamFileData(
+          RamFileData.fromBytes(
+            bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+          ),
+        ),
+      );
 
   final invalidUtf8Names = <int, String>{};
 
@@ -426,9 +526,10 @@ class _Utf8TolerantInputFileStream extends InputFileStream {
 }
 
 class _ExtractionState {
-  _ExtractionState(this.request);
+  _ExtractionState(this.request, this.onProgress);
 
   final StreamingZipExtractionRequest request;
+  final void Function(int, int)? onProgress;
   int extractedCount = 0;
   int errorCount = 0;
   int skippedCount = 0;
@@ -437,7 +538,10 @@ class _ExtractionState {
   int depthErrorCount = 0;
   int decodeErrorCount = 0;
   int nextNestedArchiveId = 0;
+  String? lastCreatedDirectory;
   String? rootDecodeError;
+
+  void reportProgress() => onProgress?.call(extractedCount, nestedArchiveCount);
 
   StreamingZipExtractionResult toResult() {
     return StreamingZipExtractionResult(

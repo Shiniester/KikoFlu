@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/scan_models.dart';
 import 'subtitle_matching.dart';
+import 'subtitle_long_path.dart';
 
 class SubtitleScanEntry {
   const SubtitleScanEntry({
@@ -159,12 +160,18 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
     void scanDirectory(Directory directory) {
       if (directory.path.length > 240) return;
 
-      List<FileSystemEntity> entities;
-      try {
-        entities = directory.listSync(followLinks: false);
-      } on FileSystemException {
-        return;
-      }
+      final entities = directory.listSync(followLinks: false);
+      final original =
+          entities.any(
+            (entity) =>
+                entity is File &&
+                p.basename(entity.path) == SubtitleLongPath.markerName,
+          )
+          ? SubtitleLongPath.readDirectorySync(
+              directory.path,
+              allowRenamed: true,
+            )
+          : null;
 
       for (final entity in entities) {
         scannedEntries++;
@@ -185,7 +192,11 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
 
         try {
           final stat = entity.statSync();
-          final fileName = p.basename(entity.path);
+          if (stat.type != FileSystemEntityType.file) continue;
+          final physicalName = p.basename(entity.path);
+          final fileName = original?.storedName == physicalName
+              ? p.posix.basename(original!.originalPath)
+              : physicalName;
           final relativePath = p
               .relative(entity.path, from: rootPath)
               .replaceAll('\\', '/');

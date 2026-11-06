@@ -73,7 +73,14 @@ class VideoDownloads extends ChangeNotifier {
   Future<VideoDownloadTask> add(VideoItem video, VideoStream stream) async {
     await initialize();
     final existing = forVideo(video.storageKey);
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (existing.status == VideoDownloadStatus.paused ||
+          existing.status == VideoDownloadStatus.failed) {
+        await resume(video.storageKey);
+        return forVideo(video.storageKey) ?? existing;
+      }
+      return existing;
+    }
 
     final isHls = _isHlsStream(stream);
     final directory = _taskDirectory(video.storageKey);

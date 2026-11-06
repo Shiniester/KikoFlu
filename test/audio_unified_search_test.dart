@@ -247,7 +247,10 @@ void main() {
       expect(layout.hitTestable(), findsOneWidget);
       await tester.tap(layout);
       await tester.pumpAndSettle();
-      expect((tester.widget<IconButton>(layout).icon as Icon).icon, Icons.apps);
+      expect(
+        (tester.widget<IconButton>(layout).icon as Icon).icon,
+        Icons.grid_on,
+      );
 
       if (width == 320) {
         await tester.drag(actions, const Offset(-200, 0));
@@ -268,7 +271,7 @@ void main() {
         await tester.pumpAndSettle();
         final layoutIcon = find.descendant(
           of: layout,
-          matching: find.byIcon(Icons.apps),
+          matching: find.byIcon(Icons.grid_on),
         );
         expect(Focus.of(tester.element(layoutIcon)).hasPrimaryFocus, isTrue);
         expect(

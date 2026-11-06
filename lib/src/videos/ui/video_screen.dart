@@ -259,6 +259,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   bool _loading = false;
   bool _verifyingAccess = false;
   Object? _error;
+  String? _errorSourceUrl;
   VideoVerificationRequired? _verificationError;
   Future<void> Function()? _retryRequest;
   int _request = 0;
@@ -385,6 +386,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _discardStaging();
     _loading = false;
     _error = null;
+    _errorSourceUrl = null;
     _verificationError = null;
     if (!widget.active) {
       if (recommendationsActive) {
@@ -979,6 +981,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _errorSourceUrl = null;
       _verificationError = null;
       _discardStaging();
       if (cachedPage != null) {
@@ -1027,7 +1030,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           _page = cachedPage;
           _localPage = 1;
           _loading = refreshError == null;
-          if (refreshError != null) _recordError(refreshError!);
+          if (refreshError != null) {
+            _recordError(refreshError!, requestedUrl: url);
+          }
           _discardStaging();
           if (refreshError == null) {
             final stagingPage = refreshedPage ?? parsedPage;
@@ -1055,7 +1060,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         if (cachedPage != null) {
           setState(() {
             _loading = false;
-            _recordError(refreshError!);
+            _recordError(refreshError!, requestedUrl: url);
             _discardStaging();
           });
           return;
@@ -1093,7 +1098,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           error is JableLoginRequiredException;
       setState(() {
         _loading = false;
-        _recordError(error);
+        _recordError(error, requestedUrl: url);
         _discardStaging();
         if (loginRequiredFavorites) {
           _page = null;
@@ -1138,8 +1143,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     );
   }
 
-  void _recordError(Object error) {
+  void _recordError(Object error, {String? requestedUrl}) {
     _error = error;
+    _errorSourceUrl = error is VideoSourceException
+        ? error.sourceUrl ?? requestedUrl
+        : requestedUrl;
     _verificationError = error is VideoVerificationRequired ? error : null;
   }
 
@@ -2044,6 +2052,31 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     try {
       await _client.setActorFavorite(actor, favorite);
+      final page = _page;
+      if (!favorite &&
+          mounted &&
+          _activeCollectionKey == 'actorFavorites' &&
+          page != null &&
+          _collectionKeyForUrl(page.url) == 'actorFavorites') {
+        final links = page.links
+            .where((link) => link.url != actor.url)
+            .toList(growable: false);
+        if (links.length != page.links.length) {
+          final updatedPage = VideoCatalogPage(
+            title: page.title,
+            url: page.url,
+            videos: page.videos,
+            links: links,
+            navigation: page.navigation,
+            nextUrl: page.nextUrl,
+            previousUrl: page.previousUrl,
+            currentPage: page.currentPage,
+            jumpMaxPage: page.jumpMaxPage,
+          );
+          setState(() => _page = updatedPage);
+          _rememberPage(page.url, updatedPage);
+        }
+      }
     } on MissavAuthenticationException {
       await _loginRequired();
     } on MissavException catch (error) {
@@ -2376,7 +2409,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           LibraryDrawerTile(
             icon: switch (layoutType) {
               LayoutType.bigGrid => Icons.grid_view,
-              LayoutType.smallGrid => Icons.apps,
+              LayoutType.smallGrid => Icons.grid_on,
               LayoutType.list => Icons.view_list,
             },
             title: s.layout,
@@ -2460,7 +2493,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                       ),
                     OutlinedButton.icon(
                       onPressed: () => unawaited(
-                        _openSource(widget.initialUrl ?? _sourceClient.homeUrl),
+                        _openSource(
+                          _errorSourceUrl ??
+                              widget.initialUrl ??
+                              _sourceClient.homeUrl,
+                        ),
                       ),
                       icon: const Icon(Icons.open_in_new),
                       label: Text(s.videoOpenSource),
@@ -2643,7 +2680,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                               label: Text(s.videoJableAccount),
                             ),
                           TextButton(
-                            onPressed: () => unawaited(_openSource(page.url)),
+                            onPressed: () => unawaited(
+                              _openSource(_errorSourceUrl ?? page.url),
+                            ),
                             child: Text(s.videoOpenSource),
                           ),
                         ],

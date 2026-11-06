@@ -24,6 +24,7 @@ import '../../services/log_service.dart';
 import '../../services/storage_service.dart';
 import 'comic_search_screen.dart';
 import '../../utils/snackbar_util.dart';
+import '../comic_downloads.dart';
 import '../comic_models.dart';
 import '../comic_source.dart';
 import '../comic_providers.dart';
@@ -38,10 +39,12 @@ class ComicDetailScreen extends ConsumerStatefulWidget {
   const ComicDetailScreen({
     super.key,
     required this.comic,
+    this.downloadedOnly = false,
     this.initialCoverCacheWidth,
     this.initialCoverAspectRatio,
   });
   final Comic comic;
+  final bool downloadedOnly;
   final int? initialCoverCacheWidth;
   final double? initialCoverAspectRatio;
   @override
@@ -74,6 +77,8 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
   bool? _favoriteRetryValue;
   bool _favoriteRetryRequiresSource = false;
   ComicProgress? _lastProgress;
+  bool _progressReady = false;
+  bool _readerOpen = false;
   int _progressGeneration = 0;
   MediaQueryData? _readerWindow;
   Size? _readerBodySize;
@@ -107,19 +112,43 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
     return Comic.fromJson({...comic.toJson(), 'extra': extra});
   }
 
+  Comic? _downloadedComic(ComicDownloads downloads) => downloads.completedComics
+      .where((comic) => comic.key == widget.comic.key)
+      .firstOrNull;
+
+  void _syncDownloadedChapters(ComicDownloads downloads) {
+    if (_chaptersLoading) return;
+    final completedIds = {
+      for (final task in downloads.tasks)
+        if (task.status == ComicDownloadStatus.complete &&
+            task.comic.source == widget.comic.source &&
+            task.comic.id == widget.comic.id)
+          task.chapter.id,
+    };
+    if (_chapters.length == completedIds.length &&
+        _chapters.every((chapter) => completedIds.contains(chapter.id))) {
+      return;
+    }
+    final saved = _downloadedComic(downloads);
+    setState(() {
+      _chapters = saved?.chapters ?? [];
+      _chapterPreviewPages.removeWhere((id, _) => !completedIds.contains(id));
+    });
+  }
+
   Future<void> _load() async {
     final favoriteVersion = _favoriteVersion;
     final downloads = ref.read(comicDownloadsProvider);
     await downloads.ready;
     if (!mounted) return;
-    final saved = downloads.completedComics
-        .where((c) => c.key == widget.comic.key)
-        .firstOrNull;
-    if (saved != null) {
+    final fallback = widget.downloadedOnly ? null : _downloadedComic(downloads);
+    if (fallback != null || widget.downloadedOnly) {
       await _initialContentReady.future;
       if (!mounted) return;
+      final saved = fallback ?? _downloadedComic(downloads);
       setState(() {
-        final extra = {...saved.extra};
+        final cached = saved ?? widget.comic;
+        final extra = {...cached.extra};
         if (_remoteFavorite != null) {
           extra['isFavorite'] = _remoteFavorite;
           if (_remoteFavorite == false) {
@@ -128,17 +157,21 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
             extra['favoriteId'] = _comic.extra['favoriteId'];
           }
         }
-        _comic = Comic.fromJson({...saved.toJson(), 'extra': extra});
-        _chapters = saved.chapters;
+        _comic = Comic.fromJson({...cached.toJson(), 'extra': extra});
+        _chapters = saved?.chapters ?? [];
         if (_favoriteVersion == favoriteVersion) {
           _remoteFavorite = _sourceFavorite(_comic);
         }
-        _metadataLoading = false;
-        _chaptersLoading = false;
+        if (widget.downloadedOnly) {
+          _metadataLoading = false;
+          _chaptersLoading = false;
+        }
       });
-      _logTiming('metadata complete');
-      _logTiming('chapters complete');
-      return;
+      if (widget.downloadedOnly) {
+        _logTiming('metadata complete');
+        _logTiming('chapters complete');
+        return;
+      }
     }
     await _loadMetadata();
   }
@@ -166,7 +199,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
       loadError = error;
     }
     if (!mounted || generation != _metadataGeneration) return;
-    if (_chaptersLoading && !_chapterRequestStarted) {
+    final retryCatalog =
+        response != null &&
+        response.chapters.isNotEmpty &&
+        _chaptersError == null;
+    if ((_chaptersLoading || retryCatalog) && !_chapterRequestStarted) {
       unawaited(_loadChapters(comic: response ?? _comic));
     }
 
@@ -178,6 +215,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
           ...response.toJson(),
           'extra': {
             ...response.extra,
+            if (response.cover == _comic.cover &&
+                _comic.extra['localCover'] != null)
+              'localCover': _comic.extra['localCover'],
             if (!response.extra.containsKey('isFavorite') &&
                 _comic.extra['isFavorite'] == true)
               'isFavorite': true,
@@ -287,7 +327,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
       // Reading progress is optional detail-page context.
     }
     if (!mounted || generation != _progressGeneration) return;
-    setState(() => _lastProgress = progress);
+    setState(() {
+      _lastProgress = progress;
+      _progressReady = true;
+    });
   }
 
   Future<void> _refreshFavorite() async {
@@ -304,14 +347,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
       _favoriteReady = true;
     });
   }
-
-  ComicChapter? _lastReadChapter(ComicProgress progress) =>
-      _chapters
-          .where((chapter) => chapter.id == progress.chapterId)
-          .firstOrNull ??
-      progress.comic.chapters
-          .where((chapter) => chapter.id == progress.chapterId)
-          .firstOrNull;
 
   Future<void> _showPagePreview(
     Comic comic,
@@ -574,36 +609,45 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
 
   Future<void> _read(
     Comic comic, {
-    ComicChapter? chapter,
+    required ComicChapter chapter,
     int? initialPage,
   }) async {
-    if (!_initialContentVisible || comic.chapters.isEmpty) return;
-    final progress = await ref.read(comicLibraryProvider).progress(comic);
-    chapter ??=
-        comic.chapters.where((c) => c.id == progress?.chapterId).firstOrNull ??
-        comic.chapters.first;
-    if (!mounted) return;
-    final readerBodySize = (context.findRenderObject() as RenderBox).size;
-    setState(() {
-      _readerWindow = MediaQuery.of(context);
-      _readerBodySize = readerBodySize;
-      _readerReturning = false;
-    });
-    final route = MaterialPageRoute<void>(
-      settings: appImmersiveRouteSettings,
-      builder: (_) => ComicReaderScreen(
-        comic: comic,
-        chapter: chapter!,
-        initialPage:
-            initialPage ??
-            (progress?.chapterId == chapter.id ? progress!.page : 0),
-      ),
-    );
-    await AppNavigationScope.navigatorOf(context).push(route);
-    await route.completed;
-    if (mounted) {
-      setState(() => _readerReturning = true);
-      await _refreshProgress();
+    if (!_initialContentVisible || comic.chapters.isEmpty || _readerOpen) {
+      return;
+    }
+    _readerOpen = true;
+    try {
+      var progress = _lastProgress;
+      try {
+        progress = await ref.read(comicLibraryProvider).progress(comic);
+      } catch (_) {
+        // Reading progress is optional detail-page context.
+      }
+      if (!mounted) return;
+      final readerBodySize = (context.findRenderObject() as RenderBox).size;
+      setState(() {
+        _readerWindow = MediaQuery.of(context);
+        _readerBodySize = readerBodySize;
+        _readerReturning = false;
+      });
+      final route = MaterialPageRoute<void>(
+        settings: appImmersiveRouteSettings,
+        builder: (_) => ComicReaderScreen(
+          comic: comic,
+          chapter: chapter,
+          initialPage:
+              initialPage ??
+              (progress?.chapterId == chapter.id ? progress!.page : 0),
+        ),
+      );
+      await AppNavigationScope.navigatorOf(context).push(route);
+      await route.completed;
+      if (mounted) {
+        setState(() => _readerReturning = true);
+        await _refreshProgress();
+      }
+    } finally {
+      _readerOpen = false;
     }
   }
 
@@ -717,6 +761,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.downloadedOnly) {
+      ref.listen(comicDownloadsProvider, (_, downloads) {
+        _syncDownloadedChapters(downloads);
+      });
+    }
     ref.listen(comicLibraryProvider, (_, __) {
       unawaited(_refreshProgress());
       unawaited(_refreshFavorite());
@@ -826,9 +875,23 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
     final showThumbnails =
         StorageService.getBool('comic_chapter_thumbnails') ?? true;
     final lastProgress = _lastProgress;
+    final resumeChapter = lastProgress == null
+        ? null
+        : _chapters
+              .where((chapter) => chapter.id == lastProgress.chapterId)
+              .firstOrNull;
+    final catalogLoading = _metadataLoading || _chaptersLoading;
+    final canStartReading =
+        _initialContentVisible &&
+        _progressReady &&
+        _chapters.isNotEmpty &&
+        !catalogLoading;
     final lastChapter = lastProgress == null
         ? null
-        : _lastReadChapter(lastProgress);
+        : resumeChapter ??
+              lastProgress.comic.chapters
+                  .where((chapter) => chapter.id == lastProgress.chapterId)
+                  .firstOrNull;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -925,9 +988,12 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                   child: SizedBox(
                     width: math.min(200, constraints.maxWidth),
                     child: FilledButton(
-                      onPressed: !_initialContentVisible || _chapters.isEmpty
-                          ? null
-                          : () => _read(comic),
+                      onPressed: canStartReading
+                          ? () => _read(
+                              comic,
+                              chapter: resumeChapter ?? comic.chapters.first,
+                            )
+                          : null,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
@@ -936,9 +1002,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                           const SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              lastProgress == null
-                                  ? s.comicStart
-                                  : s.comicContinue,
+                              resumeChapter != null ||
+                                      (lastProgress != null && catalogLoading)
+                                  ? s.comicContinue
+                                  : s.comicStart,
                               textAlign: TextAlign.center,
                               softWrap: true,
                             ),
@@ -1088,7 +1155,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                       ListTile(
                         title: Text(chapter.title),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _read(comic, chapter: chapter),
+                        onTap: _progressReady
+                            ? () => _read(comic, chapter: chapter)
+                            : null,
                       ),
                       if (showThumbnails &&
                           !_metadataLoading &&

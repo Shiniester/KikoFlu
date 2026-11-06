@@ -11,6 +11,7 @@ import 'log_service.dart';
 import 'subtitle_database.dart';
 import 'subtitle_directory_scanner.dart';
 import 'subtitle_library_rules.dart';
+import 'subtitle_long_path.dart';
 import 'subtitle_matching.dart';
 import 'streaming_zip_extractor.dart';
 import '../utils/file_icon_utils.dart';
@@ -136,7 +137,9 @@ class SubtitleLibraryService {
   static Future<void> _ensureDatabase() async {
     if (_dbInitialized) return;
     // 防止并发重复初始化
-    _dbInitFuture ??= _initDatabase();
+    _dbInitFuture ??= _initDatabase().whenComplete(() {
+      _dbInitFuture = null;
+    });
     await _dbInitFuture;
   }
 
@@ -194,14 +197,11 @@ class SubtitleLibraryService {
     _dbInitialized = true;
   }
 
-  /// 重建数据库（清空后重新扫描文件系统）
+  /// 扫描成功后重建数据库，避免读取失败时清空旧索引。
   static Future<void> _rebuildDatabase(Directory libraryDir) async {
-    await SubtitleDatabase.instance.clear();
     final records = <SubtitleFileRecord>[];
     await _scanDirectoryForRecords(libraryDir, libraryDir.path, records);
-    if (records.isNotEmpty) {
-      await SubtitleDatabase.instance.insertFiles(records);
-    }
+    await SubtitleDatabase.instance.replaceFiles(records);
     _log.captureOutput('[SubtitleLibrary] 数据库重建完成: ${records.length} 条记录');
   }
 
@@ -244,32 +244,34 @@ class SubtitleLibraryService {
     return List<SubtitleFileRecord>.unmodifiable(records);
   }
 
-  /// 同步单个目录到数据库（删除旧记录 + 重新扫描）
-  static Future<void> _syncDirectoryToDatabase(String directoryPath) async {
+  /// 一次性同步所有变更目录，避免写入失败时只更新部分索引。
+  static Future<void> _syncDirectoriesToDatabase(
+    Set<String> directoryPaths, {
+    Function(String)? onProgress,
+  }) async {
     final libraryDir = await getSubtitleLibraryDirectory();
     final libraryRoot = libraryDir.path;
-
-    // 将绝对路径转换为相对路径前缀
-    final relativePrefix = directoryPath.length > libraryRoot.length
-        ? _toRelativePath(directoryPath.substring(libraryRoot.length + 1))
-        : '';
-
-    // 删除该目录下的旧记录
-    if (relativePrefix.isNotEmpty) {
-      await SubtitleDatabase.instance.deleteByRelativePathPrefix(
-        relativePrefix,
-      );
-    }
-
-    // 如果目录仍存在，重新扫描并插入
-    final dir = Directory(directoryPath);
-    if (await dir.exists()) {
-      final records = <SubtitleFileRecord>[];
-      await _scanDirectoryForRecords(dir, libraryDir.path, records);
-      if (records.isNotEmpty) {
-        await SubtitleDatabase.instance.insertFiles(records);
+    final records = <SubtitleFileRecord>[];
+    final relativePrefixes = <String>{};
+    var count = 0;
+    for (final directoryPath in directoryPaths) {
+      count++;
+      if (directoryPaths.length > 5 && onProgress != null) {
+        onProgress('正在刷新索引: $count/${directoryPaths.length}');
+      }
+      final relativePrefix = directoryPath.length > libraryRoot.length
+          ? _toRelativePath(directoryPath.substring(libraryRoot.length + 1))
+          : '';
+      if (relativePrefix.isNotEmpty) relativePrefixes.add(relativePrefix);
+      final dir = Directory(directoryPath);
+      if (await dir.exists()) {
+        await _scanDirectoryForRecords(dir, libraryDir.path, records);
       }
     }
+    await SubtitleDatabase.instance.replaceFiles(
+      records,
+      relativePrefixes: relativePrefixes,
+    );
   }
 
   /// 从 JSON 文件树展平为数据库记录（用于迁移）
@@ -611,33 +613,24 @@ class SubtitleLibraryService {
           );
         }
 
-        // 检查目标文件夹是否已存在，如果存在则合并（复制并替换）
-        if (await targetDir.exists()) {
+        final targetExists = await targetDir.exists();
+        if (targetExists) {
           _log.captureOutput(
             '[SubtitleLibrary] 检测到同名文件夹，合并并替换同名文件: $folderName',
           );
-          result = await _mergeAndCopyFolder(
-            sourceDir,
-            targetDir,
-            onProgress: onProgress,
-          );
-          parsedFolderCount = 1;
-          modifiedPaths.add(targetDir.path);
-          _log.captureOutput(
-            '[SubtitleLibrary] 已合并根目录文件夹: $folderName，导入 ${result['successCount']} 个字幕文件',
-          );
-        } else {
-          result = await _copyDirectoryWithFilter(
-            sourceDir,
-            targetDir,
-            onProgress: onProgress,
-          );
-          parsedFolderCount = 1;
-          modifiedPaths.add(targetDir.path);
-          _log.captureOutput(
-            '[SubtitleLibrary] 已解析根目录文件夹: $folderName, 字幕文件: ${result['successCount']}',
-          );
         }
+        result = await _copyDirectoryWithFilter(
+          sourceDir,
+          targetDir,
+          onProgress: onProgress,
+        );
+        parsedFolderCount = 1;
+        modifiedPaths.add(targetDir.path);
+        _log.captureOutput(
+          targetExists
+              ? '[SubtitleLibrary] 已合并根目录文件夹: $folderName，导入 ${result['successCount']} 个字幕文件'
+              : '[SubtitleLibrary] 已解析根目录文件夹: $folderName, 字幕文件: ${result['successCount']}',
+        );
       } else {
         // 根目录不匹配规则：递归处理子目录
         result = await _processFolderRecursively(
@@ -799,6 +792,7 @@ class SubtitleLibraryService {
       // 创建导入统计器
       final stats = _ImportStats();
       final Set<String> modifiedPaths = {};
+      var indexRefreshFailed = false;
 
       try {
         final zipName = archiveName;
@@ -815,6 +809,12 @@ class SubtitleLibraryService {
             targetPath: tempDir.path,
             archiveName: zipNameWithoutExt,
           ),
+          onProgress: onProgress == null
+              ? null
+              : (extracted, nested) => onProgress(
+                  '正在解压压缩包... 已解压 $extracted 个字幕文件，'
+                  '发现 $nested 个嵌套压缩包',
+                ),
         );
         if (!extraction.decodedRootArchive) {
           return ImportResult(
@@ -822,6 +822,7 @@ class SubtitleLibraryService {
             message:
                 '解压失败，可能是加密或损坏的压缩包: '
                 '${extraction.rootDecodeError}',
+            errorCount: extraction.errorCount,
           );
         }
 
@@ -846,8 +847,8 @@ class SubtitleLibraryService {
 
         // 更新统计信息
         stats.successCount = result['successCount'] ?? 0;
-        stats.errorCount = result['errorCount'] ?? 0;
-        stats.skippedCount = result['skippedCount'] ?? 0;
+        stats.errorCount += result['errorCount'] ?? 0;
+        stats.skippedCount += result['skippedCount'] ?? 0;
         final parsedCount = result['parsedCount'] ?? 0;
         final unknownCount = result['unknownCount'] ?? 0;
 
@@ -859,7 +860,7 @@ class SubtitleLibraryService {
         onProgress?.call('正在清理临时文件...');
         try {
           if (await tempDir.exists()) {
-            await _deleteDirectoryWithProgress(tempDir, onProgress);
+            await _deleteDirectoryBestEffort(tempDir);
             _log.captureOutput('[SubtitleLibrary] 清理临时目录完成');
           }
         } catch (e) {
@@ -869,7 +870,9 @@ class SubtitleLibraryService {
 
       if (stats.successCount == 0) {
         // 根据错误信息生成更详细的提示
-        String message = '压缩包中没有找到字幕文件';
+        String message = stats.errorCount > 0
+            ? '没有导入字幕文件\n失败 ${stats.errorCount} 项'
+            : '压缩包中没有找到字幕文件';
         if (stats.sizeErrorCount > 0) {
           message += '\n有 ${stats.sizeErrorCount} 个文件因过大被跳过';
         }
@@ -880,16 +883,20 @@ class SubtitleLibraryService {
           message += '\n有 ${stats.decodeErrorCount} 个文件解压失败';
         }
         if (stats.skippedCount > 0) {
-          message += '\n跳过 ${stats.skippedCount} 个非字幕文件';
+          message += '\n跳过 ${stats.skippedCount} 个文件';
         }
-        return ImportResult(success: false, message: message);
+        return ImportResult(
+          success: false,
+          message: message,
+          errorCount: stats.errorCount,
+        );
       }
 
       // 刷新相关文件夹缓存
       if (refreshIndex) {
         if (modifiedPaths.isNotEmpty) {
           onProgress?.call('正在刷新缓存...');
-          await _refreshDirectoriesAfterChange(
+          indexRefreshFailed = !await _refreshDirectoriesAfterChange(
             modifiedPaths,
             onProgress: onProgress,
           );
@@ -898,22 +905,27 @@ class SubtitleLibraryService {
           final parsedDirPath = p.join(libraryDir.path, parsedFolderName);
           final unknownDirPath = p.join(libraryDir.path, unknownFolderName);
           onProgress?.call('正在刷新缓存...');
-          await _refreshDirectoriesAfterChange({
+          indexRefreshFailed = !await _refreshDirectoriesAfterChange({
             parsedDirPath,
             unknownDirPath,
           }, onProgress: onProgress);
         }
       }
 
-      String message = '成功导入 ${stats.successCount} 个字幕文件';
+      String message = stats.errorCount > 0
+          ? '部分导入成功：已导入 ${stats.successCount} 个字幕文件'
+          : '成功导入 ${stats.successCount} 个字幕文件';
       if (stats.nestedArchiveCount > 0) {
-        message += '\n解压 ${stats.nestedArchiveCount} 个嵌套压缩包';
+        message += '\n发现 ${stats.nestedArchiveCount} 个嵌套压缩包';
       }
       if (stats.skippedCount > 0) {
-        message += '\n跳过 ${stats.skippedCount} 个非字幕文件';
+        message += '\n跳过 ${stats.skippedCount} 个文件';
       }
       if (stats.errorCount > 0) {
-        message += '\n失败 ${stats.errorCount} 个';
+        message += '\n失败 ${stats.errorCount} 项';
+      }
+      if (indexRefreshFailed) {
+        message += '\n索引刷新失败，请刷新字幕库';
       }
 
       return ImportResult(
@@ -921,6 +933,7 @@ class SubtitleLibraryService {
         message: message,
         importedCount: stats.successCount,
         errorCount: stats.errorCount,
+        indexRefreshFailed: indexRefreshFailed,
       );
     } catch (e) {
       return ImportResult(success: false, message: '导入压缩包失败: $e');
@@ -957,12 +970,13 @@ class SubtitleLibraryService {
     await _refreshDirectoriesAfterChange({directoryPath});
   }
 
-  static Future<void> _refreshDirectoriesAfterChange(
+  static Future<bool> _refreshDirectoriesAfterChange(
     Set<String> directoryPaths, {
     Function(String)? onProgress,
   }) async {
-    if (directoryPaths.isEmpty) return;
+    if (directoryPaths.isEmpty) return true;
 
+    var success = true;
     try {
       // 如果变更目录过多，整体重建
       if (directoryPaths.length > 50) {
@@ -973,21 +987,18 @@ class SubtitleLibraryService {
         final libraryDir = await getSubtitleLibraryDirectory();
         await _rebuildDatabase(libraryDir);
       } else {
-        int count = 0;
-        final total = directoryPaths.length;
-        for (final dirPath in directoryPaths) {
-          count++;
-          if (total > 5 && onProgress != null) {
-            onProgress('正在刷新索引: $count/$total');
-          }
-          await _syncDirectoryToDatabase(dirPath);
-        }
+        await _syncDirectoriesToDatabase(
+          directoryPaths,
+          onProgress: onProgress,
+        );
       }
     } catch (e) {
+      success = false;
       _log.captureOutput('[SubtitleLibrary] 刷新索引失败: $e');
     }
 
     _cacheUpdateController.add(null);
+    return success;
   }
 
   /// 删除字幕文件或文件夹
@@ -1079,8 +1090,33 @@ class SubtitleLibraryService {
   static Future<bool> move(String sourcePath, String targetFolderPath) async {
     try {
       final entity = FileSystemEntity.typeSync(sourcePath);
-      final fileName = p.basename(sourcePath);
-      final newPath = p.join(targetFolderPath, fileName);
+      final original = entity == FileSystemEntityType.file
+          ? SubtitleLongPath.readFileSync(sourcePath, allowRenamed: true)
+          : null;
+      final fileName = original == null
+          ? p.basename(sourcePath)
+          : p.posix.basename(original.originalPath);
+      Map<String, String>? existingPaths;
+
+      Future<String> targetPath(String name) async {
+        final path = p.join(targetFolderPath, name);
+        if (original == null) return path;
+        existingPaths ??= await SubtitleLongPath.existingPaths(
+          targetFolderPath,
+        );
+        final shortened = await _importTargetPath(
+          targetFolderPath,
+          name,
+          existingPaths!,
+        );
+        if (shortened == null) {
+          throw FileSystemException('字幕目标路径过长', path);
+        }
+        return shortened;
+      }
+
+      if (p.equals(p.dirname(sourcePath), targetFolderPath)) return true;
+      final newPath = await targetPath(fileName);
 
       // 检查目标路径是否与源路径相同
       if (sourcePath == newPath) {
@@ -1105,10 +1141,7 @@ class SubtitleLibraryService {
           String finalPath;
 
           do {
-            finalPath = p.join(
-              targetFolderPath,
-              '${nameWithoutExt}_$counter$ext',
-            );
+            finalPath = await targetPath('${nameWithoutExt}_$counter$ext');
             counter++;
           } while (await File(finalPath).exists());
 
@@ -1133,8 +1166,7 @@ class SubtitleLibraryService {
             '[SubtitleLibrary] 文件夹已合并: $sourcePath -> $newPath',
           );
         } else {
-          // 目标不存在或是文件，直接重命名
-          await Directory(sourcePath).rename(newPath);
+          await _mergeFolders(sourcePath, newPath);
           _log.captureOutput(
             '[SubtitleLibrary] 文件夹已移动: $sourcePath -> $newPath',
           );
@@ -1156,14 +1188,81 @@ class SubtitleLibraryService {
   /// 用于移动操作，会删除源文件夹，同名文件直接替换
   static Future<void> _mergeFolders(
     String sourceFolder,
-    String targetFolder,
-  ) async {
+    String targetFolder, {
+    Map<String, Map<String, String>>? existingPathsByRoot,
+  }) async {
+    existingPathsByRoot ??= {};
     final sourceDir = Directory(sourceFolder);
     final targetDir = Directory(targetFolder);
 
     if (!await sourceDir.exists()) return;
+    final sourceInfo = SubtitleLongPath.readDirectorySync(
+      sourceFolder,
+      allowRenamed: true,
+    );
+    final targetInfo = SubtitleLongPath.readDirectorySync(
+      targetFolder,
+      allowRenamed: true,
+    );
+    Map<String, String>? siblingPaths;
+    if (sourceInfo != null &&
+        sourceInfo.originalPath != targetInfo?.originalPath) {
+      siblingPaths = existingPathsByRoot[targetDir.parent.path] ??=
+          await SubtitleLongPath.existingPaths(targetDir.parent.path);
+      final existing = siblingPaths[sourceInfo.originalPath];
+      if (existing != null) {
+        await _mergeFolders(
+          sourceFolder,
+          p.dirname(existing),
+          existingPathsByRoot: existingPathsByRoot,
+        );
+        return;
+      }
+    }
     if (!await targetDir.exists()) {
-      await targetDir.create(recursive: true);
+      await sourceDir.rename(targetFolder);
+      if (sourceInfo != null) {
+        siblingPaths![sourceInfo.originalPath] = p.join(
+          targetFolder,
+          sourceInfo.storedName,
+        );
+      }
+      return;
+    }
+    if ((sourceInfo != null || targetInfo != null) &&
+        sourceInfo?.originalPath != targetInfo?.originalPath) {
+      final prefix = sourceInfo == null
+          ? p.basename(sourceFolder)
+          : 'long_${SubtitleLibraryRules.stablePathHash(sourceInfo.originalPath).toRadixString(16).padLeft(8, '0')}';
+      var suffix = 1;
+      var alternative = p.join(targetDir.parent.path, '${prefix}_$suffix');
+      while (await FileSystemEntity.type(alternative, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        suffix++;
+        alternative = p.join(targetDir.parent.path, '${prefix}_$suffix');
+      }
+      if (sourceInfo != null &&
+          p.join(alternative, sourceInfo.storedName).length > _maxPathLength) {
+        throw FileSystemException('字幕目标路径过长', alternative);
+      }
+      await sourceDir.rename(alternative);
+      if (sourceInfo != null) {
+        siblingPaths![sourceInfo.originalPath] = p.join(
+          alternative,
+          sourceInfo.storedName,
+        );
+      }
+      return;
+    }
+    if (sourceInfo != null &&
+        targetInfo != null &&
+        sourceInfo.storedName != targetInfo.storedName) {
+      final sourceFile = File(p.join(sourceFolder, sourceInfo.storedName));
+      if (await sourceFile.exists()) {
+        await sourceFile.copy(p.join(targetFolder, targetInfo.storedName));
+        await sourceFile.delete();
+      }
+      await File(p.join(sourceFolder, SubtitleLongPath.markerName)).delete();
     }
 
     // 遍历源文件夹中的所有内容
@@ -1180,11 +1279,11 @@ class SubtitleLibraryService {
         await entity.rename(targetPath);
       } else if (entity is Directory) {
         // 处理子文件夹（递归合并）
-        if (await Directory(targetPath).exists()) {
-          await _mergeFolders(entity.path, targetPath);
-        } else {
-          await entity.rename(targetPath);
-        }
+        await _mergeFolders(
+          entity.path,
+          targetPath,
+          existingPathsByRoot: existingPathsByRoot,
+        );
       }
     }
 
@@ -1196,86 +1295,6 @@ class SubtitleLibraryService {
         _log.captureOutput('[SubtitleLibrary] 删除空文件夹失败: $sourceFolder, 错误: $e');
       }
     }
-  }
-
-  /// 合并并复制文件夹（用于导入，不删除源文件夹，同名文件直接替换）
-  /// 返回统计信息：successCount, errorCount, skippedCount
-  static Future<Map<String, int>> _mergeAndCopyFolder(
-    Directory sourceDir,
-    Directory targetDir, {
-    Function(String)? onProgress,
-  }) async {
-    int successCount = 0;
-    int errorCount = 0;
-    int skippedCount = 0;
-
-    try {
-      await for (final entity in sourceDir.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is File) {
-          final fileName = entity.path.split(Platform.pathSeparator).last;
-
-          if (!FileIconUtils.isLyricFile(fileName)) {
-            skippedCount++;
-            continue;
-          }
-
-          try {
-            final relativePath = entity.path.substring(
-              sourceDir.path.length + 1,
-            );
-            var targetFilePath = _joinRelativePath(
-              targetDir.path,
-              relativePath,
-            );
-
-            // 检查路径长度，如果过长则缩短
-            if (targetFilePath.length > _maxPathLength) {
-              targetFilePath = _shortenPath(targetFilePath, fileName);
-              if (targetFilePath.isEmpty) {
-                _log.captureOutput(
-                  '[SubtitleLibrary] 路径过长无法缩短，跳过: $relativePath',
-                );
-                skippedCount++;
-                continue;
-              }
-            }
-
-            final targetFile = File(targetFilePath);
-            await targetFile.parent.create(recursive: true);
-
-            // 如果目标文件已存在，直接替换
-            if (await targetFile.exists()) {
-              _log.captureOutput('[SubtitleLibrary] 替换同名文件: $fileName');
-            }
-
-            await entity.copy(targetFile.path);
-            successCount++;
-
-            // 每10个文件显示一次进度
-            if (successCount % 10 == 0) {
-              onProgress?.call('已处理 $successCount 个字幕文件...');
-            }
-          } catch (e) {
-            errorCount++;
-            _log.captureOutput('[SubtitleLibrary] 复制文件失败: $fileName, 错误: $e');
-          }
-        }
-      }
-    } catch (e) {
-      _log.captureOutput(
-        '[SubtitleLibrary] 合并复制目录失败: ${sourceDir.path}, 错误: $e',
-      );
-      errorCount++;
-    }
-
-    return {
-      'successCount': successCount,
-      'errorCount': errorCount,
-      'skippedCount': skippedCount,
-    };
   }
 
   /// 获取指定目录下的直接子文件夹（用于树形浏览）
@@ -1338,44 +1357,26 @@ class SubtitleLibraryService {
     );
   }
 
-  /// 缩短过长的路径
-  /// 策略：保留文件名，缩短中间的目录名
-  static String _shortenPath(String fullPath, String fileName) {
-    try {
-      final parts = fullPath.split(Platform.pathSeparator);
-      if (parts.length <= 2) {
-        return ''; // 无法再缩短
-      }
-
-      // 保留根路径和文件名，缩短中间部分
-      final rootPart = parts[0];
-      final middleParts = parts.sublist(1, parts.length - 1);
-
-      // 缩短每个中间目录名到最多10个字符
-      final shortenedMiddle = middleParts.map((part) {
-        if (part.length > 10) {
-          return part.substring(0, 10);
-        }
-        return part;
-      }).toList();
-
-      final newPath = [
-        rootPart,
-        ...shortenedMiddle,
-        fileName,
-      ].join(Platform.pathSeparator);
-
-      // 如果还是太长，进一步缩短
-      if (newPath.length > _maxPathLength) {
-        // 只保留根路径和文件名
-        return [rootPart, parts[1], fileName].join(Platform.pathSeparator);
-      }
-
-      return newPath;
-    } catch (e) {
-      _log.captureOutput('[SubtitleLibrary] 路径缩短失败: $e');
-      return '';
+  static Future<String?> _importTargetPath(
+    String targetRoot,
+    String originalPath,
+    Map<String, String> existingPaths,
+  ) async {
+    final existing = existingPaths[originalPath];
+    if (existing != null) return existing;
+    final originalTarget = _joinRelativePath(targetRoot, originalPath);
+    final mapped = SubtitleLongPath.readFileSync(
+      originalTarget,
+      allowRenamed: true,
+    );
+    if ((mapped == null || mapped.originalPath == originalPath) &&
+        (originalTarget.length <= _maxPathLength ||
+            await File(originalTarget).exists())) {
+      return originalTarget;
     }
+    final shortened = SubtitleLongPath.resolve(targetRoot, originalPath);
+    if (shortened != null) existingPaths[originalPath] = shortened;
+    return shortened;
   }
 
   /// 递归处理文件夹，识别并分配到相应目录
@@ -1386,7 +1387,9 @@ class SubtitleLibraryService {
     Directory libraryDir, {
     Function(String)? onProgress,
     Set<String>? modifiedPaths,
+    Map<String, Map<String, String>>? existingPathsByRoot,
   }) async {
+    existingPathsByRoot ??= {};
     int successCount = 0;
     int errorCount = 0;
     int skippedCount = 0;
@@ -1440,40 +1443,27 @@ class SubtitleLibraryService {
 
           onProgress?.call('正在处理: $folderName');
 
-          // 检查目标文件夹是否已存在，如果存在则合并（复制并替换）
-          if (await targetDir.exists()) {
+          final targetExists = await targetDir.exists();
+          if (targetExists) {
             _log.captureOutput(
               '[SubtitleLibrary] 检测到同名文件夹，合并并替换同名文件: $folderName',
             );
-            final result = await _mergeAndCopyFolder(
-              subDir,
-              targetDir,
-              onProgress: onProgress,
-            );
-            successCount += result['successCount'] ?? 0;
-            errorCount += result['errorCount'] ?? 0;
-            skippedCount += result['skippedCount'] ?? 0;
-            parsedCount++;
-            modifiedPaths?.add(targetDir.path);
-            _log.captureOutput(
-              '[SubtitleLibrary] 已合并文件夹: $folderName，导入 ${result['successCount']} 个字幕文件',
-            );
-          } else {
-            final result = await _copyDirectoryWithFilter(
-              subDir,
-              targetDir,
-              onProgress: onProgress,
-            );
-            successCount += result['successCount'] ?? 0;
-            errorCount += result['errorCount'] ?? 0;
-            skippedCount += result['skippedCount'] ?? 0;
-            parsedCount++;
-            modifiedPaths?.add(targetDir.path);
-
-            _log.captureOutput(
-              '[SubtitleLibrary] 已解析文件夹: $folderName, 字幕文件: ${result['successCount']}',
-            );
           }
+          final result = await _copyDirectoryWithFilter(
+            subDir,
+            targetDir,
+            onProgress: onProgress,
+          );
+          successCount += result['successCount'] ?? 0;
+          errorCount += result['errorCount'] ?? 0;
+          skippedCount += result['skippedCount'] ?? 0;
+          parsedCount++;
+          modifiedPaths?.add(targetDir.path);
+          _log.captureOutput(
+            targetExists
+                ? '[SubtitleLibrary] 已合并文件夹: $folderName，导入 ${result['successCount']} 个字幕文件'
+                : '[SubtitleLibrary] 已解析文件夹: $folderName, 字幕文件: ${result['successCount']}',
+          );
         } else {
           // 不匹配规则：递归检查子目录内部
           final subResult = await _processFolderRecursively(
@@ -1482,112 +1472,78 @@ class SubtitleLibraryService {
             libraryDir,
             onProgress: onProgress,
             modifiedPaths: modifiedPaths,
+            existingPathsByRoot: existingPathsByRoot,
           );
           successCount += subResult['successCount'] ?? 0;
           errorCount += subResult['errorCount'] ?? 0;
           skippedCount += subResult['skippedCount'] ?? 0;
           parsedCount += subResult['parsedCount'] ?? 0;
           unknownCount += subResult['unknownCount'] ?? 0;
-
-          // 如果子目录没有匹配的子文件夹，但有字幕文件，放入"未知作品"
-          if ((subResult['parsedCount'] ?? 0) == 0) {
-            final hasSubtitles = await _hasSubtitleFiles(subDir);
-            if (hasSubtitles) {
-              final folderName = originalFolderName; // 未知作品不需要标准化
-              const targetCategory = unknownFolderName;
-              final targetDir = Directory(
-                p.join(libraryDir.path, targetCategory, folderName),
-              );
-
-              // 检查目标路径长度
-              if (targetDir.path.length > _maxPathLength) {
-                _log.captureOutput(
-                  '[SubtitleLibrary] 目标路径过长，跳过文件夹: $folderName (${targetDir.path.length} 字符)',
-                );
-                errorCount++;
-                continue;
-              }
-
-              onProgress?.call('正在处理: $folderName');
-
-              // 检查目标文件夹是否已存在，如果存在则合并（复制并替换）
-              if (await targetDir.exists()) {
-                _log.captureOutput(
-                  '[SubtitleLibrary] 检测到同名文件夹，合并并替换同名文件: $folderName',
-                );
-                final result = await _mergeAndCopyFolder(
-                  subDir,
-                  targetDir,
-                  onProgress: onProgress,
-                );
-                successCount += result['successCount'] ?? 0;
-                errorCount += result['errorCount'] ?? 0;
-                skippedCount += result['skippedCount'] ?? 0;
-                unknownCount++;
-                modifiedPaths?.add(targetDir.path);
-                _log.captureOutput(
-                  '[SubtitleLibrary] 已合并未知作品: $folderName，导入 ${result['successCount']} 个字幕文件',
-                );
-              } else {
-                final result = await _copyDirectoryWithFilter(
-                  subDir,
-                  targetDir,
-                  onProgress: onProgress,
-                );
-                successCount += result['successCount'] ?? 0;
-                errorCount += result['errorCount'] ?? 0;
-                skippedCount += result['skippedCount'] ?? 0;
-                unknownCount++;
-                modifiedPaths?.add(targetDir.path);
-
-                _log.captureOutput(
-                  '[SubtitleLibrary] 未知作品: $folderName, 字幕文件: ${result['successCount']}',
-                );
-              }
-            }
-          }
         }
       }
 
-      // 如果当前目录有直接的字幕文件（根目录散落的文件）
-      if (files.isNotEmpty && currentDir.path == rootDir.path) {
+      // 按源目录的相对路径导入未知字幕，避免递归重复复制。
+      if (files.isNotEmpty) {
+        final targetDir = Directory(p.join(libraryDir.path, unknownFolderName));
+        final existingPaths = existingPathsByRoot[targetDir.path] ??=
+            await SubtitleLongPath.existingPaths(targetDir.path);
+        final original = SubtitleLongPath.readDirectorySync(
+          currentDir.path,
+          allowRenamed: true,
+        );
+        final initialSuccessCount = successCount;
         for (final file in files) {
           final fileName = file.path.split(Platform.pathSeparator).last;
           if (FileIconUtils.isLyricFile(fileName)) {
             try {
-              const targetCategory = unknownFolderName;
-              final targetDir = Directory(
-                p.join(libraryDir.path, targetCategory),
-              );
               await targetDir.create(recursive: true);
 
-              var targetFilePath = p.join(targetDir.path, fileName);
-
-              // 检查路径长度
-              if (targetFilePath.length > _maxPathLength) {
-                targetFilePath = _shortenPath(targetFilePath, fileName);
-                if (targetFilePath.isEmpty) {
-                  _log.captureOutput(
-                    '[SubtitleLibrary] 根目录文件路径过长，跳过: $fileName',
-                  );
-                  skippedCount++;
-                  continue;
-                }
+              final relativePath = _toRelativePath(
+                p.relative(file.path, from: rootDir.path),
+              );
+              final originalPath = original?.storedName == fileName
+                  ? p.posix.normalize(
+                      p.posix.join(
+                        p.posix.dirname(p.posix.dirname(relativePath)),
+                        original!.originalPath,
+                      ),
+                    )
+                  : relativePath;
+              final targetFilePath = await _importTargetPath(
+                targetDir.path,
+                originalPath,
+                existingPaths,
+              );
+              if (targetFilePath == null) {
+                _log.captureOutput(
+                  '[SubtitleLibrary] 未知作品字幕路径过长，跳过: $originalPath',
+                );
+                skippedCount++;
+                continue;
               }
 
               final targetFile = File(targetFilePath);
+              if (targetFile.parent.path != targetDir.path) {
+                await targetFile.parent.create(recursive: true);
+              }
               await file.copy(targetFile.path);
               successCount++;
-              _log.captureOutput('[SubtitleLibrary] 根目录文件: $fileName');
+              modifiedPaths?.add(targetDir.path);
+              _log.captureOutput('[SubtitleLibrary] 未知作品字幕: $originalPath');
             } catch (e) {
               errorCount++;
               _log.captureOutput(
-                '[SubtitleLibrary] 复制根目录文件失败: $fileName, 错误: $e',
+                '[SubtitleLibrary] 复制未知作品字幕失败: $fileName, 错误: $e',
               );
             }
-          } else {
+          } else if (fileName != SubtitleLongPath.markerName ||
+              original == null) {
             skippedCount++;
           }
+        }
+        if (successCount > initialSuccessCount &&
+            currentDir.path != rootDir.path) {
+          unknownCount++;
         }
       }
     } catch (e) {
@@ -1606,27 +1562,7 @@ class SubtitleLibraryService {
     };
   }
 
-  /// 检查目录是否包含字幕文件
-  static Future<bool> _hasSubtitleFiles(Directory dir) async {
-    try {
-      await for (final entity in dir.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is File) {
-          final fileName = entity.path.split(Platform.pathSeparator).last;
-          if (FileIconUtils.isLyricFile(fileName)) {
-            return true;
-          }
-        }
-      }
-    } catch (e) {
-      _log.captureOutput('[SubtitleLibrary] 检查字幕文件失败: ${dir.path}, 错误: $e');
-    }
-    return false;
-  }
-
-  /// 复制目录并过滤非字幕文件
+  /// 复制字幕文件，保留源目录并覆盖目标中的同名文件。
   static Future<Map<String, int>> _copyDirectoryWithFilter(
     Directory sourceDir,
     Directory targetDir, {
@@ -1635,8 +1571,12 @@ class SubtitleLibraryService {
     int successCount = 0;
     int errorCount = 0;
     int skippedCount = 0;
+    final createdTargetParents = <String>{};
 
     try {
+      final targetRoot = targetDir.path;
+      final existingPaths = await SubtitleLongPath.existingPaths(targetRoot);
+      final sourceDirectories = <String, SubtitleLongPathInfo?>{};
       await for (final entity in sourceDir.list(
         recursive: true,
         followLinks: false,
@@ -1645,40 +1585,60 @@ class SubtitleLibraryService {
           final fileName = entity.path.split(Platform.pathSeparator).last;
 
           if (!FileIconUtils.isLyricFile(fileName)) {
+            if (fileName == SubtitleLongPath.markerName &&
+                SubtitleLongPath.readDirectorySync(
+                      entity.parent.path,
+                      allowRenamed: true,
+                    ) !=
+                    null) {
+              continue;
+            }
             skippedCount++;
             continue;
           }
 
           try {
-            final relativePath = entity.path.substring(
-              sourceDir.path.length + 1,
+            final relativePath = _toRelativePath(
+              p.relative(entity.path, from: sourceDir.path),
             );
-            var targetFilePath = _joinRelativePath(
-              targetDir.path,
-              relativePath,
+            final info = sourceDirectories.putIfAbsent(
+              entity.parent.path,
+              () => SubtitleLongPath.readDirectorySync(
+                entity.parent.path,
+                allowRenamed: true,
+              ),
             );
-
-            // 检查路径长度，如果过长则缩短
-            if (targetFilePath.length > _maxPathLength) {
-              targetFilePath = _shortenPath(targetFilePath, fileName);
-              if (targetFilePath.isEmpty) {
-                _log.captureOutput(
-                  '[SubtitleLibrary] 路径过长无法缩短，跳过: $relativePath',
-                );
-                skippedCount++;
-                continue;
-              }
+            final sourceInfo = info?.storedName == fileName ? info : null;
+            final originalPath = sourceInfo == null
+                ? relativePath
+                : p.posix.normalize(
+                    p.posix.join(
+                      p.posix.dirname(p.posix.dirname(relativePath)),
+                      sourceInfo.originalPath,
+                    ),
+                  );
+            final targetFilePath = await _importTargetPath(
+              targetRoot,
+              originalPath,
+              existingPaths,
+            );
+            if (targetFilePath == null) {
+              _log.captureOutput(
+                '[SubtitleLibrary] 路径过长无法缩短，跳过: $relativePath',
+              );
+              skippedCount++;
+              continue;
             }
 
             final targetFile = File(targetFilePath);
 
-            await targetFile.parent.create(recursive: true);
-
-            // 如果目标文件已存在，直接覆盖
-            if (await targetFile.exists()) {
-              _log.captureOutput('[SubtitleLibrary] 替换同名文件: $fileName');
+            final targetParent = targetFile.parent;
+            if (!createdTargetParents.contains(targetParent.path)) {
+              await targetParent.create(recursive: true);
+              createdTargetParents.add(targetParent.path);
             }
 
+            // File.copy overwrites an existing target.
             await entity.copy(targetFile.path);
             successCount++;
 
@@ -1787,24 +1747,24 @@ class SubtitleLibraryService {
     return normalized;
   }
 
-  /// 递归删除目录并显示进度
-  static Future<void> _deleteDirectoryWithProgress(
-    Directory dir,
-    Function(String)? onProgress,
-  ) async {
+  /// 递归删除临时目录，失败时回退到逐项清理。
+  static Future<void> _deleteDirectoryBestEffort(Directory dir) async {
+    try {
+      await dir.delete(recursive: true);
+    } catch (e) {
+      _log.captureOutput('[SubtitleLibrary] 递归删除失败，继续逐项清理: ${dir.path}, $e');
+      await _deleteDirectoryEntryByEntry(dir);
+    }
+  }
+
+  static Future<void> _deleteDirectoryEntryByEntry(Directory dir) async {
     try {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is Directory) {
-          await _deleteDirectoryWithProgress(entity, onProgress);
+          await _deleteDirectoryEntryByEntry(entity);
         } else {
           await entity.delete();
         }
-      }
-
-      final folderName = dir.path.split(RegExp(r'[/\\]')).last;
-      // 避免显示顶层临时目录名，只显示实际的内容文件夹
-      if (!folderName.startsWith('.temp_')) {
-        onProgress?.call('正在清理临时文件: $folderName');
       }
 
       await dir.delete();
@@ -1820,12 +1780,14 @@ class ImportResult {
   final String message;
   final int importedCount;
   final int errorCount;
+  final bool indexRefreshFailed;
 
   ImportResult({
     required this.success,
     required this.message,
     this.importedCount = 0,
     this.errorCount = 0,
+    this.indexRefreshFailed = false,
   });
 }
 

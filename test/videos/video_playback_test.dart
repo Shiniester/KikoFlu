@@ -132,6 +132,75 @@ void main() {
     },
   );
 
+  _testPlayerWidget(
+    'new video clears transient subtitle and super resolution state',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      var videoId = 'source-a';
+      late StateSetter updateVideo;
+      final session = _FakeAdvancedPlaybackSession();
+      final library = await _testLibrary();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              updateVideo = setState;
+              return Scaffold(
+                body: VideoPlaybackPanel(
+                  key: const ValueKey('transient-settings-player'),
+                  videoId: videoId,
+                  library: library,
+                  streams: _details().streams,
+                  savePositionOnSourceChange: true,
+                  sessionFactory: () => session,
+                  platform: _TestVideoPlayerPlatform(),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await _chooseSetting(tester, '${l10n.playbackSpeed}: 2.0X');
+      await _openSettings(tester);
+      final superResolution = find.byTooltip(l10n.videoPlayerSuperResolution);
+      await _ensureMoreMenuItemVisible(tester, superResolution);
+      await tester.tap(superResolution);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(
+          CheckedPopupMenuItem<VideoSuperResolution>,
+          l10n.videoPlayerSuperResolutionQuality,
+        ),
+      );
+      await tester.pump();
+      await _closeSettings(tester);
+      await session.loadExternalSubtitle('/fixture.srt', title: 'Fixture');
+
+      await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
+      expect(session.clearExternalSubtitleCount, 0);
+      expect(session.externalSubtitlePath, '/fixture.srt');
+      expect(session.superResolutionModes.last, VideoSuperResolution.quality);
+      expect(session.snapshot.value.rate, 2);
+
+      updateVideo(() => videoId = 'source-b');
+      await tester.pumpAndSettle();
+
+      expect(session.clearExternalSubtitleCount, 1);
+      expect(session.externalSubtitlePath, isNull);
+      expect(session.superResolutionModes.last, VideoSuperResolution.off);
+      expect(session.snapshot.value.rate, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   _testPlayerWidget('detail route waits for entry animation to settle', (
     tester,
   ) async {
@@ -498,6 +567,105 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(routeCompleted, isTrue);
+    },
+  );
+
+  _testPlayerWidget(
+    'covered video session cannot overwrite newer same-video progress',
+    (tester) async {
+      const stalePosition = Duration(seconds: 10);
+      const currentPosition = Duration(seconds: 60);
+      final library = await _testLibrary();
+      final oldSession = _PauseGatedPlaybackSession();
+      final pauseGate = Completer<void>();
+      oldSession.nextPauseCompleter = pauseGate;
+      final middleSession = _FakePlaybackSession();
+      final currentSession = _FakePlaybackSession();
+
+      Widget page(
+        String routeId,
+        String videoId,
+        _FakePlaybackSession session,
+      ) => Scaffold(
+        body: VideoPlaybackPanel(
+          key: ValueKey('player-$routeId'),
+          videoId: videoId,
+          library: library,
+          streams: _details().streams,
+          initialPosition: library.positionFor(videoId),
+          savePositionOnSourceChange: true,
+          sessionFactory: () => session,
+          platform: _TestVideoPlayerPlatform(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: page('a-old', 'A', oldSession),
+        ),
+      );
+      await tester.pumpAndSettle();
+      oldSession.emitSnapshot(position: stalePosition);
+      final navigator = Navigator.of(
+        tester.element(find.byKey(const ValueKey('player-a-old'))),
+      );
+
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => page('b', 'B', middleSession),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(oldSession.nextPauseCompleter, isNull);
+
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => page('a-current', 'A', currentSession),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      currentSession.emitSnapshot(position: currentPosition);
+      await tester.pump(const Duration(seconds: 6));
+      expect(library.positionFor('A'), currentPosition);
+
+      pauseGate.complete();
+      await tester.pumpAndSettle();
+      expect(library.positionFor('A'), currentPosition);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(library.positionFor('A'), currentPosition);
+      await tester.pump(const Duration(seconds: 6));
+      expect(library.positionFor('A'), currentPosition);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 6));
+      expect(library.positionFor('A'), currentPosition);
+
+      const explicitSeekPosition = Duration(seconds: 90);
+      final slider = tester.widget<Slider>(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
+      slider.onChanged!(explicitSeekPosition.inMilliseconds.toDouble());
+      slider.onChangeEnd!(explicitSeekPosition.inMilliseconds.toDouble());
+      await tester.pump();
+      oldSession.emitSnapshot(position: explicitSeekPosition);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 6));
+      expect(library.positionFor('A'), explicitSeekPosition);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(library.positionFor('A'), explicitSeekPosition);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -3937,6 +4105,193 @@ void main() {
     },
   );
 
+  _testPlayerWidget('desktop P toggles PiP entry and exit', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final session = _FakeAdvancedPlaybackSession();
+    final platform = _ToggleDesktopPiPPlatform();
+    await _pumpStandalonePlayer(
+      tester,
+      session,
+      platform: platform,
+      width: 800,
+      height: 600,
+    );
+
+    final surface = find.byKey(const ValueKey('video-gesture-surface'));
+    await tester.tapAt(tester.getCenter(surface));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pumpAndSettle();
+    expect(platform.pictureInPicture.value, isTrue);
+    expect(
+      find.byKey(const ValueKey('video-pip-placeholder'), skipOffstage: false),
+      findsOneWidget,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pumpAndSettle();
+    expect(platform.exitCount, 1);
+    expect(platform.pictureInPicture.value, isFalse);
+    expect(find.byKey(const ValueKey('video-pip-placeholder')), findsNothing);
+
+    await tester.tap(
+      find.byTooltip(
+        (await S.delegate.load(const Locale('en'))).videoFullscreen,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pump();
+    expect(platform.pictureInPicture.value, isFalse);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  _testPlayerWidget(
+    'Android auto PiP survives inactive hidden paused ordering',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      SharedPreferences.setMockInitialValues({
+        'video_player_v1_auto_pip': true,
+      });
+      final library = VideoLibrary(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      await library.initialize();
+      final session = _FakeAdvancedPlaybackSession();
+      final enterGate = Completer<bool>();
+      final platform = _DelayedAndroidPiPPlatform()..nextEnter = enterGate;
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        platform: platform,
+        configuredLibrary: library,
+      );
+      expect(platform.autoPictureInPictureEnabled, isTrue);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+      try {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        await tester.pump();
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        await tester.pump();
+        expect(session.pauseCount, 0);
+
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(platform.enterCalls, 1);
+        expect(session.pauseCount, 0);
+        enterGate.complete(true);
+        await tester.pumpAndSettle();
+
+        expect(platform.pictureInPicture.value, isTrue);
+        expect(session.snapshot.value.playing, isTrue);
+        expect(tester.takeException(), isNull);
+      } finally {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      }
+    },
+  );
+
+  _testPlayerWidget(
+    'failed Android auto PiP still pauses background playback',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      SharedPreferences.setMockInitialValues({
+        'video_player_v1_auto_pip': true,
+      });
+      final library = VideoLibrary(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      await library.initialize();
+      final session = _FakeAdvancedPlaybackSession();
+      final enterGate = Completer<bool>();
+      final platform = _DelayedAndroidPiPPlatform()..nextEnter = enterGate;
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        platform: platform,
+        configuredLibrary: library,
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(platform.enterCalls, 1);
+        enterGate.complete(false);
+        await tester.pumpAndSettle();
+
+        expect(session.pauseCount, 1);
+        expect(session.snapshot.value.playing, isFalse);
+        expect(tester.takeException(), isNull);
+      } finally {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      }
+    },
+  );
+
+  _testPlayerWidget(
+    'manual pause remains in effect while Android PiP entry is pending',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      SharedPreferences.setMockInitialValues({
+        'video_player_v1_auto_pip': true,
+      });
+      final library = VideoLibrary(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      await library.initialize();
+      final session = _FakeAdvancedPlaybackSession();
+      final enterGate = Completer<bool>();
+      final platform = _DelayedAndroidPiPPlatform()..nextEnter = enterGate;
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        platform: platform,
+        configuredLibrary: library,
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+
+      try {
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(platform.enterCalls, 1);
+        await tester.tap(find.byTooltip(l10n.pause));
+        await tester.pump();
+        expect(session.snapshot.value.playing, isFalse);
+
+        enterGate.complete(true);
+        await tester.pumpAndSettle();
+        expect(session.snapshot.value.playing, isFalse);
+        expect(session.playCount, 1);
+        expect(session.pauseCount, 1);
+        expect(tester.takeException(), isNull);
+      } finally {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      }
+    },
+  );
+
   _testPlayerWidget('more menu height survives desktop PiP and resize', (
     tester,
   ) async {
@@ -4098,6 +4453,166 @@ void main() {
       expect(session.requestedPositions.last, const Duration(seconds: 60));
       expect(session.snapshot.value.position, const Duration(seconds: 60));
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _testPlayerWidget('failed quality remains selectable for playback recovery', (
+    tester,
+  ) async {
+    final session = _FakePlaybackSession();
+    await _pumpStandalonePlayer(
+      tester,
+      session,
+      streams: const [
+        VideoStream(label: 'Auto', url: 'https://cdn.example/auto.m3u8'),
+        VideoStream(label: '720p', url: 'https://cdn.example/720.m3u8'),
+        VideoStream(label: '1080p', url: 'https://cdn.example/1080.m3u8'),
+      ],
+    );
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
+    await _closeSettings(tester);
+    expect(session.lastStreamUrl, 'https://cdn.example/720.m3u8');
+
+    await tester.tap(find.byTooltip(l10n.videoPlay));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('video-player-more-menu')), findsNothing);
+    session.emitError('720p failed');
+    await tester.pump();
+    expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('video-player-more-menu')),
+      findsOneWidget,
+    );
+
+    await _chooseSetting(tester, '${l10n.videoQuality}: 1080p');
+    session.emitSnapshot(buffering: false);
+    await tester.pump();
+    await _closeSettings(tester);
+
+    expect(session.lastStreamUrl, 'https://cdn.example/1080.m3u8');
+    expect(find.text(l10n.videoPlaybackFailed), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  _testPlayerWidget('compact inline player keeps controls and retry at 224px', (
+    tester,
+  ) async {
+    final session = _FakePlaybackSession();
+    await _pumpStandalonePlayer(
+      tester,
+      session,
+      width: 560,
+      height: 350,
+      bounded: true,
+      playerSize: const Size(224, 126),
+    );
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    expect(
+      tester.getSize(find.byKey(const ValueKey('video-gesture-surface'))),
+      const Size(224, 126),
+    );
+    expect(find.byTooltip(l10n.videoPlay), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    session.emitError('inline playback failed');
+    await tester.pump();
+    expect(find.byTooltip(l10n.retry), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip(l10n.retry));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l10n.retry));
+    session.emitSnapshot(buffering: false);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(session.loadStreamCount, 2);
+    expect(find.text(l10n.videoPlaybackFailed), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  _testPlayerWidget(
+    'compact player updates controls at 128px and fits 80px transition bounds',
+    (tester) async {
+      tester.view.physicalSize = const Size(560, 350);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var playerSize = const Size(224, 126);
+      late StateSetter updatePlayerSize;
+      final session = _FakePlaybackSession();
+      final library = await _testLibrary();
+      final player = VideoPlaybackPanel(
+        key: const ValueKey('compact-transition-player'),
+        videoId: 'compact-transition',
+        library: library,
+        title: 'Compact transition video',
+        streams: _details().streams,
+        sessionFactory: () => session,
+        platform: _TestVideoPlayerPlatform(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          theme: ThemeData(useMaterial3: true),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              updatePlayerSize = setState;
+              return Scaffold(
+                body: Center(
+                  child: SizedBox.fromSize(size: playerSize, child: player),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final home = find.byKey(const ValueKey('video-player-home'));
+      expect(tester.getSize(surface), const Size(224, 126));
+      expect(home, findsOneWidget);
+      updatePlayerSize(() => playerSize = const Size(128, 72));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(surface), const Size(128, 72));
+      expect(home, findsNothing);
+      expect(
+        find.byKey(const ValueKey('video-player-more-menu')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip(l10n.videoPlay), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      session.emitError('compact playback failed');
+      await tester.pump();
+      final retry = find.byTooltip(l10n.retry);
+      expect(retry, findsOneWidget);
+      await tester.ensureVisible(retry);
+      await tester.pumpAndSettle();
+      await tester.tap(retry);
+      session.emitSnapshot(buffering: false);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoPlaybackFailed), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      updatePlayerSize(() => playerSize = const Size(80, 45));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(surface), const Size(80, 45));
+      expect(tester.takeException(), isNull);
+      updatePlayerSize(() => playerSize = const Size(224, 126));
+      await tester.pumpAndSettle();
+      expect(home, findsOneWidget);
+      expect(session.loadStreamCount, 2);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -4797,6 +5312,35 @@ void main() {
   );
 
   _testPlayerWidget(
+    'quality switch keeps the pending seek target before snapshot feedback',
+    (tester) async {
+      final seekGate = Completer<void>();
+      final session = _DelayedSeekPlaybackSession()
+        ..nextSeekCompleter = seekGate;
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        initialPosition: const Duration(seconds: 20),
+      );
+      final slider = tester.widget<Slider>(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
+      slider.onChanged!(120000);
+      slider.onChangeEnd!(120000);
+      await tester.pump();
+      expect(session.snapshot.value.position, const Duration(seconds: 20));
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
+
+      expect(session.requestedPositions.last, const Duration(seconds: 120));
+      seekGate.complete();
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
     'parallel pause save keeps the pending outgoing seek position',
     (tester) async {
       const initialA = Duration(seconds: 4);
@@ -5437,6 +5981,52 @@ void main() {
       },
     );
   }
+
+  _testPlayerWidget('pinch pan clamps to the inline viewport bounds', (
+    tester,
+  ) async {
+    final session = _FakePlaybackSession();
+    await _pumpStandalonePlayer(
+      tester,
+      session,
+      width: 560,
+      height: 350,
+      bounded: true,
+      playerSize: const Size(224, 126),
+    );
+    final surface = find.byKey(const ValueKey('video-gesture-surface'));
+    final rect = tester.getRect(surface);
+    final first = await tester.startGesture(
+      Offset(rect.left + rect.width * .25, rect.center.dy),
+      pointer: 51,
+      kind: PointerDeviceKind.touch,
+    );
+    final second = await tester.startGesture(
+      Offset(rect.left + rect.width * .75, rect.center.dy),
+      pointer: 52,
+      kind: PointerDeviceKind.touch,
+    );
+    await first.moveBy(Offset(-rect.width * .25, 0));
+    await second.moveBy(Offset(rect.width * .25, 0));
+    await tester.pump();
+    await first.moveBy(const Offset(300, 0));
+    await second.moveBy(const Offset(300, 0));
+    await tester.pump();
+
+    final translatedSurface = find.byWidgetPredicate(
+      (widget) =>
+          widget is Transform &&
+          widget.transform.getTranslation().x.abs() > 0.1,
+    );
+    expect(translatedSurface, findsOneWidget);
+    final offset = tester
+        .widget<Transform>(translatedSurface)
+        .transform
+        .getTranslation()
+        .x;
+    expect(offset.abs(), closeTo(112, .1));
+    expect(tester.takeException(), isNull);
+  });
 
   _testPlayerWidget(
     'focused keyboard controls seek and preserve one fullscreen surface',
@@ -7897,6 +8487,87 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  _testPlayerWidget(
+    'late playlist results do not open a dialog over the next video',
+    (tester) async {
+      const first = VideoItem(
+        id: 'playlist-a',
+        title: 'Playlist video A',
+        pageUrl: 'https://missav.ai/cn/playlist-a',
+      );
+      const second = VideoItem(
+        id: 'playlist-b',
+        title: 'Playlist video B',
+        pageUrl: 'https://missav.ai/cn/playlist-b',
+      );
+      final client =
+          _TestMissavClient(
+              VideoDetails(
+                video: first,
+                related: const [second],
+                streams: _details().streams,
+              ),
+              loggedIn: true,
+            )
+            ..detailsForVideo = ((video) =>
+                VideoDetails(video: video, streams: _details().streams))
+            ..playlistsCompleter = Completer<List<VideoLink>>();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: first,
+            sessionFactory: () => _FakePlaybackSession(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoAddToPlaylist));
+      await tester.pump();
+      expect(client.playlistVideoIds, ['playlist-a']);
+
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoDetailsScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: second,
+            sessionFactory: () => _FakePlaybackSession(),
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      expect(
+        tester
+            .widget<VideoDetailsScreen>(find.byType(VideoDetailsScreen))
+            .video
+            .id,
+        second.id,
+      );
+
+      client.playlistsCompleter!.complete([
+        const VideoLink(
+          label: 'Late playlist',
+          url: 'https://missav.ai/cn/playlists',
+          kind: VideoLinkKind.playlist,
+          sourceKey: 'late-playlist',
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Late playlist'), findsNothing);
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(client.addedPlaylists, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 Widget _videoDetailsLauncher({
@@ -7942,12 +8613,16 @@ Future<void> _pumpStandalonePlayer(
   VideoPlayerPlatform? platform,
   bool bounded = false,
   int? doubleTapSeekSeconds,
+  Duration initialPosition = Duration.zero,
+  List<VideoStream>? streams,
+  Size? playerSize,
+  VideoLibrary? configuredLibrary,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final library = await _testLibrary();
+  final playerLibrary = configuredLibrary ?? await _testLibrary();
   if (doubleTapSeekSeconds != null) {
     await (await SharedPreferences.getInstance()).setInt(
       'video_player_v1_double_tap_seek',
@@ -7970,15 +8645,25 @@ Future<void> _pumpStandalonePlayer(
               final player = VideoPlaybackPanel(
                 key: playerKey,
                 videoId: 'dvd-1',
-                library: library,
+                library: playerLibrary,
                 title: 'Fixture video',
-                streams: _details().streams,
+                streams: streams ?? _details().streams,
+                initialPosition: initialPosition,
                 sessionFactory: () => session,
                 platform: playerPlatform,
                 onFullscreenChanged: (value) =>
                     setState(() => fullscreen = value),
               );
-              if (fullscreen || bounded) return player;
+              if (fullscreen || bounded) {
+                return playerSize == null
+                    ? player
+                    : Center(
+                        child: SizedBox.fromSize(
+                          size: playerSize,
+                          child: player,
+                        ),
+                      );
+              }
               return Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -8283,7 +8968,9 @@ class _TestMissavClient extends MissavClient {
   int detailsCalls = 0;
   int supplementCalls = 0;
   int playlistsCalls = 0;
+  final List<String> playlistVideoIds = [];
   List<VideoLink> playlists = [];
+  Completer<List<VideoLink>>? playlistsCompleter;
   final List<String> addedPlaylists = [];
   final List<String> browsedUrls = [];
   int _generation = 0;
@@ -8363,9 +9050,10 @@ class _TestMissavClient extends MissavClient {
       (detailsForVideo?.call(video) ?? detailsResult).related;
 
   @override
-  Future<List<VideoLink>> playlistsFor(VideoItem item) async {
+  Future<List<VideoLink>> playlistsFor(VideoItem item) {
     playlistsCalls++;
-    return playlists;
+    playlistVideoIds.add(item.id);
+    return playlistsCompleter?.future ?? Future.value(playlists);
   }
 
   @override
@@ -8655,6 +9343,9 @@ class _FakeAdvancedPlaybackSession extends _FakePlaybackSession
   _FakeAdvancedPlaybackSession({this.sourceAspectRatio = 16 / 9});
 
   final loopModes = <bool>[];
+  final superResolutionModes = <VideoSuperResolution>[];
+  int clearExternalSubtitleCount = 0;
+  String? externalSubtitlePath;
 
   @override
   VideoController get videoController => _FakeVideoController();
@@ -8703,10 +9394,20 @@ class _FakeAdvancedPlaybackSession extends _FakePlaybackSession
   Future<void> loadExternalSubtitle(
     String path, {
     required String title,
-  }) async {}
+  }) async {
+    externalSubtitlePath = path;
+  }
 
   @override
-  Future<void> setSuperResolution(VideoSuperResolution mode) async {}
+  Future<void> clearExternalSubtitle() async {
+    clearExternalSubtitleCount++;
+    externalSubtitlePath = null;
+  }
+
+  @override
+  Future<void> setSuperResolution(VideoSuperResolution mode) async {
+    superResolutionModes.add(mode);
+  }
 }
 
 class _FakeVideoController extends Fake implements VideoController {}
@@ -8846,5 +9547,56 @@ class _TestVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> dispose() async {
     _pictureInPicture.dispose();
+  }
+}
+
+class _ToggleDesktopPiPPlatform extends _FakeDesktopPiPPlatform {
+  _ToggleDesktopPiPPlatform() : super(initiallyInPip: false);
+
+  @override
+  Future<bool> enterPictureInPicture(
+    VideoController controller, {
+    required double aspectRatio,
+  }) async {
+    startPictureInPicture();
+    return true;
+  }
+}
+
+class _DelayedAndroidPiPPlatform extends _TestVideoPlayerPlatform {
+  Completer<bool>? nextEnter;
+  int enterCalls = 0;
+  bool autoPictureInPictureEnabled = false;
+
+  @override
+  bool get supportsPictureInPicture => true;
+
+  @override
+  Future<void> attachVideoController(VideoController controller) async {}
+
+  @override
+  Future<void> setAutoPictureInPicture(
+    bool enabled, {
+    double aspectRatio = 16 / 9,
+  }) async {
+    autoPictureInPictureEnabled = enabled;
+  }
+
+  @override
+  Future<bool> enterPictureInPicture(
+    VideoController controller, {
+    required double aspectRatio,
+  }) async {
+    enterCalls++;
+    final gate = nextEnter;
+    nextEnter = null;
+    final entered = await gate?.future ?? false;
+    if (entered) _pictureInPicture.value = true;
+    return entered;
+  }
+
+  @override
+  Future<void> exitPictureInPicture() async {
+    _pictureInPicture.value = false;
   }
 }

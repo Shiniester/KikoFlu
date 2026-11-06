@@ -7,6 +7,16 @@ class SubtitleLibraryRules {
   static const String unknownFolderName = '未知作品';
   static const String savedFolderName = '已保存';
 
+  /// Returns the stable hash used to map long subtitle paths.
+  static int stablePathHash(String value) {
+    var hash = 0x811c9dc5;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash;
+  }
+
   static final _workFolderPatterns = [
     RegExp(r'^[RrBbVv][Jj]\d{6,8}$'),
     RegExp(r'^\d{6,8}$'),

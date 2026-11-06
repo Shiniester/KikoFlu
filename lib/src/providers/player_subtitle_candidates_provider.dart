@@ -8,6 +8,7 @@ import '../models/audio_track.dart';
 import '../services/subtitle_database.dart';
 import '../services/generated_subtitle_store.dart';
 import '../services/subtitle_library_service.dart';
+import '../services/subtitle_long_path.dart';
 import '../services/subtitle_language.dart';
 import '../services/subtitle_matching.dart';
 import '../services/work_subtitle_candidate_selector.dart';
@@ -265,6 +266,7 @@ class PlayerSubtitleCandidateRepository {
       }
 
       final result = <PlayerSubtitleCandidate>[];
+      final originalPaths = <String, SubtitleLongPathInfo?>{};
       final generated = await const GeneratedSubtitleStore().find(track);
       if (generated != null) {
         result.add(
@@ -292,6 +294,22 @@ class PlayerSubtitleCandidateRepository {
         }
         final absolutePath = record.absolutePath(root);
         if (!await File(absolutePath).exists()) continue;
+        final directory = p.dirname(absolutePath);
+        final info = originalPaths.putIfAbsent(
+          directory,
+          () =>
+              SubtitleLongPath.readDirectorySync(directory, allowRenamed: true),
+        );
+        final original = info?.storedName == p.basename(absolutePath)
+            ? info
+            : null;
+        final parts = record.relativePath.split('/');
+        final pathLabel = original == null
+            ? record.relativePath
+            : [
+                ...parts.take(parts.length - 2),
+                original.originalPath,
+              ].join('/');
         final match = SubtitleLanguage.match(
           record.fileName,
           SubtitleMatcher.prepareAudio(track.title),
@@ -300,7 +318,7 @@ class PlayerSubtitleCandidateRepository {
           PlayerSubtitleCandidate(
             identity: _localIdentity(absolutePath),
             title: record.fileName,
-            pathLabel: record.relativePath,
+            pathLabel: pathLabel,
             origin: PlayerSubtitleCandidateOrigin.library,
             source: <String, dynamic>{
               'title': record.fileName,

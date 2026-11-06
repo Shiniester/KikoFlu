@@ -917,7 +917,9 @@ void main() {
       tester.view
         ..physicalSize = const Size(640, 720)
         ..devicePixelRatio = 1;
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'video_player_v1_playback_rate': 1.25,
+      });
       const mediaChannel = MethodChannel('test/work-playlist-platform');
       const pipChannel = MethodChannel('test/work-playlist-pip');
       final messenger =
@@ -988,6 +990,12 @@ void main() {
       expect(session.loadStreamCount, 1);
       expect(session.streamPositions, [firstPosition]);
       expect(session.playCount, 1);
+      expect(session.snapshot.value.rate, 1.25);
+      await tester.tap(find.byTooltip(localizations.playbackSpeed));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(PopupMenuItem<double>, '2.0X'));
+      await tester.pumpAndSettle();
+      expect(session.snapshot.value.rate, 2);
       final currentItem = find.byKey(
         const ValueKey('work-video-playlist-Disc 1/A.mp4'),
       );
@@ -1026,6 +1034,7 @@ void main() {
       expect(session.loadStreamCount, 3);
       expect(session.streamPositions.last, secondPosition);
       expect(session.lastStream?.label, 'B');
+      expect(session.snapshot.value.rate, 1.25);
       expect(library.positionFor('A'), const Duration(seconds: 25));
       expect(session.playCount, 2);
       expect(tester.widget<ListTile>(secondItem).selected, isTrue);
@@ -1043,6 +1052,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(session.loadStreamCount, 4);
       expect(session.lastStream?.label, 'A');
+      expect(session.snapshot.value.rate, 1.25);
       expect(session.streamPositions.last, const Duration(seconds: 25));
       expect(library.positionFor('B'), const Duration(seconds: 19));
       expect(session.playCount, 3);

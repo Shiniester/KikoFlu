@@ -7,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart';
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/string_utils.dart';
+import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_card_display_provider.dart';
 import '../video_models.dart';
@@ -565,7 +566,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
           key: ValueKey('video-cover-${video.storageKey}'),
           fit: StackFit.expand,
           children: [
-            _image(video, cacheWidth, s),
+            PrivacyBlurCover(child: _image(video, cacheWidth, s)),
             if (catalogNumber != null)
               Positioned(
                 top: inset,

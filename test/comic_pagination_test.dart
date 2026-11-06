@@ -143,7 +143,7 @@ void main() {
   test(
     'a failed later page leaves cached pages available before retry',
     () async {
-      var failThirdPage = true;
+      var thirdPageRequests = 0;
       final buffer = ComicPageBuffer([
         ComicPageSource('a', (cursor) async {
           if (cursor == null) {
@@ -152,8 +152,7 @@ void main() {
           if (cursor == 'p2') {
             return ComicResult([_comic('a', 3), _comic('a', 4)], next: 'p3');
           }
-          if (failThirdPage) {
-            failThirdPage = false;
+          if (++thirdPageRequests < 3) {
             throw StateError('temporary error');
           }
           return ComicResult([_comic('a', 5), _comic('a', 6)]);
@@ -174,6 +173,9 @@ void main() {
       final firstAgain = await buffer.page(1, 2);
       expect(firstAgain.items.map((comic) => comic.id), ['1', '2']);
       expect(firstAgain.errors, isEmpty);
+      final stillOffline = await buffer.page(3, 2, retryFailures: true);
+      expect(stillOffline.errors.keys, ['a']);
+      expect(thirdPageRequests, 2);
       final retry = await buffer.page(3, 2, retryFailures: true);
       expect(retry.items.map((comic) => comic.id), ['5', '6']);
       expect(retry.errors, isEmpty);

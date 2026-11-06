@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_scope_session.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
+import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/screens/scoped_search_result_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/work_cover_image.dart';
@@ -29,6 +30,8 @@ class _ScopeApi extends KikoeruApiService {
   final markPages = <int>[];
   final playlistPages = <String, int>{};
   final getWorkRefreshes = <bool>[];
+  List<Map<String, dynamic>>? playlistTags;
+  Completer<void>? secondPlaylistGate;
   CancelToken? pendingMarkToken;
   Completer<Map<String, dynamic>>? pendingMarks;
   bool returnMetadataAfterRefresh = false;
@@ -130,12 +133,15 @@ class _ScopeApi extends KikoeruApiService {
     CancelToken? cancelToken,
   }) async {
     playlistPages[playlistId] = page;
+    final gate = secondPlaylistGate;
+    if (playlistId == 'second' && gate != null) await gate.future;
     return {
       'works': [
         {
           'id': 10,
           'title': 'Need shared work',
-          if (playlistId == 'second')
+          if (playlistTags != null) 'tags': playlistTags,
+          if (playlistTags == null && playlistId == 'second')
             'tags': [
               {'id': 2, 'name': 'Later metadata'},
             ],
@@ -169,6 +175,7 @@ Future<void> _pumpSearch(
   SearchScopeSession? session,
   Widget? home,
   bool withCovers = false,
+  Locale locale = const Locale('en'),
 }) async {
   SharedPreferences.setMockInitialValues({});
   await StorageService.initCritical(
@@ -182,7 +189,7 @@ Future<void> _pumpSearch(
         currentTrackProvider.overrideWith((ref) => Stream.value(null)),
       ],
       child: MaterialApp(
-        locale: const Locale('en'),
+        locale: locale,
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
         home:
@@ -453,6 +460,99 @@ void main() {
     expect(api.playlistPages.keys, containsAll(['first', 'second']));
     expect(find.text('Need shared work'), findsOneWidget);
     expect(find.text('In playlists: First, Second'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('playlist tag search matches the Chinese display name', (
+    tester,
+  ) async {
+    final api = _ScopeApi()
+      ..playlistTags = [
+        {'id': 4, 'name': '纯爱/甜蜜'},
+      ];
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: _query(SearchScope.playlists, SearchType.tag, '亲热/甜蜜'),
+      locale: const Locale('zh'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Need shared work'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('restored tag search matches after the language changes', (
+    tester,
+  ) async {
+    final api = _ScopeApi()
+      ..playlistTags = [
+        {'id': 4, 'name': '纯爱/甜蜜'},
+      ];
+    final query = _query(SearchScope.playlists, SearchType.tag, '亲热/甜蜜');
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: query,
+      locale: const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      home: const SearchScreen(
+        scope: SearchScope.playlists,
+        initialKeyword: '亲热/甜蜜',
+        initialSearchParams: {
+          'conditions': [
+            {'searchType': 'tag', 'value': '亲热/甜蜜', 'isExclude': false},
+          ],
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Need shared work'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a language change during a tag search keeps matching works', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    final api = _ScopeApi()
+      ..playlistTags = [
+        {'id': 4, 'name': '纯爱/甜蜜'},
+      ]
+      ..secondPlaylistGate = gate;
+    final query = _query(SearchScope.playlists, SearchType.tag, '亲热/甜蜜');
+    final session = SearchScopeSession();
+    final locale = ValueNotifier(const Locale('zh'));
+    addTearDown(locale.dispose);
+    await _pumpSearch(
+      tester,
+      api: api,
+      query: query,
+      home: ValueListenableBuilder<Locale>(
+        valueListenable: locale,
+        builder: (context, value, _) => Localizations.override(
+          context: context,
+          locale: value,
+          child: ScopedSearchResultScreen(query: query, session: session),
+        ),
+      ),
+    );
+    for (var i = 0; i < 20 && !api.playlistPages.containsKey('second'); i++) {
+      await tester.pump();
+    }
+    expect(api.playlistPages.containsKey('second'), isTrue);
+    await tester.pump();
+    expect(find.text('Need shared work'), findsOneWidget);
+
+    locale.value = const Locale.fromSubtags(
+      languageCode: 'zh',
+      scriptCode: 'Hant',
+    );
+    await tester.pump();
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Need shared work'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

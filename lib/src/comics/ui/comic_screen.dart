@@ -128,7 +128,7 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
         onlineFavorites:
             _currentTab == 1 &&
             source?.hasRemoteFavorites == true &&
-            (StorageService.getBool('comic_online_favorites') ?? false),
+            ref.read(comicOnlineFavoritesProvider),
       ),
     );
   }
@@ -163,13 +163,6 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
       selectSource();
     }
     await StorageService.setString('comic_selected_source', key);
-  }
-
-  Future<void> _setOnlineFavorites(bool value) async {
-    await StorageService.setBool('comic_online_favorites', value);
-    if (mounted) {
-      ref.read(comicSettingsRevisionProvider.notifier).state++;
-    }
   }
 
   Future<void> _openSettings() async {
@@ -208,12 +201,13 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     final currentSource =
         sources.where((source) => source.key == selectedSource).firstOrNull ??
         sources.firstOrNull;
+    final onlineFavoritesPreference = ref.watch(comicOnlineFavoritesProvider);
     final onlineFavorites =
-        currentSource?.hasRemoteFavorites == true &&
-        (StorageService.getBool('comic_online_favorites') ?? false);
+        currentSource?.hasRemoteFavorites == true && onlineFavoritesPreference;
     final pageTitle = _currentTab == 0
         ? s.navHome
         : _collectionTitle(s, _currentTab, onlineFavorites: onlineFavorites);
+    final favoritesPreference = ref.read(comicOnlineFavoritesProvider.notifier);
     final downloads = ref.watch(comicDownloadsProvider);
     final accountChildren = <Widget>[
       if (currentSource?.hasAccount == true)
@@ -231,9 +225,9 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
           icon: Icons.cloud_outlined,
           title: s.comicOnlineFavorites,
           selected: _currentTab == 1 && onlineFavorites,
-          onTap: () async {
-            await _setOnlineFavorites(true);
-            if (!mounted) return;
+          closeOnTap: false,
+          onTap: () {
+            favoritesPreference.set(true);
             _selectTab(1);
           },
         ),
@@ -245,9 +239,9 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
             icon: Icons.bookmark,
             title: s.comicLocalFavorites,
             selected: _currentTab == 1 && !onlineFavorites,
-            onTap: () async {
-              await _setOnlineFavorites(false);
-              if (!mounted) return;
+            closeOnTap: false,
+            onTap: () {
+              favoritesPreference.set(false);
               _selectTab(1);
             },
           )
@@ -382,9 +376,8 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   final _scroll = ScrollController();
   ComicPageBuffer? _buffer;
   List<Comic> _items = [];
-  bool _loading = false;
-  late bool _onlineFavorites;
-  bool get _online => widget.tab == 1 && _onlineFavorites;
+  bool _loading = true;
+  bool get _online => widget.tab == 1 && widget.onlineFavorites;
   Map<String, Object> _errors = {};
   bool _hasMore = false;
   int _page = 1;
@@ -435,7 +428,6 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     }
     if (widget.tab == 1 &&
         oldWidget.onlineFavorites != widget.onlineFavorites) {
-      _onlineFavorites = widget.onlineFavorites;
       Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
     }
   }
@@ -443,7 +435,6 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   @override
   void initState() {
     super.initState();
-    _onlineFavorites = widget.onlineFavorites;
     Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
   }
 
@@ -515,7 +506,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         .firstWhere((source) => source.key == _source);
     return ComicPageBuffer([
       ComicPageSource(source.key, (cursor) async {
-        if (_online && (!source.hasRemoteFavorites || !source.isLoggedIn)) {
+        if (_online && source.hasRemoteFavorites && !source.isLoggedIn) {
           throw const ComicSourceException(
             'Sign in to this source in comic settings.',
             loginRequired: true,
@@ -687,7 +678,6 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       (_, __) => _loadPage(1, reset: true, clearItems: true),
     );
     ref.listen(comicSettingsRevisionProvider, (_, __) {
-      _onlineFavorites = widget.onlineFavorites;
       _loadPage(1, reset: true, clearItems: true);
     });
     ref.listen(comicRemoteFavoritesRevisionProvider, (_, __) {
@@ -751,42 +741,37 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         ],
       ),
     );
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: NotificationListener<ScrollStartNotification>(
-            onNotification: (notification) {
-              final request = _scrollingRequest;
-              if (notification.dragDetails != null && request != null) {
-                _interruptedScrollRequest = request;
-              }
-              return false;
-            },
-            child: RefreshIndicator(
-              onRefresh: () => _loadPage(1, reset: true, clearItems: true),
-              child: ComicGrid(
-                comics: _items,
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                onLongPress: widget.tab == 1 || widget.tab == 2
-                    ? _removeFromLibrary
-                    : null,
-                footer: footer,
-              ),
-            ),
-          ),
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (notification) {
+        final request = _scrollingRequest;
+        if (notification.dragDetails != null && request != null) {
+          _interruptedScrollRequest = request;
+        }
+        return false;
+      },
+      child: RefreshIndicator(
+        onRefresh: () => _loadPage(1, reset: true, clearItems: true),
+        child: ComicGrid(
+          comics: _items,
+          downloadedOnly: widget.tab == 3,
+          controller: _scroll,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          onLongPress: widget.tab == 1 || widget.tab == 2
+              ? _removeFromLibrary
+              : null,
+          loadingContent: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : null,
+          emptyContent: _errors.isEmpty
+              ? null
+              : ComicErrorView(
+                  error: _errors.values.first,
+                  retry: () =>
+                      _loadPage(_pendingPage, retryFailures: _buffer != null),
+                ),
+          footer: footer,
         ),
-        if (_loading && _items.isEmpty)
-          const Center(child: CircularProgressIndicator()),
-        if (_errors.isNotEmpty && _items.isEmpty)
-          Positioned.fill(
-            child: ComicErrorView(
-              error: _errors.values.first,
-              retry: () =>
-                  _loadPage(_pendingPage, retryFailures: _buffer != null),
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

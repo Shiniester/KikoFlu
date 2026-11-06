@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2149,6 +2150,62 @@ void main() {
     );
   });
 
+  testWidgets('failed catalog source action opens the requested URL', (
+    tester,
+  ) async {
+    const releaseUrl = 'https://missav.ai/cn/release';
+    const weeklyHotUrl = 'https://missav.ai/cn/weekly-hot';
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    final launchedUrls = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'launch') {
+        launchedUrls.add((call.arguments as Map)['url'] as String);
+        return true;
+      }
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(title: 'Releases', url: releaseUrl),
+      browseHandler: (url, parsedPage) async {
+        if (url == weeklyHotUrl) {
+          throw const MissavException(
+            'Weekly hot is unavailable.',
+            sourceUrl: weeklyHotUrl,
+          );
+        }
+        return parsedPage;
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: releaseUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoWeeklyHot);
+
+    expect(client.browsedUrls, [releaseUrl, weeklyHotUrl]);
+    await tester.tap(find.text(l10n.videoOpenSource));
+    await tester.pumpAndSettle();
+
+    expect(launchedUrls, [weeklyHotUrl]);
+  });
+
   testWidgets('session generation keeps the selected catalog destination', (
     tester,
   ) async {
@@ -2526,7 +2583,7 @@ void main() {
 
     await openDrawer();
     await scrollToDrawerLabel(l10n.layout);
-    expect(find.byIcon(Icons.apps), findsOneWidget);
+    expect(find.byIcon(Icons.grid_on), findsOneWidget);
     await tester.tap(find.text(l10n.layout));
     await tester.pumpAndSettle();
     expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
@@ -4345,6 +4402,52 @@ void main() {
       2,
     );
   });
+
+  testWidgets(
+    'unfavoriting an actor removes only that actor from saved actresses',
+    (tester) async {
+      const collectionUrl = 'https://missav.ai/en/saved/actresses';
+      const actor = VideoLink(
+        label: 'Saved actor',
+        url: 'https://missav.ai/en/actresses/saved',
+        kind: VideoLinkKind.actor,
+      );
+      const otherActor = VideoLink(
+        label: 'Other saved actor',
+        url: 'https://missav.ai/en/actresses/other',
+        kind: VideoLinkKind.actor,
+      );
+      final client = _TestMissavClient(
+        loggedIn: true,
+        catalog: const VideoCatalogPage(
+          title: 'Saved actresses',
+          url: collectionUrl,
+          links: [actor, otherActor],
+        ),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const VideoScreen.catalog(url: collectionUrl),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(actor.label));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.videoUnfavoriteActor));
+      await tester.pumpAndSettle();
+
+      expect(client.actorFavoriteChanges, [false]);
+      expect(find.text(actor.label), findsNothing);
+      expect(find.text(otherActor.label), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'actor favorites show avatar fallbacks and retain pagination and actions',

@@ -1087,7 +1087,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       tooltip: s.layout,
       icon: Icon(switch (layoutType) {
         LayoutType.bigGrid => Icons.grid_view,
-        LayoutType.smallGrid => Icons.apps,
+        LayoutType.smallGrid => Icons.grid_on,
         LayoutType.list => Icons.view_list,
       }),
       visualDensity: const VisualDensity(horizontal: -2),
@@ -1411,7 +1411,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                       },
                       child: ComicGrid(
                         comics: items,
+                        downloadedOnly: widget.libraryTab == 3,
                         controller: _scroll,
+                        loadingContent: _pageLoading
+                            ? const SizedBox.shrink()
+                            : null,
                         emptyContent: _pageErrors.isNotEmpty && items.isEmpty
                             ? ComicErrorView(
                                 error: _pageErrors.values.first,
