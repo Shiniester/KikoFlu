@@ -51,7 +51,10 @@ void main() {
               age: 'R18',
               layers: [RawImage(image: image, fit: BoxFit.contain)],
             ),
-            infoSliver: const SliverToBoxAdapter(child: Text('Work details')),
+            infoSliver: const SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverToBoxAdapter(child: Text('Work details')),
+            ),
           ),
         ),
       );
@@ -76,12 +79,19 @@ void main() {
         BoxFit.contain,
         imageSize,
         Size(
-          (isLandscape ? viewport.width * 0.4 : viewport.width) - 16,
+          (isLandscape ? viewport.width * 0.4 : viewport.width) - 32,
           viewport.height - 16,
         ),
       ).destination;
       expect(cover.width, closeTo(expectedSize.width, 0.01));
       expect(cover.height, closeTo(expectedSize.height, 0.01));
+      if (!isLandscape) {
+        final info = tester.getRect(
+          find.text('Work details', skipOffstage: false),
+        );
+        expect(cover.left, greaterThanOrEqualTo(info.left - 0.01));
+        expect(cover.right, lessThanOrEqualTo(info.right + 0.01));
+      }
       expect(
         cover.center.dx,
         closeTo(viewport.width * (isLandscape ? 0.2 : 0.5), 0.01),

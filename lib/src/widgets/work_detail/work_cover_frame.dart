@@ -47,7 +47,7 @@ class WorkCoverFrame extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: LayoutBuilder(
           builder: (context, constraints) => Center(
             heightFactor: 1,

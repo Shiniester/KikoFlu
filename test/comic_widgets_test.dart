@@ -8029,7 +8029,7 @@ void main() {
       if (size.width == 320) {
         expect(cover.left, closeTo(title.left, 0.1));
         expect(cover.bottom, lessThan(title.top));
-        expect(cover.width, closeTo(304, 0.1));
+        expect(cover.width, closeTo(144, 0.1));
       } else {
         expect(cover.right, lessThan(title.left));
         expect(cover.width, lessThanOrEqualTo(500));
@@ -8054,7 +8054,7 @@ void main() {
       if (size.width == 320) {
         expect(button.right, closeTo(size.width - 8 - 8, 0.1));
         expect(button.bottom, lessThan(title.top));
-        expect(button.top, greaterThan(cover.bottom));
+        expect(button.left, greaterThan(cover.right));
       } else {
         expect(button.left, greaterThan(cover.right));
         expect(button.left, closeTo(title.left, 0.1));
@@ -8081,7 +8081,10 @@ void main() {
       expect(find.text('Start reading'), findsNothing);
       expect(
         tester.getTopLeft(find.byIcon(Icons.history)).dx,
-        closeTo(size.width == 320 ? cover.left : title.left, 0.1),
+        closeTo(
+          tester.getTopLeft(find.byKey(const ValueKey('comic-detail-info'))).dx,
+          0.1,
+        ),
       );
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
@@ -8140,12 +8143,8 @@ void main() {
         tester.getBottomLeft(find.text('2024-03-04')).dy,
         lessThan(button.top),
       );
-      if (size.width < size.height) {
-        expect(tester.getTopLeft(release).dy, greaterThan(cover.bottom));
-      } else {
-        expect(tester.getTopLeft(release).dx, greaterThan(cover.right));
-        expect(tester.getTopLeft(updated).dx, greaterThan(cover.right));
-      }
+      expect(tester.getTopLeft(release).dx, greaterThan(cover.right));
+      expect(tester.getTopLeft(updated).dx, greaterThan(cover.right));
       expect(tester.takeException(), isNull);
     });
   }
@@ -9312,8 +9311,8 @@ void main() {
       final infoFinder = find.byKey(const ValueKey('comic-detail-info'));
       final titleFinder = find.byType(WorkTitleHeader);
       expect(
-        tester.getRect(coverFinder).bottom,
-        lessThan(tester.getRect(infoFinder).top),
+        tester.getRect(infoFinder).left,
+        closeTo(tester.getRect(coverFinder).right + 16, 0.1),
       );
       expect(
         tester.getBottomLeft(coverFinder).dy,
@@ -9569,7 +9568,7 @@ void main() {
       _Source(),
     );
     final cover = find.byKey(const ValueKey('comic-detail-cover'));
-    expect(tester.getSize(cover).width, closeTo(304, 0.1));
+    expect(tester.getSize(cover).width, closeTo(144, 0.1));
     tester.view.physicalSize = const Size(900, 600);
     await tester.pumpAndSettle();
     final viewport = tester.getSize(
@@ -9650,11 +9649,14 @@ void main() {
       expect(
         portraitCover.width,
         closeTo(
-          math.min(portraitViewport.width - 32, portraitHeight * 100 / 160),
+          math.min(
+            (portraitViewport.width - 32 - 16) / 2,
+            portraitHeight * 100 / 160,
+          ),
           0.1,
         ),
       );
-      expect(portraitCover.width, closeTo(358, 0.1));
+      expect(portraitCover.width, closeTo(171, 0.1));
       expect(
         portraitCover.height,
         closeTo(portraitCover.width * 160 / 100, 0.1),
@@ -9699,7 +9701,7 @@ void main() {
         final detailPadding = isLandscape || size.width > 320 ? 16.0 : 8.0;
         final availableCoverWidth = isLandscape
             ? viewport.width * 2 / 3 - 16
-            : viewport.width - detailPadding * 2;
+            : (viewport.width - detailPadding * 2 - 16) / 2;
         final availableCoverHeight =
             viewport.height -
             (isLandscape ? 16 : detailPadding) -
@@ -9712,6 +9714,14 @@ void main() {
         );
         expect(cover.width, closeTo(expectedWidth, 0.1));
         expect(cover.height, lessThanOrEqualTo(availableCoverHeight));
+        final info = tester.getRect(
+          find.byKey(const ValueKey('comic-detail-info')),
+        );
+        expect(info.left, greaterThan(cover.right));
+        if (!isLandscape) {
+          expect(info.left, closeTo(cover.right + 16, 0.1));
+          expect(info.top, closeTo(cover.top, 0.1));
+        }
         final button = tester.getRect(
           find.ancestor(
             of: find.text('Start reading'),
@@ -9731,11 +9741,7 @@ void main() {
           expect(button.left, closeTo(title.left, 0.1));
           expect(title.bottom, lessThan(button.top));
         }
-        if (!isLandscape) {
-          expect(button.top, greaterThan(cover.bottom));
-        } else {
-          expect(button.left, greaterThan(cover.right));
-        }
+        expect(button.left, greaterThan(cover.right));
         expect(tester.takeException(), isNull);
       });
     }
@@ -10374,9 +10380,6 @@ void main() {
         await tester.pump();
         final upgradedProvider = tester.widget<Image>(detailImageFinder).image;
         expect(upgradedProvider, isA<ResizeImage>());
-        final upgradedWidth = (upgradedProvider as ResizeImage).width!;
-        final sourceWidth = (sourceProvider as ResizeImage).width!;
-        expect(upgradedWidth, greaterThan(sourceWidth));
         await tester.pumpAndSettle();
         final destination = tester.getRect(
           find.byKey(const ValueKey('comic-detail-cover')),
@@ -10386,7 +10389,7 @@ void main() {
           find.byKey(const ValueKey('comic-detail-cover')),
           1800,
         );
-        expect(destination.width, greaterThan(start.width));
+        expect(destination.width, closeTo((390 - 32 - 16) / 2, 0.1));
         await tester.tap(find.byTooltip('Back'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));

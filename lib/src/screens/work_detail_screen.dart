@@ -102,7 +102,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final media = MediaQuery.of(context);
     final landscape = media.orientation == Orientation.landscape;
     return Size(
-      ((media.size.width * (landscape ? 0.4 : 1) - 16) * media.devicePixelRatio)
+      ((media.size.width * (landscape ? 0.4 : 1) - 32) * media.devicePixelRatio)
           .ceilToDouble()
           .clamp(1, double.infinity),
       ((media.size.height - 16) * media.devicePixelRatio).ceilToDouble().clamp(

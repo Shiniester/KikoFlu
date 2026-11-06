@@ -841,6 +841,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
             ? metrics.padding.left
             : 16.0;
         final contentWidth = math.min(width, 1200) - detailPadding * 2;
+        final portraitCoverWidth = (contentWidth - 16) / 2;
         final availableCoverHeight =
             (constraints.maxHeight -
                     (isLandscape ? 16 : detailPadding) -
@@ -853,7 +854,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
           source: widget.comic.source,
           page: _comic.coverPage,
           cornerRadius: workCoverDetailRadius,
-          maxWidth: isLandscape ? landscapeCoverWidth : contentWidth,
+          maxWidth: isLandscape ? landscapeCoverWidth : portraitCoverWidth,
           maxHeight: availableCoverHeight,
           initialCacheWidth: widget.initialCoverCacheWidth,
           initialAspectRatio: widget.initialCoverAspectRatio,
@@ -1140,9 +1141,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                           const SizedBox(height: 8),
                           info,
                         ] else
-                          Column(
+                          Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [cover, const SizedBox(height: 16), info],
+                            children: [
+                              cover,
+                              const SizedBox(width: 16),
+                              Expanded(child: info),
+                            ],
                           ),
                         if (!isLandscape) ...[
                           const SizedBox(height: 16),
