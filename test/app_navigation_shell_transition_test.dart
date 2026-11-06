@@ -2,13 +2,20 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
+import 'package:kikoeru_flutter/src/comics/comic_library.dart';
+import 'package:kikoeru_flutter/src/comics/comic_models.dart';
+import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_download_screen.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/user.dart';
@@ -19,6 +26,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
 import 'package:kikoeru_flutter/src/providers/update_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -27,19 +35,24 @@ import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/playlist_add_works_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/subtitle_library_folder_browser_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -56,7 +69,10 @@ Widget _tabHome(
   onPopWithResult: (_) => navigation.tabNavigator(index)?.maybePop<void>(),
   child: Navigator(
     key: navigation.tabNavigatorKey(index),
-    observers: [navigation.tabObserver(index)],
+    observers: [
+      navigation.tabObserver(index),
+      navigation.tabHeroController(index),
+    ],
     onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => child),
   ),
 );
@@ -139,6 +155,11 @@ class _OfflineAuthNotifier extends AuthNotifier {
       error: 'offline',
     );
   }
+}
+
+class _ComicTaskLibrary extends ComicLibrary {
+  @override
+  Future<List<Map<String, dynamic>>> loadTasks() async => [];
 }
 
 Future<AppNavigationController> _pumpShell(
@@ -271,12 +292,307 @@ AudioPlayerPageRoute<void> _openPlayer(
 }
 
 void main() {
+  Directory? coverPreviewCache;
+  tearDownAll(() async {
+    if (coverPreviewCache == null) return;
+    await coverPreviewCache!.delete(recursive: true);
+  });
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    for (final offline in [false, true]) {
+      testWidgets(
+        'detail cover preview preserves layout and system bars at $size (offline=$offline)',
+        (tester) async {
+          final cacheDirectory = coverPreviewCache ??= Directory.systemTemp
+              .createTempSync('detail-cover-preview-');
+          const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            pathChannel,
+            (_) async => cacheDirectory.path,
+          );
+          final previousCache = CachedNetworkImageProvider.defaultCacheManager;
+          CacheService.installImageCacheManager();
+          addTearDown(() {
+            CachedNetworkImageProvider.defaultCacheManager = previousCache;
+            tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+              pathChannel,
+              null,
+            );
+          });
+          final systemModes = <Object?>[];
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            (call) async {
+              if (call.method == 'SystemChrome.setEnabledSystemUIMode' ||
+                  call.method == 'SystemChrome.setPreferredOrientations') {
+                systemModes.add(call.arguments);
+              }
+              return null;
+            },
+          );
+          addTearDown(
+            () => tester.binding.defaultBinaryMessenger
+                .setMockMethodCallHandler(SystemChannels.platform, null),
+          );
+          const work = Work(id: 42, title: 'Cover preview work');
+          final navigation = await _pumpShell(
+            tester,
+            size: size,
+            fakeTagSearch: true,
+          );
+          final auth = ProviderScope.containerOf(
+            navigation.navigator!.context,
+          ).read(authProvider);
+          await tester.runAsync(() async {
+            await CacheService.imageCacheManager.putFile(
+              work.getCoverImageUrl(auth.host ?? '', token: auth.token ?? ''),
+              await File('assets/icons/app_icon_opaque.png').readAsBytes(),
+              key: 'work_cover_${work.id}',
+              fileExtension: 'png',
+            );
+          });
+          if (offline) {
+            await tester.runAsync(
+              () => precacheImage(
+                FileImage(File('assets/icons/app_icon_opaque.png')),
+                navigation.navigator!.context,
+              ),
+            );
+          }
+          unawaited(
+            navigation.navigator!.push(
+              MaterialPageRoute<void>(
+                builder: (_) => offline
+                    ? const OfflineWorkDetailScreen(
+                        work: work,
+                        localCoverPath: 'assets/icons/app_icon_opaque.png',
+                        localWorkDirPath: 'assets/icons',
+                        fileTree: [],
+                      )
+                    : const WorkDetailScreen(work: work),
+              ),
+            ),
+          );
+          for (var frame = 0; frame < 6; frame++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          final cover = find.byType(WorkCoverFrame, skipOffstage: false);
+          final coverRect = tester.getRect(cover);
+          final sourceHero = find.descendant(
+            of: cover,
+            matching: find.byType(Hero),
+          );
+          expect(sourceHero, findsOneWidget);
+          final artworkRect = tester.getRect(sourceHero);
+          expect(tester.widget<Hero>(sourceHero).curve, Curves.easeOutCubic);
+          expect(
+            tester.widget<Hero>(sourceHero).reverseCurve,
+            Curves.easeInCubic,
+          );
+          final dock = size.width > size.height
+              ? find.byType(NavigationRail)
+              : find.byType(AppBottomDock);
+          final dockRect = tester.getRect(dock);
+          final miniPlayerRect = tester.getRect(find.byType(MiniPlayer));
+          systemModes.clear();
+
+          await tester.tap(cover);
+          for (var frame = 0; frame < 12; frame++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+
+          expect(navigation.navigationVisible, isTrue);
+          expect(tester.getRect(cover), coverRect);
+          expect(tester.getRect(dock), dockRect);
+          expect(tester.getRect(find.byType(MiniPlayer)), miniPlayerRect);
+          expect(dock.hitTestable(), findsNothing);
+          final preview = find.byType(CoverPreviewDialog);
+          expect(preview, findsOneWidget);
+          Future<void> expectDockCovered() async {
+            await tester.runAsync(() async {
+              final boundary = tester.renderObject<RenderRepaintBoundary>(
+                find.byKey(const ValueKey('shell-paint')),
+              );
+              final image = await boundary.toImage();
+              try {
+                final pixels = (await image.toByteData(
+                  format: ui.ImageByteFormat.rawRgba,
+                ))!;
+                for (final point in [
+                  dockRect.center,
+                  miniPlayerRect.center,
+                  if (size.width > size.height)
+                    Offset(dockRect.right, dockRect.center.dy),
+                ]) {
+                  final offset =
+                      4 * (point.dy.floor() * image.width + point.dx.floor());
+                  expect(pixels.getUint32(offset), 0x000000ff);
+                }
+                final paintedFlight = find.byKey(
+                  const ValueKey('player-cover-preview-flight-frame'),
+                );
+                if (offline && paintedFlight.evaluate().isNotEmpty) {
+                  final center = tester.getCenter(paintedFlight);
+                  final offset =
+                      4 * (center.dy.floor() * image.width + center.dx.floor());
+                  expect(pixels.getUint32(offset), isNot(0x000000ff));
+                  expect(pixels.getUint8(offset + 3), 255);
+                }
+              } finally {
+                image.dispose();
+              }
+            });
+          }
+
+          await expectDockCovered();
+          final route = ModalRoute.of(tester.element(preview))!;
+          expect(route, isA<PageRoute<void>>());
+          final previewRect = tester.getRect(
+            find.byKey(const ValueKey('cover-preview-image-frame')),
+          );
+          Navigator.of(tester.element(preview)).pop();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final flight = find.byKey(
+            const ValueKey('player-cover-preview-flight-frame'),
+          );
+          expect(flight, findsOneWidget);
+          final flightRect = tester.getRect(flight);
+          expect(flightRect, isNot(artworkRect));
+          expect(flightRect, isNot(previewRect));
+          expect(tester.getRect(cover), coverRect);
+          await expectDockCovered();
+          final closingFrames =
+              (route.reverseTransitionDuration.inMilliseconds / 16).ceil() + 2;
+          for (var frame = 0; frame < closingFrames; frame++) {
+            expect(tester.getRect(cover), coverRect);
+            expect(tester.getRect(dock), dockRect);
+            expect(tester.getRect(find.byType(MiniPlayer)), miniPlayerRect);
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+
+          expect(preview, findsNothing);
+          expect(dock.hitTestable(), findsOneWidget);
+          for (var frame = 0; frame < 16; frame++) {
+            expect(tester.getRect(cover), coverRect);
+            expect(tester.getRect(dock), dockRect);
+            expect(tester.getRect(find.byType(MiniPlayer)), miniPlayerRect);
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          expect(systemModes, isEmpty);
+          expect(tester.takeException(), isNull);
+          navigation.navigator!.pop();
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+      );
+    }
+  }
+
+  for (final reducedMotion in [false, true]) {
+    testWidgets('tab cover preview retains its modal presentation '
+        '(reduced motion=$reducedMotion)', (tester) async {
+      final navigation = await _pumpShell(
+        tester,
+        size: const Size(1280, 720),
+        reducedMotion: reducedMotion,
+        homeBuilder: (navigation) => _tabHome(
+          navigation,
+          Scaffold(
+            body: Center(
+              child: Builder(
+                builder: (context) => GestureDetector(
+                  key: const ValueKey('tab-cover-preview-source'),
+                  onTap: () => unawaited(
+                    CoverPreviewDialog.show(
+                      context,
+                      localPath: 'missing.jpg',
+                      heroTag: 'tab-cover-preview',
+                    ),
+                  ),
+                  child: const PlayerCoverPreviewHero(
+                    tag: 'tab-cover-preview',
+                    cornerRadius: 12,
+                    child: SizedBox(
+                      width: 160,
+                      height: 120,
+                      child: ColoredBox(color: Colors.green),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final source = find.byKey(const ValueKey('tab-cover-preview-source'));
+      final sourceRect = tester.getRect(source);
+      await tester.tap(source);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final preview = find.byType(CoverPreviewDialog);
+      final route = ModalRoute.of(tester.element(preview))!;
+      final flight = find.byKey(
+        const ValueKey('player-cover-preview-flight-frame'),
+      );
+      expect(route, isA<PageRoute<void>>());
+      expect(
+        route.barrierLabel,
+        MaterialLocalizations.of(
+          tester.element(preview),
+        ).modalBarrierDismissLabel,
+      );
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(navigation.navigationVisible, isTrue);
+      expect(navigation.popupRoute, same(route));
+      expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+      expect(flight, reducedMotion ? findsNothing : findsOneWidget);
+      if (reducedMotion) expect(route.transitionDuration, Duration.zero);
+      expect(tester.getRect(source), sourceRect);
+
+      void expectMatchingBackdropOpacity() {
+        final fade = tester.widget<FadeTransition>(
+          find
+              .descendant(of: preview, matching: find.byType(FadeTransition))
+              .first,
+        );
+        final barriers = tester
+            .widgetList<ModalBarrier>(find.byType(ModalBarrier))
+            .where((barrier) => (barrier.color?.a ?? 0) > 0);
+        expect(barriers, isNotEmpty);
+        for (final barrier in barriers) {
+          expect(barrier.color!.a, closeTo(fade.opacity.value, 1 / 255));
+        }
+      }
+
+      if (!reducedMotion) expectMatchingBackdropOpacity();
+
+      Navigator.of(tester.element(preview)).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 32));
+      if (!reducedMotion) {
+        expect(navigation.popupRoute, same(route));
+        expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+        expect(flight, findsOneWidget);
+        for (var frame = 0; frame < 4; frame++) {
+          expectMatchingBackdropOpacity();
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(navigation.popupRoute, isNull);
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(find.byType(NavigationRail).hitTestable(), findsOneWidget);
+      expect(tester.getRect(source), sourceRect);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final (size, withTrack, fullscreen) in [
     (const Size(390, 844), false, false),
@@ -497,6 +813,372 @@ void main() {
       expect(find.byType(AppBottomDock).hitTestable(), findsOneWidget);
     });
   }
+
+  for (final (size, withTrack, textScale) in [
+    (const Size(390, 600), false, 1.0),
+    (const Size(390, 600), true, 1.0),
+    (const Size(900, 500), true, 1.0),
+    (const Size(390, 600), true, 1.6),
+  ]) {
+    testWidgets('playlist add works stays above Dock at $size '
+        '(track=$withTrack, text=$textScale)', (tester) async {
+      await _pumpShell(
+        tester,
+        size: size,
+        withTrack: withTrack,
+        textScaler: TextScaler.linear(textScale),
+        safePadding: const FakeViewPadding(bottom: 24),
+      );
+      final context = tester.element(
+        find.byKey(const ValueKey('home-viewport')),
+      );
+      final s = S.of(context);
+      final dock = size.width > size.height
+          ? find.byType(MiniPlayer)
+          : find.byType(AppBottomDock);
+      final ids = List.generate(24, (i) => 'RJ${123456 + i}');
+      List<String>? submitted;
+      unawaited(
+        PlaylistAddWorksDialog.show(
+          context: context,
+          onAddWorks: (value) => submitted = value,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), ids.join(' '));
+      await tester.pumpAndSettle();
+      final action = find.text(s.addNWorks(ids.length));
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(action).bottom,
+        lessThanOrEqualTo(size.height - 24),
+      );
+      expect(action.hitTestable(), findsOneWidget);
+      if (size.width < size.height && withTrack) {
+        tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(action);
+        await tester.pumpAndSettle();
+        expect(tester.getRect(action).bottom, lessThanOrEqualTo(360));
+        expect(action.hitTestable(), findsOneWidget);
+      }
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(submitted, ids);
+      expect(find.byType(PlaylistAddWorksDialog), findsNothing);
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(dock.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('subtitle move folder stays above Dock at $size '
+        '(track=$withTrack, text=$textScale)', (tester) async {
+      await _pumpShell(
+        tester,
+        size: size,
+        withTrack: withTrack,
+        textScaler: TextScaler.linear(textScale),
+        safePadding: const FakeViewPadding(bottom: 24),
+      );
+      final context = tester.element(
+        find.byKey(const ValueKey('home-viewport')),
+      );
+      final s = S.of(context);
+      final dock = size.width > size.height
+          ? find.byType(MiniPlayer)
+          : find.byType(AppBottomDock);
+      final result = SubtitleLibraryFolderBrowserDialog.show(
+        context: context,
+        rootPath: '/root',
+        folderLoader: (_) async => [],
+        pathSeparator: '/',
+      );
+      await tester.pumpAndSettle();
+      final action = find.text(s.rootDirectory);
+      expect(
+        tester.getRect(action).bottom,
+        lessThanOrEqualTo(size.height - 24),
+      );
+      expect(action.hitTestable(), findsOneWidget);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(await result, '/root');
+      expect(find.byType(SubtitleLibraryFolderBrowserDialog), findsNothing);
+      expect(dock.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'playlist add works scrolls in a short landscape keyboard viewport',
+    (tester) async {
+      await _pumpShell(
+        tester,
+        size: const Size(640, 360),
+        textScaler: const TextScaler.linear(2),
+      );
+      final context = tester.element(
+        find.byKey(const ValueKey('home-viewport')),
+      );
+      final s = S.of(context);
+      List<String>? submitted;
+      unawaited(
+        PlaylistAddWorksDialog.show(
+          context: context,
+          onAddWorks: (ids) => submitted = ids,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'RJ123456');
+      await tester.pumpAndSettle();
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'RJ123456',
+      );
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+      await tester.pumpAndSettle();
+      final action = find.text(s.addNWorks(1));
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(action).bottom, lessThanOrEqualTo(140));
+      expect(action.hitTestable(), findsOneWidget);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(submitted, ['RJ123456']);
+      expect(find.byType(PlaylistAddWorksDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('landscape sheet covers Mini Player without resizing the page', (
+    tester,
+  ) async {
+    const size = Size(1280, 720);
+    final navigation = await _pumpShell(
+      tester,
+      size: size,
+      safePadding: const FakeViewPadding(left: 44, right: 12, bottom: 20),
+    );
+    final home = find.byKey(const ValueKey('home-viewport'));
+    final initialHomeRect = tester.getRect(home);
+    final miniPlayerRect = tester.getRect(find.byType(MiniPlayer));
+
+    final result = showResponsiveBottomSheet<String>(
+      context: tester.element(home),
+      isDismissible: false,
+      builder: (sheetContext) => Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          height: 56,
+          child: TextButton(
+            onPressed: () => Navigator.of(sheetContext).pop('selected'),
+            child: const Text('Select from landscape sheet'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey('responsive-sheet-surface'));
+    expect(tester.getRect(sheet).bottom, closeTo(size.height, 0.1));
+    expect(tester.getRect(sheet).overlaps(miniPlayerRect), isTrue);
+    expect(tester.getRect(home), initialHomeRect);
+    expect(
+      find.text('Select from landscape sheet').hitTestable(),
+      findsOneWidget,
+    );
+
+    await tester.tapAt(
+      Offset(miniPlayerRect.left + 20, miniPlayerRect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Select from landscape sheet'), findsOneWidget);
+
+    await tester.tap(find.text('Select from landscape sheet'));
+    await tester.pumpAndSettle();
+    expect(await result, 'selected');
+    expect(tester.getRect(home), initialHomeRect);
+    expect(find.byType(MiniPlayer).hitTestable(), findsOneWidget);
+    expect(navigation.navigationVisible, isTrue);
+  });
+
+  testWidgets('landscape sheet keeps a nested dialog above Mini Player', (
+    tester,
+  ) async {
+    await _pumpShell(tester, size: const Size(1280, 720));
+    final miniPlayer = tester.getRect(find.byType(MiniPlayer));
+    final context = tester.element(find.byKey(const ValueKey('home-viewport')));
+    unawaited(
+      showResponsiveBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => BottomSheetMenu(
+          children: [
+            ListTile(
+              title: const Text('Open landscape dialog'),
+              onTap: () => showDialog<void>(
+                context: sheetContext,
+                builder: (dialogContext) => AlertDialog(
+                  content: const Text('Landscape nested dialog'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Close landscape dialog'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open landscape dialog'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byType(AlertDialog)).bottom,
+      lessThanOrEqualTo(miniPlayer.top),
+    );
+    expect(find.text('Close landscape dialog').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Close landscape dialog'));
+    await tester.pumpAndSettle();
+    expect(find.text('Open landscape dialog').hitTestable(), findsOneWidget);
+  });
+
+  for (final size in [const Size(640, 360), const Size(1280, 720)]) {
+    for (final rootPage in [false, true]) {
+      testWidgets('landscape page FAB clears playback at $size '
+          '(root=$rootPage)', (tester) async {
+        var taps = 0;
+        final page = Scaffold(
+          body: const SizedBox.expand(key: ValueKey('ordinary-page-body')),
+          floatingActionButton: FloatingActionButton(
+            key: const ValueKey('ordinary-page-fab'),
+            onPressed: () => taps++,
+            child: const Icon(Icons.add),
+          ),
+        );
+        final navigation = await _pumpShell(
+          tester,
+          size: size,
+          homeBuilder: (navigation) => _tabHome(
+            navigation,
+            rootPage ? const Scaffold(body: Text('Home')) : page,
+          ),
+        );
+        if (rootPage) {
+          unawaited(
+            navigation.navigator!.push(
+              MaterialPageRoute<void>(builder: (_) => page),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        final fab = find.byKey(const ValueKey('ordinary-page-fab'));
+        final mini = tester.getRect(find.byType(MiniPlayer));
+        expect(tester.getRect(fab).bottom, lessThanOrEqualTo(mini.top));
+        expect(fab.hitTestable(), findsOneWidget);
+        await tester.tap(fab);
+        await tester.pump();
+        expect(taps, 1);
+
+        final body = find.byKey(const ValueKey('ordinary-page-body'));
+        final bodyRect = tester.getRect(body);
+        unawaited(
+          showResponsiveBottomSheet<void>(
+            context: tester.element(body),
+            builder: (_) => const Text('Full-height sheet'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final panel = tester.getRect(
+          find.byKey(const ValueKey('responsive-sheet-surface')),
+        );
+        expect(panel.bottom, closeTo(size.height, 0.1));
+        expect(panel.overlaps(mini), isTrue);
+        expect(tester.getRect(body), bodyRect);
+      });
+    }
+  }
+
+  testWidgets('landscape comic download actions scroll above playback', (
+    tester,
+  ) async {
+    final downloads = ComicDownloads(
+      _ComicTaskLibrary(),
+      (_) => throw UnimplementedError(),
+    );
+    await downloads.ready;
+    downloads.tasks.addAll(
+      List.generate(
+        12,
+        (index) => ComicDownloadTask(
+          comic: Comic(source: 'fixture', id: '$index', title: 'Task $index'),
+          chapter: const ComicChapter('chapter', 'Chapter'),
+          directory: 'unused',
+          status: ComicDownloadStatus.complete,
+          pages: const [ComicPage('unused')],
+          completed: 1,
+        ),
+      ),
+    );
+    await _pumpShell(
+      tester,
+      size: const Size(844, 390),
+      homeBuilder: (navigation) => _tabHome(
+        navigation,
+        ProviderScope(
+          overrides: [comicDownloadsProvider.overrideWith((ref) => downloads)],
+          child: const ComicDownloadScreen(),
+        ),
+      ),
+    );
+    final list = find.descendant(
+      of: find.byType(ComicDownloadScreen),
+      matching: find.byType(ListView),
+    );
+    await tester.drag(list, const Offset(0, -6000));
+    await tester.pumpAndSettle();
+    final lastCard = find.ancestor(
+      of: find.text('Task 11'),
+      matching: find.byType(Card),
+    );
+    final delete = find.descendant(
+      of: lastCard,
+      matching: find.byIcon(Icons.delete_outline),
+    );
+    expect(
+      tester.getRect(delete).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(MiniPlayer)).top),
+    );
+    expect(delete.hitTestable(), findsOneWidget);
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
 
   for (final themedShape in [false, true]) {
     testWidgets('sheet corners retain the Dock (themedShape=$themedShape)', (
@@ -1219,6 +1901,11 @@ void main() {
 
         final rail = tester.getRect(find.byType(NavigationRail));
         final mini = tester.getRect(find.byType(MiniPlayer));
+        final page = tester.getRect(
+          find.byKey(const ValueKey('home-viewport')),
+        );
+        expect(page.left, closeTo(rail.right + 1, 0.01));
+        expect(page.right, closeTo(size.width - 12, 0.01));
         expect(mini.left, closeTo(rail.right + 1, 0.01));
         expect(mini.right, closeTo(size.width - 12, 0.01));
         expect(mini.bottom, closeTo(size.height - 20, 0.01));
@@ -1427,7 +2114,11 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.getRect(home), duringExit);
-        expect(tester.getRect(home).bottom, startingPlaying ? 648 : 632);
+        expect(
+          tester.getRect(home).bottom,
+          closeTo(tester.getRect(find.byType(MiniPlayer)).top, 0.01),
+        );
+        expect(MediaQuery.paddingOf(tester.element(home)).bottom, 0);
         expect(tester.takeException(), isNull);
       },
     );
@@ -1466,6 +2157,7 @@ void main() {
 
     expect(tester.getRect(home), duringExit);
     expect(tester.getRect(home).bottom, closeTo(720 - miniPlayerHeight, 0.01));
+    expect(MediaQuery.paddingOf(tester.element(home)).bottom, 0);
     expect(tester.takeException(), isNull);
   });
 
@@ -1533,7 +2225,11 @@ void main() {
     tester,
   ) async {
     const size = Size(1280, 720);
-    final navigation = await _pumpShell(tester, size: size);
+    final navigation = await _pumpShell(
+      tester,
+      size: size,
+      safePadding: const FakeViewPadding(bottom: 20),
+    );
     final home = find.byKey(
       const ValueKey('home-viewport'),
       skipOffstage: false,
@@ -1700,6 +2396,9 @@ void main() {
     final duringExit = tester.getRect(home);
     await tester.pumpAndSettle();
     expect(duringExit, tester.getRect(home));
+    final rail = tester.getRect(find.byType(NavigationRail));
+    expect(duringExit.left, closeTo(rail.right + 1, 0.01));
+    expect(duringExit.right, closeTo(1280 - 44, 0.01));
     expect(tester.takeException(), isNull);
   });
 

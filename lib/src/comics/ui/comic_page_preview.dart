@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../../../l10n/app_localizations.dart';
+import '../../widgets/work_detail_route_readiness.dart';
 
 class ComicPagePreview extends StatefulWidget {
   const ComicPagePreview({
@@ -18,6 +20,15 @@ class ComicPagePreview extends StatefulWidget {
     required this.loadImage,
     required this.onSelected,
   });
+
+  // shortcut: Size is fixed when opened; compute in the sheet if live resizing is needed.
+  static double? sheetWidthFor(BuildContext context) {
+    final width = context.size!.width;
+    if (width < 600) return null;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    return math.min(960.0, isLandscape ? width * .8 : width - 48);
+  }
 
   final int pageCount;
   final int initialPage;
@@ -31,7 +42,6 @@ class ComicPagePreview extends StatefulWidget {
 }
 
 class _ComicPagePreviewState extends State<ComicPagePreview> {
-  static const _tileExtent = 182.0;
   static const _tileSpacing = 10.0;
   static const _cacheLimit = 64;
   static const _maxConcurrentLoads = 3;
@@ -42,8 +52,9 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   final Set<int> _inFlight = {};
   final Map<int, ({int width, int height})> _tileSizes = {};
   final Map<int, ({int width, int height})> _queuedSizes = {};
-  final LinkedHashMap<int, Uint8List> _thumbnails = LinkedHashMap();
+  final LinkedHashMap<int, ui.Image> _thumbnails = LinkedHashMap();
   final Map<int, Object> _errors = {};
+  final _routeReadiness = WorkDetailRouteReadiness();
 
   late final int _page = widget.pageCount <= 0
       ? 0
@@ -52,34 +63,24 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   bool _ready = false;
   bool _positionScheduled = false;
   bool _accepting = true;
-  Animation<double>? _routeAnimation;
-  AnimationStatusListener? _routeStatusListener;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.animation;
-    if (identical(animation, _routeAnimation)) return;
-    if (_routeAnimation != null && _routeStatusListener != null) {
-      _routeAnimation!.removeStatusListener(_routeStatusListener!);
-    }
-    _routeAnimation = animation;
-    if (animation == null) return;
-    _routeStatusListener = (status) {
-      if (status == AnimationStatus.reverse ||
-          status == AnimationStatus.dismissed) {
-        _stopAccepting();
-      }
-    };
-    animation.addStatusListener(_routeStatusListener!);
+    _routeReadiness.bind(
+      route: ModalRoute.of(context),
+      navigator: Navigator.maybeOf(context),
+    );
   }
 
   @override
   void dispose() {
     _stopAccepting();
-    if (_routeAnimation != null && _routeStatusListener != null) {
-      _routeAnimation!.removeStatusListener(_routeStatusListener!);
+    _routeReadiness.dispose();
+    for (final image in _thumbnails.values) {
+      image.dispose();
     }
+    _thumbnails.clear();
     super.dispose();
   }
 
@@ -92,7 +93,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
     _activeTiles.clear();
   }
 
-  Uint8List? _thumbnail(int index) {
+  ui.Image? _thumbnail(int index) {
     final value = _thumbnails.remove(index);
     if (value != null) _thumbnails[index] = value;
     return value;
@@ -118,7 +119,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   void _trimThumbnails() {
     for (final index in _thumbnails.keys.toList()) {
       if (_thumbnails.length <= _cacheLimit) break;
-      if (!_activeTiles.contains(index)) _thumbnails.remove(index);
+      if (!_activeTiles.contains(index)) _thumbnails.remove(index)?.dispose();
     }
   }
 
@@ -157,28 +158,42 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
 
   Future<void> _loadThumbnail(int index, ({int width, int height}) size) async {
     try {
+      if (!await _routeReadiness.waitForIdle() || !mounted || !_accepting) {
+        return;
+      }
       final bytes = await widget.loadImage(index);
+      if (!await _routeReadiness.waitForIdle() || !mounted || !_accepting) {
+        return;
+      }
       final thumbnail = await _decodeThumbnail(bytes, size.width, size.height);
-      if (mounted && _accepting && _activeTiles.contains(index)) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          _accepting &&
+          _activeTiles.contains(index)) {
         setState(() {
           _errors.remove(index);
-          _thumbnails.remove(index);
+          _thumbnails.remove(index)?.dispose();
           _thumbnails[index] = thumbnail;
           _trimThumbnails();
         });
+      } else {
+        thumbnail.dispose();
       }
     } catch (error) {
-      if (mounted && _accepting && _activeTiles.contains(index)) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          _accepting &&
+          _activeTiles.contains(index)) {
         setState(() => _errors[index] = error);
       }
     } finally {
       _inFlight.remove(index);
       _running--;
-      if (mounted && _accepting) _drainQueue();
+      if (mounted && _accepting && _routeReadiness.isIdle) _drainQueue();
     }
   }
 
-  Future<Uint8List> _decodeThumbnail(
+  Future<ui.Image> _decodeThumbnail(
     Uint8List bytes,
     int width,
     int height,
@@ -197,21 +212,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
         );
         try {
           final frame = await codec.getNextFrame();
-          try {
-            final data = await frame.image.toByteData(
-              format: ui.ImageByteFormat.png,
-            );
-            if (data == null) {
-              throw StateError('Could not encode page preview');
-            }
-            return Uint8List.view(
-              data.buffer,
-              data.offsetInBytes,
-              data.lengthInBytes,
-            );
-          } finally {
-            frame.image.dispose();
-          }
+          return frame.image;
         } finally {
           codec.dispose();
         }
@@ -242,7 +243,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
     navigator.pop();
   }
 
-  void _positionGrid(int columns) {
+  void _positionGrid(int columns, double tileExtent) {
     if (_positionScheduled || _ready || !_accepting) return;
     _positionScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -257,7 +258,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
       }
       final position = controller.position;
       final row = _page ~/ columns;
-      final target = (8 + row * (_tileExtent + _tileSpacing))
+      final target = (8 + row * (tileExtent + _tileSpacing))
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       controller.jumpTo(target);
@@ -313,29 +314,35 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final innerWidth = constraints.maxWidth - 24;
-              final columns = (innerWidth / 120).floor().clamp(2, 6).toInt();
+              final isWide = MediaQuery.sizeOf(context).width >= 600;
+              final tileExtent = isWide ? 240.0 : 182.0;
+              final columns = (innerWidth / (isWide ? 160 : 120))
+                  .floor()
+                  .clamp(2, 6)
+                  .toInt();
               final tileWidth = (innerWidth - (columns - 1) * 8) / columns;
               final pixelRatio = MediaQuery.devicePixelRatioOf(context);
               final imageWidth = ((tileWidth - 8) * pixelRatio)
                   .round()
                   .clamp(1, 4096)
                   .toInt();
-              final imageHeight = (140 * pixelRatio)
-                  .round()
-                  .clamp(1, 4096)
-                  .toInt();
-              _positionGrid(columns);
+              final imageHeight =
+                  ((isWide ? tileExtent - 30 : 140) * pixelRatio)
+                      .round()
+                      .clamp(1, 4096)
+                      .toInt();
+              _positionGrid(columns, tileExtent);
               return GridView.builder(
                 controller: widget.scrollController,
                 primary: false,
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                scrollCacheExtent: const ScrollCacheExtent.pixels(
-                  _tileExtent + _tileSpacing,
+                scrollCacheExtent: ScrollCacheExtent.pixels(
+                  tileExtent + _tileSpacing,
                 ),
                 itemCount: widget.pageCount,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
-                  mainAxisExtent: _tileExtent,
+                  mainAxisExtent: tileExtent,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: _tileSpacing,
                 ),
@@ -374,7 +381,7 @@ class _ComicPreviewTile extends StatefulWidget {
 
   final int pageNumber;
   final bool selected;
-  final Uint8List? thumbnail;
+  final ui.Image? thumbnail;
   final Object? error;
   final VoidCallback onActivate;
   final VoidCallback onDeactivate;
@@ -443,10 +450,10 @@ class _ComicPreviewTileState extends State<_ComicPreviewTile> {
               Expanded(
                 child: Center(
                   child: thumbnail != null
-                      ? Image.memory(
-                          thumbnail,
+                      ? RawImage(
+                          image: thumbnail,
                           fit: BoxFit.contain,
-                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.medium,
                         )
                       : widget.error != null
                       ? Column(

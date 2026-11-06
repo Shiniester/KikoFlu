@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -116,6 +118,89 @@ Widget _offsetFixture(
             ),
           ],
         ),
+      ),
+    ),
+  ),
+);
+
+class _TestPinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  @override
+  double get minExtent => 48;
+
+  @override
+  double get maxExtent => 48;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => const SizedBox(height: 48, child: ColoredBox(color: Colors.white));
+
+  @override
+  bool shouldRebuild(_TestPinnedHeaderDelegate oldDelegate) => false;
+}
+
+Widget _shortAndEmptyPageFixture(ValueNotifier<double> page) => MaterialApp(
+  home: Scaffold(
+    body: ValueListenableBuilder<double>(
+      valueListenable: page,
+      builder: (context, position, _) => CustomScrollView(
+        slivers: [
+          const SliverToBoxAdapter(child: SizedBox(height: 900)),
+          SliverLayoutBuilder(
+            builder: (context, groupConstraints) => SliverMainAxisGroup(
+              slivers: [
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _TestPinnedHeaderDelegate(),
+                ),
+                SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final leadingExtent =
+                        constraints.precedingScrollExtent -
+                        groupConstraints.precedingScrollExtent;
+                    return SliverTabPageView(
+                      position: AlwaysStoppedAnimation(position),
+                      onDragStart: () {},
+                      onDragUpdate: (delta) =>
+                          page.value = (page.value + delta).clamp(0.0, 1.0),
+                      onDragEnd: (_) => page.value = page.value.roundToDouble(),
+                      onDragCancel: () =>
+                          page.value = page.value.roundToDouble(),
+                      leadingExtent: leadingExtent,
+                      minimumPageExtent: math.max(
+                        0.0,
+                        constraints.viewportMainAxisExtent - 48,
+                      ),
+                      pages: const [
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            key: ValueKey('short-page-content'),
+                            height: 72,
+                            child: Text('short page'),
+                          ),
+                        ),
+                        SliverToBoxAdapter(
+                          child: SizedBox.shrink(
+                            key: ValueKey('empty-page-content'),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SliverToBoxAdapter(
+            child: SizedBox(
+              key: ValueKey('after-short-pages'),
+              height: 200,
+              child: Text('after pages'),
+            ),
+          ),
+        ],
       ),
     ),
   ),
@@ -263,6 +348,90 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final (pageName, initialPage, dragDistance) in [
+    ('short', 0, -240.0),
+    ('empty', 1, 240.0),
+  ]) {
+    testWidgets(
+      '$pageName page accepts a horizontal drag from its blank viewport area',
+      (tester) async {
+        const surfaceSize = Size(390, 500);
+        await tester.binding.setSurfaceSize(surfaceSize);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final page = ValueNotifier(initialPage.toDouble());
+        addTearDown(page.dispose);
+        await tester.pumpWidget(_shortAndEmptyPageFixture(page));
+
+        final blankPoint = Offset(
+          surfaceSize.width / 2,
+          surfaceSize.height * .8,
+        );
+        final scrollPosition = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        scrollPosition.jumpTo(948);
+        await tester.pumpAndSettle();
+        final footer = find.byKey(const ValueKey('after-short-pages'));
+        final footerTop = tester.getTopLeft(footer).dy;
+        expect(footerTop, closeTo(452, 1));
+        final shortPageTop = initialPage == 0
+            ? tester
+                  .getTopLeft(find.byKey(const ValueKey('short-page-content')))
+                  .dy
+            : null;
+        final pagerFinder = find.byType(SliverTabPageView);
+        final pager = tester.renderObject<RenderSliverTabPageView>(pagerFinder);
+        if (initialPage == 1) {
+          expect(pager.geometry!.scrollExtent, 452);
+          expect(pager.geometry!.hitTestExtent, closeTo(452, 1));
+        }
+
+        if (initialPage == 1) {
+          await tester.dragFrom(blankPoint, const Offset(240, 0));
+          await tester.pumpAndSettle();
+          expect(page.value, 0);
+          expect(tester.getTopLeft(footer).dy, closeTo(footerTop, 1));
+          await tester.dragFrom(blankPoint, const Offset(-240, 0));
+          await tester.pumpAndSettle();
+          expect(page.value, 1);
+          expect(tester.getTopLeft(footer).dy, closeTo(footerTop, 1));
+          scrollPosition.jumpTo(964);
+          await tester.pumpAndSettle();
+          expect(scrollPosition.pixels, closeTo(964, 1));
+          expect(tester.getTopLeft(footer).dy, closeTo(footerTop - 16, 1));
+        }
+
+        await tester.dragFrom(blankPoint, Offset(dragDistance, 0));
+        await tester.pumpAndSettle();
+
+        expect(page.value, initialPage == 0 ? 1 : 0);
+        expect(
+          tester.getTopLeft(footer).dy,
+          closeTo(footerTop - (initialPage == 1 ? 16 : 0), 1),
+        );
+        expect(pager.geometry!.scrollExtent, 452);
+        expect(
+          pager.geometry!.hitTestExtent,
+          closeTo(initialPage == 0 ? 452 : 436, 1),
+        );
+        expect(scrollPosition.pixels, closeTo(initialPage == 1 ? 964 : 948, 1));
+        if (initialPage == 0) {
+          await tester.dragFrom(blankPoint, const Offset(240, 0));
+          await tester.pumpAndSettle();
+          expect(page.value, 0);
+          expect(tester.getTopLeft(footer).dy, closeTo(footerTop, 1));
+          expect(
+            tester
+                .getTopLeft(find.byKey(const ValueKey('short-page-content')))
+                .dy,
+            closeTo(shortPageTop!, 1),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('rotated offscreen masonry corrects before it becomes nearest', (
     tester,

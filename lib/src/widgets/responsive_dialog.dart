@@ -601,9 +601,7 @@ class ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
         label: MaterialLocalizations.of(context).dialogLabel,
         explicitChildNodes: true,
         child: MediaQuery(
-          data:
-              shellMediaQuery == null ||
-                  mediaQuery.orientation == Orientation.landscape
+          data: shellMediaQuery == null
               ? mediaQuery
               : mediaQuery.copyWith(
                   padding: mediaQuery.padding.copyWith(

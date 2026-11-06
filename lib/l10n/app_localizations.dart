@@ -7582,6 +7582,24 @@ abstract class S {
   /// **'Sources'**
   String get librarySources;
 
+  /// Sidebar group for source sign-in and account collections.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get libraryAccount;
+
+  /// Sidebar group for browsing content without an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get libraryContent;
+
+  /// Sidebar group for on-device collections and files.
+  ///
+  /// In en, this message translates to:
+  /// **'Local'**
+  String get libraryLocal;
+
   /// No description provided for @libraryPages.
   ///
   /// In en, this message translates to:
@@ -7639,7 +7657,7 @@ abstract class S {
   /// No description provided for @libraryPageOrderDescription.
   ///
   /// In en, this message translates to:
-  /// **'Drag to change the page order in the sidebar.'**
+  /// **'Drag to change the page order within each sidebar group.'**
   String get libraryPageOrderDescription;
 
   /// No description provided for @jpAsmrVerificationTitle.
@@ -7936,6 +7954,36 @@ abstract class S {
   /// **'MissAV account'**
   String get videoSourceAccount;
 
+  /// No description provided for @videoJableAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Jable account'**
+  String get videoJableAccount;
+
+  /// No description provided for @videoJableLoginRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to Jable to view and manage your video favorites.'**
+  String get videoJableLoginRequired;
+
+  /// Instruction shown in the source website login dialog before confirming account status.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in on the source website, then select Done to check your sign-in status.'**
+  String get videoLoginHelp;
+
+  /// Action that checks account status after sign-in on the source website.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get videoLoginComplete;
+
+  /// No description provided for @videoJableSignedIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in to Jable'**
+  String get videoJableSignedIn;
+
   /// No description provided for @videoCatalog.
   ///
   /// In en, this message translates to:
@@ -7953,6 +8001,12 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Recently updated'**
   String get videoRecentlyUpdated;
+
+  /// No description provided for @videoPopular.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular'**
+  String get videoPopular;
 
   /// No description provided for @videoNewReleases.
   ///
@@ -8035,13 +8089,13 @@ abstract class S {
   /// No description provided for @videoSourceUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'This source feature is unavailable in the app. Open it on MissAV.'**
+  /// **'This feature is unavailable in the app. Open the source website.'**
   String get videoSourceUnavailable;
 
   /// No description provided for @videoVerificationRequired.
   ///
   /// In en, this message translates to:
-  /// **'MissAV requires browser verification. Verify access, then retry.'**
+  /// **'The video source requires browser verification. Verify access, then retry.'**
   String get videoVerificationRequired;
 
   /// No description provided for @videoVerifyAccess.
@@ -8053,7 +8107,7 @@ abstract class S {
   /// No description provided for @videoVerificationHelp.
   ///
   /// In en, this message translates to:
-  /// **'Complete verification on MissAV, then select Check access.'**
+  /// **'Complete verification on the source website, then select Check access.'**
   String get videoVerificationHelp;
 
   /// No description provided for @videoVerificationContinue.
@@ -8083,13 +8137,13 @@ abstract class S {
   /// No description provided for @videoLoadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Videos could not be loaded. Retry or open MissAV.'**
+  /// **'Videos could not be loaded. Retry or open the source website.'**
   String get videoLoadFailed;
 
   /// No description provided for @videoPlaybackFailed.
   ///
   /// In en, this message translates to:
-  /// **'Playback failed. Retry or open MissAV.'**
+  /// **'Playback failed. Retry or open the source website.'**
   String get videoPlaybackFailed;
 
   /// No description provided for @videoDownloadFailed.
@@ -8097,36 +8151,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Download failed. Retry from video downloads.'**
   String get videoDownloadFailed;
-
-  /// No description provided for @videoEmail.
-  ///
-  /// In en, this message translates to:
-  /// **'Email'**
-  String get videoEmail;
-
-  /// No description provided for @videoRegisterOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Register on MissAV'**
-  String get videoRegisterOnSource;
-
-  /// No description provided for @videoResetPasswordOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset password on MissAV'**
-  String get videoResetPasswordOnSource;
-
-  /// No description provided for @videoPasswordOnSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Change password on MissAV'**
-  String get videoPasswordOnSource;
-
-  /// Explains that account actions open the source website, where the user selects the corresponding form.
-  ///
-  /// In en, this message translates to:
-  /// **'These actions open MissAV. Select registration or password management on the website.'**
-  String get videoAccountSourceHint;
 
   /// No description provided for @videoQuality.
   ///
@@ -8209,7 +8233,7 @@ abstract class S {
   /// No description provided for @videoOpenSource.
   ///
   /// In en, this message translates to:
-  /// **'Open MissAV'**
+  /// **'Open source website'**
   String get videoOpenSource;
 
   /// No description provided for @videoDownloadDeleteConfirm.

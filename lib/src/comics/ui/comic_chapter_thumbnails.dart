@@ -90,10 +90,14 @@ class _ComicChapterThumbnailsState
       if (indices.isEmpty) return const SizedBox.shrink();
       return LayoutBuilder(
         builder: (context, constraints) {
+          final isWide = MediaQuery.sizeOf(context).width >= 600;
           final width = math.min(
-            96.0,
+            isWide ? double.infinity : 96.0,
             (constraints.maxWidth - 8 * (indices.length - 1)) / indices.length,
           );
+          final height = isWide
+              ? (width * 1.5).clamp(120.0, 240.0).toDouble()
+              : 120.0;
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -111,13 +115,14 @@ class _ComicChapterThumbnailsState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         SizedBox(
-                          height: 120,
+                          height: height,
                           child: Center(
                             child: ComicCover(
                               source: widget.comic.source,
                               page: pages[indices[i]],
+                              loadImage: TickerMode.valuesOf(context).enabled,
                               maxWidth: width,
-                              maxHeight: 120,
+                              maxHeight: height,
                               cornerRadius: 6,
                             ),
                           ),

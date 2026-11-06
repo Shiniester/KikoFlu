@@ -4117,6 +4117,15 @@ class SZh extends S {
   String get librarySources => '来源';
 
   @override
+  String get libraryAccount => '账号';
+
+  @override
+  String get libraryContent => '内容';
+
+  @override
+  String get libraryLocal => '本地';
+
+  @override
   String get libraryPages => '页面';
 
   @override
@@ -4146,7 +4155,7 @@ class SZh extends S {
   }
 
   @override
-  String get libraryPageOrderDescription => '拖动调整侧栏中的页面顺序。';
+  String get libraryPageOrderDescription => '拖动调整侧栏各分组内的页面顺序。';
 
   @override
   String get jpAsmrVerificationTitle => '验证 JP-ASMR 访问';
@@ -4313,6 +4322,21 @@ class SZh extends S {
   String get videoSourceAccount => 'MissAV 账号';
 
   @override
+  String get videoJableAccount => 'Jable 账号';
+
+  @override
+  String get videoJableLoginRequired => '登录 Jable 后可查看和管理视频收藏。';
+
+  @override
+  String get videoLoginHelp => '在源站登录后，点击“完成”检查登录状态。';
+
+  @override
+  String get videoLoginComplete => '完成';
+
+  @override
+  String get videoJableSignedIn => '已登录 Jable';
+
+  @override
   String get videoCatalog => '视频目录';
 
   @override
@@ -4320,6 +4344,9 @@ class SZh extends S {
 
   @override
   String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoPopular => '热门';
 
   @override
   String get videoNewReleases => '新作上市';
@@ -4393,21 +4420,6 @@ class SZh extends S {
 
   @override
   String get videoDownloadFailed => '视频下载失败，可在视频下载中重试。';
-
-  @override
-  String get videoEmail => '邮箱';
-
-  @override
-  String get videoRegisterOnSource => '在源站注册';
-
-  @override
-  String get videoResetPasswordOnSource => '在源站重置密码';
-
-  @override
-  String get videoPasswordOnSource => '在源站修改密码';
-
-  @override
-  String get videoAccountSourceHint => '以下操作会打开源站页面。请在源站选择注册或密码管理。';
 
   @override
   String get videoQuality => '画质';
@@ -8977,6 +8989,15 @@ class SZhHant extends SZh {
   String get librarySources => '來源';
 
   @override
+  String get libraryAccount => '帳號';
+
+  @override
+  String get libraryContent => '內容';
+
+  @override
+  String get libraryLocal => '本機';
+
+  @override
   String get libraryPages => '頁面';
 
   @override
@@ -9006,7 +9027,7 @@ class SZhHant extends SZh {
   }
 
   @override
-  String get libraryPageOrderDescription => '拖動調整側欄中的頁面順序。';
+  String get libraryPageOrderDescription => '拖動調整側欄各分組內的頁面順序。';
 
   @override
   String get jpAsmrVerificationTitle => '驗證 JP-ASMR 存取';
@@ -9173,6 +9194,21 @@ class SZhHant extends SZh {
   String get videoSourceAccount => 'MissAV 帳號';
 
   @override
+  String get videoJableAccount => 'Jable 帳號';
+
+  @override
+  String get videoJableLoginRequired => '登入 Jable 後可查看及管理影片收藏。';
+
+  @override
+  String get videoLoginHelp => '在來源網站登入後，按一下「完成」檢查登入狀態。';
+
+  @override
+  String get videoLoginComplete => '完成';
+
+  @override
+  String get videoJableSignedIn => '已登入 Jable';
+
+  @override
   String get videoCatalog => '影片目錄';
 
   @override
@@ -9180,6 +9216,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoPopular => '熱門';
 
   @override
   String get videoNewReleases => '新作上市';
@@ -9253,21 +9292,6 @@ class SZhHant extends SZh {
 
   @override
   String get videoDownloadFailed => '影片下載失敗，可在影片下載中重試。';
-
-  @override
-  String get videoEmail => '電子郵件';
-
-  @override
-  String get videoRegisterOnSource => '在來源網站註冊';
-
-  @override
-  String get videoResetPasswordOnSource => '在來源網站重設密碼';
-
-  @override
-  String get videoPasswordOnSource => '在來源網站變更密碼';
-
-  @override
-  String get videoAccountSourceHint => '以下操作會開啟來源網站。請在來源網站選擇註冊或密碼管理。';
 
   @override
   String get videoQuality => '畫質';

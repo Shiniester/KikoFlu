@@ -16,13 +16,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
+import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
@@ -167,6 +170,10 @@ void main() {
     const releaseUrl = 'https://missav.ai/dm539/cn/release';
     final client = _TestMissavClient(
       sourceHomeUrl: 'https://missav.ai/dm539/cn',
+      catalog: const VideoCatalogPage(
+        title: 'Source release title',
+        url: releaseUrl,
+      ),
     );
     final library = await _testLibrary();
     final downloads = _TestVideoDownloads(client: client, library: library);
@@ -177,6 +184,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(client.browsedUrls, [releaseUrl]);
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoNewReleases), findsOneWidget);
+    expect(find.text('Source release title'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoNewReleases)).selected,
+      isTrue,
+    );
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoRecentlyUpdated)).selected,
+      isFalse,
+    );
   });
 
   testWidgets('single metadata filter loads one source page at a time', (
@@ -538,7 +559,14 @@ void main() {
     final refreshedPage = VideoCatalogPage(
       title: 'Refreshed scroll catalog',
       url: releaseUrl,
-      videos: videos,
+      videos: [
+        for (final video in videos)
+          VideoItem(
+            id: video.id,
+            title: '${video.title} refreshed',
+            pageUrl: video.pageUrl,
+          ),
+      ],
     );
     final refresh = Completer<VideoCatalogPage>();
     final refreshStarted = Completer<void>();
@@ -572,7 +600,8 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(l10n.videoNewReleases));
+    await _videoDrawerTile(tester, l10n.videoNewReleases);
+    await tester.tap(find.widgetWithText(ListTile, l10n.videoNewReleases));
     for (
       var attempt = 0;
       attempt < 10 && !refreshStarted.isCompleted;
@@ -583,7 +612,7 @@ void main() {
     expect(refreshStarted.isCompleted, isTrue);
     await tester.pump();
     await tester.pump();
-    expect(find.text('Cached scroll catalog'), findsOneWidget);
+    expect(find.text(l10n.videoNewReleases), findsOneWidget);
     final scroll = tester
         .widget<CustomScrollView>(
           find.byWidgetPredicate(
@@ -599,14 +628,15 @@ void main() {
 
     refresh.complete(refreshedPage);
     await tester.pumpAndSettle();
-    expect(find.text('Refreshed scroll catalog'), findsOneWidget);
+    expect(find.textContaining('refreshed'), findsWidgets);
     expect(scroll.offset, 180);
 
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(l10n.videoWeeklyHot));
+    await _videoDrawerTile(tester, l10n.videoWeeklyHot);
+    await tester.tap(find.widgetWithText(ListTile, l10n.videoWeeklyHot));
     await tester.pumpAndSettle();
-    expect(find.text('Next scroll catalog'), findsOneWidget);
+    expect(find.text(l10n.videoWeeklyHot), findsOneWidget);
     expect(scroll.offset, 0);
   });
 
@@ -615,6 +645,11 @@ void main() {
   ) async {
     const releaseUrl = 'https://missav.ai/cn/release';
     const coverUrl = 'https://missav.ai/images/cached-retry.png';
+    final displayedVideos = find.byKey(
+      const PageStorageKey<String>('video-$releaseUrl'),
+    );
+    Finder displayedVideo(String title) =>
+        find.descendant(of: displayedVideos, matching: find.text(title));
     const video = VideoItem(
       id: 'cached-retry',
       title: 'Cached retry video',
@@ -626,10 +661,16 @@ void main() {
       url: releaseUrl,
       videos: [video],
     );
+    const refreshedVideo = VideoItem(
+      id: 'cached-retry',
+      title: 'Refreshed retry video',
+      pageUrl: 'https://missav.ai/cn/cached-retry',
+      cover: coverUrl,
+    );
     const refreshedPage = VideoCatalogPage(
       title: 'Refreshed retry catalog',
       url: releaseUrl,
-      videos: [video],
+      videos: [refreshedVideo],
     );
     final refreshResult = Completer<VideoCatalogPage>();
     final refreshStarted = Completer<void>();
@@ -691,14 +732,15 @@ void main() {
         _app(client, library, downloads, const VideoScreen()),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Cached retry catalog'), findsOneWidget);
+      expect(displayedVideo('Cached retry video'), findsOneWidget);
       expect(find.byTooltip('Retry'), findsOneWidget);
       expect(imageClient.requestCount, 1);
 
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(l10n.videoNewReleases));
+      await _videoDrawerTile(tester, l10n.videoNewReleases);
+      await tester.tap(find.widgetWithText(ListTile, l10n.videoNewReleases));
       for (
         var attempt = 0;
         attempt < 10 && !refreshStarted.isCompleted;
@@ -708,7 +750,7 @@ void main() {
       }
       expect(refreshStarted.isCompleted, isTrue);
       await tester.pump();
-      expect(find.text('Cached retry catalog'), findsOneWidget);
+      expect(displayedVideo('Cached retry video'), findsOneWidget);
       expect(find.byTooltip('Retry').hitTestable(), findsOneWidget);
       expect(imageClient.requestCount, 1);
       // Publish the cache, then let its replacement staging tree inspect covers.
@@ -737,8 +779,8 @@ void main() {
       for (var attempt = 0; attempt < 5; attempt++) {
         await tester.pump();
       }
-      expect(find.text('Cached retry catalog'), findsOneWidget);
-      expect(find.text('Refreshed retry catalog'), findsNothing);
+      expect(displayedVideo('Cached retry video'), findsOneWidget);
+      expect(displayedVideo('Refreshed retry video'), findsNothing);
 
       await tester.runAsync(() async => retryBody.complete(imageBytes));
       for (var attempt = 0; attempt < 10; attempt++) {
@@ -746,11 +788,11 @@ void main() {
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump();
-        if (find.text('Refreshed retry catalog').evaluate().isNotEmpty) {
+        if (displayedVideo('Refreshed retry video').evaluate().isNotEmpty) {
           break;
         }
       }
-      expect(find.text('Refreshed retry catalog'), findsOneWidget);
+      expect(displayedVideo('Refreshed retry video'), findsOneWidget);
       expect(imageClient.requestCount, 2);
     } finally {
       debugNetworkImageHttpClientProvider = previousHttpClientProvider;
@@ -812,6 +854,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(client.browsedUrls, contains('https://missav.ai/en/saved'));
+  });
+
+  testWidgets('MissAV groups account actions and localizes collection pages', (
+    tester,
+  ) async {
+    const favoritesUrl = 'https://missav.ai/en/saved';
+    final client = _TestMissavClient(
+      sourceHomeUrl: 'https://missav.ai/en',
+      loggedIn: true,
+      accountName: 'Signed in account',
+      catalog: const VideoCatalogPage(
+        title: 'Home source title',
+        url: 'https://missav.ai/en/release',
+      ),
+      pagesByUrl: const {
+        favoritesUrl: VideoCatalogPage(
+          title: 'Saved source title',
+          url: favoritesUrl,
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    expect(
+      find.descendant(of: drawer, matching: find.text(l10n.libraryAccount)),
+      findsOneWidget,
+    );
+    expect(
+      (await _videoDrawerTile(tester, 'Signed in account')).onTap,
+      isNotNull,
+    );
+    for (final label in [
+      l10n.videoFavorites,
+      l10n.videoActorFavorites,
+      l10n.playlists,
+      l10n.videoWatchHistory,
+    ]) {
+      expect((await _videoDrawerTile(tester, label)).onTap, isNotNull);
+    }
+
+    await _videoDrawerTile(tester, l10n.videoFavorites);
+    await tester.tap(
+      find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
+    );
+    await tester.pumpAndSettle();
+    expect(client.browsedUrls, contains(favoritesUrl));
+    expect(find.text(l10n.videoFavorites), findsOneWidget);
+    expect(find.text('Saved source title'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoFavorites)).selected,
+      isTrue,
+    );
   });
 
   testWidgets(
@@ -1965,6 +2072,7 @@ void main() {
     tester,
   ) async {
     const destination = 'https://missav.ai/dm539/cn/new';
+    const pageTwo = '$destination?page=2';
     final client = _TestMissavClient(
       catalog: const VideoCatalogPage(
         title: 'Home catalog',
@@ -1981,6 +2089,12 @@ void main() {
         destination: const VideoCatalogPage(
           title: 'Recently updated page',
           url: destination,
+          nextUrl: pageTwo,
+        ),
+        pageTwo: const VideoCatalogPage(
+          title: 'Recently updated page 2',
+          url: pageTwo,
+          previousUrl: destination,
         ),
       },
     );
@@ -2009,8 +2123,31 @@ void main() {
     expect(client.browsedUrls, hasLength(browsesBeforeSelection + 1));
     expect(client.browsedUrls.last, destination);
     expect(find.text('Source recent feed'), findsNothing);
-    expect(find.text('Recently updated page'), findsOneWidget);
+    expect(find.text(l10n.videoRecentlyUpdated), findsOneWidget);
     expect(observer.pushes, pushesAfterOpeningDrawer);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoRecentlyUpdated)).selected,
+      isTrue,
+    );
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoNewReleases)).selected,
+      isFalse,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    await _tapNextPage(tester, l10n);
+    expect(client.browsedUrls.last, pageTwo);
+    expect(find.text(l10n.videoRecentlyUpdated), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    expect(
+      (await _videoDrawerTile(tester, l10n.videoRecentlyUpdated)).selected,
+      isTrue,
+    );
   });
 
   testWidgets('failed catalog source action opens the requested URL', (
@@ -2103,6 +2240,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     final l10n = await S.delegate.load(const Locale('en'));
+    await _videoDrawerTile(tester, l10n.videoWeeklyHot);
     await tester.tap(find.text(l10n.videoWeeklyHot));
     await tester.pumpAndSettle();
 
@@ -2112,7 +2250,103 @@ void main() {
       destination,
       destination,
     ]);
-    expect(find.text('Weekly hot catalog'), findsOneWidget);
+    expect(find.text(l10n.videoWeeklyHot), findsOneWidget);
+  });
+
+  testWidgets('recommendations stay selected until a catalog page is shown', (
+    tester,
+  ) async {
+    const weeklyHotUrl = 'https://missav.ai/cn/weekly-hot';
+    final weeklyHotPage = Completer<VideoCatalogPage>();
+    final weeklyHotStarted = Completer<void>();
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Home source title',
+        url: 'https://missav.ai/cn',
+      ),
+      pagesByUrl: const {
+        weeklyHotUrl: VideoCatalogPage(
+          title: 'Weekly hot source title',
+          url: weeklyHotUrl,
+        ),
+      },
+      browseHandler: (url, page) {
+        if (url == weeklyHotUrl) {
+          weeklyHotStarted.complete();
+          return weeklyHotPage.future;
+        }
+        return Future.value(page);
+      },
+      recommendationHandler: (_, _, _) async =>
+          const VideoRecommendationPage(videos: [], cursor: null),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final l10n = await S.delegate.load(const Locale('en'));
+    addTearDown(() {
+      if (!weeklyHotPage.isCompleted) {
+        weeklyHotPage.complete(
+          const VideoCatalogPage(title: 'Weekly hot', url: weeklyHotUrl),
+        );
+      }
+    });
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+    expect(find.text(l10n.videoRecommendedForYou), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final weeklyHotLabel = find.descendant(
+      of: drawer,
+      matching: find.text(l10n.videoWeeklyHot),
+    );
+    await tester.scrollUntilVisible(
+      weeklyHotLabel,
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(weeklyHotLabel);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(weeklyHotStarted.isCompleted, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pump(const Duration(milliseconds: 300));
+    final recommendationLabel = find.descendant(
+      of: drawer,
+      matching: find.text(l10n.videoRecommendedForYou),
+    );
+    await tester.scrollUntilVisible(
+      recommendationLabel,
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    final recommendationTile = find.ancestor(
+      of: recommendationLabel,
+      matching: find.byType(ListTile),
+    );
+    expect(tester.widget<ListTile>(recommendationTile).selected, isTrue);
+    final weeklyHotTile = find.ancestor(
+      of: weeklyHotLabel,
+      matching: find.byType(ListTile),
+    );
+    expect(tester.widget<ListTile>(weeklyHotTile).selected, isFalse);
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    weeklyHotPage.complete(client.pagesByUrl[weeklyHotUrl]!);
+    await tester.pumpAndSettle();
+    expect(find.text(l10n.videoWeeklyHot), findsOneWidget);
   });
 
   testWidgets('downloads route waits for the drawer to finish closing', (
@@ -2263,7 +2497,12 @@ void main() {
     }
 
     await openDrawer();
-    expect(find.text(l10n.videoContent), findsOneWidget);
+    expect(find.text(l10n.libraryContent), findsOneWidget);
+    await scrollToDrawerLabel(l10n.libraryBrowseOptions);
+    expect(
+      tester.getTopLeft(find.text(l10n.libraryLocal)).dy,
+      lessThan(tester.getTopLeft(find.text(l10n.libraryBrowseOptions)).dy),
+    );
     expect(
       find.descendant(of: drawer, matching: find.text(l10n.navHome)),
       findsNothing,
@@ -2360,7 +2599,382 @@ void main() {
       'bigGrid',
     );
     await openDrawer();
-    expect(find.byIcon(Icons.grid_view), findsOneWidget);
+    await scrollToDrawerLabel(l10n.layout);
+    expect(
+      find.descendant(of: drawer, matching: find.byIcon(Icons.grid_view)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'switching to Jable loads its catalog and ignores a late MissAV response',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final oldMissavResponse = Completer<VideoCatalogPage>();
+      late String oldMissavUrl;
+      final missav = _TestMissavClient(
+        browseHandler: (url, _) {
+          oldMissavUrl = url;
+          return oldMissavResponse.future;
+        },
+      );
+      final jable = _TestJableClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          jableClient: jable,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(missav.browsedUrls, hasLength(1));
+      expect(missav.browsedUrls.single, startsWith('https://missav.ai/'));
+
+      final menuButton = find.byKey(const ValueKey('library-menu-button'));
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Jable').last.hitTestable());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(jable.browsedUrls, ['https://jable.tv']);
+      expect(find.text('Jable catalog'), findsOneWidget);
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoJableAccount), findsOneWidget);
+      expect(find.text(l10n.videoFavorites), findsOneWidget);
+      expect(find.text(l10n.videoActorFavorites), findsNothing);
+      expect(find.text(l10n.playlists), findsNothing);
+      expect(find.text(l10n.videoWatchHistory), findsNothing);
+      expect(find.text(l10n.videoNewReleases), findsOneWidget);
+      expect(find.text(l10n.videoChineseSubtitles), findsOneWidget);
+      expect(
+        (await _videoDrawerTile(tester, l10n.videoNewReleases)).selected,
+        isFalse,
+      );
+
+      await _videoDrawerTile(tester, l10n.videoFavorites);
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('library-drawer')),
+          matching: find.text(l10n.videoFavorites),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(jable.browsedUrls, contains(JableAccount.favoritesUrl));
+      expect(find.text(l10n.videoFavorites), findsOneWidget);
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pumpAndSettle();
+      expect(
+        (await _videoDrawerTile(tester, l10n.videoFavorites)).selected,
+        isTrue,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      oldMissavResponse.complete(
+        VideoCatalogPage(title: 'Late MissAV catalog', url: oldMissavUrl),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+
+      expect(find.text(l10n.videoFavorites), findsOneWidget);
+      expect(find.text('Late MissAV catalog'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'Jable favorite catalog offers account login after auth failure',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final missav = _TestMissavClient();
+      final jable = _TestJableClient(
+        browseHandler: (url) async {
+          if (JableAccount.isFavoritesUri(Uri.parse(url))) {
+            throw const JableLoginRequiredException();
+          }
+          return VideoCatalogPage(
+            title: 'Jable catalog',
+            url: url,
+            videos: const [
+              VideoItem(
+                id: 'public-catalog-item',
+                sourceKey: 'jable',
+                title: 'Public catalog item',
+                pageUrl: 'https://jable.tv/videos/public-catalog-item/',
+              ),
+            ],
+          );
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          const VideoScreen(),
+          selectedVideoSource: 'jable',
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Public catalog item'), findsOneWidget);
+
+      final menuButton = find.byKey(const ValueKey('library-menu-button'));
+      Scaffold.of(tester.element(menuButton)).openDrawer();
+      await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.text(l10n.videoFavorites).last.hitTestable());
+      await tester.pumpAndSettle();
+
+      expect(jable.browsedUrls, contains(JableAccount.favoritesUrl));
+      expect(find.text(l10n.videoJableLoginRequired), findsOneWidget);
+      expect(find.text('Public catalog item'), findsNothing);
+      final openAccount = find.byKey(
+        const ValueKey('video-open-jable-account'),
+      );
+      expect(openAccount, findsOneWidget);
+      await tester.tap(openAccount);
+      await tester.pumpAndSettle();
+      expect(find.byType(JableAccountScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final verifiedImmediately in [true, false]) {
+    testWidgets(
+      'Jable favorites retry after session import during verification '
+      '(verifiedImmediately=$verifiedImmediately)',
+      (tester) async {
+        final account = _TestJableAccount(loggedIn: true, revision: 1);
+        var attempts = 0;
+        var verified = verifiedImmediately;
+        final missav = _TestMissavClient();
+        final jable = _TestJableClient(
+          account: account,
+          browseHandler: (url) async {
+            attempts++;
+            if (attempts == 1) {
+              throw const JableVerificationRequiredException(
+                sourceUrl: JableAccount.favoritesUrl,
+              );
+            }
+            return VideoCatalogPage(
+              title: 'Verified favorites',
+              url: url,
+              videos: const [
+                VideoItem(
+                  id: 'verified-favorite',
+                  sourceKey: 'jable',
+                  title: 'Verified favorite video',
+                  pageUrl: 'https://jable.tv/videos/verified-favorite/',
+                ),
+              ],
+            );
+          },
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: missav, library: library);
+        await tester.pumpWidget(
+          _app(
+            missav,
+            library,
+            downloads,
+            const VideoScreen.catalog(
+              url: JableAccount.favoritesUrl,
+              sourceKey: 'jable',
+            ),
+            jableClient: jable,
+            verifyJable:
+                (
+                  context,
+                  client, {
+                  required sourceUrl,
+                  requireLogin = false,
+                }) async {
+                  // Importing a verified session resets the account state.
+                  account.expireSession();
+                  return verified;
+                },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.text(l10n.videoVerifyAccess));
+        await tester.pumpAndSettle();
+        if (!verifiedImmediately) {
+          expect(attempts, 1);
+          expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+          expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+          verified = true;
+          await tester.tap(find.text(l10n.videoVerifyAccess));
+          await tester.pumpAndSettle();
+        }
+
+        expect(attempts, 2);
+        expect(find.text('Verified favorite video'), findsOneWidget);
+        expect(find.text(l10n.videoJableLoginRequired), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('Jable favorite metadata filters stay within that collection', (
+    tester,
+  ) async {
+    const tag = VideoLink(
+      label: 'Favorite genre',
+      url: 'https://jable.tv/categories/favorite-genre/',
+      kind: VideoLinkKind.category,
+    );
+    const matching = VideoItem(
+      id: 'matching-favorite',
+      sourceKey: 'jable',
+      title: 'Matching favorite',
+      pageUrl: 'https://jable.tv/videos/matching-favorite/',
+    );
+    const otherFavorite = VideoItem(
+      id: 'other-favorite',
+      sourceKey: 'jable',
+      title: 'Other favorite',
+      pageUrl: 'https://jable.tv/videos/other-favorite/',
+    );
+    const outsideFavorite = VideoItem(
+      id: 'outside-favorite',
+      sourceKey: 'jable',
+      title: 'Outside favorite',
+      pageUrl: 'https://jable.tv/videos/outside-favorite/',
+    );
+    final client = _TestMissavClient();
+    addTearDown(client.dispose);
+    final jable = _TestJableClient(
+      account: _TestJableAccount(
+        loggedIn: true,
+        revision: 1,
+        favorites: const [matching, otherFavorite],
+      ),
+      filteredVideos: const [matching, outsideFavorite],
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        Builder(
+          builder: (context) => VideoScreen.searchScreen(
+            context,
+            client: jable,
+            collectionKey: 'favorites',
+            initialFilters: const [tag],
+          ),
+        ),
+        jableClient: jable,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(matching.title), findsOneWidget);
+    expect(find.text(otherFavorite.title), findsNothing);
+    expect(find.text(outsideFavorite.title), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Jable logout clears favorite content during page navigation', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    const favoritesPageTwo = 'https://jable.tv/my/favourites/videos/?page=2';
+    final pageTwo = Completer<VideoCatalogPage>();
+    final account = _TestJableAccount(loggedIn: true, revision: 1);
+    const privateVideo = VideoItem(
+      id: 'account-favorite',
+      sourceKey: 'jable',
+      title: 'Private account favorite',
+      pageUrl: 'https://jable.tv/videos/account-favorite/',
+    );
+    final missav = _TestMissavClient();
+    final jable = _TestJableClient(
+      account: account,
+      browseHandler: (url) => url == favoritesPageTwo
+          ? pageTwo.future
+          : Future.value(
+              url == JableAccount.favoritesUrl
+                  ? const VideoCatalogPage(
+                      title: 'Jable favorites',
+                      url: JableAccount.favoritesUrl,
+                      videos: [privateVideo],
+                      nextUrl: favoritesPageTwo,
+                    )
+                  : VideoCatalogPage(title: 'Jable catalog', url: url),
+            ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: missav, library: library);
+    await tester.pumpWidget(
+      _app(
+        missav,
+        library,
+        downloads,
+        const VideoScreen(),
+        selectedVideoSource: 'jable',
+        jableClient: jable,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final menuButton = find.byKey(const ValueKey('library-menu-button'));
+    Scaffold.of(tester.element(menuButton)).openDrawer();
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.videoFavorites).last.hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.text('Private account favorite'), findsOneWidget);
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pump();
+    expect(jable.browsedUrls, contains(favoritesPageTwo));
+    account.expireSession();
+    await tester.pump();
+    expect(find.text('Private account favorite'), findsNothing);
+    expect(find.text(l10n.videoJableLoginRequired), findsOneWidget);
+
+    pageTwo.complete(
+      const VideoCatalogPage(
+        title: 'Jable favorites',
+        url: favoritesPageTwo,
+        videos: [privateVideo],
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Private account favorite'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
@@ -2441,7 +3055,7 @@ void main() {
       ]);
 
       await _selectVideoDrawerLabel(tester, l10n, l10n.videoNewReleases);
-      expect(find.text('Release directory'), findsOneWidget);
+      expect(find.text(l10n.videoNewReleases), findsOneWidget);
       await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
       expect(find.text('recommendation-page-3 0'), findsOneWidget);
       expect(client.recommendationRequests, hasLength(4));
@@ -2725,7 +3339,7 @@ void main() {
     expect(tester.getCenter(releaseTile).dx, greaterThanOrEqualTo(0));
     await tester.tap(releaseTile);
     await tester.pumpAndSettle();
-    expect(find.text('Release directory'), findsOneWidget);
+    expect(find.text(l10n.videoNewReleases), findsOneWidget);
 
     pageTwo.complete(
       VideoRecommendationPage(
@@ -2734,7 +3348,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Release directory'), findsOneWidget);
+    expect(find.text(l10n.videoNewReleases), findsOneWidget);
 
     await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
     expect(find.text('recommendation-page-1 0'), findsOneWidget);
@@ -3311,6 +3925,88 @@ void main() {
     },
   );
 
+  for (final sourceKey in ['missav', 'jable']) {
+    testWidgets(
+      '$sourceKey actors in download search open their source catalog',
+      (tester) async {
+        final actor = VideoLink(
+          label: 'Sample actor',
+          url: sourceKey == 'jable'
+              ? 'https://jable.tv/models/sample/'
+              : 'https://missav.ai/en/actresses/sample',
+          kind: VideoLinkKind.actor,
+        );
+        final video = VideoItem(
+          id: 'sample',
+          sourceKey: sourceKey,
+          title: 'Sample video',
+          pageUrl: sourceKey == 'jable'
+              ? 'https://jable.tv/videos/sample/'
+              : 'https://missav.ai/en/sample',
+          actors: [actor],
+        );
+        final catalog = VideoCatalogPage(
+          title: 'Actor catalog',
+          url: actor.url,
+        );
+        final client = _TestMissavClient(pagesByUrl: {actor.url: catalog});
+        final jableClient = _TestJableClient(
+          browseHandler: (_) async => catalog,
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(
+          client: client,
+          library: library,
+          tasks: [
+            VideoDownloadTask(
+              id: video.storageKey,
+              video: video,
+              quality: '720p',
+              isHls: false,
+              status: VideoDownloadStatus.completed,
+              localPath: 'unused.mp4',
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            const VideoDownloadsScreen(),
+            jableClient: jableClient,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.byTooltip(s.search));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('video-search-input')),
+          'Sample',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.search);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text(actor.label));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Actor catalog'), findsOneWidget);
+        expect(
+          sourceKey == 'jable' ? jableClient.browsedUrls : client.browsedUrls,
+          contains(actor.url),
+        );
+        expect(
+          sourceKey == 'jable' ? client.browsedUrls : jableClient.browsedUrls,
+          isEmpty,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
   testWidgets(
     'tags in online and download collection searches open their catalog',
     (tester) async {
@@ -3690,8 +4386,8 @@ void main() {
     await tester.tap(find.text('Account A'));
     await tester.pumpAndSettle();
     final l10n = await S.delegate.load(const Locale('en'));
-    expect(find.text(l10n.videoPasswordOnSource), findsOneWidget);
-    expect(find.text(l10n.videoAccountSourceHint), findsOneWidget);
+    expect(find.text('Account A'), findsOneWidget);
+    expect(find.text(l10n.logout), findsOneWidget);
     await tester.tap(find.text(l10n.logout));
     await tester.pumpAndSettle();
     expect(client.isLoggedIn, isFalse);
@@ -3700,7 +4396,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Private account video'), findsNothing);
-    expect(find.text('Signed out'), findsOneWidget);
+    expect(find.text(l10n.videoFavorites), findsOneWidget);
     expect(
       client.browsedUrls.where((url) => url.endsWith('/favorites')).length,
       2,
@@ -4188,11 +4884,28 @@ Widget _app(
   Widget home, {
   double textScale = 1,
   Locale locale = const Locale('en'),
+  String selectedVideoSource = 'missav',
+  JableClient? jableClient,
+  Future<bool> Function(
+    BuildContext context,
+    JableClient client, {
+    required String sourceUrl,
+    bool requireLogin,
+  })?
+  verifyJable,
   Future<void> Function()? clearBrowserSession,
   NavigatorObserver? observer,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
+    videoSelectedSourceProvider.overrideWith((ref) => selectedVideoSource),
+    jableVideoClientProvider.overrideWith((ref) {
+      final sourceClient = jableClient ?? JableClient();
+      ref.onDispose(sourceClient.dispose);
+      return sourceClient;
+    }),
+    if (verifyJable != null)
+      jableAccessVerifierProvider.overrideWithValue(verifyJable),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
     videoBrowserSessionCleanupProvider.overrideWithValue(
@@ -4215,6 +4928,85 @@ Widget _app(
     home: home,
   ),
 );
+
+class _TestJableClient extends JableClient {
+  _TestJableClient({
+    this.browseHandler,
+    JableAccount? account,
+    this.filteredVideos = const [],
+  }) : _testAccount = account;
+
+  final browsedUrls = <String>[];
+  final Future<VideoCatalogPage> Function(String url)? browseHandler;
+  final List<VideoItem> filteredVideos;
+  JableAccount? _testAccount;
+
+  @override
+  JableAccount get account => _testAccount ?? super.account;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<List<VideoItem>> searchWithFilters(
+    String query,
+    List<VideoLink> filters, {
+    bool Function()? isCurrent,
+  }) async => filteredVideos;
+
+  @override
+  Future<VideoCatalogPage> browse(
+    String url, {
+    CancelToken? cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+    bool Function()? isCurrent,
+  }) async {
+    browsedUrls.add(url);
+    final page =
+        await browseHandler?.call(url) ??
+        VideoCatalogPage(title: 'Jable catalog', url: url);
+    onParsed?.call(page);
+    return page;
+  }
+
+  @override
+  void dispose() {
+    _testAccount?.dispose();
+    _testAccount = null;
+    super.dispose();
+  }
+}
+
+class _TestJableAccount extends ChangeNotifier implements JableAccount {
+  _TestJableAccount({
+    required this.loggedIn,
+    required this.revision,
+    this.favorites = const [],
+  });
+
+  bool loggedIn;
+  final List<VideoItem> favorites;
+  @override
+  int revision;
+
+  @override
+  bool get isLoggedIn => loggedIn;
+
+  @override
+  Future<List<VideoItem>> searchFavorites(
+    String query, {
+    bool Function()? isCurrent,
+  }) async => favorites;
+
+  void expireSession() {
+    loggedIn = false;
+    revision++;
+    notifyListeners();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 Future<VideoLibrary> _testLibrary() async {
   SharedPreferences.setMockInitialValues({});
@@ -4575,16 +5367,27 @@ Future<void> _selectVideoDrawerLabel(
   await tester.tap(find.byKey(const ValueKey('library-menu-button')));
   await tester.pumpAndSettle();
   final drawer = find.byKey(const ValueKey('library-drawer'));
+  await _videoDrawerTile(tester, label);
+  await tester.tap(find.descendant(of: drawer, matching: find.text(label)));
+  await tester.pumpAndSettle();
+}
+
+Future<ListTile> _videoDrawerTile(WidgetTester tester, String label) async {
+  final drawer = find.byKey(const ValueKey('library-drawer'));
+  final labelFinder = find.descendant(of: drawer, matching: find.text(label));
   await tester.scrollUntilVisible(
-    find.descendant(of: drawer, matching: find.text(label)),
+    labelFinder,
     240,
     scrollable: find
         .descendant(of: drawer, matching: find.byType(Scrollable))
         .first,
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.descendant(of: drawer, matching: find.text(label)));
-  await tester.pumpAndSettle();
+  final tileFinder = find.ancestor(
+    of: labelFinder,
+    matching: find.byType(ListTile),
+  );
+  return tester.widget<ListTile>(tileFinder);
 }
 
 String _playlistCardImageUrl(WidgetTester tester, String playlistUrl) {

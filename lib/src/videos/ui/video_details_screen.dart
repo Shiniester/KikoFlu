@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../providers/works_provider.dart';
+import '../../utils/collection_grid_layout.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
@@ -15,18 +16,30 @@ import '../../widgets/responsive_dialog.dart';
 import '../../widgets/work_detail_route_readiness.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
 import '../../widgets/work_detail/work_title_header.dart';
+import '../jable_client.dart';
 import '../missav_client.dart';
-import '../missav_verification.dart';
+import '../jable_verification.dart';
 import '../video_download_task.dart';
 import '../video_downloads.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
+import '../video_source_client.dart';
 import '../video_player_platform.dart';
 import 'video_account_screen.dart';
+import 'jable_account_screen.dart';
 import 'video_collection_view.dart';
 import 'video_playback_panel.dart';
 import 'video_screen.dart';
+
+VideoVerificationRequired videoVerificationFor(
+  VideoItem video,
+  VideoVerificationRequired? current,
+) =>
+    current ??
+    (video.sourceKey == 'jable'
+        ? JableVerificationRequiredException(sourceUrl: video.pageUrl)
+        : MissavVerificationRequiredException(sourceUrl: video.pageUrl));
 
 class VideoDetailsScreen extends ConsumerStatefulWidget {
   const VideoDetailsScreen({
@@ -54,16 +67,22 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     with SingleTickerProviderStateMixin {
   final WorkDetailRouteReadiness _routeReadiness = WorkDetailRouteReadiness();
   late final MissavClient _client;
+  late VideoSourceClient _sourceClient;
   late final VideoLibrary _library;
   late final VideoDownloads _downloads;
   VideoDetails? _details;
   VideoDownloadTask? _downloadedTask;
   VideoStream? _selectedStream;
+  List<VideoItem>? _missavRelated;
+  String? _missavRelatedVideoKey;
+  int _missavRelatedRequestGeneration = 0;
+  bool _missavRelatedLoading = false;
+  bool _missavRelatedFailed = false;
   bool _loading = true;
   bool _favorite = false;
   bool _savingFavorite = false;
-  String? _error;
-  MissavVerificationRequiredException? _verificationError;
+  Object? _error;
+  VideoVerificationRequired? _verificationError;
   bool _verifyingAccess = false;
   bool _accountChangedDuringVerification = false;
   int _loadGeneration = 0;
@@ -80,12 +99,17 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   GlobalKey _playerKey = GlobalKey();
   final ScrollController _portraitDetailsController = ScrollController();
   final ScrollController _landscapeDetailsController = ScrollController();
+  ({Size window, Size pane})? _inlineDetailsViewport;
 
   double get _fullscreenProgress => _fullscreenProgressAnimation.value;
 
+  JableAccount? get _jableAccount => _sourceClient is JableClient
+      ? (_sourceClient as JableClient).account
+      : null;
+
   VideoDownloadTask? get _availableTask =>
       widget.downloadedTask ??
-      _downloads.forVideo(widget.video.id) ??
+      _downloads.forVideo(widget.video.storageKey) ??
       _downloadedTask;
 
   // Keep the source chosen at load time when a background download completes.
@@ -97,12 +121,16 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   void initState() {
     super.initState();
     _client = ref.read(videoClientProvider);
+    _sourceClient = ref.read(videoSourceClientProvider(widget.video.sourceKey));
     _library = ref.read(videoLibraryProvider);
     _downloads = ref.read(videoDownloadsProvider);
     _accountWasLoggedIn = _client.isLoggedIn;
     _accountName = _client.accountName;
     _sessionGeneration = _client.sessionGeneration;
-    _client.addListener(_onClientChanged);
+    if (widget.video.sourceKey == 'missav') {
+      _client.addListener(_onClientChanged);
+    }
+    _jableAccount?.addListener(_onJableAccountChanged);
     _scheduleInitialize();
   }
 
@@ -115,7 +143,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.orientationOf(context) != Orientation.landscape ||
+    final windowSize = MediaQuery.sizeOf(context);
+    final windowChanged =
+        _inlineDetailsViewport != null &&
+        _inlineDetailsViewport!.window != windowSize;
+    if (windowChanged) {
+      _inlineDetailsViewport = null;
+    }
+    if (windowChanged ||
+        MediaQuery.orientationOf(context) != Orientation.landscape ||
         MediaQuery.disableAnimationsOf(context)) {
       final target = _fullscreen ? 1.0 : 0.0;
       if (_fullscreenTransition.value != target) {
@@ -132,6 +168,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   void _onClientChanged() {
+    if (widget.video.sourceKey != 'missav') return;
     final isLoggedIn = _client.isLoggedIn;
     final accountName = _client.accountName;
     final sessionChanged = _sessionGeneration != _client.sessionGeneration;
@@ -160,6 +197,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (!await _waitForRouteIdle(generation)) return;
     setState(() {
       _details = null;
+      _resetMissavRelated();
       _favorite = false;
       _selectedStream = null;
       _error = null;
@@ -188,7 +226,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       if (!await _waitForRouteIdle(generation)) return;
       final task = supplement != null
           ? _downloadedTask
-          : widget.downloadedTask ?? _downloads.forVideo(widget.video.id);
+          : widget.downloadedTask ??
+                _downloads.forVideo(widget.video.storageKey);
       if (supplement == null &&
           task?.status == VideoDownloadStatus.completed &&
           task?.localPath?.isNotEmpty == true) {
@@ -197,7 +236,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           _details = VideoDetails(
             video: task!.video,
             metadata: {
-              if (task.video.releaseDate != null)
+              if (task.video.sourceKey != 'jable' &&
+                  task.video.releaseDate != null)
                 S.of(context).releaseDateInfo: task.video.releaseDate!,
             },
           );
@@ -205,7 +245,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         });
         return;
       }
-      await _client.initialize();
+      await _sourceClient.initialize();
       if (!await _waitForRouteIdle(generation)) return;
       Future<void> onReady(VideoDetails details) async {
         if (!await _waitForRouteIdle(generation)) return;
@@ -219,11 +259,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                 : details.streams.first;
           }
         });
+        if (widget.video.sourceKey == 'missav' && !_isOffline) {
+          _startMissavRelated(details.video);
+        }
       }
 
-      final details = supplement == null
-          ? await _client.details(widget.video, onReady: onReady)
-          : await _client.supplementDetails(supplement, onReady: onReady);
+      final details = switch ((widget.video.sourceKey, supplement)) {
+        ('missav', final VideoDetails value) => await _client.supplementDetails(
+          value,
+          onReady: onReady,
+        ),
+        _ => await _sourceClient.details(widget.video, onReady: onReady),
+      };
       if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _downloadedTask = task;
@@ -236,14 +283,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         }
         _loading = false;
       });
+      if (widget.video.sourceKey == 'missav' && !_isOffline) {
+        _startMissavRelated(details.video);
+      }
     } catch (error) {
       if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
-        _verificationError = error is MissavVerificationRequiredException
-            ? error
-            : null;
+        _error = error;
+        _verificationError = error is VideoVerificationRequired ? error : null;
       });
     }
   }
@@ -251,13 +299,30 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   @override
   void didUpdateWidget(VideoDetailsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.video.id != widget.video.id ||
+    if (oldWidget.video.sourceKey != widget.video.sourceKey) {
+      _client.removeListener(_onClientChanged);
+      _jableAccount?.removeListener(_onJableAccountChanged);
+      _sourceClient = ref.read(
+        videoSourceClientProvider(widget.video.sourceKey),
+      );
+      _jableAccount?.addListener(_onJableAccountChanged);
+      if (widget.video.sourceKey == 'missav') {
+        _client.addListener(_onClientChanged);
+        _accountWasLoggedIn = _client.isLoggedIn;
+        _accountName = _client.accountName;
+        _sessionGeneration = _client.sessionGeneration;
+      }
+    }
+    if (oldWidget.video.sourceKey != widget.video.sourceKey ||
+        oldWidget.video.storageKey != widget.video.storageKey ||
         oldWidget.downloadedTask != widget.downloadedTask) {
-      if (oldWidget.video.id != widget.video.id) {
+      if (oldWidget.video.sourceKey != widget.video.sourceKey ||
+          oldWidget.video.storageKey != widget.video.storageKey) {
         _playerKey = GlobalKey();
         _fullscreen = false;
         _fullscreenTransition.value = 0;
       }
+      _resetMissavRelated();
       _loadGeneration++;
       _scheduleInitialize();
     }
@@ -265,7 +330,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   @override
   void dispose() {
-    _client.removeListener(_onClientChanged);
+    _jableAccount?.removeListener(_onJableAccountChanged);
+    if (widget.video.sourceKey == 'missav') {
+      _client.removeListener(_onClientChanged);
+    }
     _routeReadiness.dispose();
     _fullscreenTransition.dispose();
     _portraitDetailsController.dispose();
@@ -287,17 +355,21 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
 
   Future<void> _verifyAndRetry() async {
     if (_verifyingAccess) return;
-    final verification =
-        _verificationError ??
-        MissavVerificationRequiredException(sourceUrl: widget.video.pageUrl);
+    final verification = videoVerificationFor(widget.video, _verificationError);
     _verifyingAccess = true;
     var verified = false;
     try {
-      verified = await verifyMissavAccess(
-        context,
-        _client,
-        sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
-      );
+      verified = widget.video.sourceKey == 'jable'
+          ? await verifyJableAccess(
+              context,
+              ref.read(jableVideoClientProvider),
+              sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
+            )
+          : await ref.read(missavAccessVerifierProvider)(
+              context,
+              _client,
+              sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
+            );
     } catch (_) {
       verified = false;
     } finally {
@@ -306,13 +378,14 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (!await _routeReadiness.waitForIdle() || !mounted) return;
     if (_accountChangedDuringVerification) {
       _accountChangedDuringVerification = false;
+      _resetMissavRelated();
       if (!verified) {
         setState(() {
           _details = null;
           _favorite = false;
           _selectedStream = null;
           _loading = false;
-          _error = verification.toString();
+          _error = verification;
           _verificationError = verification;
         });
         return;
@@ -360,25 +433,19 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   Future<void> _loginRequired() async {
     if (!mounted) return;
     final s = S.of(context);
-    await showDialog<void>(
+    final jable = widget.video.sourceKey == 'jable';
+    final details = _details;
+    final openAccount = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(s.videoLoginRequired),
+        title: Text(jable ? s.videoJableLoginRequired : s.videoLoginRequired),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(s.cancel),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              unawaited(
-                pushBottomDockRoute(
-                  this.context,
-                  builder: (_) => const VideoAccountScreen(),
-                ),
-              );
-            },
+            onPressed: () => Navigator.of(context).pop(true),
             child: Text(s.login),
           ),
           FilledButton(
@@ -391,22 +458,100 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         ],
       ),
     );
+    if (!mounted || openAccount != true || !identical(details, _details)) {
+      return;
+    }
+    await pushBottomDockRoute(
+      context,
+      builder: (_) =>
+          jable ? const JableAccountScreen() : const VideoAccountScreen(),
+    );
+    if (jable &&
+        mounted &&
+        details != null &&
+        identical(details, _details) &&
+        ref.read(jableVideoClientProvider).account.isLoggedIn) {
+      await _refreshJableFavorite(details);
+    }
+  }
+
+  void _onJableAccountChanged() {
+    if (!mounted || _isOffline) return;
+    if (_jableAccount?.isLoggedIn != true) {
+      if (_favorite) setState(() => _favorite = false);
+      return;
+    }
+    final details = _details;
+    if (details != null && !_loading && !_savingFavorite && !_verifyingAccess) {
+      unawaited(_refreshJableFavorite(details));
+    }
+  }
+
+  Future<void> _refreshJableFavorite(VideoDetails previous) async {
+    final revision = _jableAccount?.revision;
+    bool isCurrent() =>
+        mounted &&
+        identical(_details, previous) &&
+        widget.video.storageKey == previous.video.storageKey &&
+        _jableAccount?.revision == revision;
+    if (!await _routeReadiness.waitForIdle() || !isCurrent()) return;
+    late final VideoDetails fresh;
+    try {
+      fresh = await _sourceClient.details(previous.video);
+    } catch (_) {
+      if (isCurrent()) await _sourceFallback();
+      return;
+    }
+    if (!isCurrent()) return;
+    setState(() {
+      _favorite = fresh.isFavorite ?? false;
+      // Account changes must not reopen the active HLS stream.
+      _details = VideoDetails(
+        video: previous.video,
+        description: previous.description,
+        metadata: previous.metadata,
+        related: previous.related,
+        streams: previous.streams,
+        sourceId: fresh.sourceId,
+        isFavorite: fresh.isFavorite,
+      );
+    });
   }
 
   Future<void> _toggleFavorite() async {
     final details = _details;
-    if (details == null || _isOffline || _savingFavorite) return;
-    if (!_client.isLoggedIn) {
-      await _loginRequired();
+    if (details == null || _isOffline || _savingFavorite) {
       return;
     }
     final favorite = !_favorite;
     setState(() => _savingFavorite = true);
     try {
-      await _client.setVideoFavorite(details, favorite);
+      if (widget.video.sourceKey == 'jable') {
+        final account = ref.read(jableVideoClientProvider).account;
+        try {
+          await account.setVideoFavorite(details, favorite);
+        } on JableVerificationRequiredException {
+          if (!mounted || !identical(_details, details)) return;
+          final verified = await ref.read(jableAccessVerifierProvider)(
+            context,
+            ref.read(jableVideoClientProvider),
+            sourceUrl: details.video.pageUrl,
+          );
+          if (!verified || !mounted || !identical(_details, details)) return;
+          await account.setVideoFavorite(details, favorite);
+        }
+      } else {
+        if (!_client.isLoggedIn) {
+          await _loginRequired();
+          return;
+        }
+        await _client.setVideoFavorite(details, favorite);
+      }
       if (mounted && identical(_details, details)) {
         setState(() => _favorite = favorite);
       }
+    } on JableLoginRequiredException {
+      if (mounted && identical(_details, details)) await _loginRequired();
     } on MissavAuthenticationException {
       await _loginRequired();
     } on MissavException catch (error) {
@@ -419,6 +564,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   Future<void> _setActorFavorite(VideoLink actor, bool favorite) async {
+    if (widget.video.sourceKey != 'missav') return;
     if (!_client.isLoggedIn) {
       await _loginRequired();
       return;
@@ -460,16 +606,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         },
         itemBuilder: (context) => [
           PopupMenuItem(value: 'open', child: Text(s.videoCatalog)),
-          PopupMenuItem(
-            value: 'favorite',
-            enabled: !_loading,
-            child: Text(s.videoFavoriteActor),
-          ),
-          PopupMenuItem(
-            value: 'unfavorite',
-            enabled: !_loading,
-            child: Text(s.videoUnfavoriteActor),
-          ),
+          if (widget.video.sourceKey == 'missav') ...[
+            PopupMenuItem(
+              value: 'favorite',
+              enabled: !_loading,
+              child: Text(s.videoFavoriteActor),
+            ),
+            PopupMenuItem(
+              value: 'unfavorite',
+              enabled: !_loading,
+              child: Text(s.videoUnfavoriteActor),
+            ),
+          ],
           PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
         ],
         child: _metadataPill(
@@ -589,6 +737,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   );
 
   Future<void> _showPlaylists() async {
+    if (widget.video.sourceKey != 'missav') return;
     if (!_client.isLoggedIn) {
       await _loginRequired();
       return;
@@ -701,7 +850,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     context,
     builder: (searchContext) => VideoScreen.searchScreen(
       searchContext,
-      client: _client,
+      client: _sourceClient,
       collectionKey: widget.searchCollectionKey,
       initialFilters: [link],
     ),
@@ -719,6 +868,61 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       return replaceWorkDetailRoute(context, builder: builder);
     }
     return pushWorkDetailRoute(context, builder: builder);
+  }
+
+  void _resetMissavRelated() {
+    _missavRelated = null;
+    _missavRelatedVideoKey = null;
+    _missavRelatedRequestGeneration++;
+    _missavRelatedLoading = false;
+    _missavRelatedFailed = false;
+  }
+
+  void _startMissavRelated(VideoItem video) {
+    if (_missavRelatedVideoKey == video.storageKey) return;
+    _missavRelatedVideoKey = video.storageKey;
+    unawaited(_loadMissavRelated(video));
+  }
+
+  Future<void> _loadMissavRelated(VideoItem video) async {
+    final requestGeneration = ++_missavRelatedRequestGeneration;
+    final sessionGeneration = _client.sessionGeneration;
+    setState(() {
+      _missavRelated = null;
+      _missavRelatedLoading = true;
+      _missavRelatedFailed = false;
+    });
+    try {
+      final related = await _client.loadRelatedRecommendations(video);
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          requestGeneration != _missavRelatedRequestGeneration ||
+          sessionGeneration != _client.sessionGeneration ||
+          widget.video.storageKey != video.storageKey) {
+        return;
+      }
+      setState(() {
+        _missavRelated = related;
+        _missavRelatedLoading = false;
+      });
+    } catch (_) {
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          requestGeneration != _missavRelatedRequestGeneration ||
+          sessionGeneration != _client.sessionGeneration ||
+          widget.video.storageKey != video.storageKey) {
+        return;
+      }
+      setState(() {
+        _missavRelatedLoading = false;
+        _missavRelatedFailed = true;
+      });
+    }
+  }
+
+  void _retryMissavRelated() {
+    final video = _details?.video;
+    if (video != null) unawaited(_loadMissavRelated(video));
   }
 
   @override
@@ -743,6 +947,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             ? null
             : AppBar(
                 centerTitle: false,
+                scrolledUnderElevation: extendLandscapeDetailsBehindAppBar
+                    ? 0
+                    : null,
                 titleSpacing: ModalRoute.of(context)?.canPop == true ? 4 : null,
                 title: Text(
                   details?.video.catalogNumber ??
@@ -771,7 +978,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                             : Icons.download_outlined,
                       ),
                     ),
-                  if (!_isOffline)
+                  if (!_isOffline && widget.video.sourceKey == 'missav')
                     IconButton(
                       tooltip: s.videoAddToPlaylist,
                       visualDensity: const VisualDensity(horizontal: -2),
@@ -782,13 +989,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     ),
                   if (!_isOffline)
                     IconButton(
-                      tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
+                      tooltip: s.videoFavorites,
                       visualDensity: const VisualDensity(horizontal: -2),
                       onPressed:
                           details == null ||
                               _loading ||
                               _savingFavorite ||
-                              (_client.isLoggedIn && details.isFavorite == null)
+                              (widget.video.sourceKey == 'missav' &&
+                                  _client.isLoggedIn &&
+                                  details.isFavorite == null)
                           ? null
                           : _toggleFavorite,
                       icon: Icon(
@@ -820,6 +1029,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   Widget _buildLoadFailure(S s) {
     final label = _verificationError != null
         ? s.videoVerificationRequired
+        : _error is JableLoginRequiredException
+        ? s.permissionRequired(s.login)
         : _details != null
         ? s.loadFailed
         : s.videoLoadFailed;
@@ -846,6 +1057,25 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     icon: const Icon(Icons.verified_user_outlined),
                     label: Text(s.videoVerifyAccess),
                   ),
+                if (_error is JableLoginRequiredException)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final error = _error;
+                      final videoKey = widget.video.storageKey;
+                      await pushBottomDockRoute(
+                        context,
+                        builder: (_) => const JableAccountScreen(),
+                      );
+                      if (mounted &&
+                          identical(_error, error) &&
+                          widget.video.storageKey == videoKey &&
+                          _jableAccount?.isLoggedIn == true) {
+                        await _initialize();
+                      }
+                    },
+                    icon: const Icon(Icons.account_circle_outlined),
+                    label: Text(s.videoJableAccount),
+                  ),
                 OutlinedButton.icon(
                   onPressed: () => unawaited(_openSource()),
                   icon: const Icon(Icons.open_in_new),
@@ -860,9 +1090,22 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   }
 
   Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
-    final nextRelated = _firstRelated(details);
+    final related = _relatedVideos(details);
+    final nextRelated = _firstRelated(details, related);
+    final showRelated = widget.video.sourceKey == 'missav'
+        ? !_isOffline &&
+              (_missavRelatedLoading ||
+                  _missavRelatedFailed ||
+                  _missavRelated?.isNotEmpty == true)
+        : related.isNotEmpty;
     final metadataSections = _metadataSections(s, details);
-    final basicMetadata = details.metadata.entries.where(
+    final metadata = <String, String>{
+      if (details.video.sourceKey == 'jable' &&
+          details.video.releaseDate != null)
+        s.releaseDateInfo: details.video.releaseDate!,
+      ...details.metadata,
+    };
+    final basicMetadata = metadata.entries.where(
       (entry) => !MissavClient.detailMetadataGroups.containsKey(
         entry.key.trim().toLowerCase(),
       ),
@@ -879,29 +1122,16 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
             runSpacing: 8,
             children: [
               for (final entry in basicMetadata)
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${entry.key}: ',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      TextSpan(text: entry.value),
-                    ],
+                Text(
+                  '${entry.key}: ${entry.value}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                    fontSize: 12,
                   ),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontSize: 12),
                 ),
             ],
           ),
         ),
-      if (details.description.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        WorkDetailSectionTitle(s.description),
-        const SizedBox(height: 8),
-        SelectableText(details.description),
-      ],
       for (final section in metadataSections) ...[
         const SizedBox(height: 16),
         WorkDetailSectionTitle(section.title),
@@ -918,38 +1148,29 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           ],
         ),
       ],
-      if (details.related.isNotEmpty) ...[
+      if (showRelated) ...[
         const SizedBox(height: 16),
         WorkDetailSectionTitle(s.videoRelated),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final columns = (constraints.maxWidth / 180)
-                .floor()
-                .clamp(1, 4)
-                .toInt();
-            return MasonryGridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: details.related.length,
-              crossAxisCount: columns,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              itemBuilder: (context, index) => VideoCard(
-                video: details.related[index],
-                layoutType: LayoutType.bigGrid,
-                onTap: () => _openRelated(details.related[index]),
-                onOpenLink: _openCatalog,
-              ),
-            );
-          },
-        ),
+        if (widget.video.sourceKey == 'missav' && _missavRelatedLoading)
+          _buildRelatedGrid(related, loading: true)
+        else if (widget.video.sourceKey == 'missav' && _missavRelatedFailed)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _retryMissavRelated,
+              icon: const Icon(Icons.refresh),
+              label: Text(s.loadFailedRetry),
+            ),
+          )
+        else
+          _buildRelatedGrid(related),
       ],
     ];
     final player = RepaintBoundary(
       child: VideoPlaybackPanel(
         key: _playerKey,
-        videoId: details.video.id,
+        videoId: details.video.storageKey,
         title: details.video.title,
         autoPlayOnStart: widget.autoPlayVideo,
         onPlayNextRelated: nextRelated == null
@@ -959,7 +1180,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         library: _library,
         streams: _isOffline ? const [] : details.streams,
         localPath: _isOffline ? task?.localPath : null,
-        initialPosition: _library.positionFor(details.video.id),
+        initialPosition: _library.positionFor(details.video.storageKey),
         initialVolume: _library.volume,
         sessionFactory: widget.sessionFactory,
         onStreamChanged: (stream) => setState(() => _selectedStream = stream),
@@ -969,6 +1190,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           if (mounted && _fullscreen != fullscreen) {
             final size = View.of(context).physicalSize;
             if (size.width > size.height &&
+                _inlineDetailsViewport?.window == MediaQuery.sizeOf(context) &&
                 !MediaQuery.disableAnimationsOf(context)) {
               if (fullscreen) {
                 _fullscreenTransition.forward();
@@ -1007,20 +1229,35 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       final inlineTop =
           MediaQuery.viewPaddingOf(context).top +
           (AppBarTheme.of(context).toolbarHeight ?? kToolbarHeight);
-      final landscapeDetails = CustomScrollView(
-        key: PageStorageKey('video-details-landscape-${details.video.id}'),
-        controller: _landscapeDetailsController,
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
-            sliver: detailsSliver,
+      final windowSize = MediaQuery.sizeOf(context);
+      final landscapeDetails = RepaintBoundary(
+        child: CustomScrollView(
+          key: PageStorageKey(
+            'video-details-landscape-${details.video.storageKey}',
           ),
-        ],
+          controller: _landscapeDetailsController,
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
+              sliver: detailsSliver,
+            ),
+          ],
+        ),
       );
       return LayoutBuilder(
         builder: (context, constraints) {
           final paneWidth = constraints.maxWidth * .4;
           final inlineHeight = constraints.maxHeight - inlineTop;
+          final detailsSize = Size(
+            constraints.maxWidth - paneWidth,
+            inlineHeight,
+          );
+          if (!_fullscreen && _fullscreenTransition.isDismissed) {
+            _inlineDetailsViewport = (window: windowSize, pane: detailsSize);
+          }
+          // Keep text and recommendations laid out while the shell resizes.
+          final transitionDetailsSize =
+              _inlineDetailsViewport?.pane ?? detailsSize;
           final playerWidth = paneWidth < inlineHeight * 16 / 9
               ? paneWidth
               : inlineHeight * 16 / 9;
@@ -1052,8 +1289,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                         constraints.maxWidth +
                         (paneWidth - constraints.maxWidth) * inlineProgress,
                     top: inlineTop,
-                    width: constraints.maxWidth - paneWidth,
-                    height: inlineHeight,
+                    width: transitionDetailsSize.width,
+                    height: transitionDetailsSize.height,
                     child: Offstage(
                       offstage:
                           _fullscreen && _fullscreenTransition.isCompleted,
@@ -1072,7 +1309,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     }
 
     return CustomScrollView(
-      key: PageStorageKey('video-details-portrait-${details.video.id}'),
+      key: PageStorageKey('video-details-portrait-${details.video.storageKey}'),
       controller: _portraitDetailsController,
       slivers: [
         SliverPadding(
@@ -1092,12 +1329,72 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     );
   }
 
-  VideoItem? _firstRelated(VideoDetails details) {
-    for (final related in details.related) {
-      if (related.id != details.video.id) return related;
+  List<VideoItem> _relatedVideos(VideoDetails details) =>
+      widget.video.sourceKey == 'missav'
+      ? (_missavRelated ?? const [])
+      : details.related;
+
+  VideoItem? _firstRelated(
+    VideoDetails details,
+    List<VideoItem> relatedVideos,
+  ) {
+    for (final related in relatedVideos) {
+      if (related.storageKey != details.video.storageKey) return related;
     }
     return null;
   }
+
+  Widget _buildRelatedGrid(List<VideoItem> related, {bool loading = false}) =>
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final metrics = resolveCollectionGridMetrics(
+            context,
+            layoutType: LayoutType.bigGrid,
+            availableWidth: constraints.maxWidth,
+            padding: const EdgeInsets.only(bottom: 16),
+          );
+          return MasonryGridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: metrics.padding,
+            itemCount: loading ? 6 : related.length,
+            crossAxisCount: metrics.crossAxisCount,
+            crossAxisSpacing: metrics.spacing,
+            mainAxisSpacing: metrics.spacing,
+            itemBuilder: (context, index) {
+              if (!loading) {
+                return VideoCard(
+                  video: related[index],
+                  layoutType: LayoutType.bigGrid,
+                  onTap: () => _openRelated(related[index]),
+                  onOpenLink: _openCatalog,
+                );
+              }
+              final color = Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: collectionCoverAspectRatio,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(height: 14, width: 100, color: color),
+                  const SizedBox(height: 4),
+                  Container(height: 12, width: 60, color: color),
+                ],
+              );
+            },
+          );
+        },
+      );
 }
 
 enum _VideoMetadataTone { primary, secondary, tertiary, error }

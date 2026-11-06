@@ -17,10 +17,12 @@ import 'missav_client.dart';
 import 'video_download_task.dart';
 import 'video_library.dart';
 import 'video_models.dart';
+import 'video_source_client.dart';
 
 class VideoDownloads extends ChangeNotifier {
   VideoDownloads({
     required this.client,
+    this.sourceClientFor,
     required this.library,
     Directory? rootDirectory,
     SharedPreferences? preferences,
@@ -35,6 +37,7 @@ class VideoDownloads extends ChangeNotifier {
   static const _playlistLimit = 2 * 1024 * 1024;
 
   final MissavClient client;
+  final VideoSourceClient Function(String sourceKey)? sourceClientFor;
   final VideoLibrary library;
   final Directory? _providedRoot;
   final SharedPreferences? _providedPreferences;
@@ -69,20 +72,20 @@ class VideoDownloads extends ChangeNotifier {
 
   Future<VideoDownloadTask> add(VideoItem video, VideoStream stream) async {
     await initialize();
-    final existing = forVideo(video.id);
+    final existing = forVideo(video.storageKey);
     if (existing != null) {
       if (existing.status == VideoDownloadStatus.paused ||
           existing.status == VideoDownloadStatus.failed) {
-        await resume(video.id);
-        return forVideo(video.id) ?? existing;
+        await resume(video.storageKey);
+        return forVideo(video.storageKey) ?? existing;
       }
       return existing;
     }
 
     final isHls = _isHlsStream(stream);
-    final directory = _taskDirectory(video.id);
+    final directory = _taskDirectory(video.storageKey);
     final task = VideoDownloadTask(
-      id: video.id,
+      id: video.storageKey,
       video: video,
       quality: stream.label,
       isHls: isHls,
@@ -171,7 +174,7 @@ class VideoDownloads extends ChangeNotifier {
               var task = VideoDownloadTask.fromJson(
                 Map<String, dynamic>.from(value),
               );
-              if (task.id != task.video.id ||
+              if (task.id != task.video.storageKey ||
                   _tasks.any((existing) => existing.id == task.id)) {
                 continue;
               }
@@ -256,6 +259,12 @@ class VideoDownloads extends ChangeNotifier {
               );
             }
           } else if (identical(_active, operation)) {
+            if (kDebugMode) {
+              debugPrint(
+                'Video download failed (${error.runtimeType}): '
+                '${error.toString().replaceAll(RegExp(r'https?://\S+'), '[media URL]')}',
+              );
+            }
             _replaceTask(
               current.copyWith(
                 status: VideoDownloadStatus.failed,
@@ -283,10 +292,11 @@ class VideoDownloads extends ChangeNotifier {
     _VideoDownloadOperation operation,
   ) async {
     _ensureCurrent(operation);
-    final details = await client.details(
-      task.video,
-      includeAccountState: false,
-    );
+    final details =
+        await (sourceClientFor?.call(task.video.sourceKey) ?? client).details(
+          task.video,
+          includeAccountState: false,
+        );
     _ensureCurrent(operation);
     final stream = _selectStream(details, task.quality);
     if (stream == null) {

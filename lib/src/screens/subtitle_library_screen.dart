@@ -732,12 +732,10 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
 
     if (!mounted) return;
 
-    final selectedFolder = await showDialog<String>(
+    final selectedFolder = await SubtitleLibraryFolderBrowserDialog.show(
       context: context,
-      builder: (context) => SubtitleLibraryFolderBrowserDialog(
-        rootPath: libraryDir.path,
-        excludePath: item['type'] == 'folder' ? itemPath : null,
-      ),
+      rootPath: libraryDir.path,
+      excludePath: item['type'] == 'folder' ? itemPath : null,
     );
 
     if (selectedFolder == null) return;

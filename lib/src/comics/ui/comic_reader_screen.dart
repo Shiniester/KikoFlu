@@ -503,14 +503,19 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     return image;
   }
 
-  void _preload() {
+  ({int first, int last}) get _imageRange {
     final count = StorageService.getInt('comic_preload') ?? 3;
     final first =
         ref.read(comicReadingModeProvider) == ComicReadingMode.continuous
         ? (_page - count).clamp(0, _pageCount - 1)
         : _page;
+    return (first: first, last: _page + count);
+  }
+
+  void _preload() {
+    final range = _imageRange;
     final generation = _generation;
-    for (var i = first; i <= _page + count && i < _pageCount; i++) {
+    for (var i = range.first; i <= range.last && i < _pageCount; i++) {
       final image = _image(i);
       image.then<void>((bytes) {
         if (mounted &&
@@ -526,7 +531,13 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         }
       }, onError: (Object _, StackTrace __) {});
     }
-    bool outsideCache(int page) => page < first - 2 || page > _page + count + 2;
+    _trimImageCache();
+  }
+
+  void _trimImageCache() {
+    final range = _imageRange;
+    bool outsideCache(int page) =>
+        page < range.first - 2 || page > range.last + 2;
     _images.removeWhere((page, _) => outsideCache(page));
     _loadedImages.removeWhere((page, _) => outsideCache(page));
   }
@@ -764,7 +775,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     final image = _image(page);
     try {
       final bytes = await image;
-      if (mounted && generation == _generation) _preload();
+      if (mounted && generation == _generation) _trimImageCache();
       return bytes;
     } catch (_) {
       if (generation == _generation && identical(_images[page], image)) {
@@ -776,16 +787,23 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   Future<void> _showPagePreview() async {
     final generation = _generation;
+    final sheetWidth = ComicPagePreview.sheetWidthFor(context);
+    final fillHeight =
+        sheetWidth != null &&
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final selected = await showModalBottomSheet<int>(
       context: context,
+      constraints: sheetWidth == null
+          ? null
+          : BoxConstraints(maxWidth: sheetWidth),
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
       builder: (sheetContext) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: .7,
-        minChildSize: .35,
-        maxChildSize: .95,
+        initialChildSize: fillHeight ? 1 : .7,
+        minChildSize: fillHeight ? 1 : .35,
+        maxChildSize: fillHeight ? 1 : .95,
         builder: (context, controller) => ComicPagePreview(
           pageCount: _pageCount,
           initialPage: _page,

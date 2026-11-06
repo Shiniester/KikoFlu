@@ -16,26 +16,36 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
   final RefreshCallback? onRefresh;
 
   @override
-  Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final cover = coverBuilder(context, isLandscape);
-
-    if (isLandscape) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(flex: 2, child: Center(child: cover)),
-          Expanded(flex: 3, child: _buildScrollable(context, [infoSliver])),
-        ],
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final isLandscape =
+          MediaQuery.orientationOf(context) == Orientation.landscape;
+      final cover = ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight:
+              (constraints.maxHeight - MediaQuery.paddingOf(context).bottom)
+                  .clamp(0.0, double.infinity)
+                  .toDouble(),
+        ),
+        child: coverBuilder(context, isLandscape),
       );
-    }
 
-    return _buildScrollable(context, [
-      SliverToBoxAdapter(child: cover),
-      infoSliver,
-    ]);
-  }
+      if (isLandscape) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 2, child: Center(child: cover)),
+            Expanded(flex: 3, child: _buildScrollable(context, [infoSliver])),
+          ],
+        );
+      }
+
+      return _buildScrollable(context, [
+        SliverToBoxAdapter(child: cover),
+        infoSliver,
+      ]);
+    },
+  );
 
   Widget _buildScrollable(BuildContext context, List<Widget> slivers) {
     final scrollable = CustomScrollView(

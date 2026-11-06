@@ -15,6 +15,7 @@ import '../utils/snackbar_util.dart';
 import '../services/storage_service.dart';
 import '../services/cache_service.dart';
 import '../utils/audio_source_headers.dart';
+import 'app_navigation_scope.dart';
 import 'privacy_blur_cover.dart';
 import 'player/player_visual_palette.dart';
 import 'player/player_cover_widget.dart';
@@ -60,14 +61,26 @@ String resolveCoverImageExtension({String? source, required Uint8List bytes}) {
 
 /// 封面预览对话框，支持放大查看和保存图片
 class CoverPreviewDialog extends StatefulWidget {
+  static final Set<NavigatorState> _activePreviewNavigators =
+      <NavigatorState>{};
+
   static const double fallbackAspectRatio = 4 / 3;
   static const double cornerRadius = 12;
+  static const Curve backgroundCurve = Curves.easeOutCubic;
+  static const Curve backgroundReverseCurve = Interval(
+    0,
+    0.2,
+    curve: Curves.easeInCubic,
+  );
 
   /// 网络图片URL
   final String? imageUrl;
 
   /// 本地图片路径
   final String? localPath;
+
+  /// 已加载的图片字节。
+  final Uint8List? imageBytes;
 
   /// 用于生成保存文件名的标识
   final String? identifier;
@@ -97,6 +110,7 @@ class CoverPreviewDialog extends StatefulWidget {
     super.key,
     this.imageUrl,
     this.localPath,
+    this.imageBytes,
     this.identifier,
     this.heroTag,
     this.cacheKey,
@@ -106,8 +120,8 @@ class CoverPreviewDialog extends StatefulWidget {
     this.imageAspectRatio = fallbackAspectRatio,
     this.routeAnimation,
   }) : assert(
-         imageUrl != null || localPath != null,
-         'Either imageUrl or localPath must be provided',
+         imageUrl != null || localPath != null || imageBytes != null,
+         'An imageUrl, localPath, or imageBytes must be provided',
        );
 
   /// 显示封面预览对话框
@@ -115,6 +129,7 @@ class CoverPreviewDialog extends StatefulWidget {
     BuildContext context, {
     String? imageUrl,
     String? localPath,
+    Uint8List? imageBytes,
     String? identifier,
     String? heroTag,
     String? cacheKey,
@@ -122,57 +137,76 @@ class CoverPreviewDialog extends StatefulWidget {
     Color backgroundColor = Colors.black,
     PlayerVisualPalette? backgroundPalette,
   }) async {
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final imageAspectRatio = await _resolveImageAspectRatio(
-      context,
-      imageUrl: imageUrl,
-      localPath: localPath,
-      cacheKey: cacheKey,
-      isJapaneseAsmr: isJapaneseAsmr,
-    );
-    if (!context.mounted) return;
-    final route = PageRouteBuilder<void>(
-      opaque: false,
-      barrierDismissible: true,
-      barrierColor: Colors.transparent,
-      transitionDuration: reduceMotion
+    final navigator = Navigator.of(context);
+    if (!_activePreviewNavigators.add(navigator)) return;
+
+    try {
+      final reduceMotion = MediaQuery.disableAnimationsOf(context);
+      final sourceRoute = ModalRoute.of(context);
+      final imageAspectRatio = await _resolveImageAspectRatio(
+        context,
+        imageUrl: imageUrl,
+        localPath: localPath,
+        imageBytes: imageBytes,
+        cacheKey: cacheKey,
+        isJapaneseAsmr: isJapaneseAsmr,
+      );
+      if (!context.mounted || sourceRoute?.isCurrent == false) return;
+      final useShellModalBarrier =
+          AppNavigationScope.maybeOf(context)?.navigationVisible == true;
+      final transitionDuration = reduceMotion
           ? Duration.zero
-          : const Duration(milliseconds: 280),
-      reverseTransitionDuration: reduceMotion
-          ? Duration.zero
-          : const Duration(milliseconds: 280),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return CoverPreviewDialog(
-          imageUrl: imageUrl,
-          localPath: localPath,
-          identifier: identifier,
-          heroTag: heroTag,
-          cacheKey: cacheKey,
-          isJapaneseAsmr: isJapaneseAsmr,
-          backgroundColor: backgroundColor,
-          backgroundPalette: backgroundPalette,
-          imageAspectRatio: imageAspectRatio,
-          routeAnimation: animation,
-        );
-      },
-      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-          child,
-    );
-    await Navigator.of(context).push(route);
-    // Navigator.push completes as soon as pop is requested. Keep the source
-    // Hero alive until the reverse transition has actually removed the route.
-    await route.completed;
+          : const Duration(milliseconds: 280);
+      CoverPreviewDialog buildPreview(Animation<double> animation) =>
+          CoverPreviewDialog(
+            imageUrl: imageUrl,
+            localPath: localPath,
+            imageBytes: imageBytes,
+            identifier: identifier,
+            heroTag: heroTag,
+            cacheKey: cacheKey,
+            isJapaneseAsmr: isJapaneseAsmr,
+            backgroundColor: backgroundColor,
+            backgroundPalette: backgroundPalette,
+            imageAspectRatio: imageAspectRatio,
+            routeAnimation: animation,
+          );
+      final route = PageRouteBuilder<void>(
+        settings: useShellModalBarrier ? appCoverPreviewRouteSettings : null,
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.transparent,
+        barrierLabel: useShellModalBarrier
+            ? MaterialLocalizations.of(context).modalBarrierDismissLabel
+            : null,
+        transitionDuration: transitionDuration,
+        reverseTransitionDuration: transitionDuration,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            buildPreview(animation),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            child,
+      );
+      await navigator.push<void>(route);
+      // Navigator.push completes as soon as pop is requested. Keep the source
+      // Hero alive until the reverse transition has actually removed the route.
+      await route.completed;
+    } finally {
+      _activePreviewNavigators.remove(navigator);
+    }
   }
 
   static Future<double> _resolveImageAspectRatio(
     BuildContext context, {
     String? imageUrl,
     String? localPath,
+    Uint8List? imageBytes,
     String? cacheKey,
     required bool isJapaneseAsmr,
   }) async {
     ImageProvider<Object>? provider;
-    if (localPath != null && File(localPath).existsSync()) {
+    if (imageBytes != null) {
+      provider = MemoryImage(imageBytes);
+    } else if (localPath != null && File(localPath).existsSync()) {
       provider = FileImage(File(localPath));
     } else if (imageUrl != null) {
       provider = CachedNetworkImageProvider(
@@ -308,7 +342,11 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       final Uint8List imageBytes;
       final String source;
 
-      if (widget.localPath != null && File(widget.localPath!).existsSync()) {
+      if (widget.imageBytes != null) {
+        imageBytes = widget.imageBytes!;
+        source = '';
+      } else if (widget.localPath != null &&
+          File(widget.localPath!).existsSync()) {
         imageBytes = await File(widget.localPath!).readAsBytes();
         source = widget.localPath!;
       } else if (widget.imageUrl != null) {
@@ -413,7 +451,15 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
   Widget _buildImage({BoxFit fit = BoxFit.cover, bool includeHero = true}) {
     Widget imageWidget;
 
-    if (widget.localPath != null && File(widget.localPath!).existsSync()) {
+    if (widget.imageBytes != null) {
+      imageWidget = Image.memory(
+        widget.imageBytes!,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) =>
+            const Icon(Icons.error, color: Colors.white, size: 48),
+      );
+    } else if (widget.localPath != null &&
+        File(widget.localPath!).existsSync()) {
       imageWidget = Image.file(
         File(widget.localPath!),
         fit: fit,
@@ -487,11 +533,11 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       background = FadeTransition(
         opacity: CurvedAnimation(
           parent: routeAnimation,
-          curve: Curves.easeOutCubic,
+          curve: CoverPreviewDialog.backgroundCurve,
           // On pop, routeAnimation runs from 1 to 0. Keep the background
           // opaque for the first 80% of that reverse flight, then fade it out
           // over the final 20% with the requested easing.
-          reverseCurve: const Interval(0, 0.2, curve: Curves.easeInCubic),
+          reverseCurve: CoverPreviewDialog.backgroundReverseCurve,
         ),
         child: background,
       );

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,7 +23,10 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/ui/jable_account_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_details_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_settings_screen.dart';
@@ -1470,7 +1475,7 @@ void main() {
     );
     final client = _TestMissavClient(
       _details(
-        description: List.filled(50, 'Detail line').join('\n'),
+        metadata: {'Fixture info': List.filled(50, 'Detail line').join('\n')},
         tags: const [genre],
       ),
     );
@@ -1514,6 +1519,69 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final theme in [AppTheme.lightTheme(null), AppTheme.darkTheme(null)]) {
+    _testPlayerWidget('landscape detail scrolling keeps the app bar color', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final client = _TestMissavClient(
+        _details(
+          metadata: {
+            'Fixture info': List.filled(100, 'Detail line').join('\n'),
+          },
+        ),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const ValueKey('video-details-paint'),
+          child: _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+            ),
+            theme: theme,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<int> appBarPixel() async => (await tester.runAsync(() async {
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('video-details-paint')),
+        );
+        final image = await boundary.toImage();
+        final data = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        final pixel = data.getUint32((20 * image.width + 600) * 4);
+        image.dispose();
+        return pixel;
+      }))!;
+
+      final before = await appBarPixel();
+      final info = find.byKey(
+        const PageStorageKey<String>('video-details-landscape-dvd-1'),
+      );
+      await tester.drag(info, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(of: info, matching: find.byType(Scrollable)),
+          )
+          .position;
+      expect(position.pixels, greaterThan(0));
+      expect(await appBarPixel(), before);
+    });
+  }
+
   _testPlayerWidget(
     'video details keep a centered 40:60 landscape layout and restore its scroll after fullscreen',
     (tester) async {
@@ -1523,8 +1591,13 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       const playbackPosition = Duration(seconds: 45);
-      final description = List.filled(50, 'Detail line').join('\n');
-      final client = _TestMissavClient(_details(description: description));
+      final client = _TestMissavClient(
+        _details(
+          metadata: {
+            'Fixture info': List.filled(100, 'Detail line').join('\n'),
+          },
+        ),
+      );
       final library = await _testLibrary(position: playbackPosition);
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakeAdvancedPlaybackSession();
@@ -1770,6 +1843,69 @@ void main() {
   );
 
   _testPlayerWidget(
+    'portrait Android tablet fullscreen requests both landscape orientations',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final orientationRequests = <List<String>>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
+        if (call.method == 'SystemChrome.setPreferredOrientations') {
+          orientationRequests.add(List<String>.from(call.arguments as List));
+        }
+        return SynchronousFuture<Object?>(null);
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (_) => SynchronousFuture<Object?>(null),
+        );
+      });
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(orientationRequests, [
+        [
+          DeviceOrientation.landscapeLeft.toString(),
+          DeviceOrientation.landscapeRight.toString(),
+        ],
+      ]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(orientationRequests, [
+        [
+          DeviceOrientation.landscapeLeft.toString(),
+          DeviceOrientation.landscapeRight.toString(),
+        ],
+        [],
+      ]);
+      expect(session.surfaceMountCount, 1);
+      expect(session.surfaceDisposeCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
     'portrait fullscreen waits for the restored landscape before showing details',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -1908,6 +2044,8 @@ void main() {
             .ancestor(of: miniPlayer, matching: find.byType(ClipRect))
             .first;
         final inlineRect = tester.getRect(layout);
+        final inlineInfoSize = tester.getSize(infoPane);
+        final transitionInfoSizes = <Size>{};
         final miniPlayerHeight = withAudio
             ? tester.getRect(miniPlayerClip).height
             : 0.0;
@@ -1925,6 +2063,21 @@ void main() {
         expect(navigation.navigationVisible, isFalse);
         expect(find.byType(NavigationRail), findsOneWidget);
         expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+        final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
+        final transitionRebuildCounts = <Key, int>{
+          const ValueKey('video-controls'): 0,
+          const ValueKey('video-position-slider'): 0,
+          const ValueKey('video-fullscreen-control'): 0,
+        };
+        final previousRebuildCallback = debugOnRebuildDirtyWidget;
+        debugOnRebuildDirtyWidget = (element, builtOnce) {
+          final key = element.widget.key;
+          if (key != null && transitionRebuildCounts.containsKey(key)) {
+            transitionRebuildCounts.update(key, (count) => count + 1);
+          }
+          previousRebuildCallback?.call(element, builtOnce);
+        };
+        addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
 
         Rect? firstFullscreenFrame;
         var sawIntermediatePlayer = false;
@@ -1939,6 +2092,7 @@ void main() {
           if (rect.width > inlineRect.width + 1 && rect.width < 1199) {
             sawIntermediatePlayer = true;
             if (infoPane.evaluate().isNotEmpty) {
+              transitionInfoSizes.add(tester.getSize(infoPane));
               final infoLeft = tester.getRect(infoPane).left;
               sawRetreatingDetails |= infoLeft > 480 && infoLeft < 1200;
             }
@@ -1962,10 +2116,28 @@ void main() {
           }
         }
         await tester.pumpAndSettle();
+        debugOnRebuildDirtyWidget = previousRebuildCallback;
 
         expect(sawIntermediatePlayer, isTrue);
         expect(sawRetreatingDetails, isTrue);
+        expect(transitionInfoSizes, {inlineInfoSize});
         if (withAudio) expect(sawIntermediateMiniPlayerHeight, isTrue);
+        expect(
+          session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
+          lessThanOrEqualTo(1),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-controls')],
+          lessThanOrEqualTo(2),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-position-slider')],
+          lessThanOrEqualTo(2),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-fullscreen-control')],
+          lessThanOrEqualTo(2),
+        );
         expect(firstFullscreenFrame, isNotNull);
         expect(
           (firstFullscreenFrame!.left - inlineRect.left).abs(),
@@ -2004,9 +2176,11 @@ void main() {
         url: 'https://missav.ai/cn/genres/clickable-genre',
         kind: VideoLinkKind.category,
       );
-      final description = List.filled(50, 'Detail line').join('\n');
       final client = _TestMissavClient(
-        _details(description: description, tags: const [genre]),
+        _details(
+          metadata: {'Fixture info': List.filled(50, 'Detail line').join('\n')},
+          tags: const [genre],
+        ),
       );
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
@@ -2035,6 +2209,8 @@ void main() {
       final layout = find.byKey(const ValueKey('video-playback-layout'));
       final inlineRect = tester.getRect(layout);
       final inlineInfoLeft = tester.getRect(infoPane).left;
+      final inlineInfoSize = tester.getSize(infoPane);
+      final transitionInfoSizes = <Size>{};
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
       await tester.pumpAndSettle();
@@ -2043,6 +2219,21 @@ void main() {
       final fullscreenPlayerTop = tester.getRect(layout).top;
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
+      final transitionRebuildCounts = <Key, int>{
+        const ValueKey('video-controls'): 0,
+        const ValueKey('video-position-slider'): 0,
+        const ValueKey('video-fullscreen-control'): 0,
+      };
+      final previousRebuildCallback = debugOnRebuildDirtyWidget;
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        final key = element.widget.key;
+        if (key != null && transitionRebuildCounts.containsKey(key)) {
+          transitionRebuildCounts.update(key, (count) => count + 1);
+        }
+        previousRebuildCallback?.call(element, builtOnce);
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
       var sawIntermediatePlayerSize = false;
       var sawDetailsBesideShrinkingPlayer = false;
       double? firstDetailsFramePlayerTop;
@@ -2059,13 +2250,32 @@ void main() {
         if (infoPane.evaluate().isNotEmpty &&
             tester.getRect(infoPane).left < 1200 &&
             playerRect.width > 500) {
+          transitionInfoSizes.add(tester.getSize(infoPane));
           sawDetailsBesideShrinkingPlayer = true;
         }
       }
       await tester.pumpAndSettle();
+      debugOnRebuildDirtyWidget = previousRebuildCallback;
 
       expect(sawIntermediatePlayerSize, isTrue);
       expect(sawDetailsBesideShrinkingPlayer, isTrue);
+      expect(transitionInfoSizes, {inlineInfoSize});
+      expect(
+        session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-controls')],
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-position-slider')],
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-fullscreen-control')],
+        lessThanOrEqualTo(2),
+      );
       expect(firstDetailsFramePlayerTop, isNotNull);
       expect(
         (firstDetailsFramePlayerTop! - fullscreenPlayerTop).abs(),
@@ -2115,6 +2325,72 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final viaPortrait in [false, true]) {
+    _testPlayerWidget(
+      'landscape fullscreen refreshes the details viewport after resize with rotation=$viaPortrait',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final client = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        final platform = _TestVideoPlayerPlatform()
+          ..windowOrientation = Orientation.landscape;
+        final navigation = AppNavigationController();
+        addTearDown(navigation.dispose);
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+              platform: platform,
+            ),
+            appNavigationController: navigation,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final infoPane = find.byKey(
+          const PageStorageKey<String>('video-details-landscape-dvd-1'),
+        );
+        final inlineInfoSize = tester.getSize(infoPane);
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.byTooltip(l10n.videoFullscreen));
+        await tester.pumpAndSettle();
+        if (viaPortrait) {
+          tester.view.physicalSize = const Size(800, 1200);
+          await tester.pumpAndSettle();
+        }
+        tester.view.physicalSize = const Size(1400, 800);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+
+        final resizedInfoSize = tester.getSize(infoPane);
+        expect(resizedInfoSize.width, closeTo(inlineInfoSize.width + 120, .1));
+        expect(resizedInfoSize.height, inlineInfoSize.height);
+        await tester.tap(find.byTooltip(l10n.videoFullscreen));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.getSize(infoPane), resizedInfoSize);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(infoPane), resizedInfoSize);
+        expect(session.surfaceMountCount, 1);
+        expect(session.surfaceDisposeCount, 0);
+        expect(session.loadStreamCount, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'landscape fullscreen exit stays visible while the audio mini player returns',
@@ -2438,18 +2714,14 @@ void main() {
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakePlaybackSession();
+      final detailsScreen = _testVideoDetailsScreen(
+        video: _video(),
+        sessionFactory: () => session,
+      );
+      final lightTheme = ThemeData(useMaterial3: true, fontFamily: 'Roboto');
 
       await tester.pumpWidget(
-        _app(
-          client,
-          library,
-          downloads,
-          _testVideoDetailsScreen(
-            video: _video(),
-            sessionFactory: () => session,
-          ),
-          theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),
-        ),
+        _app(client, library, downloads, detailsScreen, theme: lightTheme),
       );
       await tester.pumpAndSettle();
 
@@ -2512,6 +2784,39 @@ void main() {
       tester.view.physicalSize = const Size(400, 800);
       await tester.pumpAndSettle();
 
+      final darkTheme = lightTheme.copyWith(brightness: Brightness.dark);
+      await tester.pumpWidget(
+        _app(client, library, downloads, detailsScreen, theme: darkTheme),
+      );
+      await tester.pumpAndSettle();
+      final sliderTheme = tester.widget<SliderTheme>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('video-position-slider')),
+              matching: find.byType(SliderTheme),
+            )
+            .first,
+      );
+      expect(sliderTheme.data.activeTrackColor, darkTheme.colorScheme.primary);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          detailsScreen,
+          theme: darkTheme,
+          textScale: 2,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('video-position-slider')))
+            .height,
+        32,
+      );
+
       await _tapGestureSurface(
         tester,
         find.byKey(const ValueKey('video-gesture-surface')),
@@ -2537,7 +2842,9 @@ void main() {
     tester.view.padding = const FakeViewPadding(top: 24, bottom: 16);
     addTearDown(tester.view.reset);
     final client = _TestMissavClient(
-      _details(description: List.filled(30, 'Video description').join('\n')),
+      _details(
+        metadata: {'Fixture info': List.filled(30, 'Detail line').join('\n')},
+      ),
     );
     final library = await _testLibrary();
     final downloads = _TestVideoDownloads(client: client, library: library);
@@ -4228,17 +4535,26 @@ void main() {
   });
 
   _testPlayerWidget(
-    'compact player recovers at 128px and fits 80px transition bounds',
+    'compact player updates controls at 128px and fits 80px transition bounds',
     (tester) async {
       tester.view.physicalSize = const Size(560, 350);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      var playerSize = const Size(128, 72);
+      var playerSize = const Size(224, 126);
       late StateSetter updatePlayerSize;
       final session = _FakePlaybackSession();
       final library = await _testLibrary();
+      final player = VideoPlaybackPanel(
+        key: const ValueKey('compact-transition-player'),
+        videoId: 'compact-transition',
+        library: library,
+        title: 'Compact transition video',
+        streams: _details().streams,
+        sessionFactory: () => session,
+        platform: _TestVideoPlayerPlatform(),
+      );
       await tester.pumpWidget(
         MaterialApp(
           locale: const Locale('en'),
@@ -4250,18 +4566,7 @@ void main() {
               updatePlayerSize = setState;
               return Scaffold(
                 body: Center(
-                  child: SizedBox.fromSize(
-                    size: playerSize,
-                    child: VideoPlaybackPanel(
-                      key: const ValueKey('compact-transition-player'),
-                      videoId: 'compact-transition',
-                      library: library,
-                      title: 'Compact transition video',
-                      streams: _details().streams,
-                      sessionFactory: () => session,
-                      platform: _TestVideoPlayerPlatform(),
-                    ),
-                  ),
+                  child: SizedBox.fromSize(size: playerSize, child: player),
                 ),
               );
             },
@@ -4272,7 +4577,13 @@ void main() {
 
       final l10n = await S.delegate.load(const Locale('en'));
       final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final home = find.byKey(const ValueKey('video-player-home'));
+      expect(tester.getSize(surface), const Size(224, 126));
+      expect(home, findsOneWidget);
+      updatePlayerSize(() => playerSize = const Size(128, 72));
+      await tester.pumpAndSettle();
       expect(tester.getSize(surface), const Size(128, 72));
+      expect(home, findsNothing);
       expect(
         find.byKey(const ValueKey('video-player-more-menu')),
         findsOneWidget,
@@ -4296,6 +4607,11 @@ void main() {
       updatePlayerSize(() => playerSize = const Size(80, 45));
       await tester.pumpAndSettle();
       expect(tester.getSize(surface), const Size(80, 45));
+      expect(tester.takeException(), isNull);
+      updatePlayerSize(() => playerSize = const Size(224, 126));
+      await tester.pumpAndSettle();
+      expect(home, findsOneWidget);
+      expect(session.loadStreamCount, 2);
       expect(tester.takeException(), isNull);
     },
   );
@@ -6065,6 +6381,340 @@ void main() {
   });
 
   _testPlayerWidget(
+    'failed playback can open browser verification from video details',
+    (tester) async {
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      session.emitError('The media server requires browser verification.');
+      await tester.pump();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+      await tester.tap(find.text(l10n.videoVerifyAccess).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.videoVerificationHelp), findsOneWidget);
+    },
+  );
+
+  _testPlayerWidget('Jable detail login retries after sign-in', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({
+      'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+    });
+    addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+    var signedIn = false;
+    var detailRequests = 0;
+    final dio = Dio()
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (request, handler) {
+            final String body;
+            if (request.uri.path == '/my/favourites/videos/') {
+              body = signedIn
+                  ? '<div id="list_videos_my_favourite_videos"></div>'
+                  : '<form><input type="password"></form>';
+            } else {
+              expect(request.uri.path, '/videos/private/');
+              detailRequests++;
+              body = signedIn
+                  ? '''
+                    <div class="video-info"><div class="info-header"></div></div>
+                    <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+                  '''
+                  : '<form><input type="password"></form>';
+            }
+            handler.resolve(
+              Response(requestOptions: request, statusCode: 200, data: body),
+            );
+          },
+        ),
+      );
+    addTearDown(() => dio.close(force: true));
+    final missav = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final session = _FakePlaybackSession();
+    const video = VideoItem(
+      id: 'private',
+      title: 'Private video',
+      sourceKey: 'jable',
+      pageUrl: 'https://jable.tv/videos/private/',
+    );
+    await tester.pumpWidget(
+      _app(
+        missav,
+        library,
+        _TestVideoDownloads(client: missav, library: library),
+        _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+        jableClient: JableClient(dio: dio),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final s = await S.delegate.load(const Locale('en'));
+    expect(find.text(s.permissionRequired(s.login)), findsOneWidget);
+    final accountButton = find.widgetWithText(
+      OutlinedButton,
+      s.videoJableAccount,
+    );
+    expect(accountButton, findsOneWidget);
+    await tester.tap(accountButton);
+    await tester.pumpAndSettle();
+    expect(find.byType(JableAccountScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(detailRequests, 1);
+    expect(find.text(s.permissionRequired(s.login)), findsOneWidget);
+
+    signedIn = true;
+    await tester.tap(accountButton);
+    await tester.pumpAndSettle();
+    expect(find.text(s.videoJableSignedIn), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(detailRequests, 2);
+    expect(find.byType(VideoPlaybackPanel), findsOneWidget);
+    expect(session.loadStreamCount, 1);
+  });
+
+  _testPlayerWidget(
+    'Jable details use the video source while MissAV remains selected',
+    (tester) async {
+      final missav = _TestMissavClient(_details());
+      final jable = _TestPlaybackJableClient();
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: missav, library: library);
+      final session = _FakePlaybackSession();
+      const video = VideoItem(
+        id: 'jable-native-id',
+        sourceKey: 'jable',
+        title: 'Jable card title',
+        pageUrl: 'https://jable.tv/videos/jable-native-id/',
+        releaseDate: '2025-01-02',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          downloads,
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+          jableClient: jable,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(jable.detailsCalls, 1);
+      expect(jable.requestedVideo?.storageKey, 'jable:jable-native-id');
+      expect(missav.detailsCalls, 0);
+      expect(find.text('Jable card title'), findsAtLeastNWidgets(1));
+      final s = await S.delegate.load(const Locale('en'));
+      expect(
+        find.text('${s.releaseDateInfo}: 2025-01-02', findRichText: true),
+        findsOneWidget,
+      );
+      await tester.tap(find.byIcon(Icons.bookmark_outline));
+      await tester.pumpAndSettle();
+      expect(find.text(s.videoJableLoginRequired), findsOneWidget);
+      expect(find.text(s.videoLoginRequired), findsNothing);
+      expect(missav.videoFavoriteChanges, isEmpty);
+      await tester.tap(find.text(s.login));
+      await tester.pumpAndSettle();
+      expect(find.text(s.videoJableAccount), findsOneWidget);
+      expect(find.text(s.videoJableLoginRequired), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  _testPlayerWidget(
+    'Jable details add and remove a source favorite without moving playback',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({
+        'jable_verified_session': '{"cookie":"member=test","userAgent":"Test"}',
+      });
+      addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+      final actions = <String>[];
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (request, handler) {
+              final uri = request.uri;
+              expect(uri.host, 'jable.tv');
+              final action = uri.queryParameters['action'];
+              final String body;
+              if (action != null) {
+                actions.add(action);
+                expect(uri.queryParameters['video_id'], '42');
+                body = '{"status":"success"}';
+              } else if (uri.path.startsWith('/my/favourites/')) {
+                body = '<div id="list_videos_my_favourite_videos"></div>';
+              } else {
+                body = '''
+              <section class="video-info"><button class="btn-action fav"
+                data-fav-video-id="42" data-fav-type="0"></button></section>
+              <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+            ''';
+              }
+              handler.resolve(
+                Response(requestOptions: request, statusCode: 200, data: body),
+              );
+            },
+          ),
+        );
+      addTearDown(() => dio.close(force: true));
+      final missav = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final session = _FakePlaybackSession();
+      const video = VideoItem(
+        id: 'sample',
+        title: 'Sample',
+        sourceKey: 'jable',
+        pageUrl: 'https://jable.tv/videos/sample/',
+      );
+      await tester.pumpWidget(
+        _app(
+          missav,
+          library,
+          _TestVideoDownloads(client: missav, library: library),
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+          jableClient: JableClient(dio: dio),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final loadsBefore = session.loadStreamCount;
+      await tester.tap(find.byIcon(Icons.bookmark_outline));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.bookmark));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.bookmark_outline), findsOneWidget);
+      expect(actions, ['add_to_favourites', 'delete_from_favourites']);
+      expect(session.loadStreamCount, loadsBefore);
+      expect(missav.videoFavoriteChanges, isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final verificationSucceeds in [false, true]) {
+    _testPlayerWidget(
+      'Jable detail favorite after verification succeeds=$verificationSucceeds',
+      (tester) async {
+        FlutterSecureStorage.setMockInitialValues({
+          'jable_verified_session':
+              '{"cookie":"member=test","userAgent":"Test"}',
+        });
+        addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+        final requests = <String>[];
+        final appliedActions = <String>[];
+        final dio = Dio()
+          ..interceptors.add(
+            InterceptorsWrapper(
+              onRequest: (request, handler) {
+                final uri = request.uri;
+                expect(uri.host, 'jable.tv');
+                final action = uri.queryParameters['action'];
+                final String body;
+                if (action != null) {
+                  requests.add(action);
+                  expect(uri.queryParameters['video_id'], '42');
+                  if (requests.length == 1) {
+                    body = '<html><title>Just a moment...</title></html>';
+                  } else {
+                    appliedActions.add(action);
+                    body = '{"status":"success"}';
+                  }
+                } else if (uri.path.startsWith('/my/favourites/')) {
+                  body = '<div id="list_videos_my_favourite_videos"></div>';
+                } else {
+                  body = '''
+              <section class="video-info"><button class="btn-action fav"
+                data-fav-video-id="42" data-fav-type="0"></button></section>
+              <script>var hlsUrl = "https://cdn.example/clip.m3u8";</script>
+            ''';
+                }
+                handler.resolve(
+                  Response(
+                    requestOptions: request,
+                    statusCode: 200,
+                    data: body,
+                  ),
+                );
+              },
+            ),
+          );
+        addTearDown(() => dio.close(force: true));
+        final missav = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        final session = _FakePlaybackSession();
+        final verificationUrls = <String>[];
+        const video = VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          sourceKey: 'jable',
+          pageUrl: 'https://jable.tv/videos/sample/',
+        );
+
+        await tester.pumpWidget(
+          _app(
+            missav,
+            library,
+            _TestVideoDownloads(client: missav, library: library),
+            _testVideoDetailsScreen(
+              video: video,
+              sessionFactory: () => session,
+            ),
+            jableClient: JableClient(dio: dio),
+            jableVerificationResult: verificationSucceeds,
+            jableVerificationUrls: verificationUrls,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final loadsBefore = session.loadStreamCount;
+
+        await tester.tap(find.byIcon(Icons.bookmark_outline));
+        await tester.pumpAndSettle();
+
+        expect(verificationUrls, [video.pageUrl]);
+        expect(
+          requests,
+          verificationSucceeds
+              ? ['add_to_favourites', 'add_to_favourites']
+              : ['add_to_favourites'],
+        );
+        expect(
+          appliedActions,
+          verificationSucceeds ? ['add_to_favourites'] : isEmpty,
+        );
+        expect(
+          find.byIcon(
+            verificationSucceeds ? Icons.bookmark : Icons.bookmark_outline,
+          ),
+          findsOneWidget,
+        );
+        expect(session.loadStreamCount, loadsBefore);
+        expect(missav.videoFavoriteChanges, isEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  _testPlayerWidget(
     'fullscreen playback recovery stays usable on a narrow screen',
     (tester) async {
       tester.view.physicalSize = const Size(360, 800);
@@ -6897,18 +7547,7 @@ void main() {
           const Offset(0, -400),
         );
         await tester.pumpAndSettle();
-        final descriptionText = find.byType(SelectableText);
-        await tester.scrollUntilVisible(
-          descriptionText,
-          200,
-          scrollable: detailsScrollable,
-        );
-        await tester.pumpAndSettle();
-        expect(descriptionText, findsOneWidget);
-        expect(
-          tester.widget<SelectableText>(descriptionText).data,
-          description,
-        );
+        expect(find.text(description, skipOffstage: false), findsNothing);
 
         final semantics = tester.ensureSemantics();
         try {
@@ -7299,6 +7938,68 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  _testPlayerWidget('offline Jable release date follows locale changes', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    const video = VideoItem(
+      id: 'offline-jable',
+      sourceKey: 'jable',
+      title: 'Offline Jable video',
+      pageUrl: 'https://jable.tv/videos/offline-jable/',
+      releaseDate: '2025-01-02',
+    );
+    const task = VideoDownloadTask(
+      id: 'jable:offline-jable',
+      video: video,
+      quality: 'Auto',
+      isHls: true,
+      status: VideoDownloadStatus.completed,
+      progress: 1,
+      localPath: '/offline/video/index.m3u8',
+    );
+    final downloads = _TestVideoDownloads(
+      client: client,
+      library: library,
+      task: task,
+    );
+    final session = _FakePlaybackSession();
+
+    Widget app(Locale locale) => _app(
+      client,
+      library,
+      downloads,
+      _testVideoDetailsScreen(
+        video: video,
+        downloadedTask: task,
+        sessionFactory: () => session,
+      ),
+      locale: locale,
+    );
+
+    final en = await S.delegate.load(const Locale('en'));
+    final zh = await S.delegate.load(const Locale('zh'));
+    await tester.pumpWidget(app(const Locale('en')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('${en.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(app(const Locale('zh')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('${zh.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsOneWidget,
+    );
+    expect(
+      find.text('${en.releaseDateInfo}: 2025-01-02', findRichText: true),
+      findsNothing,
+    );
+    expect(session.loadFileCount, 1);
   });
 
   _testPlayerWidget(
@@ -8107,15 +8808,36 @@ Widget _app(
   VideoLibrary library,
   VideoDownloads downloads,
   Widget home, {
+  Locale locale = const Locale('en'),
   double textScale = 1,
   ThemeData? theme,
   AudioTrack? audioTrack,
+  JableClient? jableClient,
+  bool? jableVerificationResult,
+  List<String>? jableVerificationUrls,
   AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
     if (appNavigationController != null)
       authProvider.overrideWith((ref) => _TestNavigationAuth()),
     videoClientProvider.overrideWith((ref) => client),
+    videoSelectedSourceProvider.overrideWith((ref) => 'missav'),
+    jableVideoClientProvider.overrideWith((ref) {
+      final sourceClient = jableClient ?? JableClient();
+      ref.onDispose(sourceClient.dispose);
+      return sourceClient;
+    }),
+    if (jableVerificationResult != null)
+      jableAccessVerifierProvider.overrideWithValue((
+        _,
+        _, {
+        required sourceUrl,
+        requireLogin = false,
+      }) async {
+        expect(requireLogin, isFalse);
+        jableVerificationUrls?.add(sourceUrl);
+        return jableVerificationResult;
+      }),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
     currentTrackProvider.overrideWith((ref) => Stream.value(audioTrack)),
@@ -8136,7 +8858,7 @@ Widget _app(
     ],
   ],
   child: MaterialApp(
-    locale: const Locale('en'),
+    locale: locale,
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     theme: theme ?? ThemeData(useMaterial3: true),
@@ -8184,10 +8906,12 @@ VideoItem _video({
 VideoDetails _details({
   bool isFavorite = false,
   String description = '',
+  Map<String, String> metadata = const {},
   List<VideoLink> tags = const [],
 }) => VideoDetails(
   video: _video(tags: tags),
   description: description,
+  metadata: metadata,
   streams: const [
     VideoStream(label: 'Auto', url: 'https://cdn.example/video.m3u8'),
     VideoStream(label: '720p', url: 'https://cdn.example/video-720.m3u8'),
@@ -8195,6 +8919,32 @@ VideoDetails _details({
   sourceId: 'source-id',
   isFavorite: isFavorite,
 );
+
+class _TestPlaybackJableClient extends JableClient {
+  int detailsCalls = 0;
+  VideoItem? requestedVideo;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
+  }) async {
+    detailsCalls++;
+    requestedVideo = item;
+    final details = VideoDetails(
+      video: item,
+      streams: const [
+        VideoStream(label: 'Auto', url: 'https://cdn.example/jable.m3u8'),
+      ],
+    );
+    await onReady?.call(details);
+    return details;
+  }
+}
 
 class _TestMissavClient extends MissavClient {
   _TestMissavClient(
@@ -8296,6 +9046,10 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
+  Future<List<VideoItem>> loadRelatedRecommendations(VideoItem video) async =>
+      (detailsForVideo?.call(video) ?? detailsResult).related;
+
+  @override
   Future<List<VideoLink>> playlistsFor(VideoItem item) {
     playlistsCalls++;
     playlistVideoIds.add(item.id);
@@ -8372,6 +9126,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   int pauseCount = 0;
   int disposeCount = 0;
   int seekCount = 0;
+  int surfaceBuildCount = 0;
   int surfaceMountCount = 0;
   int surfaceDisposeCount = 0;
   Duration lastPosition = Duration.zero;
@@ -8424,8 +9179,10 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   }
 
   @override
-  Widget buildSurface({required double aspectRatio}) =>
-      _FakeVideoSurface(session: this);
+  Widget buildSurface({required double aspectRatio}) {
+    surfaceBuildCount++;
+    return _FakeVideoSurface(session: this);
+  }
 
   @override
   Future<void> loadStream(

@@ -684,12 +684,122 @@ ${_url(cdnServer, '/segment.m4s')}
       expect(restoredVideo.isUncensored, isTrue);
     },
   );
+
+  test(
+    'restores same native id separately and resumes each source when added',
+    () async {
+      final mediaRequests = <String, String?>{};
+      final server = await _server((request) async {
+        mediaRequests[request.uri.path] = request.headers.value(
+          HttpHeaders.cookieHeader,
+        );
+        await _send(request, _mp4Fixture(), contentType: 'video/mp4');
+      });
+      const missavVideo = VideoItem(
+        id: 'same-native-id',
+        title: 'MissAV video',
+        pageUrl: 'https://missav.ai/video/same-native-id',
+      );
+      const jableVideo = VideoItem(
+        id: 'same-native-id',
+        sourceKey: 'jable',
+        title: 'Jable video',
+        pageUrl: 'https://jable.tv/videos/same-native-id/',
+      );
+      final missavTask = VideoDownloadTask(
+        id: missavVideo.id,
+        video: missavVideo,
+        quality: '720p',
+        isHls: false,
+        status: VideoDownloadStatus.paused,
+      ).toJson();
+      (missavTask['video'] as Map<String, dynamic>).remove('sourceKey');
+      final jableTask = VideoDownloadTask(
+        id: jableVideo.storageKey,
+        video: jableVideo,
+        quality: '720p',
+        isHls: false,
+        status: VideoDownloadStatus.paused,
+      ).toJson();
+      await preferences.setString(
+        'video_download_tasks_v1',
+        jsonEncode([missavTask, jableTask]),
+      );
+
+      final missavClient = _fixtureClient(
+        missavVideo,
+        VideoStream(
+          label: '720p',
+          url: _url(server, '/missav.mp4'),
+          headers: const {HttpHeaders.cookieHeader: 'source=missav'},
+        ),
+      );
+      final jableClient = _FixtureJableClient(
+        (item) async => VideoDetails(
+          video: item,
+          streams: [
+            VideoStream(
+              label: '720p',
+              url: _url(server, '/jable.mp4'),
+              headers: const {HttpHeaders.cookieHeader: 'source=jable'},
+            ),
+          ],
+        ),
+      );
+      _activeTest.sourceClients.add(jableClient);
+      final downloads = await _downloads(
+        missavClient,
+        sourceClients: {'missav': missavClient, 'jable': jableClient},
+      );
+
+      final restoredMissav = downloads.forVideo('same-native-id')!;
+      final restoredJable = downloads.forVideo('jable:same-native-id')!;
+      expect(restoredMissav.video.sourceKey, 'missav');
+      expect(restoredJable.video.sourceKey, 'jable');
+      expect(restoredMissav.localPath, isNot(restoredJable.localPath));
+
+      await downloads.add(
+        restoredMissav.video,
+        VideoStream(label: '720p', url: _url(server, '/missav.mp4')),
+      );
+      await downloads.add(
+        restoredJable.video,
+        VideoStream(label: '720p', url: _url(server, '/jable.mp4')),
+      );
+      expect(downloads.tasks, hasLength(2));
+      await _until(
+        downloads,
+        (task) => task.status == VideoDownloadStatus.completed,
+        videoId: restoredMissav.id,
+      );
+      await _until(
+        downloads,
+        (task) => task.status == VideoDownloadStatus.completed,
+        videoId: restoredJable.id,
+      );
+
+      expect(missavClient.detailsCalls, 1);
+      expect(jableClient.detailsCalls, 1);
+      expect(mediaRequests, {'/missav.mp4': null, '/jable.mp4': null});
+      expect(
+        await File(restoredMissav.localPath!).readAsBytes(),
+        _mp4Fixture(),
+      );
+      expect(await File(restoredJable.localPath!).readAsBytes(), _mp4Fixture());
+    },
+  );
 }
 
-Future<VideoDownloads> _downloads(MissavClient sourceClient) async {
+Future<VideoDownloads> _downloads(
+  MissavClient sourceClient, {
+  Map<String, MissavClient>? sourceClients,
+}) async {
   final test = _activeTest;
   final service = VideoDownloads(
     client: sourceClient,
+    sourceClientFor: sourceClients == null
+        ? null
+        : (sourceKey) => sourceClients[sourceKey] ?? sourceClient,
     library: test.library,
     rootDirectory: test.root,
     preferences: test.preferences,
@@ -866,4 +976,11 @@ class _FixtureMissavClient extends MissavClient {
     detailsCalls++;
     return resolve(item);
   }
+}
+
+class _FixtureJableClient extends _FixtureMissavClient {
+  _FixtureJableClient(super.resolve);
+
+  @override
+  String get sourceKey => 'jable';
 }

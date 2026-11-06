@@ -254,7 +254,7 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
                       },
                     ),
                     VideoDurationInfo(
-                      videoId: task.video.id,
+                      videoId: task.id,
                       seconds: task.video.durationSeconds,
                       isList: true,
                     ),
@@ -301,7 +301,7 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
     final client = ref.read(videoClientProvider);
     VideoDownloadTask? taskFor(VideoItem video) {
       for (final task in downloads.tasks) {
-        if (task.video.id == video.id) return task;
+        if (task.id == video.storageKey) return task;
       }
       return null;
     }
@@ -323,7 +323,7 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
                 .where(
                   (task) =>
                       task.video.title.toLowerCase().contains(normalized) ||
-                      task.video.id.toLowerCase().contains(normalized),
+                      task.video.storageKey.toLowerCase().contains(normalized),
                 )
                 .map((task) => task.video)
                 .toList(growable: false);
@@ -347,7 +347,10 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
               onOpenLink: (link) => unawaited(
                 pushBottomDockRoute(
                   context,
-                  builder: (_) => VideoScreen.catalog(url: link.url),
+                  builder: (_) => VideoScreen.catalog(
+                    url: link.url,
+                    sourceKey: video.sourceKey,
+                  ),
                 ),
               ),
             );

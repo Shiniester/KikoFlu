@@ -46,7 +46,7 @@ import '../widgets/work_detail/work_progress_action_button.dart';
 import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/work_detail_route_readiness.dart';
 
-import '../widgets/work_image_reader.dart';
+import '../widgets/cover_preview_dialog.dart';
 
 final workDetailCoverCacheProvider = Provider(
   (ref) => CacheService.imageCacheManager,
@@ -102,12 +102,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final media = MediaQuery.of(context);
     final landscape = media.orientation == Orientation.landscape;
     return Size(
-      ((media.size.width * (landscape ? 0.4 : 1) - 16) * media.devicePixelRatio)
+      ((media.size.width * (landscape ? 0.4 : 1) - 32) * media.devicePixelRatio)
           .ceilToDouble()
           .clamp(1, double.infinity),
-      ((landscape ? media.size.height * 0.8 : 500) * media.devicePixelRatio)
-          .ceilToDouble()
-          .clamp(1, double.infinity),
+      ((media.size.height - 16) * media.devicePixelRatio).ceilToDouble().clamp(
+        1,
+        double.infinity,
+      ),
     );
   }
 
@@ -1021,6 +1022,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     // 封面图片组件
     final coverUrl = work.getCoverImageUrl(host, token: token);
+    final coverHeroTag = 'work-detail-cover-${widget.work.id}';
     final displaySettings = ref.watch(workDetailDisplayProvider);
 
     // 信息内容组件
@@ -1064,36 +1066,24 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     return WorkDetailResponsiveLayout(
       onRefresh: _refreshWorkDetail,
-      coverBuilder: (context, isLandscape) {
+      coverBuilder: (context, _) {
         return ListenableBuilder(
           listenable: _metadataChanges,
           builder: (context, _) => WorkCoverFrame(
-            isLandscape: isLandscape,
+            heroTag: coverHeroTag,
             showSubtitleBadge:
                 displaySettings.showSubtitleTag &&
                 _currentWork.hasSubtitle == true,
             showAgeRating: displaySettings.showAgeRating,
             age: _currentWork.age,
-            onTap: () {
-              AppNavigationScope.navigatorOf(context).push(
-                MaterialPageRoute(
-                  settings: appImmersiveRouteSettings,
-                  builder: (context) => WorkImageReader(
-                    title: _currentWork.title,
-                    images: [
-                      {
-                        'url': coverUrl,
-                        'title': _currentWork.title,
-                        'hash': '',
-                        'cacheKey': 'work_cover_${widget.work.id}',
-                      },
-                    ],
-                    initialIndex: 0,
-                    workId: widget.work.id,
-                  ),
-                ),
-              );
-            },
+            onTap: () => CoverPreviewDialog.show(
+              context,
+              imageUrl: coverUrl,
+              heroTag: coverHeroTag,
+              identifier: widget.work.id.toString(),
+              cacheKey: 'work_cover_${widget.work.id}',
+              isJapaneseAsmr: widget.work.id < 0,
+            ),
             layers: [
               ValueListenableBuilder<bool>(
                 valueListenable: _showDetailCover,

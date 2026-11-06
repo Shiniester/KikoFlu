@@ -1,5 +1,6 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
+import '../../widgets/player/player_cover_widget.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/image_prefetch_queue.dart';
@@ -243,6 +244,8 @@ class ComicCover extends ConsumerStatefulWidget {
     this.cornerRadius = workCoverCompactRadius,
     this.onFirstFrameReady,
     this.onRetry,
+    this.onTap,
+    this.previewHeroTag,
     this.loadImage = true,
     this.useCachedFrame = false,
     this.initialCacheWidth,
@@ -260,6 +263,8 @@ class ComicCover extends ConsumerStatefulWidget {
   final double cornerRadius;
   final VoidCallback? onFirstFrameReady;
   final VoidCallback? onRetry;
+  final ValueChanged<Uint8List>? onTap;
+  final String? previewHeroTag;
   final bool loadImage;
   final bool useCachedFrame;
   final int? initialCacheWidth;
@@ -443,9 +448,11 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       builder: (context, constraints) {
         final availableWidth = widget.maxWidth ?? constraints.maxWidth;
         final width = math.min(availableWidth, constraints.maxWidth);
-        final coverWidth = widget.maxHeight == null
-            ? width
-            : math.min(width, widget.maxHeight! * ratio);
+        final maxHeight = math.min(
+          widget.maxHeight ?? double.infinity,
+          constraints.maxHeight,
+        );
+        final coverWidth = math.min(width, maxHeight * ratio);
         final content = ComicImage._(
           widget.page,
           picture,
@@ -464,14 +471,28 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
               (picture == null && !widget.loadImage) ||
               (holdForRoute && !hasInitialDecode),
         );
-        final cover = SizedBox(
+        Widget cover = SizedBox(
           width: coverWidth,
           height: coverWidth / ratio,
           child: WorkCoverClip(
             cornerRadius: widget.cornerRadius,
-            child: content,
+            child: widget.onTap == null
+                ? content
+                : GestureDetector(
+                    onTap: picture == null
+                        ? null
+                        : () => widget.onTap!(picture.bytes),
+                    child: content,
+                  ),
           ),
         );
+        if (widget.previewHeroTag != null) {
+          cover = PlayerCoverPreviewHero(
+            tag: widget.previewHeroTag!,
+            cornerRadius: widget.cornerRadius,
+            child: cover,
+          );
+        }
         if (MediaQuery.disableAnimationsOf(context) || !_animateSize) {
           return cover;
         }
@@ -1334,7 +1355,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                               context,
                               comics[i],
                               downloadedOnly: widget.downloadedOnly,
-                              gridCoverWidth: gridCoverWidth,
                               initialCoverWidth: comicListCoverWidth,
                             ),
                             onLongPress: onLongPress == null
@@ -1482,7 +1502,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             context,
                             comics[i],
                             downloadedOnly: widget.downloadedOnly,
-                            gridCoverWidth: gridCoverWidth,
                             initialCoverWidth: gridCoverWidth,
                           ),
                           onLongPress: onLongPress == null
@@ -1612,13 +1631,9 @@ void openComic(
   BuildContext context,
   Comic comic, {
   bool downloadedOnly = false,
-  double? gridCoverWidth,
   double? initialCoverWidth,
   double? initialCoverMaxHeight,
 }) {
-  final windowWidth = gridCoverWidth == null
-      ? null
-      : MediaQuery.sizeOf(context).width;
   final handoff = _comicCoverHandoff(
     context,
     comic,
@@ -1630,8 +1645,6 @@ void openComic(
     builder: (_) => ComicDetailScreen(
       comic: comic,
       downloadedOnly: downloadedOnly,
-      initialGridCoverWidth: gridCoverWidth,
-      initialWindowWidth: windowWidth,
       initialCoverCacheWidth: handoff?.cacheWidth,
       initialCoverAspectRatio: handoff?.aspectRatio,
     ),

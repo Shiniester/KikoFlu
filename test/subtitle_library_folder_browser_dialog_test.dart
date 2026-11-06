@@ -23,14 +23,12 @@ Widget _testApp({
           return Center(
             child: ElevatedButton(
               onPressed: () async {
-                final selected = await showDialog<String>(
+                final selected = await SubtitleLibraryFolderBrowserDialog.show(
                   context: context,
-                  builder: (context) => SubtitleLibraryFolderBrowserDialog(
-                    rootPath: '/root',
-                    excludePath: excludePath,
-                    folderLoader: folderLoader,
-                    pathSeparator: '/',
-                  ),
+                  rootPath: '/root',
+                  excludePath: excludePath,
+                  folderLoader: folderLoader,
+                  pathSeparator: '/',
                 );
                 onSelected?.call(selected);
               },
@@ -85,7 +83,16 @@ void main() {
     expect(calls, ['/root', parsedPath]);
     expect(find.text('Deep'), findsOneWidget);
 
-    await tester.tap(find.byType(ElevatedButton).last);
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(calls, ['/root', parsedPath, '/root']);
+    expect(find.text('Parsed'), findsOneWidget);
+
+    await tester.tap(find.text('Parsed'));
+    await tester.pumpAndSettle();
+    expect(calls, ['/root', parsedPath, '/root', parsedPath]);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Parsed'));
     await tester.pumpAndSettle();
 
     expect(selectedPath, parsedPath);
@@ -103,5 +110,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No subfolders in this directory'), findsOneWidget);
+  });
+
+  testWidgets('cancel returns no selected path', (tester) async {
+    final results = <String?>[];
+    await tester.pumpWidget(
+      _testApp(onSelected: results.add, folderLoader: (_) async => []),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(results, [null]);
   });
 }

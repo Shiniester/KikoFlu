@@ -21,12 +21,11 @@ import '../utils/system_ui_style.dart';
 import '../utils/snackbar_util.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/offline_file_explorer_widget.dart';
-import '../widgets/app_navigation_scope.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/download_fab.dart';
 import '../utils/string_utils.dart';
 import '../utils/audio_source_headers.dart';
-import '../widgets/work_image_reader.dart';
+import '../widgets/cover_preview_dialog.dart';
 import '../widgets/work_detail/work_title_header.dart';
 import '../widgets/work_detail/work_metadata_sections.dart';
 import '../widgets/work_detail/work_extra_sections.dart';
@@ -441,9 +440,8 @@ class _OfflineWorkDetailScreenState
     final work = widget.work;
 
     // 封面图片组件
-    final coverUrl = widget.localCoverPath != null
-        ? 'file://${widget.localCoverPath}'
-        : work.getCoverImageUrl(host, token: token);
+    final coverUrl = work.getCoverImageUrl(host, token: token);
+    final coverHeroTag = 'offline-work-detail-cover-${work.id}';
     final hasLocalCover =
         widget.localCoverPath != null &&
         File(widget.localCoverPath!).existsSync();
@@ -512,31 +510,20 @@ class _OfflineWorkDetailScreenState
     );
 
     return WorkDetailResponsiveLayout(
-      coverBuilder: (context, isLandscape) {
+      coverBuilder: (context, _) {
         return WorkCoverFrame(
-          isLandscape: isLandscape,
+          heroTag: coverHeroTag,
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
-          onTap: () {
-            AppNavigationScope.navigatorOf(context).push(
-              MaterialPageRoute(
-                settings: appImmersiveRouteSettings,
-                builder: (context) => WorkImageReader(
-                  title: work.title,
-                  images: [
-                    {
-                      'url': coverUrl,
-                      'title': work.title,
-                      'hash': '',
-                      'cacheKey': 'work_cover_${widget.work.id}',
-                    },
-                  ],
-                  initialIndex: 0,
-                  workId: widget.work.id,
-                ),
-              ),
-            );
-          },
+          onTap: () => CoverPreviewDialog.show(
+            context,
+            imageUrl: coverUrl,
+            heroTag: coverHeroTag,
+            localPath: hasLocalCover ? widget.localCoverPath : null,
+            identifier: work.id.toString(),
+            cacheKey: 'work_cover_${work.id}',
+            isJapaneseAsmr: work.id < 0,
+          ),
           layers: [
             if (hasLocalCover)
               Image.file(

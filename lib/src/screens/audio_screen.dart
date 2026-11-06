@@ -29,6 +29,7 @@ import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/audio_account_prompt.dart';
+import 'account_management_screen.dart';
 import '../widgets/download_fab.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/library_content_transition.dart';
@@ -407,6 +408,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   List<Widget> _buildDrawerChildren({
     required MyTabsDisplaySettings settings,
     required AudioSource source,
+    required bool isAnonymous,
     required bool isOfficialServer,
     required DisplayMode displayMode,
     required MyReviewsState marksState,
@@ -422,6 +424,23 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           ),
         )
         .toList(growable: false);
+    LibraryDrawerTile pageTile(String page) => LibraryDrawerTile(
+      icon: _pageIcon(page),
+      title: _pageTitle(page),
+      selected: _selectedPageId == page,
+      children: _selectedPageId == page
+          ? _buildPageOptions(
+              source: source,
+              displayMode: displayMode,
+              marksState: marksState,
+            )
+          : const [],
+      onTap: () => _selectPage(page),
+    );
+    List<Widget> pageTiles(Set<String> pageIds) => [
+      for (final page in pages)
+        if (pageIds.contains(page)) pageTile(page),
+    ];
     final children = <Widget>[
       LibraryDrawerSection(
         title: s.librarySources,
@@ -435,8 +454,24 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             ),
         ],
       ),
+      if (source == AudioSource.asmrOne)
+        LibraryDrawerSection(
+          title: s.libraryAccount,
+          children: [
+            LibraryDrawerTile(
+              icon: Icons.account_circle_outlined,
+              title: isAnonymous ? s.login : s.accountManagement,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AccountManagementScreen(),
+                ),
+              ),
+            ),
+            ...pageTiles(const {'onlineMarks', 'playlists'}),
+          ],
+        ),
       LibraryDrawerSection(
-        title: s.libraryPages,
+        title: s.libraryContent,
         children: [
           LibraryDrawerTile(
             icon: Icons.home_outlined,
@@ -451,21 +486,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 : const [],
             onTap: () => _selectPage('home'),
           ),
-          for (final page in pages)
-            LibraryDrawerTile(
-              icon: _pageIcon(page),
-              title: _pageTitle(page),
-              selected: _selectedPageId == page,
-              children: _selectedPageId == page
-                  ? _buildPageOptions(
-                      source: source,
-                      displayMode: displayMode,
-                      marksState: marksState,
-                    )
-                  : const [],
-              onTap: () => _selectPage(page),
-            ),
+          ...pageTiles(const {'popular', 'recommended'}),
         ],
+      ),
+      LibraryDrawerSection(
+        title: s.libraryLocal,
+        children: pageTiles(const {'history', 'downloads', 'subtitleLibrary'}),
       ),
       LibraryDrawerSection(
         title: s.libraryBrowseOptions,
@@ -1143,6 +1169,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       drawerChildren: _buildDrawerChildren(
         settings: settings,
         source: source,
+        isAnonymous: authState.isAnonymous,
         isOfficialServer: isOfficialServer,
         displayMode: displayMode,
         marksState: marksState,

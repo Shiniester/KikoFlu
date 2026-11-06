@@ -17,6 +17,7 @@ class VideoItem {
     required this.id,
     required this.title,
     required this.pageUrl,
+    this.sourceKey = 'missav',
     this.cover = '',
     this.durationSeconds,
     this.releaseDate,
@@ -31,6 +32,7 @@ class VideoItem {
   });
 
   final String id;
+  final String sourceKey;
   final String title;
   final String pageUrl;
   final String cover;
@@ -44,6 +46,8 @@ class VideoItem {
   final List<String> directors;
   final bool hasSubtitles;
   final bool isUncensored;
+
+  String get storageKey => sourceKey == 'missav' ? id : '$sourceKey:$id';
 
   static final _catalogNumberPattern = RegExp(
     r'^(?:[a-z0-9]+(?:-ppv)?[-_]\d+(?:[-_]\d+)?|[a-z]+\d{3,})(?=$|[-_\s])',
@@ -79,6 +83,7 @@ class VideoItem {
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'sourceKey': sourceKey,
     'title': title,
     'pageUrl': pageUrl,
     'cover': cover,
@@ -96,6 +101,7 @@ class VideoItem {
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
     id: json['id'] as String,
+    sourceKey: json['sourceKey'] as String? ?? 'missav',
     title: json['title'] as String,
     pageUrl: json['pageUrl'] as String,
     cover: json['cover'] as String? ?? '',
@@ -186,6 +192,7 @@ class VideoCatalogPage {
     this.previousUrl,
     this.currentPage = 1,
     this.jumpMaxPage,
+    this.pageUrlBuilder,
   });
 
   final String title;
@@ -197,8 +204,11 @@ class VideoCatalogPage {
   final String? previousUrl;
   final int currentPage;
   final int? jumpMaxPage;
+  final String Function(int page)? pageUrlBuilder;
 
   String pageUrl(int page) {
+    final buildUrl = pageUrlBuilder;
+    if (buildUrl != null) return buildUrl(page);
     final uri = Uri.parse(nextUrl ?? previousUrl ?? url);
     return uri
         .replace(queryParameters: {...uri.queryParameters, 'page': '$page'})
@@ -247,15 +257,31 @@ class VideoDetails {
   final bool? isFavorite;
 }
 
-class MissavException implements Exception {
-  const MissavException(this.message, {this.sourceUrl, this.cause});
+class VideoSourceException implements Exception {
+  const VideoSourceException(
+    this.message, {
+    required this.sourceKey,
+    this.sourceUrl,
+    this.cause,
+  });
 
+  final String sourceKey;
   final String message;
   final String? sourceUrl;
   final Object? cause;
 
   @override
   String toString() => message;
+}
+
+abstract interface class VideoVerificationRequired {
+  String get sourceKey;
+  String? get sourceUrl;
+}
+
+class MissavException extends VideoSourceException {
+  const MissavException(super.message, {super.sourceUrl, super.cause})
+    : super(sourceKey: 'missav');
 }
 
 class MissavUnsupportedException extends MissavException {
@@ -277,7 +303,27 @@ class MissavAuthenticationException extends MissavException {
   }) : super(message, sourceUrl: sourceUrl);
 }
 
-class MissavVerificationRequiredException extends MissavException {
+class MissavVerificationRequiredException extends MissavException
+    implements VideoVerificationRequired {
   const MissavVerificationRequiredException({required String sourceUrl})
     : super('MissAV requires browser verification.', sourceUrl: sourceUrl);
+}
+
+class JableVerificationRequiredException extends VideoSourceException
+    implements VideoVerificationRequired {
+  const JableVerificationRequiredException({required String sourceUrl})
+    : super(
+        'Jable requires browser verification.',
+        sourceKey: 'jable',
+        sourceUrl: sourceUrl,
+      );
+}
+
+class JableLoginRequiredException extends VideoSourceException {
+  const JableLoginRequiredException({String? sourceUrl})
+    : super(
+        'Sign in to your Jable account.',
+        sourceKey: 'jable',
+        sourceUrl: sourceUrl,
+      );
 }

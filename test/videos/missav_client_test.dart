@@ -1165,6 +1165,132 @@ void main() {
     },
   );
 
+  test('account checks use the login page account as a fallback', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response('<html><body x-data="{user: null}"></body></html>'),
+        ),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.checkBrowserAccess(
+      browserUser: {'username': 'Login page viewer'},
+    );
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Login page viewer');
+  });
+
+  test('account checks prefer the current homepage account', () async {
+    final pages = [
+      '<html><body x-data="{user: {username: \'Homepage viewer\'}}"></body></html>',
+      '<html><body x-data="{user: null}"></body></html>',
+    ];
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter((_) => _response(pages.removeAt(0))),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.checkBrowserAccess(
+      browserUser: {'username': 'Login page viewer'},
+    );
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Homepage viewer');
+
+    await client.checkBrowserAccess();
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Homepage viewer');
+  });
+
+  test(
+    'account checks reject fallback after HTTP and challenge failures',
+    () async {
+      for (final failure in [
+        (
+          status: HttpStatus.unauthorized,
+          body: '<html><body>Sign in</body></html>',
+          expected: isA<MissavAuthenticationException>(),
+        ),
+        (
+          status: HttpStatus.forbidden,
+          body: '<title>Attention Required! | Cloudflare</title>',
+          expected: isA<MissavVerificationRequiredException>(),
+        ),
+      ]) {
+        final client = MissavClient(
+          dio: Dio()
+            ..httpClientAdapter = _Adapter(
+              (_) => _response(failure.body, statusCode: failure.status),
+            ),
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+
+        await expectLater(
+          client.checkBrowserAccess(
+            browserUser: {'username': 'Login page viewer'},
+          ),
+          throwsA(failure.expected),
+        );
+        expect(client.isLoggedIn, isFalse);
+        expect(client.accountName, isNull);
+      }
+    },
+  );
+
+  test(
+    'account checks restore a saved browser session before reading the page',
+    () async {
+      final native = _Adapter(
+        (_) => throw StateError('The saved session must use the browser.'),
+      );
+      final browser = _Adapter(
+        (_) => _response(
+          '<html><body x-data="{user: {name: \'Saved viewer\'}}"></body></html>',
+        ),
+      );
+      final storage = _storedBrowserSession();
+      var restoreCalls = 0;
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = native,
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: storage,
+        restoreSavedSession: (client, expectedGeneration) async {
+          restoreCalls++;
+          await client.importVerifiedSession(
+            cookieHeader: 'session=saved',
+            userAgent: 'Saved Browser UA',
+            expectedGeneration: expectedGeneration,
+          );
+          client.useVerifiedBrowserTransport(browser);
+        },
+      );
+      addTearDown(client.dispose);
+
+      await client.checkBrowserAccess();
+
+      expect(restoreCalls, 1);
+      expect(native.requests, isEmpty);
+      expect(browser.requests, hasLength(1));
+      expect(_cookieHeader(browser.requests.single), 'session=saved');
+      expect(
+        _headerValue(browser.requests.single, 'User-Agent'),
+        'Saved Browser UA',
+      );
+      expect(client.accountName, 'Saved viewer');
+      expect(client.isLoggedIn, isTrue);
+    },
+  );
+
   test(
     'account request failure still publishes enriched playable details',
     () async {
@@ -2236,6 +2362,9 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
   test('rebuilds a closed browser session after login', () async {
     final native = _Adapter((_) => _response('<h1>Native catalog</h1>'));
     final replacement = _Adapter((_) => _response('<h1>Restored catalog</h1>'));
+    final navigationStarted = Completer<void>();
+    final navigationFinished = Completer<void>();
+    final navigationGate = Completer<String>();
     var restorations = 0;
     var browserDisposals = 0;
     final client = MissavClient(
@@ -2252,7 +2381,12 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     late final MissavBrowserAdapter browser;
     browser = MissavBrowserAdapter(
       currentUrl: () async => MissavClient.origin,
-      navigateDocument: (_, _) async => '<h1>Original catalog</h1>',
+      navigateDocument: (_, _) async {
+        navigationStarted.complete();
+        final body = await navigationGate.future;
+        navigationFinished.complete();
+        return body;
+      },
       disposeBrowser: () async => browserDisposals++,
       runJavaScript: (script) async {
         final match = RegExp(r'const request = (.*);').firstMatch(script)!;
@@ -2276,8 +2410,26 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     final verifiedGeneration = client.sessionGeneration;
     await client.login(email: 'viewer@example.test', password: 'sample');
     expect(client.sessionGeneration, greaterThan(verifiedGeneration));
+    final loggedInGeneration = client.sessionGeneration;
 
+    final pendingBrowse = client
+        .browse(client.homeUrl)
+        .then<Object?>((page) => page, onError: (Object error) => error);
+    await navigationStarted.future;
     browser.close(force: true);
+    final browseError = await pendingBrowse;
+    expect(
+      browseError,
+      isA<MissavException>().having(
+        (error) => error.message,
+        'message',
+        contains('(connectionError)'),
+      ),
+    );
+    expect(browseError, isNot(isA<MissavVerificationRequiredException>()));
+    expect(client.sessionGeneration, loggedInGeneration);
+    navigationGate.complete('<h1>Late catalog</h1>');
+    await navigationFinished.future;
     await browser.whenClosed;
     final page = await client.browse(client.homeUrl);
 

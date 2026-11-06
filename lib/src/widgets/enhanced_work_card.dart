@@ -561,6 +561,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         ? (isLandscape ? 13.0 : 11.0)
         : (isLandscape ? 13.0 : 10.0);
     final iconSize = isList ? 14.0 : (isLandscape ? 14.0 : 12.0);
+    final metadata = <Widget>[];
     final information = <Widget>[];
     void addField(Widget field) {
       if (information.isNotEmpty) {
@@ -573,7 +574,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     if (displaySettings.showDuration &&
         work.duration != null &&
         work.duration! > 0) {
-      addField(
+      metadata.add(
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -595,16 +596,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         ),
       );
     }
-    if (work.vas?.isNotEmpty == true) {
-      addField(_buildVoiceActorsRow(context, fontSize: tagFontSize));
-    }
-    if (visibleTags.isNotEmpty) {
-      addField(
-        _buildTagsRow(context, tags: visibleTags, fontSize: tagFontSize),
-      );
-    }
     if (displaySettings.showCircle && work.name?.isNotEmpty == true) {
-      addField(
+      metadata.add(
         Text(
           work.name!,
           style:
@@ -616,7 +609,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       );
     }
     if (displaySettings.showPrice && work.price != null) {
-      addField(
+      metadata.add(
         Text(
           S.of(context).priceInYen(work.price!),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -631,7 +624,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         work.rateAverage != null &&
         work.rateCount != null &&
         (work.rateCount! > 0 || work.rateAverage! != 0)) {
-      addField(
+      metadata.add(
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -654,7 +647,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       );
     }
     if (showSales && displaySettings.showSales && work.dlCount != null) {
-      addField(
+      metadata.add(
         Text(
           S.of(context).soldCount('${work.dlCount}'),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -662,6 +655,24 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             fontSize: isList ? priceFontSize : bodyFontSize,
           ),
         ),
+      );
+    }
+    if (metadata.isNotEmpty) {
+      addField(
+        Wrap(
+          spacing: 8,
+          runSpacing: collectionCardInfoSpacing,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: metadata,
+        ),
+      );
+    }
+    if (work.vas?.isNotEmpty == true) {
+      addField(_buildVoiceActorsRow(context, fontSize: tagFontSize));
+    }
+    if (visibleTags.isNotEmpty) {
+      addField(
+        _buildTagsRow(context, tags: visibleTags, fontSize: tagFontSize),
       );
     }
     return information;

@@ -58,7 +58,8 @@ A numbered portion of a video feed, search result, or download list.
 _Avoid_: Video Resume Position
 
 **Video Source (视频源)**:
-A provider of video catalogs and playback, such as MissAV (missav.ai).
+A provider of video catalogs and playback, such as MissAV (missav.ai) and
+Jable (jable.tv).
 _Avoid_: Audio Source, Comic Source
 
 **Video Source Account (视频源账号)**:
@@ -77,6 +78,11 @@ recommendations.
 Switching to another App Tab Bar entry pauses the Video Player. The Video Player
 remains paused on return until playback is resumed manually.
 _Avoid_: Video Screen, source website
+
+**Video Related Recommendations (视频相关推荐)**:
+Videos related to the current video and shown in its Video Details Screen. For
+MissAV, they come from the Video Source's recommendations for that video.
+_Avoid_: Recommended for You
 
 **Video Basic Information (视频基础信息)**:
 A video's source-provided information outside its genre, maker, label, series,
@@ -118,6 +124,7 @@ _Avoid_: System safe area, page margin
 
 **Video Source Favorite (视频源收藏)**:
 A video saved in a Video Source Account's collection, belonging to that account.
+On Jable, Favorites and Watch Later are separate collections.
 _Avoid_: Local Favorite, comic Source Favorite
 
 **Video Playlist (视频播放列表)**:
@@ -147,8 +154,10 @@ adjustable volume.
 The app page that contains the Works Home Page and the user's online marks,
 history, playlists, downloads, and subtitle library pages. A fixed header shows
 the menu button, current page name, and an entry to the scoped search screen.
-The sidebar shows the current page's options beneath its page entry, with shared
-browsing options in a separate group; swiping right across the main content opens it.
+The sidebar separates source-account entries, including sign-in, from public
+browsing and local collections. The current page's options appear beneath its
+entry, with shared browsing options in a separate group; swiping right across
+the main content opens it.
 _Avoid_: Home page, My page
 
 **Audio Collection Layout (音声集合布局)**:
@@ -537,8 +546,9 @@ preparation and does not block further track-switch requests.
 _Avoid_: Track Switch, audio crossfade
 
 **Cover Preview (封面预览)**:
-The zoomable current-artwork view opened from the Player Cover Page. It is
-distinct from the Player Cover Page and saves the unblurred source artwork.
+The zoomable artwork view opened from the Player Cover Page, Work Details Screen,
+or Comic Details Screen. It is distinct from the Player Cover Page and saves the
+unblurred source artwork.
 _Avoid_: Player Cover Page, artwork editor
 
 ## 界面外观
@@ -572,7 +582,8 @@ Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
 
 **Comic Details Screen (漫画详情页)**:
-The page describing one comic's synopsis, tags, chapters, and available actions.
+The page describing one comic's synopsis, tags, chapters, available source comments,
+and actions.
 It is distinct from the Comic Screen and Comic Reader.
 Opening it from the Comic Home Page shows the current Comic Source catalog.
 Downloaded chapters remain readable if the Comic Source is unavailable.

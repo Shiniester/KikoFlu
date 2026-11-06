@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -156,7 +157,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
   double? _unpinnedTransitionOffset;
-  bool _fillResourceViewport = false;
   bool _recommendationVisited = false;
   int? _motionTarget;
   int _tabMotionGeneration = 0;
@@ -468,81 +468,62 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                   groupConstraints.precedingScrollExtent;
               final transitionPages = _pageKinds;
               final transitionGeneration = _tabMotionGeneration;
-              return SliverMainAxisGroup(
-                slivers: [
-                  SliverTabPageView(
-                    crossAxisPadding: collectionCardPadding(
-                      context,
-                    ).left.clamp(0.0, _resourcePagePadding.left).toDouble(),
-                    position: _pagePosition,
-                    onDragStart: () {
-                      _tabMotionGeneration++;
-                      _motionTarget = null;
-                      _beginTabTransition();
-                      _pagePosition.stop(canceled: true);
-                    },
-                    onDragUpdate: _updatePagePosition,
-                    onDragEnd: _settlePagePosition,
-                    onDragCancel: () => _settlePagePosition(0),
-                    pageResourceOffsets: [
-                      for (final tab in _pageKinds)
-                        _unpinnedTransitionOffset ??
-                            _tabScrollOffsets[tab] ??
-                            0,
-                    ],
-                    leadingExtent: leadingExtent,
-                    transitionSourceIndex: _transitionSource == null
-                        ? null
-                        : _pageKinds.indexOf(_transitionSource!),
-                    onPageResourceOffsetCorrected: (pageIndex, correction) {
-                      final tab = transitionPages[pageIndex];
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted ||
-                            transitionGeneration != _tabMotionGeneration ||
-                            !_pageKinds.contains(tab)) {
-                          return;
-                        }
-                        _tabScrollOffsets[tab] =
-                            ((_tabScrollOffsets[tab] ?? 0) + correction)
-                                .clamp(0.0, double.infinity)
-                                .toDouble();
-                        setState(() {});
-                      });
-                    },
-                    pages: [
-                      for (final tab in _pageKinds)
-                        SliverPadding(
-                          key: ValueKey(tab),
-                          padding: tab == WorkResourceTab.recommendations
-                              ? collectionCardPadding(
-                                  context,
-                                  padding: const EdgeInsets.only(top: 16),
-                                )
-                              : _resourcePagePadding.copyWith(
-                                  top: tab == WorkResourceTab.images ? 16 : 0,
-                                ),
-                          sliver: _pageFor(tab, context),
-                        ),
-                    ],
-                  ),
-                  SliverLayoutBuilder(
-                    builder: (context, tailConstraints) {
-                      final pageExtent =
-                          tailConstraints.precedingScrollExtent -
-                          constraints.precedingScrollExtent;
-                      final tailExtent =
-                          ((_fillResourceViewport
-                                      ? constraints.viewportMainAxisExtent -
-                                            tabBar.preferredSize.height
-                                      : 0) -
-                                  pageExtent)
-                              .clamp(0.0, double.infinity)
-                              .toDouble();
-                      return SliverToBoxAdapter(
-                        child: SizedBox(height: tailExtent),
-                      );
-                    },
-                  ),
+              return SliverTabPageView(
+                crossAxisPadding: collectionCardPadding(
+                  context,
+                ).left.clamp(0.0, _resourcePagePadding.left).toDouble(),
+                position: _pagePosition,
+                onDragStart: () {
+                  _tabMotionGeneration++;
+                  _motionTarget = null;
+                  _beginTabTransition();
+                  _pagePosition.stop(canceled: true);
+                },
+                onDragUpdate: _updatePagePosition,
+                onDragEnd: _settlePagePosition,
+                onDragCancel: () => _settlePagePosition(0),
+                pageResourceOffsets: [
+                  for (final tab in _pageKinds)
+                    _unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0,
+                ],
+                leadingExtent: leadingExtent,
+                minimumPageExtent: math.max(
+                  0.0,
+                  constraints.viewportMainAxisExtent -
+                      tabBar.preferredSize.height,
+                ),
+                transitionSourceIndex: _transitionSource == null
+                    ? null
+                    : _pageKinds.indexOf(_transitionSource!),
+                onPageResourceOffsetCorrected: (pageIndex, correction) {
+                  final tab = transitionPages[pageIndex];
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted ||
+                        transitionGeneration != _tabMotionGeneration ||
+                        !_pageKinds.contains(tab)) {
+                      return;
+                    }
+                    _tabScrollOffsets[tab] =
+                        ((_tabScrollOffsets[tab] ?? 0) + correction)
+                            .clamp(0.0, double.infinity)
+                            .toDouble();
+                    setState(() {});
+                  });
+                },
+                pages: [
+                  for (final tab in _pageKinds)
+                    SliverPadding(
+                      key: ValueKey(tab),
+                      padding: tab == WorkResourceTab.recommendations
+                          ? collectionCardPadding(
+                              context,
+                              padding: const EdgeInsets.only(top: 16),
+                            )
+                          : _resourcePagePadding.copyWith(
+                              top: tab == WorkResourceTab.images ? 16 : 0,
+                            ),
+                      sliver: _pageFor(tab, context),
+                    ),
                 ],
               );
             },
@@ -655,7 +636,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
     final offset = resourceOffset.clamp(0.0, double.infinity).toDouble();
     setState(() {
-      _fillResourceViewport = true;
       _transitionSource = source;
       _tabScrollOffsets[source] = offset;
     });

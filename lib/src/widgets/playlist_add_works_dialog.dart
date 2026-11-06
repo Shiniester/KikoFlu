@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../services/work_id_parser.dart';
+import 'responsive_dialog.dart';
 
 class PlaylistAddWorksDialog extends StatefulWidget {
   const PlaylistAddWorksDialog({
     super.key,
     required this.onAddWorks,
   });
+
+  static Future<void> show({
+    required BuildContext context,
+    required ValueChanged<List<String>> onAddWorks,
+  }) {
+    return showResponsiveBottomSheet<void>(
+      context: context,
+      builder: (context) => PlaylistAddWorksDialog(onAddWorks: onAddWorks),
+    );
+  }
 
   final ValueChanged<List<String>> onAddWorks;
 
@@ -17,6 +28,8 @@ class PlaylistAddWorksDialog extends StatefulWidget {
 
 class _PlaylistAddWorksDialogState extends State<PlaylistAddWorksDialog> {
   final TextEditingController _textController = TextEditingController();
+  // Keep input focus when moving between the two scroll layouts.
+  final _formKey = GlobalKey();
   List<String> _parsedWorkIds = [];
 
   @override
@@ -29,89 +42,71 @@ class _PlaylistAddWorksDialogState extends State<PlaylistAddWorksDialog> {
   Widget build(BuildContext context) {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final dialogWidth = isLandscape ? screenWidth * 0.6 : screenWidth * 0.9;
-
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: dialogWidth.clamp(300.0, 600.0),
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
-        child: SingleChildScrollView(
+    return LayoutBuilder(
+      builder: (context, _) {
+        // Ancestors may consume MediaQuery.viewInsets before this content is laid out.
+        final scrollWholeSheet =
+            isLandscape && View.of(context).viewInsets.bottom > 0;
+        final form = Padding(
+          key: _formKey,
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Row(
-                  children: [
-                    Text(
-                      S.of(context).addWorks,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ],
+              Text(
+                S.of(context).addWorksInputHint,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      S.of(context).addWorksInputHint,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _textController,
-                      decoration: InputDecoration(
-                        labelText: S.of(context).workId,
-                        hintText: S.of(context).workIdHint,
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.music_note),
-                      ),
-                      maxLines: 5,
-                      autofocus: true,
-                      onChanged: _handleInputChanged,
-                    ),
-                    if (_parsedWorkIds.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      _ParsedWorkIdsPreview(ids: _parsedWorkIds),
-                    ],
-                  ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _textController,
+                decoration: InputDecoration(
+                  labelText: S.of(context).workId,
+                  hintText: S.of(context).workIdHint,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.music_note),
                 ),
+                maxLines: 5,
+                autofocus: true,
+                onChanged: _handleInputChanged,
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text(S.of(context).cancel),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed:
-                          _parsedWorkIds.isEmpty ? null : _submitParsedIds,
-                      child: Text(
-                        _parsedWorkIds.isEmpty
-                            ? S.of(context).add
-                            : S.of(context).addNWorks(_parsedWorkIds.length),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              if (_parsedWorkIds.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _ParsedWorkIdsPreview(ids: _parsedWorkIds),
+              ],
             ],
           ),
-        ),
-      ),
+        );
+
+        final sheet = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BottomSheetHeader(
+              title: S.of(context).addWorks,
+              showCloseButton: isLandscape,
+            ),
+            const Divider(height: 1),
+            if (scrollWholeSheet)
+              form
+            else
+              Flexible(child: SingleChildScrollView(child: form)),
+            BottomSheetActionBar(
+              secondaryLabel: S.of(context).cancel,
+              onSecondaryPressed: () => Navigator.of(context).pop(),
+              primaryLabel: _parsedWorkIds.isEmpty
+                  ? S.of(context).add
+                  : S.of(context).addNWorks(_parsedWorkIds.length),
+              onPrimaryPressed: _parsedWorkIds.isEmpty
+                  ? null
+                  : _submitParsedIds,
+            ),
+          ],
+        );
+        return scrollWholeSheet ? SingleChildScrollView(child: sheet) : sheet;
+      },
     );
   }
 
@@ -158,12 +153,14 @@ class _ParsedWorkIdsPreview extends StatelessWidget {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 4),
-              Text(
-                S.of(context).detectedNWorkIds(ids.length),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
+              Expanded(
+                child: Text(
+                  S.of(context).detectedNWorkIds(ids.length),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),

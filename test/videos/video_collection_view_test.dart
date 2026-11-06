@@ -265,6 +265,72 @@ void main() {
     }
   });
 
+  testWidgets('Jable cards hide saved tags while MissAV cards show tags', (
+    tester,
+  ) async {
+    const jableVideo = VideoItem(
+      id: 'jable-tagged',
+      sourceKey: 'jable',
+      title: 'Jable video',
+      pageUrl: 'https://jable.tv/videos/tagged/',
+      tags: [
+        VideoLink(
+          label: 'Jable category',
+          url: 'https://jable.tv/categories/drama/',
+          kind: VideoLinkKind.category,
+        ),
+        VideoLink(
+          label: 'Jable tag',
+          url: 'https://jable.tv/tags/drama/',
+          kind: VideoLinkKind.tag,
+        ),
+      ],
+    );
+    const missavVideo = VideoItem(
+      id: 'missav-tagged',
+      sourceKey: 'missav',
+      title: 'MissAV video',
+      pageUrl: 'https://missav.ai/cn/tagged',
+      tags: [
+        VideoLink(
+          label: 'MissAV genre',
+          url: 'https://missav.ai/cn/genres/drama',
+          kind: VideoLinkKind.category,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(
+        const Column(
+          children: [
+            SizedBox(
+              width: 320,
+              child: VideoCard(
+                video: jableVideo,
+                layoutType: LayoutType.list,
+                onTap: null,
+              ),
+            ),
+            SizedBox(
+              width: 320,
+              child: VideoCard(
+                video: missavVideo,
+                layoutType: LayoutType.list,
+                onTap: null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Jable category'), findsNothing);
+    expect(find.text('Jable tag'), findsNothing);
+    expect(find.text('MissAV genre'), findsOneWidget);
+  });
+
   testWidgets('video cover decode stays within its physical display width', (
     tester,
   ) async {

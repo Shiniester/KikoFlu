@@ -4255,6 +4255,15 @@ class SEn extends S {
   String get librarySources => 'Sources';
 
   @override
+  String get libraryAccount => 'Account';
+
+  @override
+  String get libraryContent => 'Content';
+
+  @override
+  String get libraryLocal => 'Local';
+
+  @override
   String get libraryPages => 'Pages';
 
   @override
@@ -4285,7 +4294,7 @@ class SEn extends S {
 
   @override
   String get libraryPageOrderDescription =>
-      'Drag to change the page order in the sidebar.';
+      'Drag to change the page order within each sidebar group.';
 
   @override
   String get jpAsmrVerificationTitle => 'Verify JP-ASMR access';
@@ -4462,6 +4471,23 @@ class SEn extends S {
   String get videoSourceAccount => 'MissAV account';
 
   @override
+  String get videoJableAccount => 'Jable account';
+
+  @override
+  String get videoJableLoginRequired =>
+      'Sign in to Jable to view and manage your video favorites.';
+
+  @override
+  String get videoLoginHelp =>
+      'Sign in on the source website, then select Done to check your sign-in status.';
+
+  @override
+  String get videoLoginComplete => 'Done';
+
+  @override
+  String get videoJableSignedIn => 'Signed in to Jable';
+
+  @override
   String get videoCatalog => 'Browse videos';
 
   @override
@@ -4469,6 +4495,9 @@ class SEn extends S {
 
   @override
   String get videoRecentlyUpdated => 'Recently updated';
+
+  @override
+  String get videoPopular => 'Popular';
 
   @override
   String get videoNewReleases => 'New releases';
@@ -4511,18 +4540,18 @@ class SEn extends S {
 
   @override
   String get videoSourceUnavailable =>
-      'This source feature is unavailable in the app. Open it on MissAV.';
+      'This feature is unavailable in the app. Open the source website.';
 
   @override
   String get videoVerificationRequired =>
-      'MissAV requires browser verification. Verify access, then retry.';
+      'The video source requires browser verification. Verify access, then retry.';
 
   @override
   String get videoVerifyAccess => 'Verify access';
 
   @override
   String get videoVerificationHelp =>
-      'Complete verification on MissAV, then select Check access.';
+      'Complete verification on the source website, then select Check access.';
 
   @override
   String get videoVerificationContinue => 'Check access';
@@ -4541,30 +4570,15 @@ class SEn extends S {
 
   @override
   String get videoLoadFailed =>
-      'Videos could not be loaded. Retry or open MissAV.';
+      'Videos could not be loaded. Retry or open the source website.';
 
   @override
-  String get videoPlaybackFailed => 'Playback failed. Retry or open MissAV.';
+  String get videoPlaybackFailed =>
+      'Playback failed. Retry or open the source website.';
 
   @override
   String get videoDownloadFailed =>
       'Download failed. Retry from video downloads.';
-
-  @override
-  String get videoEmail => 'Email';
-
-  @override
-  String get videoRegisterOnSource => 'Register on MissAV';
-
-  @override
-  String get videoResetPasswordOnSource => 'Reset password on MissAV';
-
-  @override
-  String get videoPasswordOnSource => 'Change password on MissAV';
-
-  @override
-  String get videoAccountSourceHint =>
-      'These actions open MissAV. Select registration or password management on the website.';
 
   @override
   String get videoQuality => 'Quality';
@@ -4607,7 +4621,7 @@ class SEn extends S {
   String get videoDeletePlaylist => 'Delete playlist';
 
   @override
-  String get videoOpenSource => 'Open MissAV';
+  String get videoOpenSource => 'Open source website';
 
   @override
   String get videoDownloadDeleteConfirm =>

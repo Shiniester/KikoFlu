@@ -4,10 +4,15 @@ import '../../../l10n/app_localizations.dart';
 import '../../utils/age_rating.dart';
 import '../age_rating_chip.dart';
 import '../privacy_blur_cover.dart';
+import '../player/player_cover_widget.dart';
 
 const double _coverBadgeInset = 12;
 const double workCoverDetailRadius = 12;
 const double workCoverCompactRadius = 8;
+const workCoverDetailPadding = EdgeInsets.symmetric(
+  horizontal: 16,
+  vertical: 8,
+);
 
 class WorkCoverClip extends StatelessWidget {
   const WorkCoverClip({
@@ -29,75 +34,74 @@ class WorkCoverClip extends StatelessWidget {
 class WorkCoverFrame extends StatelessWidget {
   const WorkCoverFrame({
     super.key,
-    required this.isLandscape,
     required this.layers,
     this.showSubtitleBadge = false,
     this.showAgeRating = false,
     this.age,
     this.onTap,
+    this.heroTag,
   });
 
-  final bool isLandscape;
   final List<Widget> layers;
   final bool showSubtitleBadge;
   final bool showAgeRating;
   final String? age;
   final VoidCallback? onTap;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
-    final mediaSize = MediaQuery.sizeOf(context);
-
     return GestureDetector(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: workCoverDetailPadding,
         child: LayoutBuilder(
-          builder: (context, constraints) => Center(
-            heightFactor: 1,
-            child: WorkCoverClip(
+          builder: (context, constraints) {
+            final artwork = WorkCoverClip(
               cornerRadius: workCoverDetailRadius,
               child: Material(
                 color: Colors.transparent,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: isLandscape ? mediaSize.height * 0.8 : 500,
-                    maxWidth: isLandscape
-                        ? mediaSize.width * 0.45
-                        : double.infinity,
-                  ),
-                  child: PrivacyBlurCover(
-                    child: Stack(
-                      fit: StackFit.passthrough,
-                      children: [
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: SizedBox(
-                            width: constraints.maxWidth,
-                            child: Stack(
-                              fit: StackFit.passthrough,
-                              children: layers,
-                            ),
+                child: PrivacyBlurCover(
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: SizedBox(
+                          width: constraints.maxWidth,
+                          child: Stack(
+                            fit: StackFit.passthrough,
+                            children: layers,
                           ),
                         ),
-                        if (showAgeRating && AgeRatingFormatter.hasValue(age))
-                          Positioned(
-                            left: _coverBadgeInset,
-                            bottom: _coverBadgeInset,
-                            child: AgeRatingChip(
-                              key: const ValueKey('work-cover-age-badge'),
-                              age: age,
-                              compact: true,
-                            ),
+                      ),
+                      if (showAgeRating && AgeRatingFormatter.hasValue(age))
+                        Positioned(
+                          left: _coverBadgeInset,
+                          bottom: _coverBadgeInset,
+                          child: AgeRatingChip(
+                            key: const ValueKey('work-cover-age-badge'),
+                            age: age,
+                            compact: true,
                           ),
-                        if (showSubtitleBadge) const _SubtitleBadge(),
-                      ],
-                    ),
+                        ),
+                      if (showSubtitleBadge) const _SubtitleBadge(),
+                    ],
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+            return Center(
+              heightFactor: 1,
+              child: heroTag == null
+                  ? artwork
+                  : PlayerCoverPreviewHero(
+                      tag: heroTag!,
+                      cornerRadius: workCoverDetailRadius,
+                      child: artwork,
+                    ),
+            );
+          },
         ),
       ),
     );

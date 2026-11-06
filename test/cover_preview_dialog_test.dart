@@ -92,6 +92,125 @@ void main() {
     expect(clip.borderRadius, BorderRadius.circular(12));
   });
 
+  testWidgets('show uses supplied bytes for the image and aspect ratio', (
+    tester,
+  ) async {
+    final bytes = (await tester.runAsync(() => _createPngBytes(300, 200)))!;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                key: const ValueKey('open-preview-bytes'),
+                onPressed: () => unawaited(
+                  CoverPreviewDialog.show(
+                    context,
+                    imageUrl: 'https://example.test/cover.jpg',
+                    imageBytes: bytes,
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.runAsync(
+      () => precacheImage(
+        MemoryImage(bytes),
+        tester.element(find.byKey(const ValueKey('open-preview-bytes'))),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-preview-bytes')));
+    await tester.pumpAndSettle();
+
+    final frame = tester.getSize(
+      find.byKey(const ValueKey('cover-preview-image-frame')),
+    );
+    expect(frame.width / frame.height, closeTo(3 / 2, 0.001));
+    final image = tester.widget<Image>(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('cover-preview-image')),
+            matching: find.byType(Image),
+          )
+          .first,
+    );
+    expect(image.image, isA<MemoryImage>());
+    expect((image.image as MemoryImage).bytes, same(bytes));
+
+    await _tapPreviewCenter(tester);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('show ignores a concurrent preview on the same navigator', (
+    tester,
+  ) async {
+    await _pumpShowHost(tester, (context) {
+      unawaited(CoverPreviewDialog.show(context, localPath: 'missing.jpg'));
+      unawaited(CoverPreviewDialog.show(context, localPath: 'missing.jpg'));
+    });
+
+    await tester.tap(find.byKey(const ValueKey('open-preview-show')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CoverPreviewDialog), findsOneWidget);
+
+    await _tapPreviewCenter(tester);
+    await tester.pumpAndSettle();
+    expect(find.byType(CoverPreviewDialog), findsNothing);
+    expect(find.text('open'), findsOneWidget);
+  });
+
+  testWidgets('show skips when its source route is covered while resolving', (
+    tester,
+  ) async {
+    await _pumpShowHost(tester, (context) {
+      unawaited(CoverPreviewDialog.show(context, localPath: 'missing.jpg'));
+      unawaited(
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('next page')),
+          ),
+        ),
+      );
+    });
+
+    await tester.tap(find.byKey(const ValueKey('open-preview-show')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CoverPreviewDialog), findsNothing);
+    expect(find.text('next page'), findsOneWidget);
+  });
+
+  testWidgets('show ignores a request while the preview is closing', (
+    tester,
+  ) async {
+    await _pumpShowHost(
+      tester,
+      (context) =>
+          unawaited(CoverPreviewDialog.show(context, localPath: 'missing.jpg')),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('open-preview-show')));
+    await tester.pumpAndSettle();
+    final sourceContext = tester.element(
+      find.byKey(const ValueKey('open-preview-show')),
+    );
+
+    await _tapPreviewCenter(tester);
+    await tester.pump();
+    unawaited(CoverPreviewDialog.show(sourceContext, localPath: 'missing.jpg'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CoverPreviewDialog), findsNothing);
+    expect(find.text('open'), findsOneWidget);
+  });
+
   testWidgets('single tap starts closing on the next frame', (tester) async {
     final observer = _RecordingNavigatorObserver();
     await _pumpPreviewHost(tester, observer: observer);
@@ -315,9 +434,48 @@ Future<void> _pumpPreviewHost(
   await tester.pumpAndSettle();
 }
 
+Future<void> _pumpShowHost(
+  WidgetTester tester,
+  ValueChanged<BuildContext> onOpen,
+) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: S.localizationsDelegates,
+        supportedLocales: S.supportedLocales,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              key: const ValueKey('open-preview-show'),
+              onPressed: () => onOpen(context),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 Future<void> _tapPreviewCenter(WidgetTester tester) {
   final background = find.byKey(const ValueKey('cover-preview-background'));
   return tester.tapAt(tester.getCenter(background));
+}
+
+Future<Uint8List> _createPngBytes(int width, int height) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawRect(
+    ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    ui.Paint()..color = Colors.blue,
+  );
+  final image = await recorder.endRecording().toImage(width, height);
+  try {
+    final data = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  } finally {
+    image.dispose();
+  }
 }
 
 class _RecordingNavigatorObserver extends NavigatorObserver {

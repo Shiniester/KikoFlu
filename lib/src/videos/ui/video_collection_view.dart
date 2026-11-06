@@ -311,13 +311,15 @@ class VideoCard extends ConsumerWidget {
       );
 
       final actors = video.actors;
-      final tags = video.cardTags;
+      final tags = video.sourceKey == 'jable'
+          ? const <VideoLink>[]
+          : video.cardTags;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           VideoDurationInfo(
-            videoId: video.id,
+            videoId: video.storageKey,
             seconds: video.durationSeconds,
             isList: isList,
           ),
@@ -561,7 +563,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
           collectionCoverRadius(constraints.maxWidth),
         ),
         child: Stack(
-          key: ValueKey('video-cover-${video.id}'),
+          key: ValueKey('video-cover-${video.storageKey}'),
           fit: StackFit.expand,
           children: [
             PrivacyBlurCover(child: _image(video, cacheWidth, s)),
@@ -581,7 +583,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                           fontSize: (isLandscape ? 13.0 : 11.0) * infoScale,
                         ),
                       ),
-                      key: ValueKey('video-number-${video.id}'),
+                      key: ValueKey('video-number-${video.storageKey}'),
                     ),
                   ),
                 ),
@@ -630,7 +632,9 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                                 message: s.releaseDateInfo,
                                 child: badge(
                                   Text(video.releaseDate!, style: textStyle),
-                                  key: ValueKey('video-release-${video.id}'),
+                                  key: ValueKey(
+                                    'video-release-${video.storageKey}',
+                                  ),
                                 ),
                               ),
                             ),
@@ -655,7 +659,11 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
         child: Center(child: Icon(Icons.movie_outlined)),
       );
     }
-    final key = (videoId: video.id, url: video.cover, cacheWidth: cacheWidth);
+    final key = (
+      videoId: video.storageKey,
+      url: video.cover,
+      cacheWidth: cacheWidth,
+    );
     if (_loadingKey != key) {
       _loadTimer?.cancel();
       _loadTimer = null;
@@ -674,7 +682,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
       });
     }
     return Image.network(
-      key: ValueKey('video-cover-${video.id}-$_retryRevision'),
+      key: ValueKey('video-cover-${video.storageKey}-$_retryRevision'),
       video.cover,
       cacheWidth: cacheWidth,
       fit: BoxFit.cover,

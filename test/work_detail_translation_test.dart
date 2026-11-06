@@ -322,7 +322,11 @@ void main() {
         tester,
         () => find.text('Translated secret.md').evaluate().isNotEmpty,
       );
-      await tester.ensureVisible(find.byType(InlineTranslationButton));
+      await tester.scrollUntilVisible(
+        find.byType(InlineTranslationButton),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.byType(InlineTranslationButton));
       await tester.pump();
       expect(

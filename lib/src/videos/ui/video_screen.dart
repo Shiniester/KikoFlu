@@ -16,20 +16,27 @@ import '../../widgets/library_page_scaffold.dart';
 import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../../providers/works_provider.dart';
+import '../../services/storage_service.dart';
+import '../jable_client.dart';
+import '../jable_verification.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
 import '../video_downloads.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
+import '../video_source_client.dart';
 import '../video_browse_preferences.dart';
+import 'jable_account_screen.dart';
 import 'video_account_screen.dart';
+import 'video_catalog_sort.dart';
 import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 import 'video_downloads_screen.dart';
 import 'video_search_screen.dart';
 
 typedef _VideoPageCacheKey = ({
+  String sourceKey,
   String url,
   String locale,
   int sessionGeneration,
@@ -57,48 +64,71 @@ class _VideoRecommendationState {
 }
 
 class VideoScreen extends ConsumerStatefulWidget {
-  const VideoScreen({super.key, this.active = true}) : initialUrl = null;
+  const VideoScreen({super.key, this.active = true})
+    : initialUrl = null,
+      sourceKey = null;
 
   const VideoScreen.catalog({
     super.key,
     required String url,
+    this.sourceKey = 'missav',
     this.active = true,
   }) : initialUrl = url;
 
   static Widget searchScreen(
     BuildContext context, {
-    required MissavClient client,
+    required VideoSourceClient client,
     String? collectionKey,
     List<VideoLink> initialFilters = const [],
+    bool Function()? isSourceCurrent,
+    Future<void> Function(BuildContext)? onOpenAccount,
   }) {
     final s = S.of(context);
+    final missav = client is MissavClient ? client : null;
+    final jable = client is JableClient ? client : null;
     final accountCollection =
         collectionKey == 'favorites' || collectionKey == 'history';
+    bool sourceIsCurrent() => isSourceCurrent?.call() ?? true;
     return GlobalAudioPlayerWrapper(
       child: VideoSearchScreen(
         title: s.search,
         initialFilters: initialFilters,
+        sourceKey: client.sourceKey,
+        searchFilterKinds: client.searchFilterKinds,
+        isSourceCurrent: isSourceCurrent,
         historyContext: UnifiedSearchHistoryContext(
           contentType: 'video',
           entryScope: accountCollection ? collectionKey! : 'source-directory',
-          source: 'missav',
+          source: client.sourceKey,
         ),
         search: (query, filters, isCurrent) async {
+          bool requestIsCurrent() => isCurrent() && sourceIsCurrent();
+          if (!requestIsCurrent()) {
+            return const VideoSearchResults.collection([]);
+          }
           if (accountCollection) {
-            final collectionVideos = await client.searchCollection(
-              client.collectionUrl(collectionKey!),
-              query,
-              isCurrent: isCurrent,
-            );
-            if (filters.isEmpty || collectionVideos.isEmpty || !isCurrent()) {
+            final collectionVideos = missav != null
+                ? await missav.searchCollection(
+                    missav.collectionUrl(collectionKey!),
+                    query,
+                    isCurrent: requestIsCurrent,
+                  )
+                : await jable!.account.searchFavorites(
+                    query,
+                    isCurrent: requestIsCurrent,
+                  );
+            if (!requestIsCurrent()) {
+              return const VideoSearchResults.collection([]);
+            }
+            if (filters.isEmpty || collectionVideos.isEmpty) {
               return VideoSearchResults.collection(collectionVideos);
             }
             final filteredVideos = await client.searchWithFilters(
               query,
               filters,
-              isCurrent: isCurrent,
+              isCurrent: requestIsCurrent,
             );
-            if (!isCurrent()) {
+            if (!requestIsCurrent()) {
               return const VideoSearchResults.collection([]);
             }
             final collectionIds = collectionVideos
@@ -111,38 +141,82 @@ class VideoScreen extends ConsumerStatefulWidget {
             );
           }
           if (query.trim().isEmpty && filters.length == 1) {
-            return VideoSearchResults.catalog(
-              await client.browse(filters.single.url),
-            );
+            final page = await client.browse(filters.single.url);
+            return requestIsCurrent()
+                ? VideoSearchResults.catalog(page)
+                : const VideoSearchResults.collection([]);
           }
           if (filters.isNotEmpty) {
+            final videos = await client.searchWithFilters(
+              query,
+              filters,
+              isCurrent: requestIsCurrent,
+            );
             return VideoSearchResults.collection(
-              await client.searchWithFilters(
-                query,
-                filters,
-                isCurrent: isCurrent,
-              ),
+              requestIsCurrent() ? videos : const [],
             );
           }
-          return VideoSearchResults.catalog(await client.search(query));
+          final page = await client.search(query);
+          return requestIsCurrent()
+              ? VideoSearchResults.catalog(page)
+              : const VideoSearchResults.collection([]);
         },
-        loadFilters: accountCollection
+        loadFilters: accountCollection || client.searchFilterKinds.isEmpty
             ? null
-            : (kind, pageUrl) =>
-                  client.searchFilterOptions(kind, pageUrl: pageUrl),
-        browsePage: client.browse,
-        accountClient: accountCollection ? client : null,
-        verifyAccess: (searchContext, verification) => verifyMissavAccess(
-          searchContext,
-          client,
-          sourceUrl: verification.sourceUrl ?? client.homeUrl,
-        ),
+            : (kind, pageUrl) async {
+                if (!sourceIsCurrent()) {
+                  throw StateError('Video source changed during search.');
+                }
+                final page = await client.searchFilterOptions(
+                  kind,
+                  pageUrl: pageUrl,
+                );
+                if (!sourceIsCurrent()) {
+                  throw StateError('Video source changed during search.');
+                }
+                return page;
+              },
+        browsePage: (url) async {
+          if (!sourceIsCurrent()) {
+            throw StateError('Video source changed during search.');
+          }
+          final page = await client.browse(url);
+          if (!sourceIsCurrent()) {
+            throw StateError('Video source changed during search.');
+          }
+          return page;
+        },
+        accountClient: accountCollection ? missav : null,
+        jableAccount: collectionKey == 'favorites' ? jable?.account : null,
+        verifyAccess: (searchContext, verification) async {
+          if (!sourceIsCurrent()) return false;
+          final verified = jable != null
+              ? await verifyJableAccess(
+                  searchContext,
+                  jable,
+                  sourceUrl: verification.sourceUrl ?? client.homeUrl,
+                )
+              : await verifyMissavAccess(
+                  searchContext,
+                  missav!,
+                  sourceUrl: verification.sourceUrl ?? client.homeUrl,
+                );
+          return sourceIsCurrent() && verified;
+        },
+        onOpenAccount: jable == null
+            ? null
+            : onOpenAccount ??
+                  (searchContext) => pushWorkDetailRoute(
+                    searchContext,
+                    builder: (_) => const JableAccountScreen(),
+                  ),
       ),
     );
   }
 
   final bool active;
   final String? initialUrl;
+  final String? sourceKey;
 
   @override
   ConsumerState<VideoScreen> createState() => _VideoScreenState();
@@ -175,6 +249,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   static const _maxCachedPages = 4;
 
   late final MissavClient _client;
+  late final JableClient _jableClient;
+  late final JableAccount _jableAccount;
+  late VideoSourceClient _sourceClient;
+  late String _sourceKey;
   late final VideoLibrary _library;
   late final VideoDownloads _downloads;
   VideoCatalogPage? _page;
@@ -182,11 +260,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   bool _verifyingAccess = false;
   Object? _error;
   String? _errorSourceUrl;
-  MissavVerificationRequiredException? _verificationError;
+  VideoVerificationRequired? _verificationError;
   Future<void> Function()? _retryRequest;
   int _request = 0;
+  int _sourceGeneration = 0;
   bool _dependenciesReady = false;
   bool _accountWasLoggedIn = false;
+  bool _jableAccountWasLoggedIn = false;
+  int _jableAccountRevision = 0;
   String? _accountName;
   String? _loadingUrl;
   String? _pendingAccountReloadUrl;
@@ -222,11 +303,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   int? _recommendationStatePageSize;
   bool _recommendationsActive = false;
   bool _pendingRecommendationReload = false;
+  bool _sourceChangePending = false;
 
   @override
   void initState() {
     super.initState();
+    _sourceKey = widget.sourceKey ?? ref.read(videoSelectedSourceProvider);
+    _sourceClient = ref.read(videoSourceClientProvider(_sourceKey));
     _client = ref.read(videoClientProvider);
+    _jableClient = ref.read(jableVideoClientProvider);
+    _jableAccount = _jableClient.account;
+    _jableAccountWasLoggedIn = _jableAccount.isLoggedIn;
+    _jableAccountRevision = _jableAccount.revision;
+    _jableAccount.addListener(_onJableAccountChanged);
     _library = ref.read(videoLibraryProvider);
     _downloads = ref.read(videoDownloadsProvider);
     _accountWasLoggedIn = _client.isLoggedIn;
@@ -273,7 +362,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final languageTag = Localizations.localeOf(context).toLanguageTag();
     if (_sourceLocaleTag == languageTag) return;
     _sourceLocaleTag = languageTag;
-    _client.setLocale(languageTag);
+    _sourceClient.setLocale(languageTag);
     _resetPlaylistCoverAccess(null);
     if (!_dependenciesReady) return;
     final recommendationsActive = _recommendationsActive;
@@ -323,9 +412,65 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
+  Future<void> _selectSource(String sourceKey) async {
+    if (!videoSourceOptions.any((source) => source.key == sourceKey)) return;
+    if (ref.read(videoSelectedSourceProvider) != sourceKey) {
+      ref.read(videoSelectedSourceProvider.notifier).state = sourceKey;
+    }
+    if (_sourceKey != sourceKey) _changeSource(sourceKey);
+    await StorageService.setString('video_selected_source', sourceKey);
+  }
+
+  void _changeSource(String sourceKey) {
+    if (!mounted || _sourceKey == sourceKey) return;
+    _sourceGeneration++;
+    _discardCachedJableFavorites();
+    _resetPlaylistCoverAccess(null);
+    _sourceKey = sourceKey;
+    _sourceClient = ref.read(videoSourceClientProvider(sourceKey));
+    _sourceLocaleTag = null;
+    _sourceChangePending = true;
+    _activeCollectionKey = null;
+    _pendingAccountReloadUrl = null;
+    _pendingRecommendationReload = false;
+    _recommendationsActive = false;
+    _clearRecommendationStates();
+    ++_request;
+    final cancelToken = _activeBrowseCancelToken;
+    if (cancelToken != null && !cancelToken.isCancelled) {
+      cancelToken.cancel('Video source changed.');
+    }
+    _activeBrowseCancelToken = null;
+    _loadingUrl = null;
+    _sourceLocaleTag = Localizations.localeOf(context).toLanguageTag();
+    _sourceClient.setLocale(_sourceLocaleTag!);
+    _discardStaging();
+    if (mounted) {
+      setState(() {
+        _page = null;
+        _publishedFailedPageUrl = null;
+        _publishedFailedCovers.clear();
+        _error = null;
+        _verificationError = null;
+        _retryRequest = () => _loadUrl(_sourceClient.defaultCatalogUrl);
+        _loading = true;
+      });
+    }
+    if (!_dependenciesReady ||
+        !widget.active ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    _sourceChangePending = false;
+    unawaited(_loadUrl(_sourceClient.defaultCatalogUrl));
+  }
+
   @override
   void didUpdateWidget(VideoScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.sourceKey != null && oldWidget.sourceKey != widget.sourceKey) {
+      _changeSource(widget.sourceKey!);
+    }
     if (oldWidget.active &&
         !widget.active &&
         _playlistCoverDirectoryPath != null) {
@@ -338,6 +483,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (_resumePlaylistCoverAccess()) return;
     }
     if (!oldWidget.active && widget.active && _page == null) {
+      if (_sourceChangePending) {
+        _sourceChangePending = false;
+        _scheduleLoadUrl(_sourceClient.defaultCatalogUrl);
+        return;
+      }
       if (_recommendationsActive) {
         if (_pendingRecommendationReload) {
           _pendingRecommendationReload = false;
@@ -367,14 +517,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _retryRequest = () => _initialize();
     try {
       await Future.wait([
-        _client.initialize(),
+        _sourceClient.initialize(),
         _library.initialize(),
         _downloads.initialize(),
       ]);
       if (!mounted) return;
       _dependenciesReady = true;
-      final url =
-          _pendingAccountReloadUrl ?? widget.initialUrl ?? _defaultCatalogUrl;
+      final url = _sourceChangePending
+          ? _sourceClient.defaultCatalogUrl
+          : _pendingAccountReloadUrl ?? widget.initialUrl ?? _defaultCatalogUrl;
+      _sourceChangePending = false;
       _pendingAccountReloadUrl = null;
       await _loadUrl(url);
     } catch (error) {
@@ -400,6 +552,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _accountWasLoggedIn = isLoggedIn;
     _accountName = accountName;
     _observedSessionGeneration = sessionGeneration;
+    if (_sourceKey != 'missav') return;
     if (!mounted) return;
     _resetPlaylistCoverAccess(null);
 
@@ -454,8 +607,106 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
+  void _onJableAccountChanged() {
+    final isLoggedIn = _jableAccount.isLoggedIn;
+    final revision = _jableAccount.revision;
+    final loginChanged = isLoggedIn != _jableAccountWasLoggedIn;
+    if (isLoggedIn == _jableAccountWasLoggedIn &&
+        revision == _jableAccountRevision) {
+      return;
+    }
+    _jableAccountWasLoggedIn = isLoggedIn;
+    _jableAccountRevision = revision;
+    if (_sourceKey != 'jable' || !_isJableFavoritesActive) return;
+    if (!mounted) return;
+
+    // Session import must keep the pending verification retry current.
+    if (_verifyingAccess) {
+      _discardCachedJableFavorites();
+      _discardStaging();
+      setState(() {
+        _page = null;
+        _localPage = 1;
+      });
+      return;
+    }
+
+    const url = JableAccount.favoritesUrl;
+    if (!isLoggedIn) {
+      _request++;
+      _loadingUrl = null;
+      _discardCachedJableFavorites();
+      final cancelToken = _activeBrowseCancelToken;
+      if (cancelToken != null && !cancelToken.isCancelled) {
+        cancelToken.cancel('Jable account is signed out.');
+      }
+      _activeBrowseCancelToken = null;
+      _discardStaging();
+      _pendingAccountReloadUrl = null;
+      setState(() {
+        _page = null;
+        _localPage = 1;
+        _error = const JableLoginRequiredException(sourceUrl: url);
+        _verificationError = null;
+        _retryRequest = () => _loadUrl(url, collectionKey: 'favorites');
+        _loading = false;
+      });
+      return;
+    }
+    if (loginChanged &&
+        _loadingUrl != null &&
+        _isJableFavoritesUrl(_loadingUrl!)) {
+      return;
+    }
+
+    _request++;
+    _loadingUrl = null;
+    _discardCachedJableFavorites();
+    final cancelToken = _activeBrowseCancelToken;
+    if (cancelToken != null && !cancelToken.isCancelled) {
+      cancelToken.cancel('Jable favorites changed.');
+    }
+    _activeBrowseCancelToken = null;
+    _discardStaging();
+    setState(() {
+      _page = null;
+      _localPage = 1;
+      _error = null;
+      _verificationError = null;
+      _retryRequest = () => _loadUrl(url, collectionKey: 'favorites');
+      _loading = false;
+    });
+    if (!_dependenciesReady || !widget.active || _route?.isCurrent == false) {
+      _pendingAccountReloadUrl = url;
+      return;
+    }
+    _pendingAccountReloadUrl = null;
+    unawaited(_loadUrl(url, collectionKey: 'favorites'));
+  }
+
+  bool get _isJableFavoritesActive {
+    if (_sourceKey != 'jable') return false;
+    if (_activeCollectionKey == 'favorites') return true;
+    final url = _page?.url;
+    return url != null && _isJableFavoritesUrl(url);
+  }
+
+  bool _isJableFavoritesUrl(String url) {
+    final uri = Uri.tryParse(url);
+    return uri != null && JableAccount.isFavoritesUri(uri);
+  }
+
+  void _discardCachedJableFavorites() {
+    _pageCache.removeWhere((key, _) => _isJableFavoritesUrl(key.url));
+  }
+
   void _onRouteStatusChanged(AnimationStatus _) {
     if (!mounted || _verifyingAccess) return;
+    if (_sourceChangePending && _route?.isCurrent == true && widget.active) {
+      _sourceChangePending = false;
+      unawaited(_loadUrl(_sourceClient.defaultCatalogUrl));
+      return;
+    }
     if (_pendingRecommendationReload &&
         _route?.isCurrent == true &&
         widget.active) {
@@ -479,14 +730,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   _VideoPageCacheKey _pageCacheKey(String url) => (
+    sourceKey: _sourceKey,
     url: url,
     locale: _sourceLocaleTag ?? Localizations.localeOf(context).toLanguageTag(),
-    sessionGeneration: _client.sessionGeneration,
-    isLoggedIn: _client.isLoggedIn,
-    accountName: _client.accountName,
+    sessionGeneration: _sourceKey == 'missav' ? _client.sessionGeneration : 0,
+    isLoggedIn: _sourceKey == 'missav' && _client.isLoggedIn,
+    accountName: _sourceKey == 'missav' ? _client.accountName : null,
   );
 
   VideoCatalogPage? _takeCachedPage(String url) {
+    if (_isJableFavoritesUrl(url)) return null;
     final key = _pageCacheKey(url);
     final page = _pageCache.remove(key);
     if (page != null) _pageCache[key] = page;
@@ -494,6 +747,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _rememberPage(String url, VideoCatalogPage page) {
+    if (_isJableFavoritesUrl(url)) return;
     final key = _pageCacheKey(url);
     _pageCache.remove(key);
     _pageCache[key] = page;
@@ -606,7 +860,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _onStagingCacheWidthChanged(request, cacheWidth);
     _stagingVisibleVideoIds
       ..clear()
-      ..addAll(items.map((item) => item.id));
+      ..addAll(items.map((item) => item.storageKey));
     _stagingVisibilityReported = true;
     _checkStagingReady();
   }
@@ -674,13 +928,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       return;
     }
     final videosById = {
-      for (final video in _stagingVideos(page)) video.id: video,
+      for (final video in _stagingVideos(page)) video.storageKey: video,
     };
     for (final id in _stagingVisibleVideoIds) {
       final video = videosById[id];
       if (video == null || video.cover.isEmpty) continue;
       if (!_stagingReadyCovers.contains((
-        videoId: video.id,
+        videoId: video.storageKey,
         url: video.cover,
         cacheWidth: _stagingCacheWidth,
       ))) {
@@ -754,7 +1008,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     VideoCatalogPage? refreshedPage;
     Object? refreshError;
     StackTrace? refreshTrace;
-    final browseFuture = _client
+    final browseFuture = _sourceClient
         .browse(url, cancelToken: cancelToken, onParsed: onParsed)
         .then<void>(
           (page) {
@@ -838,10 +1092,20 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       }
     } catch (error) {
       if (!mounted || request != _request) return;
+      final loginRequiredFavorites =
+          _sourceKey == 'jable' &&
+          _isJableFavoritesUrl(url) &&
+          error is JableLoginRequiredException;
       setState(() {
         _loading = false;
         _recordError(error, requestedUrl: url);
         _discardStaging();
+        if (loginRequiredFavorites) {
+          _page = null;
+          _localPage = 1;
+          _publishedFailedPageUrl = null;
+          _publishedFailedCovers.clear();
+        }
       });
     } finally {
       if (identical(_activeBrowseCancelToken, cancelToken)) {
@@ -853,26 +1117,38 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _search({List<VideoLink> initialFilters = const []}) async {
     final collectionKey = _activeCollectionKey;
+    final sourceKey = _sourceKey;
+    final sourceClient = _sourceClient;
+    final sourceGeneration = _sourceGeneration;
+    bool isSourceCurrent() =>
+        mounted &&
+        _sourceKey == sourceKey &&
+        _sourceGeneration == sourceGeneration &&
+        identical(_sourceClient, sourceClient);
+
     _pausePlaylistCoverAccess();
     await pushWorkDetailRoute(
       context,
       builder: (searchContext) => VideoScreen.searchScreen(
         searchContext,
-        client: _client,
+        client: sourceClient,
         collectionKey: collectionKey,
         initialFilters: initialFilters,
+        isSourceCurrent: isSourceCurrent,
+        onOpenAccount: (searchContext) {
+          if (!isSourceCurrent()) return Future<void>.value();
+          return _openJableAccountFromSearch(searchContext);
+        },
       ),
     );
   }
 
   void _recordError(Object error, {String? requestedUrl}) {
     _error = error;
-    _errorSourceUrl = error is MissavException
+    _errorSourceUrl = error is VideoSourceException
         ? error.sourceUrl ?? requestedUrl
         : requestedUrl;
-    _verificationError = error is MissavVerificationRequiredException
-        ? error
-        : null;
+    _verificationError = error is VideoVerificationRequired ? error : null;
   }
 
   Future<void> _retryCurrentPage() async {
@@ -887,23 +1163,38 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   Future<void> _verifyAndRetry() async {
     final verification = _verificationError;
     if (verification == null) return;
+    final sourceKey = _sourceKey;
+    final sourceClient = _sourceClient;
+    final request = _request;
     final retry =
         _retryRequest ??
         () => _loadUrl(widget.initialUrl ?? _defaultCatalogUrl);
     _verifyingAccess = true;
     var verified = false;
     try {
-      verified = await verifyMissavAccess(
-        context,
-        _client,
-        sourceUrl: verification.sourceUrl ?? _client.homeUrl,
-      );
+      verified = sourceKey == 'jable'
+          ? await ref.read(jableAccessVerifierProvider)(
+              context,
+              _jableClient,
+              sourceUrl: verification.sourceUrl ?? sourceClient.homeUrl,
+            )
+          : await verifyMissavAccess(
+              context,
+              _client,
+              sourceUrl: verification.sourceUrl ?? sourceClient.homeUrl,
+            );
     } catch (_) {
       verified = false;
     } finally {
       _verifyingAccess = false;
     }
-    if (!mounted) return;
+    if (!mounted ||
+        request != _request ||
+        sourceKey != _sourceKey ||
+        !identical(sourceClient, _sourceClient) ||
+        verification != _verificationError) {
+      return;
+    }
     final pendingAccountReloadUrl = _pendingAccountReloadUrl;
     _pendingAccountReloadUrl = null;
     if (verified) {
@@ -916,25 +1207,27 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
+  bool _isMetadataLink(VideoLink link) => switch (link.kind) {
+    VideoLinkKind.category ||
+    VideoLinkKind.actor ||
+    VideoLinkKind.tag ||
+    VideoLinkKind.studio => true,
+    _ => link.cardMetadataRoute != null,
+  };
+
   Future<void> _openCatalog(VideoLink link) {
-    final isMetadataLink = switch (link.kind) {
-      VideoLinkKind.category ||
-      VideoLinkKind.actor ||
-      VideoLinkKind.tag ||
-      VideoLinkKind.studio => true,
-      _ => link.cardMetadataRoute != null,
-    };
+    final isMetadataLink = _isMetadataLink(link);
     if (isMetadataLink) return _search(initialFilters: [link]);
     return _loadUrl(link.url);
   }
 
   String _catalogUrl(String path) {
-    final home = Uri.parse(_client.homeUrl);
+    final home = Uri.parse(_sourceClient.homeUrl);
     final basePath = home.path.replaceFirst(RegExp(r'/+$'), '');
     return home.replace(path: '$basePath/$path').toString();
   }
 
-  String get _defaultCatalogUrl => _catalogUrl('release');
+  String get _defaultCatalogUrl => _sourceClient.defaultCatalogUrl;
 
   void _selectRecommendations() {
     _openRecommendations(refresh: _recommendationsActive);
@@ -1000,7 +1293,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _VideoRecommendationSnapshot snapshot,
   ) => VideoCatalogPage(
     title: S.of(context).videoRecommendedForYou,
-    url: _client.homeUrl,
+    url: _sourceClient.homeUrl,
     videos: snapshot.videos,
   );
 
@@ -1256,6 +1549,26 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   List<VideoLink> _approvedCatalogLinks(S s) {
+    if (_sourceKey == 'jable') {
+      VideoLink entry(String label, String path, VideoLinkKind kind) =>
+          VideoLink(label: label, url: _catalogUrl(path), kind: kind);
+      return [
+        entry(s.comicCategories, 'categories/', VideoLinkKind.category),
+        entry(s.videoDetailActors, 'models/', VideoLinkKind.actor),
+        entry(s.videoNewReleases, 'new-release/', VideoLinkKind.navigation),
+        entry(
+          s.videoChineseSubtitles,
+          'categories/chinese-subtitle/',
+          VideoLinkKind.category,
+        ),
+        entry(
+          s.videoRecentlyUpdated,
+          'latest-updates/',
+          VideoLinkKind.navigation,
+        ),
+        entry(s.videoPopular, 'hot/', VideoLinkKind.navigation),
+      ];
+    }
     final sourceUrls = _sourceCatalogUrls();
     VideoLink entry(String label, String slug) => VideoLink(
       label: label,
@@ -1287,17 +1600,55 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     );
   }
 
-  Future<void> _openDetails(VideoItem video) {
+  Future<void> _openDetails(VideoItem video) async {
     _pausePlaylistCoverAccess();
+    _prepareJableFavoritesRefresh();
     final collectionKey = switch (_activeCollectionKey) {
       'favorites' || 'history' => _activeCollectionKey,
       _ => null,
     };
-    return pushWorkDetailRoute(
+    await pushWorkDetailRoute(
       context,
       builder: (_) =>
           VideoDetailsScreen(video: video, searchCollectionKey: collectionKey),
     );
+    await _refreshPendingJableFavorites();
+  }
+
+  Future<void> _openJableAccount() async {
+    _prepareJableFavoritesRefresh();
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => const JableAccountScreen(),
+    );
+    await _refreshPendingJableFavorites();
+  }
+
+  Future<void> _openJableAccountFromSearch(BuildContext searchContext) async {
+    _prepareJableFavoritesRefresh();
+    await pushWorkDetailRoute(
+      searchContext,
+      builder: (_) => const JableAccountScreen(),
+    );
+    await _refreshPendingJableFavorites();
+  }
+
+  void _prepareJableFavoritesRefresh() {
+    if (_isJableFavoritesActive) {
+      _pendingAccountReloadUrl = JableAccount.favoritesUrl;
+    }
+  }
+
+  Future<void> _refreshPendingJableFavorites() async {
+    final url = _pendingAccountReloadUrl;
+    if (url == null ||
+        !_isJableFavoritesActive ||
+        !widget.active ||
+        _route?.isCurrent == false) {
+      return;
+    }
+    _pendingAccountReloadUrl = null;
+    await _loadUrl(url, collectionKey: 'favorites');
   }
 
   bool _isCollectionLink(VideoLink link) {
@@ -1328,6 +1679,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   String? _collectionKeyForUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (_sourceKey == 'jable' &&
+        uri != null &&
+        JableAccount.isFavoritesUri(uri)) {
+      return 'favorites';
+    }
+    if (_sourceKey != 'missav') return null;
     final path = _catalogPath(url);
     if (path == null) return null;
     final segments = path.split('/');
@@ -1452,8 +1810,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _openCollection(String key) =>
-      _loadUrl(_client.collectionUrl(key), collectionKey: key);
+  Future<void> _openCollection(String key) {
+    if (_sourceKey == 'jable') {
+      if (key != 'favorites') return Future<void>.value();
+      return _loadUrl(JableAccount.favoritesUrl, collectionKey: 'favorites');
+    }
+    if (_sourceKey != 'missav') return Future<void>.value();
+    return _loadUrl(_client.collectionUrl(key), collectionKey: key);
+  }
 
   IconData _directoryIcon(VideoLink link) => switch (link.kind) {
     VideoLinkKind.actor => Icons.person_outline,
@@ -1464,10 +1828,30 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _ => Icons.explore_outlined,
   };
 
+  IconData _catalogDrawerIcon(VideoLink link) {
+    switch (_catalogPath(link.url)) {
+      case 'new':
+      case 'latest-updates':
+        return Icons.update;
+      case 'release':
+      case 'new-release':
+        return Icons.new_releases_outlined;
+      case 'chinese-subtitle':
+      case 'categories/chinese-subtitle':
+        return Icons.closed_caption_outlined;
+      case 'weekly-hot':
+      case 'hot':
+        return Icons.local_fire_department_outlined;
+      case 'uncensored-leak':
+        return Icons.visibility_outlined;
+    }
+    return _directoryIcon(link);
+  }
+
   Widget _collectionLinkTile(VideoLink link) {
     final icon = Icon(_directoryIcon(link));
     Widget? trailing;
-    if (link.kind == VideoLinkKind.actor) {
+    if (link.kind == VideoLinkKind.actor && _sourceKey == 'missav') {
       final s = S.of(context);
       trailing = PopupMenuButton<String>(
         tooltip: link.label,
@@ -1871,6 +2255,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final error = _error;
     if (error == null) return s.videoLoadFailed;
     if (_verificationError != null) return s.videoVerificationRequired;
+    if (error is JableLoginRequiredException) {
+      return s.videoJableLoginRequired;
+    }
     if (error is MissavAuthenticationException) return s.videoLoginRequired;
     final normalized = error.toString().toLowerCase();
     if (normalized.contains('login') || normalized.contains('authentication')) {
@@ -1880,6 +2267,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   List<VideoLink> _collectionLinksForContent(VideoCatalogPage page) {
+    if (_sourceKey != 'missav') return const [];
     final collectionKey = _collectionKeyForUrl(page.url);
     if (collectionKey != _activeCollectionKey) return const [];
     if (collectionKey == 'playlists' && !_isPlaylistDirectoryUrl(page.url)) {
@@ -1908,32 +2296,110 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   List<Widget> _drawer(LayoutType layoutType) {
     final s = S.of(context);
     final catalogLinks = _approvedCatalogLinks(s);
+    final displayedPage = _page;
+    final displayedPath = displayedPage == null
+        ? null
+        : _catalogPath(displayedPage.url);
+    final displayedCollectionKey = displayedPage == null
+        ? null
+        : _collectionKeyForUrl(displayedPage.url);
+    bool collectionSelected(String key) => displayedCollectionKey == key;
     return [
       LibraryDrawerSection(
-        title: s.videoSourceAccount,
+        title: s.librarySources,
         children: [
-          LibraryDrawerTile(
-            icon: Icons.account_circle_outlined,
-            title: _client.isLoggedIn
-                ? (_client.accountName ?? s.videoSourceAccount)
-                : s.videoSourceAccount,
-            onTap: _openAccount,
-          ),
+          for (final source in videoSourceOptions)
+            LibraryDrawerTile(
+              icon: Icons.public,
+              title: source.name,
+              selected: source.key == _sourceKey,
+              onTap: () => _selectSource(source.key),
+            ),
         ],
       ),
+      if (_sourceKey == 'missav')
+        LibraryDrawerSection(
+          title: s.libraryAccount,
+          children: [
+            LibraryDrawerTile(
+              icon: Icons.account_circle_outlined,
+              title: _client.isLoggedIn
+                  ? (_client.accountName ?? s.videoSourceAccount)
+                  : s.videoSourceAccount,
+              onTap: _openAccount,
+            ),
+            LibraryDrawerTile(
+              icon: Icons.bookmark_outline,
+              title: s.videoFavorites,
+              selected: collectionSelected('favorites'),
+              onTap: () => _openCollection('favorites'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.person_outline,
+              title: s.videoActorFavorites,
+              selected: collectionSelected('actorFavorites'),
+              onTap: () => _openCollection('actorFavorites'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.playlist_play,
+              title: s.playlists,
+              selected: collectionSelected('playlists'),
+              onTap: () => _openCollection('playlists'),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.history,
+              title: s.videoWatchHistory,
+              selected: collectionSelected('history'),
+              onTap: () => _openCollection('history'),
+            ),
+          ],
+        ),
+      if (_sourceKey == 'jable')
+        LibraryDrawerSection(
+          title: s.libraryAccount,
+          children: [
+            LibraryDrawerTile(
+              icon: Icons.account_circle_outlined,
+              title: s.videoJableAccount,
+              onTap: _openJableAccount,
+            ),
+            LibraryDrawerTile(
+              icon: Icons.bookmark_outline,
+              title: s.videoFavorites,
+              selected: collectionSelected('favorites'),
+              onTap: () => _openCollection('favorites'),
+            ),
+          ],
+        ),
       LibraryDrawerSection(
-        title: s.videoContent,
+        title: s.libraryContent,
         children: [
           for (final link in catalogLinks)
             LibraryDrawerTile(
-              icon: Icons.explore_outlined,
+              icon: _catalogDrawerIcon(link),
               title: link.label,
+              selected:
+                  displayedPath != null &&
+                  !_isMetadataLink(link) &&
+                  displayedPath == _catalogPath(link.url),
               onTap: () => _openCatalog(link),
             ),
+          if (_sourceKey == 'missav')
+            LibraryDrawerTile(
+              icon: Icons.thumb_up_alt_outlined,
+              title: s.videoRecommendedForYou,
+              selected: _isDisplayedRecommendationPage(s),
+              onTap: _selectRecommendations,
+            ),
+        ],
+      ),
+      LibraryDrawerSection(
+        title: s.libraryLocal,
+        children: [
           LibraryDrawerTile(
-            icon: Icons.thumb_up_alt_outlined,
-            title: s.videoRecommendedForYou,
-            onTap: _selectRecommendations,
+            icon: Icons.download_outlined,
+            title: s.videoDownloads,
+            onTap: _openDownloads,
           ),
         ],
       ),
@@ -1951,42 +2417,38 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           ),
         ],
       ),
-      LibraryDrawerSection(
-        title: s.videoSourceAccount,
-        children: [
-          LibraryDrawerTile(
-            icon: Icons.bookmark_outline,
-            title: s.videoFavorites,
-            onTap: () => _openCollection('favorites'),
-          ),
-          LibraryDrawerTile(
-            icon: Icons.person_outline,
-            title: s.videoActorFavorites,
-            onTap: () => _openCollection('actorFavorites'),
-          ),
-          LibraryDrawerTile(
-            icon: Icons.playlist_play,
-            title: s.playlists,
-            onTap: () => _openCollection('playlists'),
-          ),
-          LibraryDrawerTile(
-            icon: Icons.history,
-            title: s.videoWatchHistory,
-            onTap: () => _openCollection('history'),
-          ),
-        ],
-      ),
-      LibraryDrawerSection(
-        title: s.videoDownloads,
-        children: [
-          LibraryDrawerTile(
-            icon: Icons.download_outlined,
-            title: s.videoDownloads,
-            onTap: _openDownloads,
-          ),
-        ],
-      ),
     ];
+  }
+
+  String _displayedPageTitle(S s) {
+    final page = _page;
+    if (page == null) return s.navVideos;
+    if (_isDisplayedRecommendationPage(s)) {
+      return s.videoRecommendedForYou;
+    }
+    final collectionTitle = switch (_collectionKeyForUrl(page.url)) {
+      'favorites' => s.videoFavorites,
+      'actorFavorites' => s.videoActorFavorites,
+      'playlists' when _isPlaylistDirectoryUrl(page.url) => s.playlists,
+      'history' => s.videoWatchHistory,
+      _ => null,
+    };
+    if (collectionTitle != null) return collectionTitle;
+
+    final pagePath = _catalogPath(page.url);
+    for (final link in _approvedCatalogLinks(s)) {
+      if (!_isMetadataLink(link) && _catalogPath(link.url) == pagePath) {
+        return link.label;
+      }
+    }
+    return page.title.isNotEmpty ? page.title : s.navVideos;
+  }
+
+  bool _isDisplayedRecommendationPage(S s) {
+    final page = _page;
+    return page != null &&
+        page.url == _sourceClient.homeUrl &&
+        page.title == s.videoRecommendedForYou;
   }
 
   Widget _content(S s, LayoutType layoutType) {
@@ -2022,12 +2484,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         icon: const Icon(Icons.verified_user_outlined),
                         label: Text(s.videoVerifyAccess),
                       ),
+                    if (_error is JableLoginRequiredException)
+                      OutlinedButton.icon(
+                        key: const ValueKey('video-open-jable-account'),
+                        onPressed: () => unawaited(_openJableAccount()),
+                        icon: const Icon(Icons.account_circle_outlined),
+                        label: Text(s.videoJableAccount),
+                      ),
                     OutlinedButton.icon(
                       onPressed: () => unawaited(
                         _openSource(
                           _errorSourceUrl ??
                               widget.initialUrl ??
-                              _client.homeUrl,
+                              _sourceClient.homeUrl,
                         ),
                       ),
                       icon: const Icon(Icons.open_in_new),
@@ -2049,6 +2518,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     final playlistCoverGeneration = _playlistCoverGeneration;
     final collectionLinks = _collectionLinksForContent(page);
+    final directoryLinks = collectionLinks.isNotEmpty
+        ? collectionLinks
+        : _sourceKey == 'jable' && page.videos.isEmpty
+        ? page.links
+        : const <VideoLink>[];
     final pageSize = ref.watch(pageSizeProvider);
     final recommendationPageSize = _activeRecommendationPageSize ?? pageSize;
     final recommendationState =
@@ -2070,9 +2544,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         (page.previousUrl != null ||
             page.nextUrl != null ||
             page.jumpMaxPage != null);
-    final itemCount = collectionLinks.isEmpty
+    final itemCount = directoryLinks.isEmpty
         ? page.videos.length
-        : collectionLinks.length;
+        : directoryLinks.length;
     final localPageCount = ((itemCount + pageSize - 1) ~/ pageSize)
         .clamp(1, 1 << 30)
         .toInt();
@@ -2085,11 +2559,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               .toList(growable: false)
         : page.videos;
     final displayedCollectionLinks = hasLocalPagination
-        ? collectionLinks
+        ? directoryLinks
               .skip((localPage - 1) * pageSize)
               .take(pageSize)
               .toList(growable: false)
-        : collectionLinks;
+        : directoryLinks;
     final pagination = VirtualizedPagination(
       currentPage: _recommendationsActive
           ? recommendationPageNumber
@@ -2196,6 +2670,15 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                               icon: const Icon(Icons.verified_user_outlined),
                               label: Text(s.videoVerifyAccess),
                             ),
+                          if (_error is JableLoginRequiredException)
+                            TextButton.icon(
+                              key: const ValueKey(
+                                'video-open-jable-account-inline',
+                              ),
+                              onPressed: () => unawaited(_openJableAccount()),
+                              icon: const Icon(Icons.account_circle_outlined),
+                              label: Text(s.videoJableAccount),
+                            ),
                           TextButton(
                             onPressed: () => unawaited(
                               _openSource(_errorSourceUrl ?? page.url),
@@ -2207,12 +2690,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                     ),
                   ),
                 ),
+              if (_sourceKey == 'jable' && page.navigation.isNotEmpty)
+                VideoCatalogSort(
+                  options: page.navigation,
+                  currentUrl: page.url,
+                  currentPage: page.currentPage,
+                  onSelected: (link) => unawaited(_openCatalog(link)),
+                ),
               Expanded(
-                child: collectionLinks.isEmpty
+                child: directoryLinks.isEmpty
                     ? VideoCollectionView<VideoItem>(
                         items: videos,
                         layoutType: layoutType,
-                        itemId: (video) => video.id,
+                        itemId: (video) => video.storageKey,
                         itemBuilder: (context, video, _) => VideoCard(
                           video: video,
                           layoutType: layoutType,
@@ -2239,7 +2729,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         emptyBuilder: (_) => Center(child: Text(s.noResults)),
                         pagination: pagination,
                       )
-                    : collectionLinks.first.kind == VideoLinkKind.playlist
+                    : directoryLinks.first.kind == VideoLinkKind.playlist
                     ? VideoCollectionView<VideoLink>(
                         key: ValueKey(
                           'video-playlists-$playlistCoverGeneration',
@@ -2311,7 +2801,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           child: VideoCollectionView<VideoItem>(
             items: videos,
             layoutType: layoutType,
-            itemId: (video) => video.id,
+            itemId: (video) => video.storageKey,
             itemBuilder: (_, video, _) => VideoCard(
               video: video,
               layoutType: layoutType,
@@ -2338,13 +2828,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    ref.listen<String>(videoSelectedSourceProvider, (previous, next) {
+      if (next != _sourceKey) _changeSource(next);
+    });
     ref.listen<int>(pageSizeProvider, (previous, next) {
       if (_recommendationsActive && previous != next) {
         _openRecommendations(pageSize: next);
       }
     });
     final layoutType = ref.watch(videoBrowseLayoutProvider);
-    final title = _page?.title.isNotEmpty == true ? _page!.title : s.navVideos;
+    final title = _displayedPageTitle(s);
     final page = LibraryPageScaffold(
       title: title,
       searchHint: s.videoSearchHint,
@@ -2377,6 +2870,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   void dispose() {
     _resetPlaylistCoverAccess(null);
     _client.removeListener(_onClientChanged);
+    _jableAccount.removeListener(_onJableAccountChanged);
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _request++;
     final activeBrowseCancelToken = _activeBrowseCancelToken;

@@ -12,6 +12,7 @@ import java.util.concurrent.Executor
 internal object WebViewProxyCoordinator {
     enum class Owner {
         MISSAV,
+        JABLE,
         JAPANESE_ASMR
     }
 
