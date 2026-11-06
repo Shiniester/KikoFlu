@@ -772,13 +772,12 @@ void main() {
   Future<void> tapComicDrawerItem(WidgetTester tester, String title) async {
     final drawer = find.byKey(const ValueKey('library-drawer'));
     final item = find.descendant(of: drawer, matching: find.text(title));
-    await tester.scrollUntilVisible(
-      item,
-      250,
-      scrollable: find
-          .descendant(of: drawer, matching: find.byType(Scrollable))
-          .first,
-    );
+    final scrollable = find
+        .descendant(of: drawer, matching: find.byType(Scrollable))
+        .first;
+    tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(item, 250, scrollable: scrollable);
     await tester.tap(item);
   }
 
@@ -787,7 +786,7 @@ void main() {
     final s = S.of(tester.element(title));
     final labels = [
       s.navHome,
-      s.libraryFavorites,
+      s.comicLocalFavorites,
       s.libraryHistory,
       s.libraryDownloads,
     ];
@@ -3993,10 +3992,18 @@ void main() {
     expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
 
     await openComicDrawer(tester);
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final drawerScrollable = find
+        .descendant(of: drawer, matching: find.byType(Scrollable))
+        .first;
+    final layoutTile = find.widgetWithText(ListTile, s.layout);
+    await tester.scrollUntilVisible(
+      layoutTile,
+      250,
+      scrollable: drawerScrollable,
+    );
     void expectLayoutIcon(IconData icon) {
-      final tile = tester.widget<ListTile>(
-        find.widgetWithText(ListTile, s.layout),
-      );
+      final tile = tester.widget<ListTile>(layoutTile);
       expect((tile.leading as Icon).icon, icon);
       expect(tile.trailing, isNull);
       expect(
@@ -4011,14 +4018,13 @@ void main() {
     }
 
     expectLayoutIcon(Icons.grid_view);
-    final drawer = find.byKey(const ValueKey('library-drawer'));
-    final drawerList = find
-        .descendant(of: drawer, matching: find.byType(ListView))
-        .first;
     final settingsTile = find.widgetWithText(ListTile, s.comicSettings);
     expect(settingsTile, findsOneWidget);
     expect(
-      find.descendant(of: drawerList, matching: find.text(s.comicSettings)),
+      find.descendant(
+        of: drawerScrollable,
+        matching: find.text(s.comicSettings),
+      ),
       findsOneWidget,
     );
     expect(
@@ -4065,7 +4071,7 @@ void main() {
       final sections = scaffold.drawerChildren
           .whereType<LibraryDrawerSection>();
       final pages = sections.firstWhere(
-        (section) => section.title == s.libraryPages,
+        (section) => section.title == s.libraryContent,
       );
       expect(
         pages.children
@@ -6756,7 +6762,7 @@ void main() {
     final s = S.of(tester.element(pageTitle));
     await selectComicPage(tester, 1);
     await tester.pump();
-    expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+    expect(tester.widget<Text>(pageTitle).data, s.comicLocalFavorites);
 
     await selectComicSource(tester, 'Fixture');
     await tester.pump();
@@ -6871,7 +6877,7 @@ void main() {
       return tester.widget<LibraryDrawerTile>(tile).onTap!;
     }
 
-    final selectFavorites = await actionFor(s.libraryFavorites);
+    final selectFavorites = await actionFor(s.comicLocalFavorites);
     final selectDownloads = await actionFor(s.libraryDownloads);
     Navigator.of(tester.element(drawer)).pop();
     await tester.pumpAndSettle();
@@ -6926,8 +6932,12 @@ void main() {
     ]);
     await tester.pump();
 
-    expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+    expect(tester.widget<Text>(pageTitle).data, s.comicLocalFavorites);
     final searchCountBeforeOpen = source.searches;
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('library-drawer'))),
+    ).pop();
+    await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const ValueKey('library-page-search')));
     await pumpFrames(tester, frames: 25);
@@ -6978,55 +6988,36 @@ void main() {
     expect(library.favoriteReads, 1);
 
     await openComicDrawer(tester);
-    final drawer = find.byKey(const ValueKey('library-drawer'));
-    final favoriteTile = find.descendant(
-      of: drawer,
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is LibraryDrawerTile && widget.title == s.libraryFavorites,
-      ),
+    final sections = tester
+        .widget<LibraryPageScaffold>(find.byType(LibraryPageScaffold))
+        .drawerChildren
+        .whereType<LibraryDrawerSection>();
+    final accountSection = sections.singleWhere(
+      (section) => section.title == s.libraryAccount,
     );
-    expect(favoriteTile, findsOneWidget);
-    expect(
-      find.descendant(
-        of: favoriteTile,
-        matching: find.text(s.comicLocalFavorites),
-      ),
-      findsOneWidget,
+    final localSection = sections.singleWhere(
+      (section) => section.title == s.libraryLocal,
     );
     expect(
-      find.descendant(
-        of: favoriteTile,
-        matching: find.text(s.comicOnlineFavorites),
+      accountSection.children.whereType<LibraryDrawerTile>().map(
+        (tile) => tile.title,
       ),
-      findsOneWidget,
-    );
-    final browseOptions = find.descendant(
-      of: drawer,
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is LibraryDrawerSection &&
-            widget.title == s.libraryBrowseOptions,
-      ),
+      contains(s.comicOnlineFavorites),
     );
     expect(
-      find.descendant(
-        of: browseOptions,
-        matching: find.text(s.comicLocalFavorites),
+      localSection.children.whereType<LibraryDrawerTile>().map(
+        (tile) => tile.title,
       ),
-      findsNothing,
+      contains(s.comicLocalFavorites),
     );
-    expect(
-      find.descendant(
-        of: browseOptions,
-        matching: find.text(s.comicOnlineFavorites),
-      ),
-      findsNothing,
-    );
-    expect(
-      find.descendant(of: browseOptions, matching: find.text(s.layout)),
-      findsOneWidget,
-    );
+    final browseOptionTitles = sections
+        .singleWhere((section) => section.title == s.libraryBrowseOptions)
+        .children
+        .whereType<LibraryDrawerTile>()
+        .map((tile) => tile.title);
+    expect(browseOptionTitles, contains(s.layout));
+    expect(browseOptionTitles, isNot(contains(s.comicLocalFavorites)));
+    expect(browseOptionTitles, isNot(contains(s.comicOnlineFavorites)));
     await tapComicDrawerItem(tester, s.comicOnlineFavorites);
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
@@ -7092,18 +7083,28 @@ void main() {
       isFalse,
     );
     await openComicDrawer(tester);
-    expect(
-      find.descendant(of: drawer, matching: find.text(s.comicLocalFavorites)),
-      findsNothing,
-    );
-    expect(
-      find.descendant(of: drawer, matching: find.text(s.comicOnlineFavorites)),
-      findsNothing,
-    );
-    expect(
-      find.descendant(of: browseOptions, matching: find.text(s.layout)),
-      findsOneWidget,
-    );
+    final homeSections = tester
+        .widget<LibraryPageScaffold>(find.byType(LibraryPageScaffold))
+        .drawerChildren
+        .whereType<LibraryDrawerSection>();
+    final homeOnlineFavorites = homeSections
+        .singleWhere((section) => section.title == s.libraryAccount)
+        .children
+        .whereType<LibraryDrawerTile>()
+        .singleWhere((tile) => tile.title == s.comicOnlineFavorites);
+    final homeLocalFavorites = homeSections
+        .singleWhere((section) => section.title == s.libraryLocal)
+        .children
+        .whereType<LibraryDrawerTile>()
+        .singleWhere((tile) => tile.title == s.comicLocalFavorites);
+    final homeBrowseOptionTitles = homeSections
+        .singleWhere((section) => section.title == s.libraryBrowseOptions)
+        .children
+        .whereType<LibraryDrawerTile>()
+        .map((tile) => tile.title);
+    expect(homeOnlineFavorites.selected, isFalse);
+    expect(homeLocalFavorites.selected, isFalse);
+    expect(homeBrowseOptionTitles, contains(s.layout));
   });
 
   testWidgets(
@@ -7171,7 +7172,7 @@ void main() {
 
       await selectComicPage(tester, 1);
       await tester.pump();
-      expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+      expect(tester.widget<Text>(pageTitle).data, s.comicLocalFavorites);
       await tester.pump(const Duration(milliseconds: 100));
       expect(comicPageValue(tester), greaterThan(0));
       expect(comicPageValue(tester), lessThan(1));
@@ -7188,7 +7189,7 @@ void main() {
       expect(tester.widget<Text>(pageTitle).data, s.navHome);
       await selectComicPage(tester, 1);
       await pumpFrames(tester, frames: 2);
-      expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+      expect(tester.widget<Text>(pageTitle).data, s.comicLocalFavorites);
       expect(library.favoriteReads, 1);
       expect(library.historyReads, 0);
       await selectComicPage(tester, 0);
@@ -12288,6 +12289,7 @@ void main() {
           _Library(),
           source,
         );
+        final s = S.of(tester.element(find.byType(ComicScreen)));
 
         expect(find.text('Fixture book'), findsOneWidget);
         expect(find.text('Online favorite'), findsNothing);
@@ -12298,7 +12300,8 @@ void main() {
         expect(find.text('Fixture book'), findsOneWidget);
         expect(source.favoriteReads, 0);
 
-        await selectComicPage(tester, 1);
+        await openComicDrawer(tester);
+        await tapComicDrawerItem(tester, s.comicOnlineFavorites);
         await tester.pumpAndSettle();
         if (loggedIn) {
           expect(find.text('Online favorite'), findsOneWidget);
@@ -13904,7 +13907,7 @@ void main() {
     await selectComicPage(tester, 1);
     await tester.pump();
     expect(pages.page, lessThan(1));
-    expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+    expect(tester.widget<Text>(pageTitle).data, s.comicLocalFavorites);
     await tester.pumpAndSettle();
     expect(pages.page, 1);
     await selectComicPage(tester, 0);

@@ -1516,6 +1516,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
       maxScrolls: 30,
     );
+    await tester.pump();
     expect(find.text('Lazy VA sentinel'), findsOneWidget);
     expect(find.semantics.byLabel('Lazy VA sentinel'), findsOneWidget);
     await tester.scrollUntilVisible(

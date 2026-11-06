@@ -137,7 +137,9 @@ Future<void> _pumpComicScreen(
 }
 
 Future<void> _openDrawer(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+  final menu = find.byKey(const ValueKey('library-menu-button'));
+  if (Scaffold.maybeOf(tester.element(menu))?.isDrawerOpen ?? false) return;
+  await tester.tap(menu);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 300));
   await tester.pump();
@@ -159,13 +161,12 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
 Future<Finder> _drawerTile(WidgetTester tester, String label) async {
   final drawer = find.byKey(const ValueKey('library-drawer'));
   final text = find.descendant(of: drawer, matching: find.text(label));
-  await tester.scrollUntilVisible(
-    text,
-    200,
-    scrollable: find
-        .descendant(of: drawer, matching: find.byType(Scrollable))
-        .first,
-  );
+  final scrollable = find
+      .descendant(of: drawer, matching: find.byType(Scrollable))
+      .first;
+  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+  await tester.pump();
+  await tester.scrollUntilVisible(text, 200, scrollable: scrollable);
   final tile = find.ancestor(of: text, matching: find.byType(ListTile));
   return tile;
 }
@@ -384,6 +385,10 @@ void main() {
       await _openDrawer(tester);
       final online = await _drawerTile(tester, s.comicOnlineFavorites);
       await tester.tap(online);
+      await _pumpNavigation(tester);
+      Scaffold.of(
+        tester.element(find.byKey(const ValueKey('library-menu-button'))),
+      ).closeDrawer();
       await _pumpNavigation(tester);
       await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await _pumpNavigation(tester);
