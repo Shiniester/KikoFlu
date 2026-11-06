@@ -512,9 +512,8 @@ class _OfflineWorkDetailScreenState
     );
 
     return WorkDetailResponsiveLayout(
-      coverBuilder: (context, isLandscape) {
+      coverBuilder: (context, _) {
         return WorkCoverFrame(
-          isLandscape: isLandscape,
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
           onTap: () {

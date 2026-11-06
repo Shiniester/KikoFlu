@@ -25,6 +25,8 @@ void main() {
     ('landscape', const Size(1280, 800), const Size(1200, 900)),
     ('wide cover', const Size(800, 1280), const Size(1600, 900)),
     ('tall cover', const Size(800, 1280), const Size(900, 1200)),
+    ('very tall cover', const Size(800, 1280), const Size(900, 2000)),
+    ('tall landscape cover', const Size(1280, 800), const Size(900, 2000)),
   ]) {
     testWidgets('$name clips the visible cover at its image bounds', (
       tester,
@@ -43,8 +45,7 @@ void main() {
       await tester.pumpWidget(
         _testApp(
           WorkDetailResponsiveLayout(
-            coverBuilder: (_, isLandscape) => WorkCoverFrame(
-              isLandscape: isLandscape,
+            coverBuilder: (_, _) => WorkCoverFrame(
               showSubtitleBadge: true,
               showAgeRating: true,
               age: 'R18',
@@ -76,7 +77,7 @@ void main() {
         imageSize,
         Size(
           (isLandscape ? viewport.width * 0.4 : viewport.width) - 16,
-          isLandscape ? viewport.height * 0.8 : 500,
+          viewport.height - 16,
         ),
       ).destination;
       expect(cover.width, closeTo(expectedSize.width, 0.01));
@@ -106,15 +107,56 @@ void main() {
     });
   }
 
+  testWidgets('fits the parent viewport above the bottom controls', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1280);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final image = await tester.runAsync(
+      () => createTestImage(width: 900, height: 2000),
+    );
+    addTearDown(image!.dispose);
+
+    await tester.pumpWidget(
+      _testApp(
+        Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 600,
+            height: 700,
+            child: MediaQuery(
+              data: const MediaQueryData(
+                size: Size(800, 1280),
+                padding: EdgeInsets.only(bottom: 96),
+              ),
+              child: WorkDetailResponsiveLayout(
+                coverBuilder: (_, _) => WorkCoverFrame(
+                  layers: [RawImage(image: image, fit: BoxFit.contain)],
+                ),
+                infoSliver: const SliverToBoxAdapter(
+                  child: Text('Work details'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final cover = tester.getRect(find.byType(WorkCoverClip));
+    expect(cover.height, closeTo(700 - 96 - 16, 0.01));
+    expect(cover.width, closeTo(cover.height * 900 / 2000, 0.01));
+    expect(cover.bottom, lessThanOrEqualTo(700 - 96));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('renders cover layers with rounded corners and no Hero', (
     tester,
   ) async {
     await tester.pumpWidget(
       _testApp(
-        const WorkCoverFrame(
-          isLandscape: false,
-          layers: [Center(child: Text('Cover Layer'))],
-        ),
+        const WorkCoverFrame(layers: [Center(child: Text('Cover Layer'))]),
       ),
     );
 
@@ -138,7 +180,6 @@ void main() {
     await tester.pumpWidget(
       _testApp(
         WorkCoverFrame(
-          isLandscape: true,
           showSubtitleBadge: true,
           showAgeRating: true,
           age: 'R18',

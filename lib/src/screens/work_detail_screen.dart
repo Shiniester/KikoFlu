@@ -105,9 +105,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       ((media.size.width * (landscape ? 0.4 : 1) - 16) * media.devicePixelRatio)
           .ceilToDouble()
           .clamp(1, double.infinity),
-      ((landscape ? media.size.height * 0.8 : 500) * media.devicePixelRatio)
-          .ceilToDouble()
-          .clamp(1, double.infinity),
+      ((media.size.height - 16) * media.devicePixelRatio).ceilToDouble().clamp(
+        1,
+        double.infinity,
+      ),
     );
   }
 
@@ -1064,11 +1065,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     return WorkDetailResponsiveLayout(
       onRefresh: _refreshWorkDetail,
-      coverBuilder: (context, isLandscape) {
+      coverBuilder: (context, _) {
         return ListenableBuilder(
           listenable: _metadataChanges,
           builder: (context, _) => WorkCoverFrame(
-            isLandscape: isLandscape,
             showSubtitleBadge:
                 displaySettings.showSubtitleTag &&
                 _currentWork.hasSubtitle == true,

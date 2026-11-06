@@ -1330,7 +1330,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             onTap: () => openComic(
                               context,
                               comics[i],
-                              gridCoverWidth: gridCoverWidth,
                               initialCoverWidth: comicListCoverWidth,
                             ),
                             onLongPress: onLongPress == null
@@ -1477,7 +1476,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                           onTap: () => openComic(
                             context,
                             comics[i],
-                            gridCoverWidth: gridCoverWidth,
                             initialCoverWidth: gridCoverWidth,
                           ),
                           onLongPress: onLongPress == null
@@ -1606,13 +1604,9 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
 void openComic(
   BuildContext context,
   Comic comic, {
-  double? gridCoverWidth,
   double? initialCoverWidth,
   double? initialCoverMaxHeight,
 }) {
-  final windowWidth = gridCoverWidth == null
-      ? null
-      : MediaQuery.sizeOf(context).width;
   final handoff = _comicCoverHandoff(
     context,
     comic,
@@ -1623,8 +1617,6 @@ void openComic(
     context,
     builder: (_) => ComicDetailScreen(
       comic: comic,
-      initialGridCoverWidth: gridCoverWidth,
-      initialWindowWidth: windowWidth,
       initialCoverCacheWidth: handoff?.cacheWidth,
       initialCoverAspectRatio: handoff?.aspectRatio,
     ),

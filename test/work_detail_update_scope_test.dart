@@ -2192,6 +2192,9 @@ void main() {
   testWidgets('HD cover completion does not rebuild the file explorer', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 1280);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final directory = Directory.systemTemp.createTempSync('detail-update-');
     const channel = MethodChannel('plugins.flutter.io/path_provider');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -2272,7 +2275,12 @@ void main() {
       hd.width,
       lessThanOrEqualTo((media.size.width * media.devicePixelRatio).ceil()),
     );
-    expect(hd.height, lessThanOrEqualTo((500 * media.devicePixelRatio).ceil()));
+    expect(
+      hd.height,
+      lessThanOrEqualTo(
+        ((media.size.height - 16) * media.devicePixelRatio).ceil(),
+      ),
+    );
     final image = await tester.runAsync(() async {
       final completed = Completer<ImageInfo>();
       final stream = hd.resolve(ImageConfiguration.empty);
@@ -2287,6 +2295,20 @@ void main() {
     expect(image!.image.width / image.image.height, closeTo(4 / 3, .01));
     expect(image.image.width, lessThanOrEqualTo(hd.width!));
     expect(image.image.height, lessThanOrEqualTo(hd.height!));
+    final coverSize = tester.getSize(
+      find.descendant(
+        of: find.byType(WorkCoverFrame),
+        matching: find.byType(WorkCoverClip),
+      ),
+    );
+    expect(
+      image.image.width,
+      greaterThanOrEqualTo((coverSize.width * media.devicePixelRatio).floor()),
+    );
+    expect(
+      image.image.height,
+      greaterThanOrEqualTo((coverSize.height * media.devicePixelRatio).floor()),
+    );
     image.dispose();
     expect(explorerBuilds, 0);
     debugOnRebuildDirtyWidget = null;

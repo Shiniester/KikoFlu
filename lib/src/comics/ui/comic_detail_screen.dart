@@ -1,6 +1,7 @@
 import 'dart:async';
 import '../../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 import '../../../l10n/app_localizations.dart';
@@ -8,6 +9,8 @@ import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/scrollable_appbar.dart';
 import '../../widgets/metadata_search_chip.dart';
+import '../../widgets/sliver_tab_page_view.dart';
+import '../../widgets/tab_page_motion.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
@@ -33,14 +36,10 @@ class ComicDetailScreen extends ConsumerStatefulWidget {
   const ComicDetailScreen({
     super.key,
     required this.comic,
-    this.initialGridCoverWidth,
-    this.initialWindowWidth,
     this.initialCoverCacheWidth,
     this.initialCoverAspectRatio,
   });
   final Comic comic;
-  final double? initialGridCoverWidth;
-  final double? initialWindowWidth;
   final int? initialCoverCacheWidth;
   final double? initialCoverAspectRatio;
   @override
@@ -75,11 +74,22 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
   ComicProgress? _lastProgress;
   int _progressGeneration = 0;
   MediaQueryData? _readerWindow;
+  Size? _readerBodySize;
   bool _readerReturning = false;
   late final bool _hasComments;
   late final TabController _detailTabs;
+  late final AnimationController _detailPagePosition;
+  final _detailTabGroupKey = GlobalKey();
+  final _detailTabScrollOffsets = <int, double>{};
   int _selectedDetailTab = 0;
   Future<List<ComicComment>>? _commentsFuture;
+  bool _reduceDetailMotion = false;
+  bool _detailTabSyncScheduled = false;
+  bool _fillDetailViewport = false;
+  double? _unpinnedDetailOffset;
+  int? _detailMotionTarget;
+  int _detailMotionGeneration = 0;
+  int? _detailTransitionSource;
   Comic get _readyComic => _comic.withChapters(_chapters);
   bool get _isFavorite => _localFavorite || _remoteFavorite == true;
 
@@ -244,8 +254,16 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
         .read(comicSourcesProvider)
         .firstWhere((source) => source.key == widget.comic.source)
         .hasComments;
-    _detailTabs = TabController(length: _hasComments ? 2 : 1, vsync: this)
-      ..addListener(_onDetailTabChanged);
+    _detailTabs = TabController(
+      length: _hasComments ? 2 : 1,
+      animationDuration: Duration.zero,
+      vsync: this,
+    );
+    _detailPagePosition = AnimationController(
+      vsync: this,
+      lowerBound: 0,
+      upperBound: 1,
+    )..addListener(_handleDetailPagePositionChanged);
     if (widget.comic.source == 'ehentai') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) retryEhTagTranslations(ref);
@@ -331,6 +349,19 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceDetailMotion) {
+      _reduceDetailMotion = true;
+      if (_detailTransitionSource != null) {
+        unawaited(
+          _animateToDetailPage(
+            (_detailMotionTarget ?? _selectedDetailTab).toDouble(),
+          ),
+        );
+      }
+    } else {
+      _reduceDetailMotion = reduceMotion;
+    }
     final animation = ModalRoute.of(context)?.animation;
     if (_routeAnimation != animation) {
       _routeAnimation?.removeStatusListener(_onRouteStatus);
@@ -366,22 +397,162 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
   @override
   void dispose() {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
-    _detailTabs
-      ..removeListener(_onDetailTabChanged)
+    _detailTabs.dispose();
+    _detailPagePosition
+      ..removeListener(_handleDetailPagePositionChanged)
       ..dispose();
     if (!_initialContentReady.isCompleted) _initialContentReady.complete();
     super.dispose();
   }
 
-  void _onDetailTabChanged() {
-    final index = _detailTabs.index;
-    if (_selectedDetailTab == index) return;
+  void _moveToDetailTab(int index) {
+    syncTabWithPagePosition(_detailTabs, _detailPagePosition.value);
+    if ((_detailTransitionSource == null && index == _selectedDetailTab) ||
+        (_detailTransitionSource != null && _detailMotionTarget == index)) {
+      return;
+    }
+    _beginDetailTabTransition();
+    if (_hasComments && index == 1 && _commentsFuture == null) {
+      setState(() {
+        _commentsFuture = _loadComments();
+      });
+    }
+    _animateToDetailPage(index.toDouble());
+  }
+
+  void _beginDetailTabTransition() {
+    final resourceOffset = _detailResourceScrollOffset();
+    _unpinnedDetailOffset = resourceOffset < 0 ? resourceOffset : null;
+    if (_detailTransitionSource != null) return;
+    final source = _selectedDetailTab.clamp(0, _detailTabs.length - 1).toInt();
     setState(() {
-      _selectedDetailTab = index;
-      if (_hasComments && index == 1) {
+      _fillDetailViewport = true;
+      _detailTransitionSource = source;
+      _detailTabScrollOffsets[source] = resourceOffset
+          .clamp(0.0, double.infinity)
+          .toDouble();
+    });
+  }
+
+  Future<void> _animateToDetailPage(double target) async {
+    final page = target
+        .clamp(0.0, (_detailTabs.length - 1).toDouble())
+        .toDouble();
+    if (_detailTransitionSource == null && page.round() != _selectedDetailTab) {
+      _beginDetailTabTransition();
+    }
+    final generation = ++_detailMotionGeneration;
+    final targetTab = page.round();
+    _detailMotionTarget = targetTab;
+    _detailPagePosition.stop(canceled: true);
+    if (_reduceDetailMotion) {
+      _detailPagePosition.value = page;
+    } else {
+      await _detailPagePosition.animateTo(
+        page,
+        duration: tabPageDuration,
+        curve: Curves.ease,
+      );
+    }
+    await _restoreDetailPageOffset(targetTab, generation);
+  }
+
+  void _updateDetailPagePosition(double pageDelta) {
+    _detailMotionTarget = null;
+    _detailPagePosition.value = (_detailPagePosition.value + pageDelta)
+        .clamp(0.0, (_detailTabs.length - 1).toDouble())
+        .toDouble();
+  }
+
+  void _settleDetailPagePosition(double velocity) {
+    final page = _detailPagePosition.value;
+    final target = velocity.abs() > 0.5
+        ? (velocity > 0 ? page.floor() + 1 : page.ceil() - 1)
+        : page.round();
+    _animateToDetailPage(target.clamp(0, _detailTabs.length - 1).toDouble());
+  }
+
+  void _handleDetailPagePositionChanged() {
+    if (!mounted) return;
+    final page = _detailPagePosition.value
+        .clamp(0.0, (_detailTabs.length - 1).toDouble())
+        .toDouble();
+    if (_detailTabs.indexIsChanging) {
+      _scheduleDetailTabSync();
+    } else {
+      syncTabWithPagePosition(_detailTabs, page);
+    }
+    final selected = page.round();
+    if (selected == _selectedDetailTab) return;
+    setState(() {
+      _selectedDetailTab = selected;
+      if (_hasComments && selected == 1) {
         _commentsFuture ??= _loadComments();
       }
     });
+  }
+
+  void _scheduleDetailTabSync() {
+    if (_detailTabSyncScheduled) return;
+    _detailTabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _detailTabSyncScheduled = false;
+      if (!mounted) return;
+      if (_detailTabs.indexIsChanging) {
+        _scheduleDetailTabSync();
+        return;
+      }
+      syncTabWithPagePosition(_detailTabs, _detailPagePosition.value);
+    });
+  }
+
+  double _detailResourceScrollOffset() {
+    final groupContext = _detailTabGroupKey.currentContext;
+    final renderObject = groupContext?.findRenderObject();
+    final position = groupContext == null
+        ? null
+        : Scrollable.maybeOf(groupContext, axis: Axis.vertical)?.position;
+    if (position == null ||
+        !position.hasContentDimensions ||
+        renderObject == null) {
+      return 0;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(renderObject);
+    if (viewport == null) return 0;
+    final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
+    return position.pixels - resourceTop;
+  }
+
+  Future<void> _restoreDetailPageOffset(int page, int generation) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _detailMotionGeneration) return;
+    final groupContext = _detailTabGroupKey.currentContext;
+    final renderObject = groupContext?.findRenderObject();
+    final position = groupContext == null || !groupContext.mounted
+        ? null
+        : Scrollable.maybeOf(groupContext, axis: Axis.vertical)?.position;
+    final viewport = renderObject == null
+        ? null
+        : RenderAbstractViewport.maybeOf(renderObject);
+    if (position != null &&
+        position.hasContentDimensions &&
+        renderObject != null &&
+        viewport != null) {
+      final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
+      final offset =
+          (resourceTop +
+                  (_unpinnedDetailOffset ?? _detailTabScrollOffsets[page] ?? 0))
+              .clamp(position.minScrollExtent, position.maxScrollExtent)
+              .toDouble();
+      if (position.pixels != offset) position.jumpTo(offset);
+    }
+    if (mounted && generation == _detailMotionGeneration) {
+      setState(() {
+        _detailTransitionSource = null;
+        _detailMotionTarget = null;
+        _unpinnedDetailOffset = null;
+      });
+    }
   }
 
   Future<List<ComicComment>> _loadComments() {
@@ -409,8 +580,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
         comic.chapters.where((c) => c.id == progress?.chapterId).firstOrNull ??
         comic.chapters.first;
     if (!mounted) return;
+    final readerBodySize = (context.findRenderObject() as RenderBox).size;
     setState(() {
       _readerWindow = MediaQuery.of(context);
+      _readerBodySize = readerBodySize;
       _readerReturning = false;
     });
     final route = MaterialPageRoute<void>(
@@ -561,9 +734,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                 current.padding == saved.padding &&
                 current.viewPadding == saved.viewPadding))) {
       _readerWindow = null;
+      _readerBodySize = null;
     }
     final retained = _readerWindow;
-    // Keep both the detail's viewport and safe area while the reader hides
+    final retainedBodySize = _readerBodySize;
+    // Keep the detail's actual body size and safe area while the reader hides
     // system bars, until the platform restores the insets after route removal.
     return MediaQuery(
       data: retained == null
@@ -575,10 +750,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
             ),
       child: OverflowBox(
         alignment: Alignment.topLeft,
-        minWidth: retained?.size.width,
-        maxWidth: retained?.size.width,
-        minHeight: retained?.size.height,
-        maxHeight: retained?.size.height,
+        minWidth: retainedBodySize?.width,
+        maxWidth: retainedBodySize?.width,
+        minHeight: retainedBodySize?.height,
+        maxHeight: retainedBodySize?.height,
         child: Builder(builder: _buildDetail),
       ),
     );
@@ -666,35 +841,20 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
             ? metrics.padding.left
             : 16.0;
         final contentWidth = math.min(width, 1200) - detailPadding * 2;
-        final gridCoverWidth =
-            (width -
-                metrics.padding.horizontal -
-                metrics.spacing * (metrics.crossAxisCount - 1)) /
-            metrics.crossAxisCount;
-        final portraitCoverWidth = math.min(
-          widget.initialWindowWidth == MediaQuery.sizeOf(context).width
-              ? widget.initialGridCoverWidth ?? gridCoverWidth
-              : gridCoverWidth,
-          contentWidth,
-        );
-        final stacked =
-            metrics.crossAxisCount == 1 ||
-            contentWidth - portraitCoverWidth - 16 < 120;
-        final landscapeCoverWidth = math.min(
-          width * 0.4,
-          widget.initialWindowWidth == MediaQuery.sizeOf(context).width
-              ? widget.initialGridCoverWidth ?? width * 0.4
-              : width * 0.4,
-        );
+        final availableCoverHeight =
+            (constraints.maxHeight -
+                    (isLandscape ? 16 : detailPadding) -
+                    MediaQuery.paddingOf(context).bottom)
+                .clamp(0.0, double.infinity)
+                .toDouble();
+        final landscapeCoverWidth = math.min(width, 1200) * 0.4;
         final cover = ComicCover(
           key: const ValueKey('comic-detail-cover'),
           source: widget.comic.source,
           page: _comic.coverPage,
           cornerRadius: workCoverDetailRadius,
-          maxWidth: isLandscape ? landscapeCoverWidth : portraitCoverWidth,
-          maxHeight: isLandscape
-              ? MediaQuery.sizeOf(context).height * 0.8
-              : null,
+          maxWidth: isLandscape ? landscapeCoverWidth : contentWidth,
+          maxHeight: availableCoverHeight,
           initialCacheWidth: widget.initialCoverCacheWidth,
           initialAspectRatio: widget.initialCoverAspectRatio,
           deferCacheUpgradeUntilRouteCompleted: true,
@@ -877,285 +1037,363 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
           );
         }
 
-        final detailScroll = FutureBuilder<List<ComicComment>>(
-          future: _selectedDetailTab == 1 ? _commentsFuture : null,
-          builder: (context, snapshot) => CustomScrollView(
-            key: const PageStorageKey<String>('comic-detail-scroll'),
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  detailPadding,
-                  detailPadding,
-                  detailPadding,
-                  16,
-                ),
-                sliver: SliverMainAxisGroup(
-                  slivers: [
-                    SliverToBoxAdapter(
+        Widget buildChapterSliver() => SliverLayoutBuilder(
+          builder: (context, constraints) {
+            // The first chapter otherwise requests offscreen thumbnails.
+            if (constraints.remainingCacheExtent == 0 &&
+                constraints.scrollOffset == 0) {
+              return const SliverToBoxAdapter();
+            }
+            return SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                detailPadding,
+                _hasComments ? 0 : 16,
+                detailPadding,
+                0,
+              ),
+              sliver: SliverList.builder(
+                itemCount: 1 + (_initialContentVisible ? _chapters.length : 0),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 16, bottom: 16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (isLandscape) ...[
-                            title,
-                            const SizedBox(height: 8),
-                            info,
-                          ] else if (stacked)
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                cover,
-                                const SizedBox(height: 16),
-                                info,
-                              ],
-                            )
-                          else
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  width: portraitCoverWidth,
-                                  child: cover,
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(child: info),
-                              ],
+                          if (!_hasComments)
+                            Text(
+                              s.comicChapters,
+                              style: Theme.of(context).textTheme.titleMedium,
                             ),
-                          if (!isLandscape) ...[
-                            const SizedBox(height: 16),
-                            title,
-                          ],
-                          SizedBox(height: isLandscape ? 16 : 8),
-                          if (_busy)
+                          if (_chaptersLoading)
                             const RepaintBoundary(
                               child: LinearProgressIndicator(),
                             ),
-                          if (_favoriteError != null)
+                          if (_chaptersError != null)
                             _retryBanner(
-                              _favoriteError!,
-                              () =>
-                                  _favorite(comic, value: _favoriteRetryValue),
+                              _chaptersError!,
+                              () => _loadChapters(comic: _comic),
                             ),
-                          if (_metadataLoading)
-                            const RepaintBoundary(
-                              child: LinearProgressIndicator(),
-                            ),
-                          if (_metadataError != null)
-                            _retryBanner(_metadataError!, _loadMetadata),
-                          if (isLandscape ||
-                              _busy ||
-                              _favoriteError != null ||
-                              _metadataLoading ||
-                              _metadataError != null)
-                            const SizedBox(height: 16),
                         ],
                       ),
-                    ),
-                    SliverList.builder(
-                      itemCount: 2,
-                      itemBuilder: (context, index) {
-                        if (index == 0) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SelectableText(
-                              comic.description,
-                              style: infoStyle,
+                    );
+                  }
+                  final chapter = _chapters[index - 1];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ListTile(
+                        title: Text(chapter.title),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _read(comic, chapter: chapter),
+                      ),
+                      if (showThumbnails &&
+                          !_metadataLoading &&
+                          !_chaptersLoading)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: ComicChapterThumbnails(
+                            key: ValueKey('${comic.key}-${chapter.id}'),
+                            comic: comic,
+                            chapter: chapter,
+                            pagesCache: _chapterPreviewPages,
+                            onSelected: (page, pages) => unawaited(
+                              _showPagePreview(comic, chapter, page, pages),
                             ),
-                          );
-                        }
-                        final authors = comic.authors;
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (authors.isNotEmpty) ...[
-                              WorkDetailSectionTitle(s.author),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: [
-                                  for (final author in authors)
-                                    MetadataSearchChip(
-                                      label: author,
-                                      searchKeyword: author,
-                                      searchTypeLabel: s.author,
-                                      searchParams: const {},
-                                      chipTone: MetadataChipTone.secondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            );
+          },
+        );
+
+        final detailTabBar = TabBar(
+          key: const ValueKey('comic-detail-tabs'),
+          controller: _detailTabs,
+          onTap: _moveToDetailTab,
+          tabs: [
+            Tab(text: s.comicChapters),
+            Tab(text: s.comicComments),
+          ],
+        );
+        final detailScroll = CustomScrollView(
+          key: const PageStorageKey<String>('comic-detail-scroll'),
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                detailPadding,
+                detailPadding,
+                detailPadding,
+                16,
+              ),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isLandscape) ...[
+                          title,
+                          const SizedBox(height: 8),
+                          info,
+                        ] else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [cover, const SizedBox(height: 16), info],
+                          ),
+                        if (!isLandscape) ...[
+                          const SizedBox(height: 16),
+                          title,
+                        ],
+                        SizedBox(height: isLandscape ? 16 : 8),
+                        if (_busy)
+                          const RepaintBoundary(
+                            child: LinearProgressIndicator(),
+                          ),
+                        if (_favoriteError != null)
+                          _retryBanner(
+                            _favoriteError!,
+                            () => _favorite(comic, value: _favoriteRetryValue),
+                          ),
+                        if (_metadataLoading)
+                          const RepaintBoundary(
+                            child: LinearProgressIndicator(),
+                          ),
+                        if (_metadataError != null)
+                          _retryBanner(_metadataError!, _loadMetadata),
+                        if (isLandscape ||
+                            _busy ||
+                            _favoriteError != null ||
+                            _metadataLoading ||
+                            _metadataError != null)
+                          const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+                  SliverList.builder(
+                    itemCount: 2,
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: SelectableText(
+                            comic.description,
+                            style: infoStyle,
+                          ),
+                        );
+                      }
+                      final authors = comic.authors;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (authors.isNotEmpty) ...[
+                            WorkDetailSectionTitle(s.author),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: [
+                                for (final author in authors)
+                                  MetadataSearchChip(
+                                    label: author,
+                                    searchKeyword: author,
+                                    searchTypeLabel: s.author,
+                                    searchParams: const {},
+                                    chipTone: MetadataChipTone.secondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    borderRadius: 6,
+                                    onTap: () => pushBottomDockRoute(
+                                      context,
+                                      builder: (_) => ComicSearchScreen(
+                                        initialSource: comic.source,
+                                        initialQuery: author,
                                       ),
-                                      borderRadius: 6,
-                                      onTap: () => pushBottomDockRoute(
-                                        context,
-                                        builder: (_) => ComicSearchScreen(
-                                          initialSource: comic.source,
-                                          initialQuery: author,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (comic.tags.isNotEmpty) ...[
+                            WorkDetailSectionTitle(s.tagLabel),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: comic.tags
+                                  .toSet()
+                                  .map(
+                                    (tag) => buildEhTagLabel(
+                                      context: context,
+                                      tag: tag,
+                                      translations: tagTranslations,
+                                      builder: (label) => MetadataSearchChip(
+                                        label: label,
+                                        searchKeyword: tag,
+                                        searchTypeLabel: s.tagLabel,
+                                        searchParams: const {},
+                                        chipTone: MetadataChipTone.primary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        borderRadius: 6,
+                                        onTap: () => pushBottomDockRoute(
+                                          context,
+                                          builder: (_) => ComicSearchScreen(
+                                            initialSource: comic.source,
+                                            initialQuery: tag,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                            if (comic.tags.isNotEmpty) ...[
-                              WorkDetailSectionTitle(s.tagLabel),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: comic.tags
-                                    .toSet()
-                                    .map(
-                                      (tag) => buildEhTagLabel(
-                                        context: context,
-                                        tag: tag,
-                                        translations: tagTranslations,
-                                        builder: (label) => MetadataSearchChip(
-                                          label: label,
-                                          searchKeyword: tag,
-                                          searchTypeLabel: s.tagLabel,
-                                          searchParams: const {},
-                                          chipTone: MetadataChipTone.primary,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          borderRadius: 6,
-                                          onTap: () => pushBottomDockRoute(
-                                            context,
-                                            builder: (_) => ComicSearchScreen(
-                                              initialSource: comic.source,
-                                              initialQuery: tag,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
+                                  )
+                                  .toList(),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            if (_hasComments)
+              SliverLayoutBuilder(
+                builder: (context, groupConstraints) => SliverMainAxisGroup(
+                  key: _detailTabGroupKey,
+                  slivers: [
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _ComicDetailTabBarDelegate(
+                        tabBar: detailTabBar,
+                        horizontalPadding: detailPadding,
+                      ),
+                    ),
+                    SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        final leadingExtent =
+                            constraints.precedingScrollExtent -
+                            groupConstraints.precedingScrollExtent;
+                        final transitionGeneration = _detailMotionGeneration;
+                        return SliverMainAxisGroup(
+                          slivers: [
+                            SliverTabPageView(
+                              position: _detailPagePosition,
+                              onDragStart: () {
+                                _detailMotionGeneration++;
+                                _detailMotionTarget = null;
+                                _beginDetailTabTransition();
+                                _detailPagePosition.stop(canceled: true);
+                              },
+                              onDragUpdate: _updateDetailPagePosition,
+                              onDragEnd: _settleDetailPagePosition,
+                              onDragCancel: () => _settleDetailPagePosition(0),
+                              pageResourceOffsets: [
+                                for (final page in [0, 1])
+                                  _unpinnedDetailOffset ??
+                                      _detailTabScrollOffsets[page] ??
+                                      0,
+                              ],
+                              leadingExtent: leadingExtent,
+                              transitionSourceIndex: _detailTransitionSource,
+                              onPageResourceOffsetCorrected:
+                                  (pageIndex, correction) {
+                                    WidgetsBinding.instance.addPostFrameCallback((
+                                      _,
+                                    ) {
+                                      if (!mounted ||
+                                          transitionGeneration !=
+                                              _detailMotionGeneration) {
+                                        return;
+                                      }
+                                      _detailTabScrollOffsets[pageIndex] =
+                                          ((_detailTabScrollOffsets[pageIndex] ??
+                                                      0) +
+                                                  correction)
+                                              .clamp(0.0, double.infinity)
+                                              .toDouble();
+                                      setState(() {});
+                                    });
+                                  },
+                              pages: [
+                                TickerMode(
+                                  enabled:
+                                      _detailTransitionSource != null ||
+                                      _selectedDetailTab == 0,
+                                  child: SliverPadding(
+                                    key: const ValueKey(
+                                      'comic-detail-chapters-page',
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    sliver: buildChapterSliver(),
+                                  ),
+                                ),
+                                TickerMode(
+                                  enabled:
+                                      _detailTransitionSource != null ||
+                                      _selectedDetailTab == 1,
+                                  child: SliverPadding(
+                                    key: const ValueKey(
+                                      'comic-detail-comments-page',
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    sliver: FutureBuilder<List<ComicComment>>(
+                                      future: _commentsFuture,
+                                      builder: (context, snapshot) =>
+                                          buildCommentsSliver(snapshot),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SliverLayoutBuilder(
+                              builder: (context, tailConstraints) {
+                                final pageExtent =
+                                    tailConstraints.precedingScrollExtent -
+                                    constraints.precedingScrollExtent;
+                                final tailExtent =
+                                    ((_fillDetailViewport
+                                                ? constraints
+                                                          .viewportMainAxisExtent -
+                                                      detailTabBar
+                                                          .preferredSize
+                                                          .height
+                                                : 0) -
+                                            pageExtent)
+                                        .clamp(0.0, double.infinity)
+                                        .toDouble();
+                                return SliverToBoxAdapter(
+                                  child: SizedBox(height: tailExtent),
+                                );
+                              },
+                            ),
                           ],
                         );
                       },
                     ),
                   ],
                 ),
+              )
+            else
+              buildChapterSliver(),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: detailPadding + MediaQuery.paddingOf(context).bottom,
               ),
-              if (_hasComments)
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _ComicDetailTabBarDelegate(
-                    tabBar: TabBar(
-                      key: const ValueKey('comic-detail-tabs'),
-                      controller: _detailTabs,
-                      tabs: [
-                        Tab(text: s.comicChapters),
-                        Tab(text: s.comicComments),
-                      ],
-                    ),
-                    horizontalPadding: detailPadding,
-                  ),
-                ),
-              if (_selectedDetailTab == 0)
-                SliverLayoutBuilder(
-                  builder: (context, constraints) {
-                    // The first chapter otherwise requests offscreen thumbnails.
-                    if (constraints.remainingCacheExtent == 0 &&
-                        constraints.scrollOffset == 0) {
-                      return const SliverToBoxAdapter();
-                    }
-                    return SliverPadding(
-                      padding: EdgeInsets.fromLTRB(
-                        detailPadding,
-                        _hasComments ? 0 : 16,
-                        detailPadding,
-                        0,
-                      ),
-                      sliver: SliverList.builder(
-                        itemCount:
-                            1 + (_initialContentVisible ? _chapters.length : 0),
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return Padding(
-                              padding: const EdgeInsets.only(
-                                top: 16,
-                                bottom: 16,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (!_hasComments)
-                                    Text(
-                                      s.comicChapters,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                  if (_chaptersLoading)
-                                    const RepaintBoundary(
-                                      child: LinearProgressIndicator(),
-                                    ),
-                                  if (_chaptersError != null)
-                                    _retryBanner(
-                                      _chaptersError!,
-                                      () => _loadChapters(comic: _comic),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }
-                          final chapter = _chapters[index - 1];
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              ListTile(
-                                title: Text(chapter.title),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _read(comic, chapter: chapter),
-                              ),
-                              if (showThumbnails &&
-                                  !_metadataLoading &&
-                                  !_chaptersLoading)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
-                                  child: ComicChapterThumbnails(
-                                    key: ValueKey('${comic.key}-${chapter.id}'),
-                                    comic: comic,
-                                    chapter: chapter,
-                                    pagesCache: _chapterPreviewPages,
-                                    onSelected: (page, pages) => unawaited(
-                                      _showPagePreview(
-                                        comic,
-                                        chapter,
-                                        page,
-                                        pages,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
-                    );
-                  },
-                )
-              else
-                buildCommentsSliver(snapshot),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: detailPadding + MediaQuery.paddingOf(context).bottom,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
         return Center(
           child: SizedBox(

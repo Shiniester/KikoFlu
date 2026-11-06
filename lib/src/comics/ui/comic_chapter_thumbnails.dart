@@ -116,6 +116,7 @@ class _ComicChapterThumbnailsState
                             child: ComicCover(
                               source: widget.comic.source,
                               page: pages[indices[i]],
+                              loadImage: TickerMode.valuesOf(context).enabled,
                               maxWidth: width,
                               maxHeight: 120,
                               cornerRadius: 6,
