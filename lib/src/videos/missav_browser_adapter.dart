@@ -340,7 +340,10 @@ fetch(request.url, {
       );
     }
     if (_closed || _pending[id] != operation) {
-      throw _verificationRequired(operation.options.uri.toString());
+      throw DioException.connectionError(
+        requestOptions: operation.options,
+        reason: 'Browser connection is no longer available',
+      );
     }
     if (operation.cancelled ||
         operation.options.cancelToken?.isCancelled == true) {
@@ -408,7 +411,14 @@ fetch(request.url, {
     if (_closed) return;
     _closed = true;
     for (final entry in _pending.entries.toList()) {
-      _finishOperation(entry.key, entry.value, _verificationRequired(_origin));
+      _finishOperation(
+        entry.key,
+        entry.value,
+        DioException.connectionError(
+          requestOptions: entry.value.options,
+          reason: 'Browser session closed before the request completed',
+        ),
+      );
     }
     _pending.clear();
     _cleanup = Future<void>.sync(disposeBrowser);

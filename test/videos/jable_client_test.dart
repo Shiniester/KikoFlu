@@ -943,8 +943,48 @@ void main() {
     },
   );
 
+  for (final browserTransport in [false, true]) {
+    test(
+      'normal Cloudflare detection scripts keep Jable access usable (browser=$browserTransport)',
+      () async {
+        const markup = '''
+          <html><head><title>Jable</title></head><body>
+            <div class="video-info"><div class="info-header"></div></div>
+            <div id="list_videos_latest_videos">
+              <div class="video-img-box"><a href="/videos/sample/"></a>
+                <div class="detail"><h6 class="title">Sample video</h6></div>
+              </div>
+            </div>
+            <script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>
+            <script>var hlsUrl = "https://media.example/sample.m3u8";</script>
+            <footer>Cloudflare</footer>
+          </body></html>
+        ''';
+        final client = _client(_Adapter((_) => _html(markup)));
+        addTearDown(client.dispose);
+        if (browserTransport) {
+          client.useVerifiedBrowserTransport(
+            MissavBrowserAdapter.jable(
+              runJavaScript: (_) async {},
+              currentUrl: () async => JableClient.origin,
+              navigateDocument: (_, _) async => markup,
+              disposeBrowser: () async {},
+            ),
+            expectedGeneration: client.sessionGeneration,
+          );
+        }
+
+        await client.checkBrowserAccess();
+        final page = await client.browse(client.homeUrl);
+        expect(page.videos.single.title, 'Sample video');
+        final details = await client.details(page.videos.single);
+        expect(details.streams.single.url, 'https://media.example/sample.m3u8');
+      },
+    );
+  }
+
   test(
-    '403 and a 200 Cloudflare challenge both request browser verification',
+    '403 and concrete Cloudflare challenges request browser verification',
     () async {
       for (final response in [
         _html('<html><body>Denied</body></html>', statusCode: 403),
@@ -952,6 +992,12 @@ void main() {
         <!doctype html><html><head><title>Just a moment...</title></head>
         <body><div id="cf-challenge">Checking your browser</div></body></html>
       '''),
+        _html('<title>Attention Required! | Cloudflare</title>'),
+        _html('<script>window._cf_chl_opt = {};</script>'),
+        _html('<form id="challenge-form"></form>'),
+        _html('<form action="/cdn-cgi/challenge-platform/h/b/flow"></form>'),
+        _html('<form action="/cdn-cgi/l/chk_captcha"></form>'),
+        _html('<script src="/orchestrate/chl_page"></script>'),
       ]) {
         final client = _client(_Adapter((_) => response));
 

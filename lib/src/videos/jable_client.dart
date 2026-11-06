@@ -610,16 +610,19 @@ class JableClient implements VideoSourceClient {
 
   bool _looksLikeChallenge(String html) {
     final value = html.toLowerCase();
-    final title =
-        html_parser.parse(html).querySelector('title')?.text.toLowerCase() ??
-        '';
-    return value.contains('cf-chl-') ||
-        value.contains('cf_chl_') ||
-        value.contains('/cdn-cgi/challenge-platform') ||
-        value.contains('challenge-form') ||
-        title.startsWith('just a moment') ||
-        title.startsWith('attention required') ||
-        (value.contains('cloudflare') && value.contains('challenge'));
+    final document = html_parser.parse(value);
+    final title = document.querySelector('title')?.text.trim() ?? '';
+    return title.startsWith('just a moment') ||
+        (title.startsWith('attention required') &&
+            title.contains('cloudflare')) ||
+        RegExp(r'\bwindow\s*\.\s*_cf_chl_opt\b').hasMatch(value) ||
+        document.querySelector(
+              'form#challenge-form, '
+              'form[action*="/cdn-cgi/challenge-platform/"], '
+              'form[action*="/cdn-cgi/l/chk_captcha"]',
+            ) !=
+            null ||
+        (value.contains('orchestrate') && value.contains('chl_page'));
   }
 
   List<VideoItem> _parseVideos(Document document, Uri base) {

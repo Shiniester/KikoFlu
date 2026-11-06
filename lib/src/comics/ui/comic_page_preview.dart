@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -19,6 +20,15 @@ class ComicPagePreview extends StatefulWidget {
     required this.onSelected,
   });
 
+  // shortcut: Size is fixed when opened; compute in the sheet if live resizing is needed.
+  static double? sheetWidthFor(BuildContext context) {
+    final width = context.size!.width;
+    if (width < 600) return null;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    return math.min(960.0, isLandscape ? width * .8 : width - 48);
+  }
+
   final int pageCount;
   final int initialPage;
   final String title;
@@ -31,7 +41,6 @@ class ComicPagePreview extends StatefulWidget {
 }
 
 class _ComicPagePreviewState extends State<ComicPagePreview> {
-  static const _tileExtent = 182.0;
   static const _tileSpacing = 10.0;
   static const _cacheLimit = 64;
   static const _maxConcurrentLoads = 3;
@@ -242,7 +251,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
     navigator.pop();
   }
 
-  void _positionGrid(int columns) {
+  void _positionGrid(int columns, double tileExtent) {
     if (_positionScheduled || _ready || !_accepting) return;
     _positionScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -257,7 +266,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
       }
       final position = controller.position;
       final row = _page ~/ columns;
-      final target = (8 + row * (_tileExtent + _tileSpacing))
+      final target = (8 + row * (tileExtent + _tileSpacing))
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       controller.jumpTo(target);
@@ -313,29 +322,35 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final innerWidth = constraints.maxWidth - 24;
-              final columns = (innerWidth / 120).floor().clamp(2, 6).toInt();
+              final isWide = MediaQuery.sizeOf(context).width >= 600;
+              final tileExtent = isWide ? 240.0 : 182.0;
+              final columns = (innerWidth / (isWide ? 160 : 120))
+                  .floor()
+                  .clamp(2, 6)
+                  .toInt();
               final tileWidth = (innerWidth - (columns - 1) * 8) / columns;
               final pixelRatio = MediaQuery.devicePixelRatioOf(context);
               final imageWidth = ((tileWidth - 8) * pixelRatio)
                   .round()
                   .clamp(1, 4096)
                   .toInt();
-              final imageHeight = (140 * pixelRatio)
-                  .round()
-                  .clamp(1, 4096)
-                  .toInt();
-              _positionGrid(columns);
+              final imageHeight =
+                  ((isWide ? tileExtent - 30 : 140) * pixelRatio)
+                      .round()
+                      .clamp(1, 4096)
+                      .toInt();
+              _positionGrid(columns, tileExtent);
               return GridView.builder(
                 controller: widget.scrollController,
                 primary: false,
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                scrollCacheExtent: const ScrollCacheExtent.pixels(
-                  _tileExtent + _tileSpacing,
+                scrollCacheExtent: ScrollCacheExtent.pixels(
+                  tileExtent + _tileSpacing,
                 ),
                 itemCount: widget.pageCount,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
-                  mainAxisExtent: _tileExtent,
+                  mainAxisExtent: tileExtent,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: _tileSpacing,
                 ),

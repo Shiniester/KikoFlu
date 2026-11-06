@@ -181,13 +181,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
   /// 显示添加作品对话框
   void _showAddWorksDialog() {
-    showDialog(
+    PlaylistAddWorksDialog.show(
       context: context,
-      builder: (dialogContext) => PlaylistAddWorksDialog(
-        onAddWorks: (ids) {
-          _addWorks(ids);
-        },
-      ),
+      onAddWorks: _addWorks,
     );
   }
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../services/subtitle_library_service.dart';
 import '../utils/subtitle_library_display.dart';
+import 'responsive_dialog.dart';
 
 typedef SubtitleLibraryFolderLoader = Future<List<Map<String, dynamic>>>
     Function(String path);
@@ -17,6 +18,24 @@ class SubtitleLibraryFolderBrowserDialog extends StatefulWidget {
     this.folderLoader,
     this.pathSeparator,
   });
+
+  static Future<String?> show({
+    required BuildContext context,
+    required String rootPath,
+    String? excludePath,
+    SubtitleLibraryFolderLoader? folderLoader,
+    String? pathSeparator,
+  }) {
+    return showResponsiveBottomSheet<String>(
+      context: context,
+      builder: (context) => SubtitleLibraryFolderBrowserDialog(
+        rootPath: rootPath,
+        excludePath: excludePath,
+        folderLoader: folderLoader,
+        pathSeparator: pathSeparator,
+      ),
+    );
+  }
 
   final String rootPath;
   final String? excludePath;
@@ -112,83 +131,59 @@ class _SubtitleLibraryFolderBrowserDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
-        children: [
-          if (_pathStack.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: _navigateBack,
-              tooltip: S.of(context).goToParent,
-            ),
-          Expanded(
-            child: Text(
-              S.of(context).moveToTarget(_currentDisplayName(context)),
-              style: const TextStyle(fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 400,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  Expanded(
-                    child: _currentFolders.isEmpty
-                        ? Center(
-                            child: Text(
-                              S.of(context).noSubfoldersHere,
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _currentFolders.length,
-                            itemBuilder: (context, index) {
-                              final folder = _currentFolders[index];
-                              final name = folder['name'] as String;
-                              final displayName =
-                                  localizedSubtitleFolderTitle(context, name);
-                              final path = folder['path'] as String;
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
 
-                              return ListTile(
-                                leading: const Icon(
-                                  Icons.folder,
-                                  color: Colors.amber,
-                                ),
-                                title: Text(displayName),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _navigateToFolder(path),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(S.of(context).cancel),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BottomSheetHeader(
+          title: S.of(context).moveToTarget(_currentDisplayName(context)),
+          leading: _pathStack.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _navigateBack,
+                  tooltip: S.of(context).goToParent,
+                ),
+          showCloseButton: isLandscape,
         ),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 220),
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.check_circle, size: 18),
-            label: Text(
-              _currentDisplayName(context),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            onPressed: () => Navigator.pop(context, _currentPath),
-          ),
+        const Divider(height: 1),
+        Flexible(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _currentFolders.isEmpty
+              ? Center(
+                  child: Text(
+                    S.of(context).noSubfoldersHere,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _currentFolders.length,
+                  itemBuilder: (context, index) {
+                    final folder = _currentFolders[index];
+                    final name = folder['name'] as String;
+                    final displayName = localizedSubtitleFolderTitle(
+                      context,
+                      name,
+                    );
+                    final path = folder['path'] as String;
+
+                    return ListTile(
+                      leading: const Icon(Icons.folder, color: Colors.amber),
+                      title: Text(displayName),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _navigateToFolder(path),
+                    );
+                  },
+                ),
+        ),
+        BottomSheetActionBar(
+          secondaryLabel: S.of(context).cancel,
+          onSecondaryPressed: () => Navigator.of(context).pop(),
+          primaryLabel: _currentDisplayName(context),
+          onPrimaryPressed: () => Navigator.of(context).pop(_currentPath),
         ),
       ],
     );

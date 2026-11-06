@@ -107,7 +107,7 @@ void main() {
   });
 
   test(
-    'closing Jable browser ends an in-flight document with its source',
+    'closing Jable browser reports a connection error for its document',
     () async {
       final started = Completer<void>();
       final document = Completer<String>();
@@ -127,13 +127,25 @@ void main() {
         Uri.parse('https://jable.tv/videos/example/'),
       );
       await started.future;
-      final rejected = expectLater(
+      final failed = expectLater(
         pending,
-        throwsA(isA<JableVerificationRequiredException>()),
+        throwsA(
+          isA<DioException>()
+              .having(
+                (error) => error.type,
+                'type',
+                DioExceptionType.connectionError,
+              )
+              .having(
+                (error) => error.requestOptions.uri.host,
+                'host',
+                'jable.tv',
+              ),
+        ),
       );
       adapter.close();
       adapter.close();
-      await rejected;
+      await failed;
       document.complete('<html>late response</html>');
       await adapter.whenClosed;
       expect(disposals, 1);

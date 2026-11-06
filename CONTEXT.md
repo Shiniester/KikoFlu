@@ -530,8 +530,9 @@ preparation and does not block further track-switch requests.
 _Avoid_: Track Switch, audio crossfade
 
 **Cover Preview (封面预览)**:
-The zoomable current-artwork view opened from the Player Cover Page. It is
-distinct from the Player Cover Page and saves the unblurred source artwork.
+The zoomable artwork view opened from the Player Cover Page, Work Details Screen,
+or Comic Details Screen. It is distinct from the Player Cover Page and saves the
+unblurred source artwork.
 _Avoid_: Player Cover Page, artwork editor
 
 ## 界面外观

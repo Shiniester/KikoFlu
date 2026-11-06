@@ -1894,6 +1894,20 @@ void main() {
         expect(find.byType(NavigationRail), findsOneWidget);
         expect(find.byType(NavigationRail).hitTestable(), findsNothing);
         final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
+        final transitionRebuildCounts = <Key, int>{
+          const ValueKey('video-controls'): 0,
+          const ValueKey('video-position-slider'): 0,
+          const ValueKey('video-fullscreen-control'): 0,
+        };
+        final previousRebuildCallback = debugOnRebuildDirtyWidget;
+        debugOnRebuildDirtyWidget = (element, builtOnce) {
+          final key = element.widget.key;
+          if (key != null && transitionRebuildCounts.containsKey(key)) {
+            transitionRebuildCounts.update(key, (count) => count + 1);
+          }
+          previousRebuildCallback?.call(element, builtOnce);
+        };
+        addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
 
         Rect? firstFullscreenFrame;
         var sawIntermediatePlayer = false;
@@ -1931,6 +1945,7 @@ void main() {
           }
         }
         await tester.pumpAndSettle();
+        debugOnRebuildDirtyWidget = previousRebuildCallback;
 
         expect(sawIntermediatePlayer, isTrue);
         expect(sawRetreatingDetails, isTrue);
@@ -1938,6 +1953,18 @@ void main() {
         expect(
           session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
           lessThanOrEqualTo(1),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-controls')],
+          lessThanOrEqualTo(2),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-position-slider')],
+          lessThanOrEqualTo(2),
+        );
+        expect(
+          transitionRebuildCounts[const ValueKey('video-fullscreen-control')],
+          lessThanOrEqualTo(2),
         );
         expect(firstFullscreenFrame, isNotNull);
         expect(
@@ -2019,6 +2046,20 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
+      final transitionRebuildCounts = <Key, int>{
+        const ValueKey('video-controls'): 0,
+        const ValueKey('video-position-slider'): 0,
+        const ValueKey('video-fullscreen-control'): 0,
+      };
+      final previousRebuildCallback = debugOnRebuildDirtyWidget;
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        final key = element.widget.key;
+        if (key != null && transitionRebuildCounts.containsKey(key)) {
+          transitionRebuildCounts.update(key, (count) => count + 1);
+        }
+        previousRebuildCallback?.call(element, builtOnce);
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
       var sawIntermediatePlayerSize = false;
       var sawDetailsBesideShrinkingPlayer = false;
       double? firstDetailsFramePlayerTop;
@@ -2039,11 +2080,24 @@ void main() {
         }
       }
       await tester.pumpAndSettle();
+      debugOnRebuildDirtyWidget = previousRebuildCallback;
 
       expect(sawIntermediatePlayerSize, isTrue);
       expect(sawDetailsBesideShrinkingPlayer, isTrue);
       expect(
         session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-controls')],
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-position-slider')],
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        transitionRebuildCounts[const ValueKey('video-fullscreen-control')],
         lessThanOrEqualTo(2),
       );
       expect(firstDetailsFramePlayerTop, isNotNull);
@@ -2418,18 +2472,14 @@ void main() {
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakePlaybackSession();
+      final detailsScreen = _testVideoDetailsScreen(
+        video: _video(),
+        sessionFactory: () => session,
+      );
+      final lightTheme = ThemeData(useMaterial3: true, fontFamily: 'Roboto');
 
       await tester.pumpWidget(
-        _app(
-          client,
-          library,
-          downloads,
-          _testVideoDetailsScreen(
-            video: _video(),
-            sessionFactory: () => session,
-          ),
-          theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),
-        ),
+        _app(client, library, downloads, detailsScreen, theme: lightTheme),
       );
       await tester.pumpAndSettle();
 
@@ -2491,6 +2541,39 @@ void main() {
       expect(expandedSliderRect.right, 460);
       tester.view.physicalSize = const Size(400, 800);
       await tester.pumpAndSettle();
+
+      final darkTheme = lightTheme.copyWith(brightness: Brightness.dark);
+      await tester.pumpWidget(
+        _app(client, library, downloads, detailsScreen, theme: darkTheme),
+      );
+      await tester.pumpAndSettle();
+      final sliderTheme = tester.widget<SliderTheme>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('video-position-slider')),
+              matching: find.byType(SliderTheme),
+            )
+            .first,
+      );
+      expect(sliderTheme.data.activeTrackColor, darkTheme.colorScheme.primary);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          detailsScreen,
+          theme: darkTheme,
+          textScale: 2,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('video-position-slider')))
+            .height,
+        32,
+      );
 
       await _tapGestureSurface(
         tester,

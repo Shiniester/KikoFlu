@@ -61,6 +61,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
+import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/utils/chinese_script_converter.dart';
 
@@ -8052,7 +8053,15 @@ void main() {
         ),
       );
       if (size.width == 320) {
-        expect(button.right, closeTo(size.width - 8 - 8, 0.1));
+        expect(
+          button.left,
+          closeTo(
+            tester
+                .getTopLeft(find.byKey(const ValueKey('comic-detail-info')))
+                .dx,
+            .1,
+          ),
+        );
         expect(button.bottom, lessThan(title.top));
         expect(button.left, greaterThan(cover.right));
       } else {
@@ -8377,6 +8386,90 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    for (final withTrack in [false, true]) {
+      testWidgets(
+        'chapter preview covers the shared Dock at $size (track=$withTrack)',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          await StorageService.remove('comic_chapter_thumbnails');
+          await StorageService.setInt('comic_preload', 0);
+          final library = _Library();
+          final source = _Source();
+          final pages = List.generate(20, (index) => ComicPage('page-$index'));
+          await pump(
+            tester,
+            const ComicDetailScreen(comic: _comic),
+            library,
+            source,
+            downloads: _PreviewDownloads(library, source, pages),
+            appNavigation: true,
+            track: withTrack
+                ? const AudioTrack(
+                    id: 'chapter-preview-dock-track',
+                    title: 'Audio',
+                    url: 'https://example.invalid/audio.mp3',
+                  )
+                : null,
+          );
+          final thumbnail = find.byKey(
+            const ValueKey('comic-chapter-thumbnail-one-9'),
+          );
+          await waitForPreviewContent(tester, thumbnail);
+          await tester.ensureVisible(thumbnail);
+          await tester.pumpAndSettle();
+          final dock = size.width > size.height
+              ? withTrack
+                    ? find.byType(MiniPlayer)
+                    : find.byType(NavigationRail)
+              : find.byType(AppBottomDock);
+          final dockRect = tester.getRect(dock);
+
+          await tester.tap(thumbnail);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          await tester.pump();
+          final preview = find.byType(ComicPagePreview);
+          final controller = tester
+              .widget<ComicPagePreview>(preview)
+              .scrollController;
+          controller.jumpTo(controller.position.maxScrollExtent);
+          await tester.pump();
+          final lastPage = find.byKey(const ValueKey('comic-page-preview-19'));
+          final image = find.descendant(
+            of: lastPage,
+            matching: find.byType(Image),
+          );
+          await waitForPreviewContent(tester, image);
+          await waitForDecodedImage(tester, image);
+          final pageRect = tester.getRect(lastPage);
+          if (size.width < size.height || withTrack) {
+            expect(pageRect.bottom, greaterThan(dockRect.top));
+          }
+          expect(
+            lastPage.hitTestable(at: const Alignment(0, .9)),
+            findsOneWidget,
+          );
+          await tester.tapAt(Offset(pageRect.center.dx, pageRect.bottom - 8));
+          await tester.pumpAndSettle();
+          expect(preview, findsNothing);
+          expect(
+            tester
+                .widget<ComicReaderScreen>(find.byType(ComicReaderScreen))
+                .initialPage,
+            19,
+          );
+          Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
+          await tester.pumpAndSettle();
+          expect(dock.hitTestable(), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   testWidgets('chapter previews retain distinct images after scrolling away', (
     tester,
@@ -9530,6 +9623,7 @@ void main() {
       id: 'book',
       title: 'Fixture book',
       cover: 'fixture-cover',
+      description: List.filled(60, 'Synopsis line.').join('\n'),
       tags: List.generate(40, (index) => 'Tag $index'),
     );
     final source = _Source()..detailResult = listing;
@@ -9577,11 +9671,11 @@ void main() {
     final bottomInset = MediaQuery.paddingOf(tester.element(cover)).bottom;
     final availableCoverHeight = viewport.height - 16 - bottomInset;
     final resizedCover = tester.getSize(cover);
-    expect(resizedCover.height, closeTo(availableCoverHeight, 0.1));
+    expect(resizedCover.height, closeTo(resizedCover.width * 160 / 100, 0.1));
     expect(
       resizedCover.width,
       closeTo(
-        math.min(viewport.width * 2 / 3 - 16, availableCoverHeight * 100 / 160),
+        math.min(viewport.width * 2 / 3 - 48, availableCoverHeight * 100 / 160),
         0.1,
       ),
     );
@@ -9628,7 +9722,7 @@ void main() {
         landscapeCover.width,
         closeTo(
           math.min(
-            landscapeViewport.width * 2 / 3 - 16,
+            landscapeViewport.width * 2 / 3 - 48,
             landscapeHeight * 100 / 160,
           ),
           0.1,
@@ -9700,7 +9794,7 @@ void main() {
         final isLandscape = size.width > size.height;
         final detailPadding = isLandscape || size.width > 320 ? 16.0 : 8.0;
         final availableCoverWidth = isLandscape
-            ? viewport.width * 2 / 3 - 16
+            ? viewport.width * 2 / 3 - 48
             : (viewport.width - detailPadding * 2 - 16) / 2;
         final availableCoverHeight =
             viewport.height -
@@ -9730,10 +9824,7 @@ void main() {
         );
         final title = tester.getRect(find.byType(WorkTitleHeader));
         if (!isLandscape) {
-          expect(
-            button.right,
-            closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
-          );
+          expect(button.left, closeTo(info.left, 0.1));
           expect(button.bottom, lessThan(title.top));
           expect(cover.bottom, lessThan(title.top));
         } else {
@@ -10424,6 +10515,64 @@ void main() {
     final detailCover = find.byKey(const ValueKey('comic-detail-cover'));
     await expectComicCoverDecodeMatchesDisplay(tester, detailCover, 100);
   });
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets('detail cover opens a preview from its loaded bytes at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final library = _Library();
+      final loadedPages = <ComicPage>[];
+      final container = await pump(
+        tester,
+        const ComicDetailScreen(comic: _comic),
+        library,
+        _Source(),
+        appNavigation: true,
+        track: const AudioTrack(
+          id: 'comic-cover-preview-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+        loadImage: (page) async {
+          loadedPages.add(page);
+          return _widePng;
+        },
+      );
+      final cover = find.byKey(const ValueKey('comic-detail-cover'));
+      await waitForDecodedImage(
+        tester,
+        find.descendant(of: cover, matching: find.byType(Image)),
+      );
+      final coverRect = tester.getRect(cover);
+      final imageRequests = loadedPages.length;
+
+      await tester.tap(cover);
+      final preview = find.byType(CoverPreviewDialog);
+      await waitForFinder(tester, preview);
+      await tester.pumpAndSettle();
+
+      expect(preview, findsOneWidget);
+      expect(tester.widget<CoverPreviewDialog>(preview).imageBytes, same(_widePng));
+      expect(loadedPages.length, imageRequests);
+      expect(tester.getRect(cover), coverRect);
+      expect(container.read(comicReaderActiveProvider), isFalse);
+      expect(library.last, isNull);
+      final frame = tester.getSize(
+        find.byKey(const ValueKey('cover-preview-image-frame')),
+      );
+      expect(frame.aspectRatio, closeTo(1.8, 0.001));
+
+      await tester.tapAt(tester.getCenter(preview));
+      await tester.pumpAndSettle();
+      expect(preview, findsNothing);
+      expect(tester.getRect(cover), coverRect);
+      expect(library.last, isNull);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('detail cover stays loaded while the reader covers and returns', (
     tester,
@@ -13250,6 +13399,230 @@ void main() {
       expect(library.last?.page, 3);
     },
   );
+  for (final size in [const Size(390, 844), const Size(1024, 768)]) {
+    for (final emptyComments in [false, true]) {
+      testWidgets(
+        'details swipe through comment blank space at $size (empty=$emptyComments)',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final source = _Source()..commentsEnabled = true;
+          if (emptyComments) source.commentsResult = [];
+          final comic = size.width > size.height
+              ? Comic(
+                  source: _comic.source,
+                  id: _comic.id,
+                  title: _comic.title,
+                  cover: _comic.cover,
+                  chapters: _comic.chapters,
+                  description: List.filled(
+                    60,
+                    'Long comic metadata.',
+                  ).join('\n'),
+                )
+              : _comic;
+          source.detailResult = comic;
+          await pump(
+            tester,
+            ComicDetailScreen(comic: comic),
+            _Library(),
+            source,
+            appNavigation: true,
+          );
+          final tabs = find.byKey(const ValueKey('comic-detail-tabs'));
+          await tester.scrollUntilVisible(
+            tabs,
+            300,
+            scrollable: find
+                .descendant(
+                  of: find.byType(ComicDetailScreen),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+          await tester.pumpAndSettle();
+          final viewport = tester.getRect(
+            find.byKey(const PageStorageKey<String>('comic-detail-scroll')),
+          );
+          final y = math.min(
+            viewport.bottom - 60,
+            tester.getRect(tabs).bottom + 220,
+          );
+          if (emptyComments) {
+            await tester.tap(find.text('Comments'));
+          } else {
+            await tester.dragFrom(
+              Offset(viewport.left + viewport.width * .88, y),
+              Offset(-viewport.width * .76, 0),
+            );
+          }
+          await tester.pumpAndSettle();
+          expect(tester.widget<TabBar>(tabs).controller!.index, 1);
+          await tester.dragFrom(
+            Offset(viewport.left + viewport.width * .12, y),
+            Offset(viewport.width * .76, 0),
+          );
+          await tester.pumpAndSettle();
+          expect(tester.widget<TabBar>(tabs).controller!.index, 0);
+          expect(source.commentReads, 1);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final size in [const Size(1024, 768), const Size(768, 1024)]) {
+    testWidgets('tablet reader expands the chapter page preview at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('one', 'Chapter 1'),
+          initialPage: 4,
+        ),
+        _Library(),
+        _Source(),
+      );
+      await waitForDecodedImage(tester, find.byType(Image).first);
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getCenter(find.byType(PageView)));
+      await tester.pump(kDoubleTapTimeout);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('comic-page-preview')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      final preview = tester.getRect(find.byType(ComicPagePreview));
+      final landscape = size.width > size.height;
+      expect(
+        preview.width,
+        closeTo(
+          math.min(960, landscape ? size.width * .8 : size.width - 48),
+          .1,
+        ),
+      );
+      if (landscape) expect(preview.height, greaterThan(size.height * .9));
+      await tester.tap(find.byKey(const ValueKey('comic-page-preview-close')));
+      await tester.pumpAndSettle();
+      expect(readerPageValue('5/8'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('tablet details leave room beside the landscape Dock', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic, initialCoverAspectRatio: 1.8),
+      _Library(),
+      _Source(),
+      appNavigation: true,
+      loadImage: (_) async => _widePng,
+      settle: false,
+    );
+    await pumpFrames(tester, frames: 30);
+    final cover = tester.getRect(
+      find.byKey(const ValueKey('comic-detail-cover')),
+    );
+    final rail = tester.getRect(find.byType(NavigationRail));
+    expect(cover.left - rail.right, greaterThanOrEqualTo(24));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tablet details align start and continue reading with metadata', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(768, 1024);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = _NotifyingLibrary();
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      library,
+      _Source(),
+      appNavigation: true,
+    );
+    for (final label in ['Start reading', 'Continue reading']) {
+      final info = tester.getRect(
+        find.byKey(const ValueKey('comic-detail-info')),
+      );
+      final button = tester.getRect(find.widgetWithText(FilledButton, label));
+      expect(button.left, closeTo(info.left, .1));
+      if (label == 'Start reading') {
+        await library.saveProgress(_comic, 'one', 3);
+        await tester.pumpAndSettle();
+      }
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [
+    const Size(1024, 768),
+    const Size(768, 1024),
+    const Size(900, 850),
+    const Size(600, 960),
+  ]) {
+    testWidgets('tablet details expand both chapter previews at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await StorageService.setBool('comic_chapter_thumbnails', true);
+      await pump(
+        tester,
+        const ComicDetailScreen(comic: _comic),
+        _Library(),
+        _Source(),
+        appNavigation: true,
+      );
+      final first = find.byKey(const ValueKey('comic-chapter-thumbnail-one-0'));
+      await waitForPreviewContent(tester, first);
+      await tester.ensureVisible(first);
+      await tester.pumpAndSettle();
+      final row = tester.getRect(find.byType(ComicChapterThumbnails).first);
+      final last = tester.getRect(
+        find.byKey(const ValueKey('comic-chapter-thumbnail-one-7')),
+      );
+      expect(last.right, closeTo(row.right, .1));
+      expect(tester.getSize(first).width, closeTo((row.width - 16) / 3, .1));
+      final image = find.descendant(
+        of: first,
+        matching: find.byType(ComicCover),
+      );
+      expect(tester.getSize(image).height, greaterThan(120));
+      final viewport = tester.getSize(find.byType(ComicDetailScreen));
+      await tester.tap(first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      final preview = tester.getRect(find.byType(ComicPagePreview));
+      final landscape = size.width > size.height;
+      final expectedWidth = math.min(
+        960,
+        landscape ? viewport.width * .8 : viewport.width - 48,
+      );
+      expect(preview.width, closeTo(expectedWidth, .1));
+      if (landscape) expect(preview.height, greaterThan(viewport.height * .9));
+      await tester.tap(find.byKey(const ValueKey('comic-page-preview-close')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicPagePreview), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('search failure stays in the search page and can retry', (
     tester,
   ) async {

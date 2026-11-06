@@ -46,7 +46,7 @@ import '../widgets/work_detail/work_progress_action_button.dart';
 import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/work_detail_route_readiness.dart';
 
-import '../widgets/work_image_reader.dart';
+import '../widgets/cover_preview_dialog.dart';
 
 final workDetailCoverCacheProvider = Provider(
   (ref) => CacheService.imageCacheManager,
@@ -1074,26 +1074,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                 _currentWork.hasSubtitle == true,
             showAgeRating: displaySettings.showAgeRating,
             age: _currentWork.age,
-            onTap: () {
-              AppNavigationScope.navigatorOf(context).push(
-                MaterialPageRoute(
-                  settings: appImmersiveRouteSettings,
-                  builder: (context) => WorkImageReader(
-                    title: _currentWork.title,
-                    images: [
-                      {
-                        'url': coverUrl,
-                        'title': _currentWork.title,
-                        'hash': '',
-                        'cacheKey': 'work_cover_${widget.work.id}',
-                      },
-                    ],
-                    initialIndex: 0,
-                    workId: widget.work.id,
-                  ),
-                ),
-              );
-            },
+            onTap: () => CoverPreviewDialog.show(
+              context,
+              imageUrl: coverUrl,
+              identifier: widget.work.id.toString(),
+              cacheKey: 'work_cover_${widget.work.id}',
+              isJapaneseAsmr: widget.work.id < 0,
+            ),
             layers: [
               ValueListenableBuilder<bool>(
                 valueListenable: _showDetailCover,

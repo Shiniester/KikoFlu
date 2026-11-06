@@ -2502,6 +2502,46 @@ void main() {
     expect(find.text('No playable audio files found'), findsOneWidget);
   });
 
+  testWidgets(
+    'short audio page keeps its blank area swipeable on first build',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tree = ValueNotifier<List<dynamic>>(_audioFiles(1));
+      addTearDown(tree.dispose);
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await _pumpResources(
+        tester,
+        tree,
+        controller: controller,
+        introSliver: const SliverToBoxAdapter(child: SizedBox(height: 900)),
+      );
+      await tester.pumpAndSettle();
+      controller.jumpTo(900);
+      await tester.pumpAndSettle();
+
+      final audio = find.byKey(const ValueKey('work-audio-track0.wav'));
+      final audioTop = tester.getTopLeft(audio).dy;
+      final tabBarTop = tester.getTopLeft(find.byType(TabBar)).dy;
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+
+      const blankPoint = Offset(195, 400);
+      await tester.dragFrom(blankPoint, const Offset(260, 0));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+      expect(find.text('whole resource tree').hitTestable(), findsOneWidget);
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(tabBarTop, 1));
+
+      await tester.dragFrom(blankPoint, const Offset(-260, 0));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+      expect(tester.getTopLeft(audio).dy, closeTo(audioTop, 1));
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(tabBarTop, 1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test(
     'same-directory video selection preserves tree order and classification',
     () {

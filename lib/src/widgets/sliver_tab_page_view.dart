@@ -16,6 +16,7 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
     required this.onDragCancel,
     this.pageResourceOffsets,
     this.leadingExtent = 0,
+    this.minimumPageExtent = 0,
     this.transitionSourceIndex,
     this.onPageResourceOffsetCorrected,
     this.crossAxisPadding = 0,
@@ -25,6 +26,7 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
          pageResourceOffsets == null ||
              pageResourceOffsets.length == pages.length,
        ),
+       assert(minimumPageExtent >= 0),
        super(children: pages);
 
   final Animation<double> position;
@@ -38,6 +40,7 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
   final VoidCallback onDragCancel;
   final List<double>? pageResourceOffsets;
   final double leadingExtent;
+  final double minimumPageExtent;
   final int? transitionSourceIndex;
   final double crossAxisPadding;
   final void Function(int pageIndex, double correction)?
@@ -57,6 +60,7 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
         onDragCancel: onDragCancel,
         pageResourceOffsets: pageResourceOffsets,
         leadingExtent: leadingExtent,
+        minimumPageExtent: minimumPageExtent,
         transitionSourceIndex: transitionSourceIndex,
         onPageResourceOffsetCorrected: onPageResourceOffsetCorrected,
         crossAxisPadding: crossAxisPadding,
@@ -75,6 +79,7 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
       ..onDragCancel = onDragCancel
       ..pageResourceOffsets = pageResourceOffsets
       ..leadingExtent = leadingExtent
+      ..minimumPageExtent = minimumPageExtent
       ..transitionSourceIndex = transitionSourceIndex
       ..crossAxisPadding = crossAxisPadding
       ..onPageResourceOffsetCorrected = onPageResourceOffsetCorrected;
@@ -122,6 +127,7 @@ class RenderSliverTabPageView extends RenderSliver
     required this._onDragCancel,
     required this._pageResourceOffsets,
     required this._leadingExtent,
+    required this._minimumPageExtent,
     required this._transitionSourceIndex,
     required this._onPageResourceOffsetCorrected,
     required this._crossAxisPadding,
@@ -151,6 +157,7 @@ class RenderSliverTabPageView extends RenderSliver
   VoidCallback _onDragCancel;
   List<double>? _pageResourceOffsets;
   double _leadingExtent;
+  double _minimumPageExtent;
   int? _transitionSourceIndex;
   double _crossAxisPadding;
   void Function(int pageIndex, double correction)?
@@ -186,6 +193,13 @@ class RenderSliverTabPageView extends RenderSliver
   set leadingExtent(double value) {
     if (value == _leadingExtent) return;
     _leadingExtent = value;
+    markNeedsLayout();
+  }
+
+  set minimumPageExtent(double value) {
+    if (value == _minimumPageExtent) return;
+    assert(value >= 0);
+    _minimumPageExtent = value;
     markNeedsLayout();
   }
 
@@ -375,9 +389,45 @@ class RenderSliverTabPageView extends RenderSliver
 
     if (_laidOutPages.length == 1) {
       final childGeometry = _laidOutPages.single.geometry!;
+      if (_minimumPageExtent <= childGeometry.scrollExtent) {
+        geometry = childGeometry.copyWith(
+          paintOrigin: 0,
+          crossAxisExtent: constraints.crossAxisExtent,
+          hasVisualOverflow: true,
+        );
+        return;
+      }
+      final pageExtent = math.max(
+        childGeometry.scrollExtent,
+        _minimumPageExtent,
+      );
+      final minimumPaintExtent = calculatePaintOffset(
+        constraints,
+        from: 0,
+        to: _minimumPageExtent,
+      );
+      final minimumCacheExtent = calculateCacheOffset(
+        constraints,
+        from: 0,
+        to: _minimumPageExtent,
+      );
+      final paintExtent = math.max(
+        childGeometry.paintExtent,
+        minimumPaintExtent,
+      );
       geometry = childGeometry.copyWith(
         paintOrigin: 0,
         crossAxisExtent: constraints.crossAxisExtent,
+        scrollExtent: pageExtent,
+        paintExtent: paintExtent,
+        layoutExtent: math.max(childGeometry.layoutExtent, minimumPaintExtent),
+        maxPaintExtent: math.max(childGeometry.maxPaintExtent, pageExtent),
+        hitTestExtent: math
+            .max(childGeometry.hitTestExtent, minimumPaintExtent)
+            .clamp(0.0, paintExtent)
+            .toDouble(),
+        cacheExtent: math.max(childGeometry.cacheExtent, minimumCacheExtent),
+        visible: childGeometry.visible || minimumPaintExtent > 0,
         hasVisualOverflow: true,
       );
       return;
@@ -397,23 +447,43 @@ class RenderSliverTabPageView extends RenderSliver
       scrollExtent,
       constraints.scrollOffset + constraints.remainingPaintExtent,
     );
+    scrollExtent = math.max(scrollExtent, _minimumPageExtent);
+    final minimumPaintExtent = calculatePaintOffset(
+      constraints,
+      from: 0,
+      to: _minimumPageExtent,
+    );
+    final paintExtent = math.max(paintEnd - paintOrigin, minimumPaintExtent);
+    final layoutExtent = math
+        .max(
+          layoutEnd.clamp(0.0, constraints.remainingPaintExtent).toDouble(),
+          minimumPaintExtent,
+        )
+        .clamp(0.0, constraints.remainingPaintExtent)
+        .toDouble();
+    final hitTestExtent = math
+        .max(
+          (hitTestEnd - paintOrigin).clamp(0.0, paintEnd - paintOrigin),
+          minimumPaintExtent,
+        )
+        .clamp(0.0, paintExtent)
+        .toDouble();
     geometry = SliverGeometry(
       scrollExtent: scrollExtent,
       paintOrigin: paintOrigin,
-      paintExtent: paintEnd - paintOrigin,
-      layoutExtent: layoutEnd
-          .clamp(0.0, constraints.remainingPaintExtent)
-          .toDouble(),
+      paintExtent: paintExtent,
+      layoutExtent: layoutExtent,
       maxPaintExtent: math.max(
         maxPaintExtent,
-        constraints.remainingPaintExtent - paintOrigin,
+        math.max(
+          constraints.remainingPaintExtent - paintOrigin,
+          _minimumPageExtent,
+        ),
       ),
       maxScrollObstructionExtent: maxScrollObstructionExtent,
       crossAxisExtent: constraints.crossAxisExtent,
-      hitTestExtent: (hitTestEnd - paintOrigin)
-          .clamp(0.0, paintEnd - paintOrigin)
-          .toDouble(),
-      visible: visible,
+      hitTestExtent: hitTestExtent,
+      visible: visible || minimumPaintExtent > 0,
       hasVisualOverflow: true,
       cacheExtent: calculateCacheOffset(constraints, from: 0, to: scrollExtent),
     );

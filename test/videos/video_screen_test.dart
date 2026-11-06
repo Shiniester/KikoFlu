@@ -3868,6 +3868,88 @@ void main() {
     },
   );
 
+  for (final sourceKey in ['missav', 'jable']) {
+    testWidgets(
+      '$sourceKey actors in download search open their source catalog',
+      (tester) async {
+        final actor = VideoLink(
+          label: 'Sample actor',
+          url: sourceKey == 'jable'
+              ? 'https://jable.tv/models/sample/'
+              : 'https://missav.ai/en/actresses/sample',
+          kind: VideoLinkKind.actor,
+        );
+        final video = VideoItem(
+          id: 'sample',
+          sourceKey: sourceKey,
+          title: 'Sample video',
+          pageUrl: sourceKey == 'jable'
+              ? 'https://jable.tv/videos/sample/'
+              : 'https://missav.ai/en/sample',
+          actors: [actor],
+        );
+        final catalog = VideoCatalogPage(
+          title: 'Actor catalog',
+          url: actor.url,
+        );
+        final client = _TestMissavClient(pagesByUrl: {actor.url: catalog});
+        final jableClient = _TestJableClient(
+          browseHandler: (_) async => catalog,
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(
+          client: client,
+          library: library,
+          tasks: [
+            VideoDownloadTask(
+              id: video.storageKey,
+              video: video,
+              quality: '720p',
+              isHls: false,
+              status: VideoDownloadStatus.completed,
+              localPath: 'unused.mp4',
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            const VideoDownloadsScreen(),
+            jableClient: jableClient,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final s = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.byTooltip(s.search));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('video-search-input')),
+          'Sample',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.search);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text(actor.label));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Actor catalog'), findsOneWidget);
+        expect(
+          sourceKey == 'jable' ? jableClient.browsedUrls : client.browsedUrls,
+          contains(actor.url),
+        );
+        expect(
+          sourceKey == 'jable' ? client.browsedUrls : jableClient.browsedUrls,
+          isEmpty,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
   testWidgets(
     'tags in online and download collection searches open their catalog',
     (tester) async {

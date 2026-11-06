@@ -347,7 +347,10 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
               onOpenLink: (link) => unawaited(
                 pushBottomDockRoute(
                   context,
-                  builder: (_) => VideoScreen.catalog(url: link.url),
+                  builder: (_) => VideoScreen.catalog(
+                    url: link.url,
+                    sourceKey: video.sourceKey,
+                  ),
                 ),
               ),
             );

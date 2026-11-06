@@ -9,6 +9,8 @@ import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/scrollable_appbar.dart';
 import '../../widgets/metadata_search_chip.dart';
+import '../../widgets/cover_preview_dialog.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../../widgets/sliver_tab_page_view.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
@@ -85,7 +87,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
   Future<List<ComicComment>>? _commentsFuture;
   bool _reduceDetailMotion = false;
   bool _detailTabSyncScheduled = false;
-  bool _fillDetailViewport = false;
   double? _unpinnedDetailOffset;
   int? _detailMotionTarget;
   int _detailMotionGeneration = 0;
@@ -322,16 +323,19 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
         .read(comicSourcesProvider)
         .firstWhere((source) => source.key == comic.source);
     final loadImage = ref.read(comicImageLoaderProvider);
-    final selected = await showModalBottomSheet<int>(
+    final sheetWidth = ComicPagePreview.sheetWidthFor(context);
+    final fillHeight =
+        sheetWidth != null &&
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final selected = await showResponsiveBottomSheet<int>(
       context: context,
+      maxWidth: sheetWidth,
       isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
       builder: (sheetContext) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: .7,
-        minChildSize: .35,
-        maxChildSize: .95,
+        initialChildSize: fillHeight ? 1 : .7,
+        minChildSize: fillHeight ? 1 : .35,
+        maxChildSize: fillHeight ? 1 : .95,
         builder: (context, controller) => ComicPagePreview(
           pageCount: pages.length,
           initialPage: initialPage,
@@ -426,7 +430,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
     if (_detailTransitionSource != null) return;
     final source = _selectedDetailTab.clamp(0, _detailTabs.length - 1).toInt();
     setState(() {
-      _fillDetailViewport = true;
       _detailTransitionSource = source;
       _detailTabScrollOffsets[source] = resourceOffset
           .clamp(0.0, double.infinity)
@@ -860,6 +863,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
           initialAspectRatio: widget.initialCoverAspectRatio,
           deferCacheUpgradeUntilRouteCompleted: true,
           preservePreviousImage: true,
+          onTap: (bytes) => CoverPreviewDialog.show(
+            context,
+            imageBytes: bytes,
+            identifier: '${comic.source}_${comic.id}',
+          ),
         );
         final infoStyle = Theme.of(
           context,
@@ -909,39 +917,30 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) {
-                final rightInset = isLandscape ? 0.0 : 8.0;
                 return Align(
-                  alignment: isLandscape
-                      ? Alignment.centerLeft
-                      : Alignment.centerRight,
-                  child: Padding(
-                    padding: EdgeInsets.only(right: rightInset),
-                    child: SizedBox(
-                      width: math.min(
-                        200,
-                        math.max(0.0, constraints.maxWidth - rightInset),
-                      ),
-                      child: FilledButton(
-                        onPressed: !_initialContentVisible || _chapters.isEmpty
-                            ? null
-                            : () => _read(comic),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.menu_book),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                lastProgress == null
-                                    ? s.comicStart
-                                    : s.comicContinue,
-                                textAlign: TextAlign.center,
-                                softWrap: true,
-                              ),
+                  alignment: AlignmentDirectional.centerStart,
+                  child: SizedBox(
+                    width: math.min(200, constraints.maxWidth),
+                    child: FilledButton(
+                      onPressed: !_initialContentVisible || _chapters.isEmpty
+                          ? null
+                          : () => _read(comic),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.menu_book),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              lastProgress == null
+                                  ? s.comicStart
+                                  : s.comicContinue,
+                              textAlign: TextAlign.center,
+                              softWrap: true,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1292,97 +1291,77 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                             constraints.precedingScrollExtent -
                             groupConstraints.precedingScrollExtent;
                         final transitionGeneration = _detailMotionGeneration;
-                        return SliverMainAxisGroup(
-                          slivers: [
-                            SliverTabPageView(
-                              position: _detailPagePosition,
-                              onDragStart: () {
-                                _detailMotionGeneration++;
-                                _detailMotionTarget = null;
-                                _beginDetailTabTransition();
-                                _detailPagePosition.stop(canceled: true);
+                        return SliverTabPageView(
+                          position: _detailPagePosition,
+                          minimumPageExtent: math.max(
+                            0.0,
+                            constraints.viewportMainAxisExtent -
+                                detailTabBar.preferredSize.height,
+                          ),
+                          onDragStart: () {
+                            _detailMotionGeneration++;
+                            _detailMotionTarget = null;
+                            _beginDetailTabTransition();
+                            _detailPagePosition.stop(canceled: true);
+                          },
+                          onDragUpdate: _updateDetailPagePosition,
+                          onDragEnd: _settleDetailPagePosition,
+                          onDragCancel: () => _settleDetailPagePosition(0),
+                          pageResourceOffsets: [
+                            for (final page in [0, 1])
+                              _unpinnedDetailOffset ??
+                                  _detailTabScrollOffsets[page] ??
+                                  0,
+                          ],
+                          leadingExtent: leadingExtent,
+                          transitionSourceIndex: _detailTransitionSource,
+                          onPageResourceOffsetCorrected:
+                              (pageIndex, correction) {
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  if (!mounted ||
+                                      transitionGeneration !=
+                                          _detailMotionGeneration) {
+                                    return;
+                                  }
+                                  _detailTabScrollOffsets[pageIndex] =
+                                      ((_detailTabScrollOffsets[pageIndex] ??
+                                                  0) +
+                                              correction)
+                                          .clamp(0.0, double.infinity)
+                                          .toDouble();
+                                  setState(() {});
+                                });
                               },
-                              onDragUpdate: _updateDetailPagePosition,
-                              onDragEnd: _settleDetailPagePosition,
-                              onDragCancel: () => _settleDetailPagePosition(0),
-                              pageResourceOffsets: [
-                                for (final page in [0, 1])
-                                  _unpinnedDetailOffset ??
-                                      _detailTabScrollOffsets[page] ??
-                                      0,
-                              ],
-                              leadingExtent: leadingExtent,
-                              transitionSourceIndex: _detailTransitionSource,
-                              onPageResourceOffsetCorrected:
-                                  (pageIndex, correction) {
-                                    WidgetsBinding.instance.addPostFrameCallback((
-                                      _,
-                                    ) {
-                                      if (!mounted ||
-                                          transitionGeneration !=
-                                              _detailMotionGeneration) {
-                                        return;
-                                      }
-                                      _detailTabScrollOffsets[pageIndex] =
-                                          ((_detailTabScrollOffsets[pageIndex] ??
-                                                      0) +
-                                                  correction)
-                                              .clamp(0.0, double.infinity)
-                                              .toDouble();
-                                      setState(() {});
-                                    });
-                                  },
-                              pages: [
-                                TickerMode(
-                                  enabled:
-                                      _detailTransitionSource != null ||
-                                      _selectedDetailTab == 0,
-                                  child: SliverPadding(
-                                    key: const ValueKey(
-                                      'comic-detail-chapters-page',
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                    sliver: buildChapterSliver(),
-                                  ),
+                          pages: [
+                            TickerMode(
+                              enabled:
+                                  _detailTransitionSource != null ||
+                                  _selectedDetailTab == 0,
+                              child: SliverPadding(
+                                key: const ValueKey(
+                                  'comic-detail-chapters-page',
                                 ),
-                                TickerMode(
-                                  enabled:
-                                      _detailTransitionSource != null ||
-                                      _selectedDetailTab == 1,
-                                  child: SliverPadding(
-                                    key: const ValueKey(
-                                      'comic-detail-comments-page',
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                    sliver: FutureBuilder<List<ComicComment>>(
-                                      future: _commentsFuture,
-                                      builder: (context, snapshot) =>
-                                          buildCommentsSliver(snapshot),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                                padding: EdgeInsets.zero,
+                                sliver: buildChapterSliver(),
+                              ),
                             ),
-                            SliverLayoutBuilder(
-                              builder: (context, tailConstraints) {
-                                final pageExtent =
-                                    tailConstraints.precedingScrollExtent -
-                                    constraints.precedingScrollExtent;
-                                final tailExtent =
-                                    ((_fillDetailViewport
-                                                ? constraints
-                                                          .viewportMainAxisExtent -
-                                                      detailTabBar
-                                                          .preferredSize
-                                                          .height
-                                                : 0) -
-                                            pageExtent)
-                                        .clamp(0.0, double.infinity)
-                                        .toDouble();
-                                return SliverToBoxAdapter(
-                                  child: SizedBox(height: tailExtent),
-                                );
-                              },
+                            TickerMode(
+                              enabled:
+                                  _detailTransitionSource != null ||
+                                  _selectedDetailTab == 1,
+                              child: SliverPadding(
+                                key: const ValueKey(
+                                  'comic-detail-comments-page',
+                                ),
+                                padding: EdgeInsets.zero,
+                                sliver: FutureBuilder<List<ComicComment>>(
+                                  future: _commentsFuture,
+                                  builder: (context, snapshot) =>
+                                      buildCommentsSliver(snapshot),
+                                ),
+                              ),
                             ),
                           ],
                         );
@@ -1412,7 +1391,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                         flex: 2,
                         child: Center(
                           child: Padding(
-                            padding: const EdgeInsets.all(8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 8,
+                            ),
                             child: cover,
                           ),
                         ),

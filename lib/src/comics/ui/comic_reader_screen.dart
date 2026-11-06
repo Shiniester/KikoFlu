@@ -766,16 +766,23 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   Future<void> _showPagePreview() async {
     final generation = _generation;
+    final sheetWidth = ComicPagePreview.sheetWidthFor(context);
+    final fillHeight =
+        sheetWidth != null &&
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final selected = await showModalBottomSheet<int>(
       context: context,
+      constraints: sheetWidth == null
+          ? null
+          : BoxConstraints(maxWidth: sheetWidth),
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
       builder: (sheetContext) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: .7,
-        minChildSize: .35,
-        maxChildSize: .95,
+        initialChildSize: fillHeight ? 1 : .7,
+        minChildSize: fillHeight ? 1 : .35,
+        maxChildSize: fillHeight ? 1 : .95,
         builder: (context, controller) => ComicPagePreview(
           pageCount: _pageCount,
           initialPage: _page,

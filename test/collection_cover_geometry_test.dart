@@ -323,7 +323,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('audio card information order and spacing are shared by layout', (
+  testWidgets('audio card metadata stays together above voice actors', (
     tester,
   ) async {
     final work = _work.copyWith(
@@ -344,6 +344,7 @@ void main() {
         isListLayout: false,
         width: 120.0,
         showsSales: true,
+        singleLine: false,
       ),
       (
         name: 'medium',
@@ -351,6 +352,7 @@ void main() {
         isListLayout: false,
         width: 180.0,
         showsSales: false,
+        singleLine: false,
       ),
       (
         name: 'list',
@@ -358,6 +360,15 @@ void main() {
         isListLayout: true,
         width: 320.0,
         showsSales: true,
+        singleLine: false,
+      ),
+      (
+        name: 'wide list',
+        crossAxisCount: 1,
+        isListLayout: true,
+        width: 600.0,
+        showsSales: true,
+        singleLine: true,
       ),
     ];
 
@@ -384,12 +395,17 @@ void main() {
             matching: find.byType(Row),
           )
           .first;
-      final durationTop = tester.getRect(durationRow).top;
+      final metadataGroup = find.ancestor(
+        of: durationRow,
+        matching: find.byType(Wrap),
+      );
+      expect(metadataGroup, findsOneWidget, reason: variant.name);
+      final metadataRect = tester.getRect(metadataGroup);
       final informationStart = variant.isListLayout
           ? tester.getRect(find.byType(ClipRRect).first).bottom
           : tester.getRect(find.text(work.title)).bottom;
       expect(
-        durationTop - informationStart,
+        metadataRect.top - informationStart,
         collectionCardInfoSpacing,
         reason: variant.name,
       );
@@ -401,19 +417,25 @@ void main() {
       final rating = find.text('4.2 (15)');
       final infoRects = [
         tester.getRect(durationRow),
-        tester.getRect(actor),
-        tester.getRect(tag),
         tester.getRect(circle),
         tester.getRect(price),
         tester.getRect(rating),
       ];
-      for (var index = 0; index < infoRects.length - 1; index++) {
+      for (final rect in infoRects) {
         expect(
-          infoRects[index].top,
-          lessThan(infoRects[index + 1].top),
+          rect.bottom,
+          lessThan(tester.getRect(actor).top),
           reason: variant.name,
         );
+        if (variant.singleLine) {
+          expect(
+            rect.center.dy,
+            closeTo(infoRects.first.center.dy, 0.1),
+            reason: variant.name,
+          );
+        }
       }
+      expect(tester.getRect(actor).bottom, lessThan(tester.getRect(tag).top));
 
       final actorChip = tester.widget<VaChip>(find.byType(VaChip).first);
       expect(actorChip.borderRadius, 6, reason: variant.name);

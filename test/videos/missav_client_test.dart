@@ -2280,6 +2280,9 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
   test('rebuilds a closed browser session after login', () async {
     final native = _Adapter((_) => _response('<h1>Native catalog</h1>'));
     final replacement = _Adapter((_) => _response('<h1>Restored catalog</h1>'));
+    final navigationStarted = Completer<void>();
+    final navigationFinished = Completer<void>();
+    final navigationGate = Completer<String>();
     var restorations = 0;
     var browserDisposals = 0;
     final client = MissavClient(
@@ -2296,7 +2299,12 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     late final MissavBrowserAdapter browser;
     browser = MissavBrowserAdapter(
       currentUrl: () async => MissavClient.origin,
-      navigateDocument: (_, _) async => '<h1>Original catalog</h1>',
+      navigateDocument: (_, _) async {
+        navigationStarted.complete();
+        final body = await navigationGate.future;
+        navigationFinished.complete();
+        return body;
+      },
       disposeBrowser: () async => browserDisposals++,
       runJavaScript: (script) async {
         final match = RegExp(r'const request = (.*);').firstMatch(script)!;
@@ -2320,8 +2328,26 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     final verifiedGeneration = client.sessionGeneration;
     await client.login(email: 'viewer@example.test', password: 'sample');
     expect(client.sessionGeneration, greaterThan(verifiedGeneration));
+    final loggedInGeneration = client.sessionGeneration;
 
+    final pendingBrowse = client
+        .browse(client.homeUrl)
+        .then<Object?>((page) => page, onError: (Object error) => error);
+    await navigationStarted.future;
     browser.close(force: true);
+    final browseError = await pendingBrowse;
+    expect(
+      browseError,
+      isA<MissavException>().having(
+        (error) => error.message,
+        'message',
+        contains('(connectionError)'),
+      ),
+    );
+    expect(browseError, isNot(isA<MissavVerificationRequiredException>()));
+    expect(client.sessionGeneration, loggedInGeneration);
+    navigationGate.complete('<h1>Late catalog</h1>');
+    await navigationFinished.future;
     await browser.whenClosed;
     final page = await client.browse(client.homeUrl);
 

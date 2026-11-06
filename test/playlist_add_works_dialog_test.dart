@@ -16,11 +16,9 @@ Widget _testApp({
           return Center(
             child: ElevatedButton(
               onPressed: () {
-                showDialog<void>(
+                PlaylistAddWorksDialog.show(
                   context: context,
-                  builder: (context) => PlaylistAddWorksDialog(
-                    onAddWorks: onAddWorks,
-                  ),
+                  onAddWorks: onAddWorks,
                 );
               },
               child: const Text('Open add works'),
@@ -78,6 +76,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(submittedIds, ['RJ123456', 'RJ233333']);
+    expect(find.text('Add Works'), findsNothing);
+  });
+
+  testWidgets('cancel closes without submitting ids', (tester) async {
+    final submittedIds = <List<String>>[];
+    await tester.pumpWidget(_testApp(onAddWorks: submittedIds.add));
+
+    await tester.tap(find.text('Open add works'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(submittedIds, isEmpty);
     expect(find.text('Add Works'), findsNothing);
   });
 }

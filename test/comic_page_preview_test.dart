@@ -94,10 +94,43 @@ Future<void> _closePreview(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('tablet preview enlarges tiles and locates the selected page', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <int, Completer<Uint8List>>{};
+    await tester.pumpWidget(
+      _host(
+        pageCount: 100,
+        initialPage: 62,
+        loadImage: (index) => (requests[index] = Completer<Uint8List>()).future,
+        onOpened: (_) {},
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-preview')));
+    await _pumpFrames(tester);
+    final tile = find.byKey(const ValueKey('comic-page-preview-62'));
+    expect(tester.getSize(tile).height, 240);
+    expect(tester.getSize(tile).width, greaterThanOrEqualTo(160));
+    expect(
+      tester.getRect(find.byType(GridView)).overlaps(tester.getRect(tile)),
+      isTrue,
+    );
+    expect(requests.keys.first, 62);
+    expect(requests.length, lessThanOrEqualTo(3));
+    await _closePreview(tester);
+    for (final request in requests.values) {
+      request.complete(_png);
+    }
+    await _pumpNativeFrames(tester);
+  });
+
   testWidgets('keeps every active thumbnail loaded in a tall desktop sheet', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1000, 4000);
+    tester.view.physicalSize = const Size(1000, 8000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final requests = <int, int>{};

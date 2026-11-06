@@ -139,7 +139,13 @@ void main() {
     await browser.requestSent.future;
     final check = expectLater(
       pending,
-      throwsA(isA<MissavVerificationRequiredException>()),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.connectionError,
+        ),
+      ),
     );
     browser.adapter.close(force: true);
     browser.adapter.close(force: true);
@@ -148,7 +154,13 @@ void main() {
     expect(browser.disposals, 1);
     await expectLater(
       browser.adapter.fetch(_options(), null, null),
-      throwsA(isA<MissavVerificationRequiredException>()),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.connectionError,
+        ),
+      ),
     );
   });
 
@@ -463,7 +475,13 @@ void main() {
     browser.adapter.close(force: true);
     await expectLater(
       pending,
-      throwsA(isA<MissavVerificationRequiredException>()),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.connectionError,
+        ),
+      ),
     );
     await browser.navigationCancelled.future;
     await browser.adapter.whenClosed;
@@ -487,7 +505,11 @@ void main() {
             const Duration(milliseconds: 50),
             onTimeout: () => null,
           ),
-          isA<MissavVerificationRequiredException>(),
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.connectionError,
+          ),
         );
       } finally {
         browser.urlGate!.complete('https://missav.ai/cn');

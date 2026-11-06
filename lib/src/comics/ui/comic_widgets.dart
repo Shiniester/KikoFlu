@@ -243,6 +243,7 @@ class ComicCover extends ConsumerStatefulWidget {
     this.cornerRadius = workCoverCompactRadius,
     this.onFirstFrameReady,
     this.onRetry,
+    this.onTap,
     this.loadImage = true,
     this.useCachedFrame = false,
     this.initialCacheWidth,
@@ -260,6 +261,7 @@ class ComicCover extends ConsumerStatefulWidget {
   final double cornerRadius;
   final VoidCallback? onFirstFrameReady;
   final VoidCallback? onRetry;
+  final ValueChanged<Uint8List>? onTap;
   final bool loadImage;
   final bool useCachedFrame;
   final int? initialCacheWidth;
@@ -471,7 +473,14 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
           height: coverWidth / ratio,
           child: WorkCoverClip(
             cornerRadius: widget.cornerRadius,
-            child: content,
+            child: widget.onTap == null
+                ? content
+                : GestureDetector(
+                    onTap: picture == null
+                        ? null
+                        : () => widget.onTap!(picture.bytes),
+                    child: content,
+                  ),
           ),
         );
         if (MediaQuery.disableAnimationsOf(context) || !_animateSize) {
