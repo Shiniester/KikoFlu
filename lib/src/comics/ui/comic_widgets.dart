@@ -1,5 +1,6 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
+import '../../widgets/player/player_cover_widget.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/image_prefetch_queue.dart';
@@ -244,6 +245,7 @@ class ComicCover extends ConsumerStatefulWidget {
     this.onFirstFrameReady,
     this.onRetry,
     this.onTap,
+    this.previewHeroTag,
     this.loadImage = true,
     this.useCachedFrame = false,
     this.initialCacheWidth,
@@ -262,6 +264,7 @@ class ComicCover extends ConsumerStatefulWidget {
   final VoidCallback? onFirstFrameReady;
   final VoidCallback? onRetry;
   final ValueChanged<Uint8List>? onTap;
+  final String? previewHeroTag;
   final bool loadImage;
   final bool useCachedFrame;
   final int? initialCacheWidth;
@@ -468,7 +471,7 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
               (picture == null && !widget.loadImage) ||
               (holdForRoute && !hasInitialDecode),
         );
-        final cover = SizedBox(
+        Widget cover = SizedBox(
           width: coverWidth,
           height: coverWidth / ratio,
           child: WorkCoverClip(
@@ -483,6 +486,13 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
                   ),
           ),
         );
+        if (widget.previewHeroTag != null) {
+          cover = PlayerCoverPreviewHero(
+            tag: widget.previewHeroTag!,
+            cornerRadius: widget.cornerRadius,
+            child: cover,
+          );
+        }
         if (MediaQuery.disableAnimationsOf(context) || !_animateSize) {
           return cover;
         }

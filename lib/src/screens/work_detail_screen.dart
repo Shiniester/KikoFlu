@@ -1022,6 +1022,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     // 封面图片组件
     final coverUrl = work.getCoverImageUrl(host, token: token);
+    final coverHeroTag = 'work-detail-cover-${widget.work.id}';
     final displaySettings = ref.watch(workDetailDisplayProvider);
 
     // 信息内容组件
@@ -1069,6 +1070,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         return ListenableBuilder(
           listenable: _metadataChanges,
           builder: (context, _) => WorkCoverFrame(
+            heroTag: coverHeroTag,
             showSubtitleBadge:
                 displaySettings.showSubtitleTag &&
                 _currentWork.hasSubtitle == true,
@@ -1077,6 +1079,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             onTap: () => CoverPreviewDialog.show(
               context,
               imageUrl: coverUrl,
+              heroTag: coverHeroTag,
               identifier: widget.work.id.toString(),
               cacheKey: 'work_cover_${widget.work.id}',
               isJapaneseAsmr: widget.work.id < 0,

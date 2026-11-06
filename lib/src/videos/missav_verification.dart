@@ -435,6 +435,8 @@ const _documentMarkupScript = '''
     html:root.outerHTML,
     runtimeUser,
     responseStatus: navigation && navigation.responseStatus,
+    verificationRequired: typeof window._cf_chl_opt !== 'undefined' ||
+      /^Just a moment|Attention Required.*Cloudflare/i.test(document.title),
     recommendationContext: {
       userId: window.user_uuid || (visitorCookie ? decodeURIComponent(visitorCookie.substring('user_uuid='.length)) : null),
       scenario: root.clientWidth >= 1024 ? 'desktop-home-recommended' : 'mobile-home-recommended',
@@ -778,6 +780,7 @@ Future<void> connectMissavBrowserSession(
   bool preserveMobilePageOnFailure = true,
   bool checkAccess = true,
   bool requireLogin = false,
+  Future<Object?> Function(String script)? readLoginPage,
 }) async {
   if (expectedGeneration != null &&
       client.sessionGeneration != expectedGeneration) {
@@ -854,6 +857,38 @@ Future<void> connectMissavBrowserSession(
       client: client,
       clientGeneration: clientGeneration,
     );
+    Map<String, dynamic>? browserUser;
+    if (requireLogin) {
+      final read = readLoginPage ?? mobile?.runJavaScriptReturningResult;
+      if (read == null) throw StateError('MissAV login page unavailable.');
+      // Reloading the public homepage discards the website's login response.
+      final raw = await _awaitConnectionPhase(
+        () => read(_documentMarkupScript),
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+      var document = raw is String ? jsonDecode(raw) : raw;
+      if (document is String) document = jsonDecode(document);
+      if (document is! Map ||
+          !isMissavVerificationUrl('${document['url'] ?? ''}')) {
+        throw StateError('MissAV login page unavailable.');
+      }
+      final sourceUrl = document['url'] as String;
+      if (document['verificationRequired'] == true) {
+        throw MissavVerificationRequiredException(sourceUrl: sourceUrl);
+      }
+      final status = document['responseStatus'];
+      if (status is num && status >= 400) {
+        throw MissavException(
+          'MissAV returned HTTP $status.',
+          sourceUrl: sourceUrl,
+        );
+      }
+      final user = document['runtimeUser'];
+      if (user is Map) browserUser = Map<String, dynamic>.from(user);
+    }
     if (Platform.isAndroid) {
       proxyGeneration ??= await configureMissavAndroidProxy();
       if (proxyGeneration != _androidProxyConfigurationGeneration) {
@@ -1143,7 +1178,7 @@ Future<void> connectMissavBrowserSession(
     _activeBrowserAndroidProxyGeneration = proxyGeneration;
     if (checkAccess) {
       await _awaitConnectionPhase(
-        client.checkBrowserAccess,
+        () => client.checkBrowserAccess(browserUser: browserUser),
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -1510,6 +1545,7 @@ class _MissavVerificationState extends State<_MissavVerification> {
           cancelSignal: cancellation,
           androidProxyGeneration: widget.androidProxyGeneration,
           requireLogin: widget.requireLogin,
+          readLoginPage: _isDesktop ? _desktop?.evaluateJavaScript : null,
         );
         final connectionGeneration = _browserConnectionGeneration;
         await connection;

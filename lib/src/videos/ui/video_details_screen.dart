@@ -99,6 +99,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   GlobalKey _playerKey = GlobalKey();
   final ScrollController _portraitDetailsController = ScrollController();
   final ScrollController _landscapeDetailsController = ScrollController();
+  ({Size window, Size pane})? _inlineDetailsViewport;
 
   double get _fullscreenProgress => _fullscreenProgressAnimation.value;
 
@@ -142,7 +143,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.orientationOf(context) != Orientation.landscape ||
+    final windowSize = MediaQuery.sizeOf(context);
+    final windowChanged =
+        _inlineDetailsViewport != null &&
+        _inlineDetailsViewport!.window != windowSize;
+    if (windowChanged) {
+      _inlineDetailsViewport = null;
+    }
+    if (windowChanged ||
+        MediaQuery.orientationOf(context) != Orientation.landscape ||
         MediaQuery.disableAnimationsOf(context)) {
       final target = _fullscreen ? 1.0 : 0.0;
       if (_fullscreenTransition.value != target) {
@@ -1178,6 +1187,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           if (mounted && _fullscreen != fullscreen) {
             final size = View.of(context).physicalSize;
             if (size.width > size.height &&
+                _inlineDetailsViewport?.window == MediaQuery.sizeOf(context) &&
                 !MediaQuery.disableAnimationsOf(context)) {
               if (fullscreen) {
                 _fullscreenTransition.forward();
@@ -1216,22 +1226,35 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       final inlineTop =
           MediaQuery.viewPaddingOf(context).top +
           (AppBarTheme.of(context).toolbarHeight ?? kToolbarHeight);
-      final landscapeDetails = CustomScrollView(
-        key: PageStorageKey(
-          'video-details-landscape-${details.video.storageKey}',
-        ),
-        controller: _landscapeDetailsController,
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
-            sliver: detailsSliver,
+      final windowSize = MediaQuery.sizeOf(context);
+      final landscapeDetails = RepaintBoundary(
+        child: CustomScrollView(
+          key: PageStorageKey(
+            'video-details-landscape-${details.video.storageKey}',
           ),
-        ],
+          controller: _landscapeDetailsController,
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
+              sliver: detailsSliver,
+            ),
+          ],
+        ),
       );
       return LayoutBuilder(
         builder: (context, constraints) {
           final paneWidth = constraints.maxWidth * .4;
           final inlineHeight = constraints.maxHeight - inlineTop;
+          final detailsSize = Size(
+            constraints.maxWidth - paneWidth,
+            inlineHeight,
+          );
+          if (!_fullscreen && _fullscreenTransition.isDismissed) {
+            _inlineDetailsViewport = (window: windowSize, pane: detailsSize);
+          }
+          // Keep text and recommendations laid out while the shell resizes.
+          final transitionDetailsSize =
+              _inlineDetailsViewport?.pane ?? detailsSize;
           final playerWidth = paneWidth < inlineHeight * 16 / 9
               ? paneWidth
               : inlineHeight * 16 / 9;
@@ -1263,8 +1286,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                         constraints.maxWidth +
                         (paneWidth - constraints.maxWidth) * inlineProgress,
                     top: inlineTop,
-                    width: constraints.maxWidth - paneWidth,
-                    height: inlineHeight,
+                    width: transitionDetailsSize.width,
+                    height: transitionDetailsSize.height,
                     child: Offstage(
                       offstage:
                           _fullscreen && _fullscreenTransition.isCompleted,

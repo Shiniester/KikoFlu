@@ -441,6 +441,7 @@ class _OfflineWorkDetailScreenState
 
     // 封面图片组件
     final coverUrl = work.getCoverImageUrl(host, token: token);
+    final coverHeroTag = 'offline-work-detail-cover-${work.id}';
     final hasLocalCover =
         widget.localCoverPath != null &&
         File(widget.localCoverPath!).existsSync();
@@ -511,11 +512,13 @@ class _OfflineWorkDetailScreenState
     return WorkDetailResponsiveLayout(
       coverBuilder: (context, _) {
         return WorkCoverFrame(
+          heroTag: coverHeroTag,
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
           onTap: () => CoverPreviewDialog.show(
             context,
             imageUrl: coverUrl,
+            heroTag: coverHeroTag,
             localPath: hasLocalCover ? widget.localCoverPath : null,
             identifier: work.id.toString(),
             cacheKey: 'work_cover_${work.id}',

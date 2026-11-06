@@ -11,6 +11,7 @@ import 'package:kikoeru_flutter/src/widgets/sliver_tab_page_view.dart';
 import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/search_history_section.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_detail_responsive_layout.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
@@ -554,7 +555,7 @@ Future<void> waitForFinder(WidgetTester tester, Finder finder) async {
 void expectComicCoversAttached() {
   expect(find.byType(WorkCoverClip), findsWidgets);
   expect(
-    find.ancestor(of: find.byType(WorkCoverClip), matching: find.byType(Hero)),
+    find.byKey(const ValueKey('player-cover-preview-flight-frame')),
     findsNothing,
   );
 }
@@ -1203,9 +1204,11 @@ void main() {
       expect(attempts['page-4'], 1);
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(tile);
-      final thumbnail = find.descendant(of: tile, matching: find.byType(Image));
+      final thumbnail = find.descendant(
+        of: tile,
+        matching: find.byType(RawImage),
+      );
       await waitForPreviewContent(tester, thumbnail);
-      await waitForDecodedImage(tester, thumbnail);
       expect(attempts['page-4'], 2);
       await tester.tap(tile);
       await tester.pumpAndSettle();
@@ -1214,6 +1217,65 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('page preview closing avoids reader prewarming late images', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await StorageService.setInt('comic_preload', 2);
+    final pending = <String, Completer<Uint8List>>{};
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+      loadImage: (page) {
+        final index = int.parse(page.url.split('-').last);
+        return index < 3
+            ? Future.value(_png)
+            : (pending[page.url] = Completer<Uint8List>()).future;
+      },
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('comic-page-preview')));
+    for (var frame = 0; frame < 60 && pending.isEmpty; frame++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await pumpFrames(tester, frames: 1);
+    }
+    expect(pending, isNotEmpty);
+    await tester.tap(find.byKey(const ValueKey('comic-page-preview-close')));
+    await tester.pump();
+    PaintingBinding.instance.imageCache
+      ..clear()
+      ..clearLiveImages();
+    final previousOnCreate = ui.Image.onCreate;
+    var created = 0;
+    ui.Image.onCreate = (image) {
+      created++;
+      previousOnCreate?.call(image);
+    };
+    addTearDown(() => ui.Image.onCreate = previousOnCreate);
+    for (final request in pending.values) {
+      request.complete(_png);
+    }
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await pumpFrames(tester, frames: 1);
+    }
+    expect(created, 0);
+    expect(readerPageValue('1/8'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('reader mode menu stays compact with a Mini Player', (
     tester,
@@ -2158,9 +2220,11 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('comic-page-preview')));
       await tester.pump();
       final tile = find.byKey(const ValueKey('comic-page-preview-5'));
-      final thumbnail = find.descendant(of: tile, matching: find.byType(Image));
+      final thumbnail = find.descendant(
+        of: tile,
+        matching: find.byType(RawImage),
+      );
       await waitForPreviewContent(tester, thumbnail);
-      await waitForDecodedImage(tester, thumbnail);
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(tile);
       await tester.pumpAndSettle();
@@ -8338,10 +8402,9 @@ void main() {
       final previewTile = find.byKey(const ValueKey('comic-page-preview-3'));
       final previewImage = find.descendant(
         of: previewTile,
-        matching: find.byType(Image),
+        matching: find.byType(RawImage),
       );
       await waitForPreviewContent(tester, previewImage);
-      await waitForDecodedImage(tester, previewImage);
       await tester.tap(find.byKey(const ValueKey('comic-page-preview-close')));
       await tester.pumpAndSettle();
       expect(find.byType(ComicReaderScreen), findsNothing);
@@ -8354,10 +8417,9 @@ void main() {
       final selectedTile = find.byKey(const ValueKey('comic-page-preview-3'));
       final selectedImage = find.descendant(
         of: selectedTile,
-        matching: find.byType(Image),
+        matching: find.byType(RawImage),
       );
       await waitForPreviewContent(tester, selectedImage);
-      await waitForDecodedImage(tester, selectedImage);
       await tester.tap(selectedTile);
       await tester.pumpAndSettle();
       expect(
@@ -8441,10 +8503,9 @@ void main() {
           final lastPage = find.byKey(const ValueKey('comic-page-preview-19'));
           final image = find.descendant(
             of: lastPage,
-            matching: find.byType(Image),
+            matching: find.byType(RawImage),
           );
           await waitForPreviewContent(tester, image);
-          await waitForDecodedImage(tester, image);
           final pageRect = tester.getRect(lastPage);
           if (size.width < size.height || withTrack) {
             expect(pageRect.bottom, greaterThan(dockRect.top));
@@ -8765,10 +8826,9 @@ void main() {
       final selectedTile = find.byKey(const ValueKey('comic-page-preview-3'));
       final selectedImage = find.descendant(
         of: selectedTile,
-        matching: find.byType(Image),
+        matching: find.byType(RawImage),
       );
       await waitForPreviewContent(tester, selectedImage);
-      await waitForDecodedImage(tester, selectedImage);
       expect(loaded, contains('offline-3.png'));
       await tester.tap(selectedTile);
       await tester.pumpAndSettle();
@@ -9675,7 +9735,7 @@ void main() {
     expect(
       resizedCover.width,
       closeTo(
-        math.min(viewport.width * 2 / 3 - 48, availableCoverHeight * 100 / 160),
+        math.min(viewport.width * 2 / 3 - 32, availableCoverHeight * 100 / 160),
         0.1,
       ),
     );
@@ -9722,7 +9782,7 @@ void main() {
         landscapeCover.width,
         closeTo(
           math.min(
-            landscapeViewport.width * 2 / 3 - 48,
+            landscapeViewport.width * 2 / 3 - 32,
             landscapeHeight * 100 / 160,
           ),
           0.1,
@@ -9794,7 +9854,7 @@ void main() {
         final isLandscape = size.width > size.height;
         final detailPadding = isLandscape || size.width > 320 ? 16.0 : 8.0;
         final availableCoverWidth = isLandscape
-            ? viewport.width * 2 / 3 - 48
+            ? viewport.width * 2 / 3 - 32
             : (viewport.width - detailPadding * 2 - 16) / 2;
         final availableCoverHeight =
             viewport.height -
@@ -10443,7 +10503,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         expect(find.byType(ComicDetailScreen), findsOneWidget);
-        expect(hero, findsNothing);
+        expect(hero, findsOneWidget);
         expectVisibleComicCoverRatio(tester, 180 / 100);
         expectComicCoversAttached();
         final detailCoverFinder = find.byKey(
@@ -10547,6 +10607,12 @@ void main() {
         find.descendant(of: cover, matching: find.byType(Image)),
       );
       final coverRect = tester.getRect(cover);
+      final sourceHero = find.descendant(
+        of: cover,
+        matching: find.byType(Hero),
+      );
+      expect(sourceHero, findsOneWidget);
+      final artworkRect = tester.getRect(sourceHero);
       final imageRequests = loadedPages.length;
 
       await tester.tap(cover);
@@ -10555,7 +10621,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(preview, findsOneWidget);
-      expect(tester.widget<CoverPreviewDialog>(preview).imageBytes, same(_widePng));
+      expect(
+        tester.widget<CoverPreviewDialog>(preview).imageBytes,
+        same(_widePng),
+      );
       expect(loadedPages.length, imageRequests);
       expect(tester.getRect(cover), coverRect);
       expect(container.read(comicReaderActiveProvider), isFalse);
@@ -10566,6 +10635,13 @@ void main() {
       expect(frame.aspectRatio, closeTo(1.8, 0.001));
 
       await tester.tapAt(tester.getCenter(preview));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final flight = find.byKey(
+        const ValueKey('player-cover-preview-flight-frame'),
+      );
+      expect(flight, findsOneWidget);
+      expect(tester.getRect(flight), isNot(artworkRect));
       await tester.pumpAndSettle();
       expect(preview, findsNothing);
       expect(tester.getRect(cover), coverRect);
@@ -13516,7 +13592,7 @@ void main() {
     });
   }
 
-  testWidgets('tablet details leave room beside the landscape Dock', (
+  testWidgets('tablet details match the audio cover gutter beside the Dock', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1024, 768);
@@ -13536,7 +13612,24 @@ void main() {
       find.byKey(const ValueKey('comic-detail-cover')),
     );
     final rail = tester.getRect(find.byType(NavigationRail));
-    expect(cover.left - rail.right, greaterThanOrEqualTo(24));
+    final comicGap = cover.left - rail.right;
+    await pump(
+      tester,
+      WorkDetailResponsiveLayout(
+        coverBuilder: (_, __) => WorkCoverFrame(
+          layers: [Image.memory(_widePng, key: const ValueKey('audio-cover'))],
+        ),
+        infoSliver: const SliverToBoxAdapter(child: Text('Audio information')),
+      ),
+      _Library(),
+      _Source(),
+      appNavigation: true,
+    );
+    final audioCover = tester.getRect(
+      find.byKey(const ValueKey('audio-cover')),
+    );
+    final audioRail = tester.getRect(find.byType(NavigationRail));
+    expect(comicGap, closeTo(audioCover.left - audioRail.right, .1));
     expect(tester.takeException(), isNull);
   });
 

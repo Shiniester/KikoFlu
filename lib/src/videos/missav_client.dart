@@ -311,7 +311,7 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     }
   }
 
-  Future<void> checkBrowserAccess() async {
+  Future<void> checkBrowserAccess({Map<String, dynamic>? browserUser}) async {
     await initialize();
     final browser = _browserAdapter;
     if (browser == null ||
@@ -322,13 +322,15 @@ class MissavClient extends ChangeNotifier implements VideoSourceClient {
     final locale = _locale;
     final uri = _localizedSourceUri(homeUrl);
     final document = await _loadDocument(uri, generation);
+    _checkGeneration(generation, uri);
     if (_locale != locale) {
       throw MissavException(
         'MissAV language changed during the request.',
         sourceUrl: uri.toString(),
       );
     }
-    _updateAccountFromPage(document);
+    final sourceUser = _readAccountFromPage(document) ?? browserUser;
+    if (sourceUser is Map) _updateAccountFromSource(sourceUser);
     _updateHomeUrl(document, uri);
   }
 

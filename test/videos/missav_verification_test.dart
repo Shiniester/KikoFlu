@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1026,7 +1027,9 @@ void main() {
       );
       client.useVerifiedBrowserTransport(adapter);
       final result = expectLater(
-        client.checkBrowserAccess(),
+        client.checkBrowserAccess(
+          browserUser: {'username': 'old-login-viewer'},
+        ),
         throwsA(isA<MissavException>()),
       );
       await reading.future;
@@ -1094,6 +1097,140 @@ void main() {
       await tester.pumpAndSettle();
       expect(client.isLoggedIn, isTrue);
       expect(client.accountName, 'browser-viewer');
+    },
+  );
+
+  testWidgets(
+    'required login preserves the account when navigation reloads the homepage',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      late final _FakeWebViewController sourcePage;
+      var homeNavigations = 0;
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'verified',
+            domain: 'missav.ai',
+          ),
+        ]),
+        initialUrl: 'https://missav.ai/login',
+        onLoadRequest: (_) async {
+          homeNavigations++;
+          sourcePage.runtimeUser = null;
+        },
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final mobile = WebViewController();
+      sourcePage = mobile.platform as _FakeWebViewController;
+      sourcePage.htmlDocument =
+          '<html><body x-data="{user: null}"></body></html>';
+      sourcePage.runtimeUser = {'username': 'browser-viewer'};
+      final client = MissavClient(secureStorage: _MemorySecureStorage());
+      addTearDown(client.dispose);
+
+      Object? connectionError;
+      await tester.runAsync(() async {
+        final connection = connectMissavBrowserSession(
+          client,
+          mobile: mobile,
+          requireLogin: true,
+        );
+        final outcome = connection.then<Object?>(
+          (_) => null,
+          onError: (Object error) => error,
+        );
+        var finished = false;
+        final result = outcome.whenComplete(() => finished = true);
+        // The media relay needs widget frames and real socket events to finish.
+        await Future.wait([
+          result,
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+        connectionError = await outcome;
+      });
+      await tester.pumpAndSettle();
+
+      expect(connectionError, isNull);
+      expect(homeNavigations, greaterThan(0));
+      expect(client.isLoggedIn, isTrue);
+      expect(client.accountName, 'browser-viewer');
+    },
+  );
+
+  testWidgets(
+    'a rejected login snapshot releases the previous browser session',
+    (tester) async {
+      final oldPlatform = WebViewPlatform.instance;
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value([
+          const WebViewCookie(
+            name: 'session',
+            value: 'verified',
+            domain: 'missav.ai',
+          ),
+        ]),
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: rootNavigatorKey, home: const SizedBox()),
+      );
+      final dio = Dio();
+      final native = dio.httpClientAdapter;
+      final client = MissavClient(
+        dio: dio,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      await tester.runAsync(() async {
+        var finished = false;
+        final connection = connectMissavBrowserSession(
+          client,
+          mobile: WebViewController(),
+          checkAccess: false,
+        ).whenComplete(() => finished = true);
+        await Future.wait([
+          connection,
+          () async {
+            while (!finished) {
+              await tester.pump();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }(),
+        ]);
+        final previous = dio.httpClientAdapter as MissavBrowserAdapter;
+
+        await expectLater(
+          connectMissavBrowserSession(
+            client,
+            mobile: WebViewController(),
+            requireLogin: true,
+            readLoginPage: (_) async => {
+              'url': 'https://example.invalid/',
+              'runtimeUser': {'username': 'untrusted-viewer'},
+            },
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(previous.isClosed, isTrue);
+        expect(identical(dio.httpClientAdapter, native), isTrue);
+        expect(client.isLoggedIn, isFalse);
+      });
+      await tester.pumpAndSettle();
     },
   );
 

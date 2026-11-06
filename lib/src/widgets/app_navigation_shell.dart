@@ -8,6 +8,7 @@ import '../providers/settings_provider.dart';
 import '../providers/update_provider.dart';
 import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
+import 'cover_preview_dialog.dart';
 import 'mini_player.dart';
 import 'responsive_dialog.dart';
 
@@ -412,7 +413,9 @@ class _AppNavigationShellState extends State<AppNavigationShell>
               padding: EdgeInsets.only(top: railTop),
               child: SizedBox(
                 width: explicitTransition ? 1 - progress : 1,
-                child: const VerticalDivider(thickness: 1, width: 1),
+                child: _protectNavigation(
+                  const VerticalDivider(thickness: 1, width: 1),
+                ),
               ),
             ),
           Expanded(
@@ -617,6 +620,8 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   Widget _protectNavigation(Widget navigation, {bool enabled = true}) {
     final popup = controller.popupRoute;
     final excluded = popup != null || !enabled;
+    final isCoverPreview =
+        popup?.settings.name == appCoverPreviewRouteSettings.name;
     return Stack(
       children: [
         IgnorePointer(
@@ -628,19 +633,21 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         ),
         if (popup != null)
           Positioned.fill(
-            child: AnimatedModalBarrier(
-              color: popup.animation!.drive(
-                ColorTween(
-                  begin: Colors.transparent,
-                  end: popup.barrierColor ?? Colors.transparent,
-                ),
-              ),
-              dismissible: popup.barrierDismissible,
-              onDismiss: () {
-                if (popup.isCurrent) popup.navigator?.maybePop();
-              },
-              semanticsLabel: popup.barrierLabel,
-            ),
+            child: isCoverPreview
+                ? _CoverPreviewShellBarrier(route: popup)
+                : AnimatedModalBarrier(
+                    color: popup.animation!.drive(
+                      ColorTween(
+                        begin: Colors.transparent,
+                        end: popup.barrierColor ?? Colors.transparent,
+                      ),
+                    ),
+                    dismissible: popup.barrierDismissible,
+                    onDismiss: () {
+                      if (popup.isCurrent) popup.navigator?.maybePop();
+                    },
+                    semanticsLabel: popup.barrierLabel,
+                  ),
           ),
       ],
     );
@@ -682,6 +689,49 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         ),
       ],
     ),
+  );
+}
+
+class _CoverPreviewShellBarrier extends StatefulWidget {
+  _CoverPreviewShellBarrier({required this.route})
+    : super(key: ObjectKey(route));
+
+  final ModalRoute<dynamic> route;
+
+  @override
+  State<_CoverPreviewShellBarrier> createState() =>
+      _CoverPreviewShellBarrierState();
+}
+
+class _CoverPreviewShellBarrierState extends State<_CoverPreviewShellBarrier> {
+  late final CurvedAnimation _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animation = CurvedAnimation(
+      parent: widget.route.animation!,
+      curve: CoverPreviewDialog.backgroundCurve,
+      reverseCurve: CoverPreviewDialog.backgroundReverseCurve,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedModalBarrier(
+    color: _animation.drive(
+      ColorTween(begin: Colors.transparent, end: Colors.black),
+    ),
+    dismissible: widget.route.barrierDismissible,
+    onDismiss: () {
+      if (widget.route.isCurrent) widget.route.navigator?.maybePop();
+    },
+    semanticsLabel: widget.route.barrierLabel,
   );
 }
 

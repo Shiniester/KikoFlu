@@ -149,7 +149,7 @@ class _TestMissavClient extends MissavClient {
   Future<void> initialize() async {}
 
   @override
-  Future<void> checkBrowserAccess() async {
+  Future<void> checkBrowserAccess({Map<String, dynamic>? browserUser}) async {
     browserAccessChecks++;
     if (restoredAccountName case final name?) confirmAccount(name);
   }

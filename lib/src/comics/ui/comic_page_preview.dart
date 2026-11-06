@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../../../l10n/app_localizations.dart';
+import '../../widgets/work_detail_route_readiness.dart';
 
 class ComicPagePreview extends StatefulWidget {
   const ComicPagePreview({
@@ -51,8 +52,9 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   final Set<int> _inFlight = {};
   final Map<int, ({int width, int height})> _tileSizes = {};
   final Map<int, ({int width, int height})> _queuedSizes = {};
-  final LinkedHashMap<int, Uint8List> _thumbnails = LinkedHashMap();
+  final LinkedHashMap<int, ui.Image> _thumbnails = LinkedHashMap();
   final Map<int, Object> _errors = {};
+  final _routeReadiness = WorkDetailRouteReadiness();
 
   late final int _page = widget.pageCount <= 0
       ? 0
@@ -61,34 +63,24 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   bool _ready = false;
   bool _positionScheduled = false;
   bool _accepting = true;
-  Animation<double>? _routeAnimation;
-  AnimationStatusListener? _routeStatusListener;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.animation;
-    if (identical(animation, _routeAnimation)) return;
-    if (_routeAnimation != null && _routeStatusListener != null) {
-      _routeAnimation!.removeStatusListener(_routeStatusListener!);
-    }
-    _routeAnimation = animation;
-    if (animation == null) return;
-    _routeStatusListener = (status) {
-      if (status == AnimationStatus.reverse ||
-          status == AnimationStatus.dismissed) {
-        _stopAccepting();
-      }
-    };
-    animation.addStatusListener(_routeStatusListener!);
+    _routeReadiness.bind(
+      route: ModalRoute.of(context),
+      navigator: Navigator.maybeOf(context),
+    );
   }
 
   @override
   void dispose() {
     _stopAccepting();
-    if (_routeAnimation != null && _routeStatusListener != null) {
-      _routeAnimation!.removeStatusListener(_routeStatusListener!);
+    _routeReadiness.dispose();
+    for (final image in _thumbnails.values) {
+      image.dispose();
     }
+    _thumbnails.clear();
     super.dispose();
   }
 
@@ -101,7 +93,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
     _activeTiles.clear();
   }
 
-  Uint8List? _thumbnail(int index) {
+  ui.Image? _thumbnail(int index) {
     final value = _thumbnails.remove(index);
     if (value != null) _thumbnails[index] = value;
     return value;
@@ -127,7 +119,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
   void _trimThumbnails() {
     for (final index in _thumbnails.keys.toList()) {
       if (_thumbnails.length <= _cacheLimit) break;
-      if (!_activeTiles.contains(index)) _thumbnails.remove(index);
+      if (!_activeTiles.contains(index)) _thumbnails.remove(index)?.dispose();
     }
   }
 
@@ -166,28 +158,42 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
 
   Future<void> _loadThumbnail(int index, ({int width, int height}) size) async {
     try {
+      if (!await _routeReadiness.waitForIdle() || !mounted || !_accepting) {
+        return;
+      }
       final bytes = await widget.loadImage(index);
+      if (!await _routeReadiness.waitForIdle() || !mounted || !_accepting) {
+        return;
+      }
       final thumbnail = await _decodeThumbnail(bytes, size.width, size.height);
-      if (mounted && _accepting && _activeTiles.contains(index)) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          _accepting &&
+          _activeTiles.contains(index)) {
         setState(() {
           _errors.remove(index);
-          _thumbnails.remove(index);
+          _thumbnails.remove(index)?.dispose();
           _thumbnails[index] = thumbnail;
           _trimThumbnails();
         });
+      } else {
+        thumbnail.dispose();
       }
     } catch (error) {
-      if (mounted && _accepting && _activeTiles.contains(index)) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          _accepting &&
+          _activeTiles.contains(index)) {
         setState(() => _errors[index] = error);
       }
     } finally {
       _inFlight.remove(index);
       _running--;
-      if (mounted && _accepting) _drainQueue();
+      if (mounted && _accepting && _routeReadiness.isIdle) _drainQueue();
     }
   }
 
-  Future<Uint8List> _decodeThumbnail(
+  Future<ui.Image> _decodeThumbnail(
     Uint8List bytes,
     int width,
     int height,
@@ -206,21 +212,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
         );
         try {
           final frame = await codec.getNextFrame();
-          try {
-            final data = await frame.image.toByteData(
-              format: ui.ImageByteFormat.png,
-            );
-            if (data == null) {
-              throw StateError('Could not encode page preview');
-            }
-            return Uint8List.view(
-              data.buffer,
-              data.offsetInBytes,
-              data.lengthInBytes,
-            );
-          } finally {
-            frame.image.dispose();
-          }
+          return frame.image;
         } finally {
           codec.dispose();
         }
@@ -389,7 +381,7 @@ class _ComicPreviewTile extends StatefulWidget {
 
   final int pageNumber;
   final bool selected;
-  final Uint8List? thumbnail;
+  final ui.Image? thumbnail;
   final Object? error;
   final VoidCallback onActivate;
   final VoidCallback onDeactivate;
@@ -458,10 +450,10 @@ class _ComicPreviewTileState extends State<_ComicPreviewTile> {
               Expanded(
                 child: Center(
                   child: thumbnail != null
-                      ? Image.memory(
-                          thumbnail,
+                      ? RawImage(
+                          image: thumbnail,
                           fit: BoxFit.contain,
-                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.medium,
                         )
                       : widget.error != null
                       ? Column(

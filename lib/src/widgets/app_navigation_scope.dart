@@ -7,9 +7,28 @@ import 'player/player_vertical_gestures.dart';
 
 const appImmersiveRouteSettings = RouteSettings(name: 'app-immersive');
 const appAudioPlayerRouteSettings = RouteSettings(name: 'app-audio-player');
+const appCoverPreviewRouteSettings = RouteSettings(name: 'app-cover-preview');
 const appAudioTabIndex = 0;
 const appVideoTabIndex = 2;
 const appTabCount = 4;
+
+bool _isCoverPreviewRoute(Route<dynamic>? route) =>
+    route?.settings.name == appCoverPreviewRouteSettings.name;
+
+bool _isShellPopupRoute(Route<dynamic> route) =>
+    route is PopupRoute<dynamic> ||
+    (route is ModalRoute<dynamic> && _isCoverPreviewRoute(route));
+
+ModalRoute<dynamic>? _shellPopupRoute(Route<dynamic>? route) {
+  if (route is ModalRoute<dynamic> && _isShellPopupRoute(route)) return route;
+  return null;
+}
+
+PageRoute<dynamic>? _lastNonPreviewPage(Iterable<Route<dynamic>> routes) =>
+    routes
+        .whereType<PageRoute<dynamic>>()
+        .where((route) => !_isCoverPreviewRoute(route))
+        .lastOrNull;
 
 class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   AppNavigationController()
@@ -17,6 +36,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
         appTabCount,
         (_) => GlobalKey<NavigatorState>(),
       ),
+      _tabHeroControllers = List.generate(appTabCount, (_) => HeroController()),
       _tabObservers = List.generate(
         appTabCount,
         (_) => _AppTabNavigatorObserver(),
@@ -41,6 +61,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   final Set<Route<dynamic>> _closingAudioPlayerRoutes = {};
   final Map<Route<dynamic>, Animation<double>> _fullscreenTransitions = {};
   final List<GlobalKey<NavigatorState>> _tabNavigatorKeys;
+  final List<HeroController> _tabHeroControllers;
   final List<_AppTabNavigatorObserver> _tabObservers;
   int _selectedIndex = 0;
   bool _navigationVisible = true;
@@ -48,7 +69,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   Animation<double>? _fullscreenTransition;
   TransitionRoute<dynamic>? _audioPlayerNavigationRoute;
   EdgeInsets? _audioPlayerLandscapeInsets;
-  PopupRoute<dynamic>? _popupRoute;
+  ModalRoute<dynamic>? _popupRoute;
   PageRoute<dynamic>? _outgoing;
 
   int get selectedIndex => _selectedIndex;
@@ -87,20 +108,21 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     _refresh(forceNotify: true);
   }
 
-  PopupRoute<dynamic>? get popupRoute => _popupRoute ?? sheetRoutes.lastOrNull;
-  Iterable<PopupRoute<dynamic>> get popupRoutes => {
-    ..._routes.whereType<PopupRoute<dynamic>>(),
+  ModalRoute<dynamic>? get popupRoute => _popupRoute ?? sheetRoutes.lastOrNull;
+  Iterable<ModalRoute<dynamic>> get popupRoutes => {
+    ..._routes.whereType<ModalRoute<dynamic>>().where(_isShellPopupRoute),
     if (!rootRouteCoversTabs) ..._tabObservers[_selectedIndex].popupRoutes,
     ...sheetRoutes,
   };
   bool get rootRouteCoversTabs {
-    final page =
-        _outgoing ?? _routes.whereType<PageRoute<dynamic>>().lastOrNull;
+    final page = _outgoing ?? _lastNonPreviewPage(_routes);
     return page != null && !page.isFirst;
   }
 
   GlobalKey<NavigatorState> tabNavigatorKey(int index) =>
       _tabNavigatorKeys[index];
+
+  HeroController tabHeroController(int index) => _tabHeroControllers[index];
 
   NavigatorState? tabNavigator(int index) =>
       _tabNavigatorKeys[index].currentState;
@@ -169,7 +191,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   PageRoute<dynamic>? _currentPageFor(NavigatorState navigator) {
     if (identical(navigator, this.navigator)) {
-      return _routes.whereType<PageRoute<dynamic>>().lastOrNull;
+      return _lastNonPreviewPage(_routes);
     }
     for (var index = 0; index < _tabNavigatorKeys.length; index++) {
       if (identical(navigator, tabNavigator(index))) {
@@ -185,6 +207,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       sheet.coveredByPage.removeListener(_sheetCoverageChanged);
     }
     _sheetRoutes.clear();
+    for (final heroController in _tabHeroControllers) {
+      heroController.dispose();
+    }
     super.dispose();
   }
 
@@ -242,7 +267,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute<dynamic>) _outgoing = null;
+    if (route is PageRoute<dynamic> && !_isCoverPreviewRoute(route)) {
+      _outgoing = null;
+    }
     if (route is TransitionRoute<dynamic> &&
         route.settings.name == appAudioPlayerRouteSettings.name &&
         (_navigationVisible || _playerLaunchPreviewActive)) {
@@ -257,7 +284,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute<dynamic>) {
+    if (route is PageRoute<dynamic> && !_isCoverPreviewRoute(route)) {
       if (route.settings.name == appAudioPlayerRouteSettings.name) {
         _closingAudioPlayerRoutes.add(route);
       }
@@ -315,8 +342,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   }
 
   void _refresh({bool forceNotify = false}) {
-    final rootPage =
-        _outgoing ?? _routes.whereType<PageRoute<dynamic>>().lastOrNull;
+    final rootPage = _outgoing ?? _lastNonPreviewPage(_routes);
     final page = rootRouteCoversTabs
         ? rootPage
         : _tabObservers[_selectedIndex].currentPage ?? rootPage;
@@ -328,7 +354,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
         !_fullscreenRoutes.contains(page);
     final transition = page == null ? null : _fullscreenTransitions[page];
     final lastRoute = _routes.lastOrNull;
-    final rootPopup = lastRoute is PopupRoute<dynamic> ? lastRoute : null;
+    final rootPopup = _shellPopupRoute(lastRoute);
     final popup =
         rootPopup ??
         (rootRouteCoversTabs ? null : _tabObservers[_selectedIndex].popupRoute);
@@ -352,22 +378,20 @@ class _AppTabNavigatorObserver extends NavigatorObserver {
   PageRoute<dynamic>? _outgoing;
 
   PageRoute<dynamic>? get currentPage =>
-      _outgoing ?? _routes.whereType<PageRoute<dynamic>>().lastOrNull;
+      _outgoing ?? _lastNonPreviewPage(_routes);
 
-  PageRoute<dynamic>? get sheetPage =>
-      _routes.whereType<PageRoute<dynamic>>().lastOrNull;
+  PageRoute<dynamic>? get sheetPage => _lastNonPreviewPage(_routes);
 
-  PopupRoute<dynamic>? get popupRoute {
-    final route = _routes.lastOrNull;
-    return route is PopupRoute<dynamic> ? route : null;
-  }
+  ModalRoute<dynamic>? get popupRoute => _shellPopupRoute(_routes.lastOrNull);
 
-  Iterable<PopupRoute<dynamic>> get popupRoutes =>
-      _routes.whereType<PopupRoute<dynamic>>();
+  Iterable<ModalRoute<dynamic>> get popupRoutes =>
+      _routes.whereType<ModalRoute<dynamic>>().where(_isShellPopupRoute);
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute<dynamic>) _outgoing = null;
+    if (route is PageRoute<dynamic> && !_isCoverPreviewRoute(route)) {
+      _outgoing = null;
+    }
     _routes.add(route);
     controller._refresh(
       forceNotify:
@@ -377,7 +401,7 @@ class _AppTabNavigatorObserver extends NavigatorObserver {
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    if (route is PageRoute<dynamic>) {
+    if (route is PageRoute<dynamic> && !_isCoverPreviewRoute(route)) {
       _routes.remove(route);
       _outgoing ??= route;
     }

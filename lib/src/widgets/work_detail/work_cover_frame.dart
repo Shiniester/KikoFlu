@@ -4,10 +4,15 @@ import '../../../l10n/app_localizations.dart';
 import '../../utils/age_rating.dart';
 import '../age_rating_chip.dart';
 import '../privacy_blur_cover.dart';
+import '../player/player_cover_widget.dart';
 
 const double _coverBadgeInset = 12;
 const double workCoverDetailRadius = 12;
 const double workCoverCompactRadius = 8;
+const workCoverDetailPadding = EdgeInsets.symmetric(
+  horizontal: 16,
+  vertical: 8,
+);
 
 class WorkCoverClip extends StatelessWidget {
   const WorkCoverClip({
@@ -34,6 +39,7 @@ class WorkCoverFrame extends StatelessWidget {
     this.showAgeRating = false,
     this.age,
     this.onTap,
+    this.heroTag,
   });
 
   final List<Widget> layers;
@@ -41,17 +47,17 @@ class WorkCoverFrame extends StatelessWidget {
   final bool showAgeRating;
   final String? age;
   final VoidCallback? onTap;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: workCoverDetailPadding,
         child: LayoutBuilder(
-          builder: (context, constraints) => Center(
-            heightFactor: 1,
-            child: WorkCoverClip(
+          builder: (context, constraints) {
+            final artwork = WorkCoverClip(
               cornerRadius: workCoverDetailRadius,
               child: Material(
                 color: Colors.transparent,
@@ -84,8 +90,18 @@ class WorkCoverFrame extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+            return Center(
+              heightFactor: 1,
+              child: heroTag == null
+                  ? artwork
+                  : PlayerCoverPreviewHero(
+                      tag: heroTag!,
+                      cornerRadius: workCoverDetailRadius,
+                      child: artwork,
+                    ),
+            );
+          },
         ),
       ),
     );

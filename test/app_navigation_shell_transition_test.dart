@@ -45,6 +45,7 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/playlist_add_works_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/subtitle_library_folder_browser_dialog.dart';
@@ -68,7 +69,10 @@ Widget _tabHome(
   onPopWithResult: (_) => navigation.tabNavigator(index)?.maybePop<void>(),
   child: Navigator(
     key: navigation.tabNavigatorKey(index),
-    observers: [navigation.tabObserver(index)],
+    observers: [
+      navigation.tabObserver(index),
+      navigation.tabHeroController(index),
+    ],
     onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => child),
   ),
 );
@@ -380,6 +384,17 @@ void main() {
           }
           final cover = find.byType(WorkCoverFrame, skipOffstage: false);
           final coverRect = tester.getRect(cover);
+          final sourceHero = find.descendant(
+            of: cover,
+            matching: find.byType(Hero),
+          );
+          expect(sourceHero, findsOneWidget);
+          final artworkRect = tester.getRect(sourceHero);
+          expect(tester.widget<Hero>(sourceHero).curve, Curves.easeOutCubic);
+          expect(
+            tester.widget<Hero>(sourceHero).reverseCurve,
+            Curves.easeInCubic,
+          );
           final dock = size.width > size.height
               ? find.byType(NavigationRail)
               : find.byType(AppBottomDock);
@@ -399,27 +414,60 @@ void main() {
           expect(dock.hitTestable(), findsNothing);
           final preview = find.byType(CoverPreviewDialog);
           expect(preview, findsOneWidget);
-          await tester.runAsync(() async {
-            final boundary = tester.renderObject<RenderRepaintBoundary>(
-              find.byKey(const ValueKey('shell-paint')),
-            );
-            final image = await boundary.toImage();
-            try {
-              final pixels = (await image.toByteData(
-                format: ui.ImageByteFormat.rawRgba,
-              ))!;
-              for (final point in [dockRect.center, miniPlayerRect.center]) {
-                final offset =
-                    4 * (point.dy.floor() * image.width + point.dx.floor());
-                expect(pixels.getUint32(offset), 0x000000ff);
+          Future<void> expectDockCovered() async {
+            await tester.runAsync(() async {
+              final boundary = tester.renderObject<RenderRepaintBoundary>(
+                find.byKey(const ValueKey('shell-paint')),
+              );
+              final image = await boundary.toImage();
+              try {
+                final pixels = (await image.toByteData(
+                  format: ui.ImageByteFormat.rawRgba,
+                ))!;
+                for (final point in [
+                  dockRect.center,
+                  miniPlayerRect.center,
+                  if (size.width > size.height)
+                    Offset(dockRect.right, dockRect.center.dy),
+                ]) {
+                  final offset =
+                      4 * (point.dy.floor() * image.width + point.dx.floor());
+                  expect(pixels.getUint32(offset), 0x000000ff);
+                }
+                final paintedFlight = find.byKey(
+                  const ValueKey('player-cover-preview-flight-frame'),
+                );
+                if (offline && paintedFlight.evaluate().isNotEmpty) {
+                  final center = tester.getCenter(paintedFlight);
+                  final offset =
+                      4 * (center.dy.floor() * image.width + center.dx.floor());
+                  expect(pixels.getUint32(offset), isNot(0x000000ff));
+                  expect(pixels.getUint8(offset + 3), 255);
+                }
+              } finally {
+                image.dispose();
               }
-            } finally {
-              image.dispose();
-            }
-          });
+            });
+          }
+
+          await expectDockCovered();
           final route = ModalRoute.of(tester.element(preview))!;
+          expect(route, isA<PageRoute<void>>());
+          final previewRect = tester.getRect(
+            find.byKey(const ValueKey('cover-preview-image-frame')),
+          );
           Navigator.of(tester.element(preview)).pop();
           await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final flight = find.byKey(
+            const ValueKey('player-cover-preview-flight-frame'),
+          );
+          expect(flight, findsOneWidget);
+          final flightRect = tester.getRect(flight);
+          expect(flightRect, isNot(artworkRect));
+          expect(flightRect, isNot(previewRect));
+          expect(tester.getRect(cover), coverRect);
+          await expectDockCovered();
           final closingFrames =
               (route.reverseTransitionDuration.inMilliseconds / 16).ceil() + 2;
           for (var frame = 0; frame < closingFrames; frame++) {
@@ -445,6 +493,105 @@ void main() {
         },
       );
     }
+  }
+
+  for (final reducedMotion in [false, true]) {
+    testWidgets('tab cover preview retains its modal presentation '
+        '(reduced motion=$reducedMotion)', (tester) async {
+      final navigation = await _pumpShell(
+        tester,
+        size: const Size(1280, 720),
+        reducedMotion: reducedMotion,
+        homeBuilder: (navigation) => _tabHome(
+          navigation,
+          Scaffold(
+            body: Center(
+              child: Builder(
+                builder: (context) => GestureDetector(
+                  key: const ValueKey('tab-cover-preview-source'),
+                  onTap: () => unawaited(
+                    CoverPreviewDialog.show(
+                      context,
+                      localPath: 'missing.jpg',
+                      heroTag: 'tab-cover-preview',
+                    ),
+                  ),
+                  child: const PlayerCoverPreviewHero(
+                    tag: 'tab-cover-preview',
+                    cornerRadius: 12,
+                    child: SizedBox(
+                      width: 160,
+                      height: 120,
+                      child: ColoredBox(color: Colors.green),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final source = find.byKey(const ValueKey('tab-cover-preview-source'));
+      final sourceRect = tester.getRect(source);
+      await tester.tap(source);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final preview = find.byType(CoverPreviewDialog);
+      final route = ModalRoute.of(tester.element(preview))!;
+      final flight = find.byKey(
+        const ValueKey('player-cover-preview-flight-frame'),
+      );
+      expect(route, isA<PageRoute<void>>());
+      expect(
+        route.barrierLabel,
+        MaterialLocalizations.of(
+          tester.element(preview),
+        ).modalBarrierDismissLabel,
+      );
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(navigation.navigationVisible, isTrue);
+      expect(navigation.popupRoute, same(route));
+      expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+      expect(flight, reducedMotion ? findsNothing : findsOneWidget);
+      if (reducedMotion) expect(route.transitionDuration, Duration.zero);
+      expect(tester.getRect(source), sourceRect);
+
+      void expectMatchingBackdropOpacity() {
+        final fade = tester.widget<FadeTransition>(
+          find
+              .descendant(of: preview, matching: find.byType(FadeTransition))
+              .first,
+        );
+        final barriers = tester
+            .widgetList<ModalBarrier>(find.byType(ModalBarrier))
+            .where((barrier) => (barrier.color?.a ?? 0) > 0);
+        expect(barriers, isNotEmpty);
+        for (final barrier in barriers) {
+          expect(barrier.color!.a, closeTo(fade.opacity.value, 1 / 255));
+        }
+      }
+
+      if (!reducedMotion) expectMatchingBackdropOpacity();
+
+      Navigator.of(tester.element(preview)).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 32));
+      if (!reducedMotion) {
+        expect(navigation.popupRoute, same(route));
+        expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+        expect(flight, findsOneWidget);
+        for (var frame = 0; frame < 4; frame++) {
+          expectMatchingBackdropOpacity();
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(navigation.popupRoute, isNull);
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(find.byType(NavigationRail).hitTestable(), findsOneWidget);
+      expect(tester.getRect(source), sourceRect);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   for (final (size, withTrack, fullscreen) in [

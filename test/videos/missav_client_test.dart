@@ -1165,6 +1165,88 @@ void main() {
     },
   );
 
+  test('account checks use the login page account as a fallback', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response('<html><body x-data="{user: null}"></body></html>'),
+        ),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.checkBrowserAccess(
+      browserUser: {'username': 'Login page viewer'},
+    );
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Login page viewer');
+  });
+
+  test('account checks prefer the current homepage account', () async {
+    final pages = [
+      '<html><body x-data="{user: {username: \'Homepage viewer\'}}"></body></html>',
+      '<html><body x-data="{user: null}"></body></html>',
+    ];
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter((_) => _response(pages.removeAt(0))),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    await client.checkBrowserAccess(
+      browserUser: {'username': 'Login page viewer'},
+    );
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Homepage viewer');
+
+    await client.checkBrowserAccess();
+
+    expect(client.isLoggedIn, isTrue);
+    expect(client.accountName, 'Homepage viewer');
+  });
+
+  test(
+    'account checks reject fallback after HTTP and challenge failures',
+    () async {
+      for (final failure in [
+        (
+          status: HttpStatus.unauthorized,
+          body: '<html><body>Sign in</body></html>',
+          expected: isA<MissavAuthenticationException>(),
+        ),
+        (
+          status: HttpStatus.forbidden,
+          body: '<title>Attention Required! | Cloudflare</title>',
+          expected: isA<MissavVerificationRequiredException>(),
+        ),
+      ]) {
+        final client = MissavClient(
+          dio: Dio()
+            ..httpClientAdapter = _Adapter(
+              (_) => _response(failure.body, statusCode: failure.status),
+            ),
+          metadataDio: _emptyMetadataDio(),
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+
+        await expectLater(
+          client.checkBrowserAccess(
+            browserUser: {'username': 'Login page viewer'},
+          ),
+          throwsA(failure.expected),
+        );
+        expect(client.isLoggedIn, isFalse);
+        expect(client.accountName, isNull);
+      }
+    },
+  );
+
   test(
     'account checks restore a saved browser session before reading the page',
     () async {

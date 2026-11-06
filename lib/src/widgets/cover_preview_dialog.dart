@@ -66,6 +66,12 @@ class CoverPreviewDialog extends StatefulWidget {
 
   static const double fallbackAspectRatio = 4 / 3;
   static const double cornerRadius = 12;
+  static const Curve backgroundCurve = Curves.easeOutCubic;
+  static const Curve backgroundReverseCurve = Interval(
+    0,
+    0.2,
+    curve: Curves.easeInCubic,
+  );
 
   /// 网络图片URL
   final String? imageUrl;
@@ -146,7 +152,7 @@ class CoverPreviewDialog extends StatefulWidget {
         isJapaneseAsmr: isJapaneseAsmr,
       );
       if (!context.mounted || sourceRoute?.isCurrent == false) return;
-      final usePopupRoute =
+      final useShellModalBarrier =
           AppNavigationScope.maybeOf(context)?.navigationVisible == true;
       final transitionDuration = reduceMotion
           ? Duration.zero
@@ -160,35 +166,26 @@ class CoverPreviewDialog extends StatefulWidget {
             heroTag: heroTag,
             cacheKey: cacheKey,
             isJapaneseAsmr: isJapaneseAsmr,
-            backgroundColor: usePopupRoute
-                ? Colors.transparent
-                : backgroundColor,
-            backgroundPalette: usePopupRoute ? null : backgroundPalette,
+            backgroundColor: backgroundColor,
+            backgroundPalette: backgroundPalette,
             imageAspectRatio: imageAspectRatio,
-            routeAnimation: usePopupRoute ? null : animation,
+            routeAnimation: animation,
           );
-      final TransitionRoute<void> route = usePopupRoute
-          ? RawDialogRoute<void>(
-              barrierDismissible: true,
-              barrierLabel: MaterialLocalizations.of(
-                context,
-              ).modalBarrierDismissLabel,
-              barrierColor: Colors.black,
-              transitionDuration: transitionDuration,
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  buildPreview(animation),
-            )
-          : PageRouteBuilder<void>(
-              opaque: false,
-              barrierDismissible: true,
-              barrierColor: Colors.transparent,
-              transitionDuration: transitionDuration,
-              reverseTransitionDuration: transitionDuration,
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  buildPreview(animation),
-              transitionsBuilder:
-                  (context, animation, secondaryAnimation, child) => child,
-            );
+      final route = PageRouteBuilder<void>(
+        settings: useShellModalBarrier ? appCoverPreviewRouteSettings : null,
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.transparent,
+        barrierLabel: useShellModalBarrier
+            ? MaterialLocalizations.of(context).modalBarrierDismissLabel
+            : null,
+        transitionDuration: transitionDuration,
+        reverseTransitionDuration: transitionDuration,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            buildPreview(animation),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            child,
+      );
       await navigator.push<void>(route);
       // Navigator.push completes as soon as pop is requested. Keep the source
       // Hero alive until the reverse transition has actually removed the route.
@@ -536,11 +533,11 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       background = FadeTransition(
         opacity: CurvedAnimation(
           parent: routeAnimation,
-          curve: Curves.easeOutCubic,
+          curve: CoverPreviewDialog.backgroundCurve,
           // On pop, routeAnimation runs from 1 to 0. Keep the background
           // opaque for the first 80% of that reverse flight, then fade it out
           // over the final 20% with the requested easing.
-          reverseCurve: const Interval(0, 0.2, curve: Curves.easeInCubic),
+          reverseCurve: CoverPreviewDialog.backgroundReverseCurve,
         ),
         child: background,
       );

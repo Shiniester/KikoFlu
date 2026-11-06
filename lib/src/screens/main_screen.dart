@@ -116,7 +116,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         excluding: index != i,
                         child: Navigator(
                           key: navigation.tabNavigatorKey(i),
-                          observers: [navigation.tabObserver(i)],
+                          observers: [
+                            navigation.tabObserver(i),
+                            navigation.tabHeroController(i),
+                          ],
                           onGenerateRoute: (settings) =>
                               MaterialPageRoute<void>(
                                 settings: settings,

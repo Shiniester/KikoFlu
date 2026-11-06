@@ -14,6 +14,8 @@ Browsing pages need persistent app navigation and shared audio playback access. 
 
 `AppNavigationController` observes the root stack and the tab stacks, and owns the selected app tab. Ordinary pages show navigation. Comic reader, work-image reader, reader settings, and dedicated video presentation routes use `appImmersiveRouteSettings`. Inline video retains navigation; the existing video fullscreen callback hides navigation only while fullscreen is active. Popup routes retain the underlying page presentation, and their barriers, focus restrictions, and semantics also cover shell controls.
 
+Cover Preview uses a non-opaque page route for artwork Hero transitions. The shell treats this route as a popup, preserving the underlying page layout and covering shell controls until the preview finishes closing. Each app tab owns a separate Hero controller.
+
 The full-screen audio player uses `appAudioPlayerRouteSettings`. The Bottom Dock stays hidden while the player is fully open, including when Cover Preview or a lyric text preview is open. During landscape entry and exit, the player covers or uncovers the stationary left navigation. Navigation remains unavailable until the closing transition completes.
 
 `AppNavigationScope` shares this state and resolves the root Navigator for shell controls. Audio entry and interactive drag handoff use that Navigator; their temporary overlay uses the shell's outer Overlay. Page-local `GlobalAudioPlayerWrapper` uses the shell's existing playback surface instead of adding a second Mini Player.

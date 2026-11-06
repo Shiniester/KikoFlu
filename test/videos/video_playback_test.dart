@@ -1876,6 +1876,8 @@ void main() {
             .ancestor(of: miniPlayer, matching: find.byType(ClipRect))
             .first;
         final inlineRect = tester.getRect(layout);
+        final inlineInfoSize = tester.getSize(infoPane);
+        final transitionInfoSizes = <Size>{};
         final miniPlayerHeight = withAudio
             ? tester.getRect(miniPlayerClip).height
             : 0.0;
@@ -1922,6 +1924,7 @@ void main() {
           if (rect.width > inlineRect.width + 1 && rect.width < 1199) {
             sawIntermediatePlayer = true;
             if (infoPane.evaluate().isNotEmpty) {
+              transitionInfoSizes.add(tester.getSize(infoPane));
               final infoLeft = tester.getRect(infoPane).left;
               sawRetreatingDetails |= infoLeft > 480 && infoLeft < 1200;
             }
@@ -1949,6 +1952,7 @@ void main() {
 
         expect(sawIntermediatePlayer, isTrue);
         expect(sawRetreatingDetails, isTrue);
+        expect(transitionInfoSizes, {inlineInfoSize});
         if (withAudio) expect(sawIntermediateMiniPlayerHeight, isTrue);
         expect(
           session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
@@ -2037,6 +2041,8 @@ void main() {
       final layout = find.byKey(const ValueKey('video-playback-layout'));
       final inlineRect = tester.getRect(layout);
       final inlineInfoLeft = tester.getRect(infoPane).left;
+      final inlineInfoSize = tester.getSize(infoPane);
+      final transitionInfoSizes = <Size>{};
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
       await tester.pumpAndSettle();
@@ -2076,6 +2082,7 @@ void main() {
         if (infoPane.evaluate().isNotEmpty &&
             tester.getRect(infoPane).left < 1200 &&
             playerRect.width > 500) {
+          transitionInfoSizes.add(tester.getSize(infoPane));
           sawDetailsBesideShrinkingPlayer = true;
         }
       }
@@ -2084,6 +2091,7 @@ void main() {
 
       expect(sawIntermediatePlayerSize, isTrue);
       expect(sawDetailsBesideShrinkingPlayer, isTrue);
+      expect(transitionInfoSizes, {inlineInfoSize});
       expect(
         session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
         lessThanOrEqualTo(2),
@@ -2149,6 +2157,72 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final viaPortrait in [false, true]) {
+    _testPlayerWidget(
+      'landscape fullscreen refreshes the details viewport after resize with rotation=$viaPortrait',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final client = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        final platform = _TestVideoPlayerPlatform()
+          ..windowOrientation = Orientation.landscape;
+        final navigation = AppNavigationController();
+        addTearDown(navigation.dispose);
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+              platform: platform,
+            ),
+            appNavigationController: navigation,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final infoPane = find.byKey(
+          const PageStorageKey<String>('video-details-landscape-dvd-1'),
+        );
+        final inlineInfoSize = tester.getSize(infoPane);
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.byTooltip(l10n.videoFullscreen));
+        await tester.pumpAndSettle();
+        if (viaPortrait) {
+          tester.view.physicalSize = const Size(800, 1200);
+          await tester.pumpAndSettle();
+        }
+        tester.view.physicalSize = const Size(1400, 800);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+
+        final resizedInfoSize = tester.getSize(infoPane);
+        expect(resizedInfoSize.width, closeTo(inlineInfoSize.width + 120, .1));
+        expect(resizedInfoSize.height, inlineInfoSize.height);
+        await tester.tap(find.byTooltip(l10n.videoFullscreen));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.getSize(infoPane), resizedInfoSize);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(infoPane), resizedInfoSize);
+        expect(session.surfaceMountCount, 1);
+        expect(session.surfaceDisposeCount, 0);
+        expect(session.loadStreamCount, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'landscape fullscreen exit stays visible while the audio mini player returns',

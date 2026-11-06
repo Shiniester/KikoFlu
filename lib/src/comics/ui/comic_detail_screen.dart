@@ -852,6 +852,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                 .clamp(0.0, double.infinity)
                 .toDouble();
         final landscapeCoverWidth = math.min(width, 1200) * 0.4;
+        final coverHeroTag = 'comic-detail-cover-${comic.key}';
         final cover = ComicCover(
           key: const ValueKey('comic-detail-cover'),
           source: widget.comic.source,
@@ -863,9 +864,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
           initialAspectRatio: widget.initialCoverAspectRatio,
           deferCacheUpgradeUntilRouteCompleted: true,
           preservePreviousImage: true,
+          previewHeroTag: coverHeroTag,
           onTap: (bytes) => CoverPreviewDialog.show(
             context,
             imageBytes: bytes,
+            heroTag: coverHeroTag,
             identifier: '${comic.source}_${comic.id}',
           ),
         );
@@ -1391,10 +1394,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen>
                         flex: 2,
                         child: Center(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 8,
-                            ),
+                            padding: workCoverDetailPadding,
                             child: cover,
                           ),
                         ),
