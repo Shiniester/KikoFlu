@@ -7,7 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/utils/global_keys.dart';
+import 'package:kikoeru_flutter/src/videos/jable_client.dart';
+import 'package:kikoeru_flutter/src/videos/jable_verification.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
@@ -19,6 +22,77 @@ import 'package:webview_flutter_platform_interface/webview_flutter_platform_inte
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final source in ['MissAV', 'Jable']) {
+    for (final (size, webWidth) in [
+      (const Size(320, 568), 272.0),
+      (const Size(390, 844), 342.0),
+      (const Size(844, 390), 720.0),
+      (const Size(1024, 768), 720.0),
+    ]) {
+      testWidgets('$source verification fits $size with a larger web area', (
+        tester,
+      ) async {
+        final oldPlatform = WebViewPlatform.instance;
+        WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = size;
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+          debugDefaultTargetPlatformOverride = null;
+          tester.view.resetDevicePixelRatio();
+          tester.view.resetPhysicalSize();
+        });
+        await tester.pumpWidget(
+          const MaterialApp(
+            locale: Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(body: SizedBox()),
+          ),
+        );
+        final context = tester.element(find.byType(Scaffold));
+        final missav = MissavClient(secureStorage: _MemorySecureStorage());
+        final jable = JableClient(secureStorage: _MemorySecureStorage());
+        addTearDown(missav.dispose);
+        addTearDown(jable.dispose);
+        final verification = source == 'MissAV'
+            ? verifyMissavAccess(context, missav, sourceUrl: missav.homeUrl)
+            : verifyJableAccess(context, jable, sourceUrl: jable.homeUrl);
+        await tester.pumpAndSettle();
+
+        final web = tester.getRect(find.byType(WebViewWidget));
+        final dialog = tester.getRect(
+          find
+              .descendant(
+                of: find.byType(Dialog),
+                matching: find.byType(Material),
+              )
+              .first,
+        );
+        expect(web.width, closeTo(webWidth, .01));
+        expect(web.height, greaterThan(0));
+        expect(dialog.left, greaterThanOrEqualTo(16));
+        expect(dialog.right, lessThanOrEqualTo(size.width - 16));
+        expect(dialog.top, greaterThanOrEqualTo(24));
+        expect(dialog.bottom, lessThanOrEqualTo(size.height - 24));
+        if (size.height >= 768) {
+          expect(dialog.height, greaterThan(size.height * .85));
+        }
+        final cancel = find.widgetWithText(TextButton, 'Cancel');
+        expect(dialog.contains(tester.getCenter(cancel)), isTrue);
+        expect(tester.takeException(), isNull);
+
+        await tester.tap(cancel);
+        await tester.pumpAndSettle();
+        expect(await verification, isFalse);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
+  }
 
   for (final loginStatus in [200, 401]) {
     test(

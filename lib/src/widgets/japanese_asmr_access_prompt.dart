@@ -37,9 +37,14 @@ class _JapaneseAsmrAccessPromptState extends State<JapaneseAsmrAccessPrompt> {
     });
     try {
       final strings = S.of(context);
+      final colorScheme = Theme.of(context).colorScheme;
       final verified = await JapaneseAsmrService.instance.verifyAccess(
         title: strings.jpAsmrVerificationTitle,
         closeLabel: strings.close,
+        message: strings.jpAsmrVerificationMessage,
+        backgroundColor: colorScheme.surfaceContainerHigh.toARGB32(),
+        foregroundColor: colorScheme.onSurface.toARGB32(),
+        primaryColor: colorScheme.primary.toARGB32(),
       );
       if (mounted && verified) widget.onVerified();
     } on PlatformException {

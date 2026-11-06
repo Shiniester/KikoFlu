@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -705,7 +706,9 @@ class _JableVerificationState extends State<_JableVerification> {
   );
 
   bool get _isDesktop =>
-      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.linux;
 
   bool get _isCurrent => mounted && !_closed && !_finished;
 
@@ -936,12 +939,16 @@ class _JableVerificationState extends State<_JableVerification> {
         }
       },
       child: AlertDialog(
+        insetPadding: _isDesktop
+            ? null
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        contentPadding: _isDesktop ? null : const EdgeInsets.all(8),
         title: Text(
           widget.requireLogin ? s.videoJableAccount : s.videoVerifyAccess,
         ),
         content: SizedBox(
           width: _isDesktop ? 420 : 720,
-          height: _isDesktop ? null : MediaQuery.sizeOf(context).height * .65,
+          height: _isDesktop ? null : MediaQuery.sizeOf(context).height * .75,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,

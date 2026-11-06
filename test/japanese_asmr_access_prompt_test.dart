@@ -9,7 +9,8 @@ import 'package:kikoeru_flutter/src/widgets/japanese_asmr_access_prompt.dart';
 
 const _channel = MethodChannel('com.meteor.kikoeruflutter/japanese_asmr');
 
-Widget _app(Widget child) => MaterialApp(
+Widget _app(Widget child, {ThemeData? theme}) => MaterialApp(
+  theme: theme,
   locale: const Locale('en'),
   localizationsDelegates: S.localizationsDelegates,
   supportedLocales: S.supportedLocales,
@@ -25,6 +26,48 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
     messenger.setMockMethodCallHandler(_channel, null);
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('native verification receives the $brightness dialog theme', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      Map<dynamic, dynamic>? arguments;
+      messenger.setMockMethodCallHandler(_channel, (call) async {
+        expect(call.method, 'verify');
+        arguments = call.arguments as Map;
+        return null;
+      });
+      final colors = ColorScheme.fromSeed(
+        seedColor: Colors.purple,
+        brightness: brightness,
+      );
+      await tester.pumpWidget(
+        _app(
+          JapaneseAsmrAccessPrompt(onVerified: () {}, onRetry: () {}),
+          theme: ThemeData(colorScheme: colors),
+        ),
+      );
+      final button = find.widgetWithText(
+        ElevatedButton,
+        'Verify website access',
+      );
+      final strings = S.of(tester.element(button));
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      expect(arguments?['title'], strings.jpAsmrVerificationTitle);
+      expect(arguments?['message'], strings.jpAsmrVerificationMessage);
+      expect(arguments?['closeLabel'], strings.close);
+      expect(
+        arguments?['backgroundColor'],
+        colors.surfaceContainerHigh.toARGB32(),
+      );
+      expect(arguments?['foregroundColor'], colors.onSurface.toARGB32());
+      expect(arguments?['primaryColor'], colors.primary.toARGB32());
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
 
   testWidgets('cancelled verification can be retried and success refreshes', (
     tester,

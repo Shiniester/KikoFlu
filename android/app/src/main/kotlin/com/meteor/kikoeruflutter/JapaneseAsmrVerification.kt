@@ -2,13 +2,19 @@ package com.meteor.kikoeruflutter
 
 import android.app.Activity
 import android.app.Dialog
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -21,6 +27,8 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -93,7 +101,11 @@ internal class JapaneseAsmrVerification(
         val proxyMode = call.argument<String>("proxyMode")
         val proxyAddress = call.argument<String>("proxyAddress")
         val title = call.argument<String>("title")
+        val message = call.argument<String>("message").orEmpty()
         val closeLabel = call.argument<String>("closeLabel")
+        val backgroundColor = call.argument<Number>("backgroundColor")?.toInt() ?: Color.WHITE
+        val foregroundColor = call.argument<Number>("foregroundColor")?.toInt() ?: Color.BLACK
+        val primaryColor = call.argument<Number>("primaryColor")?.toInt() ?: foregroundColor
         if (url == null || !isSiteUrl(Uri.parse(url)) || !isProxyArgumentsValid(proxyMode, proxyAddress) ||
             title.isNullOrBlank() || closeLabel.isNullOrBlank()
         ) {
@@ -122,32 +134,83 @@ internal class JapaneseAsmrVerification(
             }
             configureWebViewClient(request, webView)
 
-            val dialog = Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar)
+            val dialog = Dialog(activity, android.R.style.Theme_Material_Light_Dialog_NoActionBar)
             request.dialog = dialog
             val header = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(dp(16), dp(8), dp(8), dp(8))
+                orientation = LinearLayout.VERTICAL
                 addView(TextView(activity).apply {
                     text = title
-                    textSize = 18f
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(Button(activity).apply {
-                    text = closeLabel
-                    setOnClickListener { finish(request) }
-                })
+                    textSize = 22f
+                    setTextColor(foregroundColor)
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(dp(16), dp(16), dp(16), 0) })
+                if (message.isNotBlank()) {
+                    addView(TextView(activity).apply {
+                        text = message
+                        textSize = 14f
+                        setTextColor(foregroundColor)
+                    }, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(4) })
+                }
             }
-            dialog.setContentView(LinearLayout(activity).apply {
+            val root = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(28).toFloat()
+                    setColor(backgroundColor)
+                }
+                clipToOutline = true
                 addView(header)
-                addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
-                addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-            })
+                addView(progress.apply {
+                    progressTintList = ColorStateList.valueOf(primaryColor)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply {
+                    topMargin = dp(8)
+                })
+                addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+                    setMargins(0, dp(8), 0, dp(8))
+                })
+                addView(LinearLayout(activity).apply {
+                    gravity = Gravity.END
+                    setPadding(0, 0, dp(16), dp(16))
+                    addView(Button(activity, null, android.R.attr.borderlessButtonStyle).apply {
+                        text = closeLabel
+                        isAllCaps = false
+                        setTextColor(primaryColor)
+                        setOnClickListener { finish(request) }
+                    })
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            dialog.setContentView(root)
+            dialog.setCanceledOnTouchOutside(false)
             dialog.setOnDismissListener {
                 if (!request.finishing) finish(request)
             }
             dialog.show()
-            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            dialog.window?.apply {
+                setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+                addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                setDimAmount(0.54f)
+            }
+            val activityDecor = activity.window.decorView
+            val resizeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                if (dialog.isShowing) resizeDialogWindow(dialog)
+            }
+            root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = Unit
+
+                override fun onViewDetachedFromWindow(view: View) {
+                    activityDecor.removeOnLayoutChangeListener(resizeListener)
+                    view.removeOnAttachStateChangeListener(this)
+                }
+            })
+            activityDecor.addOnLayoutChangeListener(resizeListener)
+            resizeDialogWindow(dialog)
 
             applyProxy(request, proxyMode!!, proxyAddress) {
                 webView.loadUrl(url)
@@ -400,6 +463,22 @@ internal class JapaneseAsmrVerification(
     }
 
     private fun dp(value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
+
+    private fun resizeDialogWindow(dialog: Dialog) {
+        val window = dialog.window ?: return
+        val decorView = activity.window.decorView
+        val insets = ViewCompat.getRootWindowInsets(decorView)?.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+        val availableWidth = (decorView.width.takeIf { it > 0 }
+            ?: activity.resources.displayMetrics.widthPixels) - (insets?.left ?: 0) - (insets?.right ?: 0)
+        val availableHeight = (decorView.height.takeIf { it > 0 }
+            ?: activity.resources.displayMetrics.heightPixels) - (insets?.top ?: 0) - (insets?.bottom ?: 0)
+        val width = minOf(availableWidth - dp(32), dp(736))
+        val height = minOf((availableHeight * 0.9f).toInt(), availableHeight - dp(48))
+        val attributes = window.attributes
+        if (attributes.width != width || attributes.height != height) window.setLayout(width, height)
+    }
 
     private fun finish(
         request: PendingRequest,

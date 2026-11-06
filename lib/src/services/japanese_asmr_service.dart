@@ -225,6 +225,10 @@ class JapaneseAsmrService {
   Future<bool> verifyAccess({
     required String title,
     required String closeLabel,
+    String? message,
+    int? backgroundColor,
+    int? foregroundColor,
+    int? primaryColor,
   }) => _withBrowser(() async {
     final uri = _verificationUri ?? website;
     final proxy = (ProxyConfig.mode, ProxyConfig.httpsProxyUrl);
@@ -235,6 +239,10 @@ class JapaneseAsmrService {
           'proxyAddress': proxy.$2,
           'title': title,
           'closeLabel': closeLabel,
+          if (message != null) 'message': message,
+          if (backgroundColor != null) 'backgroundColor': backgroundColor,
+          if (foregroundColor != null) 'foregroundColor': foregroundColor,
+          if (primaryColor != null) 'primaryColor': primaryColor,
         });
     if (result == null) return false;
     final cookie = result['cookie'];

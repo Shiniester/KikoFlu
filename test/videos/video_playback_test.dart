@@ -1675,6 +1675,69 @@ void main() {
   );
 
   _testPlayerWidget(
+    'portrait Android tablet fullscreen requests both landscape orientations',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final orientationRequests = <List<String>>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
+        if (call.method == 'SystemChrome.setPreferredOrientations') {
+          orientationRequests.add(List<String>.from(call.arguments as List));
+        }
+        return SynchronousFuture<Object?>(null);
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (_) => SynchronousFuture<Object?>(null),
+        );
+      });
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(orientationRequests, [
+        [
+          DeviceOrientation.landscapeLeft.toString(),
+          DeviceOrientation.landscapeRight.toString(),
+        ],
+      ]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(orientationRequests, [
+        [
+          DeviceOrientation.landscapeLeft.toString(),
+          DeviceOrientation.landscapeRight.toString(),
+        ],
+        [],
+      ]);
+      expect(session.surfaceMountCount, 1);
+      expect(session.surfaceDisposeCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
     'portrait fullscreen waits for the restored landscape before showing details',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -1830,6 +1893,7 @@ void main() {
         expect(navigation.navigationVisible, isFalse);
         expect(find.byType(NavigationRail), findsOneWidget);
         expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+        final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
 
         Rect? firstFullscreenFrame;
         var sawIntermediatePlayer = false;
@@ -1871,6 +1935,10 @@ void main() {
         expect(sawIntermediatePlayer, isTrue);
         expect(sawRetreatingDetails, isTrue);
         if (withAudio) expect(sawIntermediateMiniPlayerHeight, isTrue);
+        expect(
+          session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
+          lessThanOrEqualTo(1),
+        );
         expect(firstFullscreenFrame, isNotNull);
         expect(
           (firstFullscreenFrame!.left - inlineRect.left).abs(),
@@ -1950,6 +2018,7 @@ void main() {
       final fullscreenPlayerTop = tester.getRect(layout).top;
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      final surfaceBuildsAtAnimationStart = session.surfaceBuildCount;
       var sawIntermediatePlayerSize = false;
       var sawDetailsBesideShrinkingPlayer = false;
       double? firstDetailsFramePlayerTop;
@@ -1973,6 +2042,10 @@ void main() {
 
       expect(sawIntermediatePlayerSize, isTrue);
       expect(sawDetailsBesideShrinkingPlayer, isTrue);
+      expect(
+        session.surfaceBuildCount - surfaceBuildsAtAnimationStart,
+        lessThanOrEqualTo(2),
+      );
       expect(firstDetailsFramePlayerTop, isNotNull);
       expect(
         (firstDetailsFramePlayerTop! - fullscreenPlayerTop).abs(),
@@ -8208,6 +8281,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   int pauseCount = 0;
   int disposeCount = 0;
   int seekCount = 0;
+  int surfaceBuildCount = 0;
   int surfaceMountCount = 0;
   int surfaceDisposeCount = 0;
   Duration lastPosition = Duration.zero;
@@ -8260,8 +8334,10 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   }
 
   @override
-  Widget buildSurface({required double aspectRatio}) =>
-      _FakeVideoSurface(session: this);
+  Widget buildSurface({required double aspectRatio}) {
+    surfaceBuildCount++;
+    return _FakeVideoSurface(session: this);
+  }
 
   @override
   Future<void> loadStream(

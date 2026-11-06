@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -1385,7 +1386,9 @@ class _MissavVerificationState extends State<_MissavVerification> {
   Completer<void>? _connectCancellation;
 
   bool get _isDesktop =>
-      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.linux;
 
   @override
   void initState() {
@@ -1632,12 +1635,16 @@ class _MissavVerificationState extends State<_MissavVerification> {
     return PopScope(
       canPop: !_checking || _connectingBrowser,
       child: AlertDialog(
+        insetPadding: _isDesktop
+            ? null
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        contentPadding: _isDesktop ? null : const EdgeInsets.all(8),
         title: Text(
           widget.requireLogin ? s.videoSourceAccount : s.videoVerifyAccess,
         ),
         content: SizedBox(
           width: _isDesktop ? 420 : 720,
-          height: _isDesktop ? null : MediaQuery.sizeOf(context).height * .65,
+          height: _isDesktop ? null : MediaQuery.sizeOf(context).height * .75,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
