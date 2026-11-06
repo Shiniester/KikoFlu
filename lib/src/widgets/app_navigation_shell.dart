@@ -291,7 +291,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       final padding = MediaQuery.paddingOf(context);
       controller.setAudioPlayerLandscapeInsets(
         EdgeInsets.fromLTRB(
-          rail.size.width + 1 + padding.left,
+          rail.size.width + 1,
           _lastPlayerOffline == true ? _offlineBannerHeight : 0,
           padding.right,
           padding.bottom + _audioMiniPlayerHeight,
@@ -429,12 +429,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                   child: Scaffold(
                     extendBody: true,
                     resizeToAvoidBottomInset: false,
-                    body: Padding(
-                      padding: EdgeInsets.only(
-                        left: safePadding.left * paddingFactor,
-                      ),
-                      child: child,
-                    ),
+                    body: child,
                     bottomNavigationBar:
                         landscapePlayback == null && safePadding.bottom == 0
                         ? null

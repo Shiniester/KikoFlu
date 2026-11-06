@@ -1437,6 +1437,11 @@ void main() {
 
         final rail = tester.getRect(find.byType(NavigationRail));
         final mini = tester.getRect(find.byType(MiniPlayer));
+        final page = tester.getRect(
+          find.byKey(const ValueKey('home-viewport')),
+        );
+        expect(page.left, closeTo(rail.right + 1, 0.01));
+        expect(page.right, closeTo(size.width - 12, 0.01));
         expect(mini.left, closeTo(rail.right + 1, 0.01));
         expect(mini.right, closeTo(size.width - 12, 0.01));
         expect(mini.bottom, closeTo(size.height - 20, 0.01));
@@ -1927,6 +1932,9 @@ void main() {
     final duringExit = tester.getRect(home);
     await tester.pumpAndSettle();
     expect(duringExit, tester.getRect(home));
+    final rail = tester.getRect(find.byType(NavigationRail));
+    expect(duringExit.left, closeTo(rail.right + 1, 0.01));
+    expect(duringExit.right, closeTo(1280 - 44, 0.01));
     expect(tester.takeException(), isNull);
   });
 
