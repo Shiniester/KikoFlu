@@ -14,6 +14,7 @@ import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
+import '../providers/player_lyric_style_provider.dart';
 import '../providers/player_work_details_provider.dart';
 import '../services/audio_player_service.dart';
 import '../utils/local_file_url.dart';
@@ -59,6 +60,8 @@ const double playerShortStageWidthBreakpoint = 568;
 const double playerShortStageAspectRatio = 1.6;
 const double playerShortControlsHeightBreakpoint = 440;
 const double playerNarrowWideLayoutBreakpoint = 640;
+const double _compactPortraitLyricSlotHeight = 144;
+const double _compactPlayerLyricGap = 16;
 
 bool usesWidePlayerLayout(double width, {required double height}) =>
     width >= playerWideLayoutBreakpoint ||
@@ -134,6 +137,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   late final ScrollController _wideControlsScrollController = _widePageHandoff
       .createScrollController(debugLabel: 'wide-player-controls');
   final GlobalKey _queueBrowserKey = GlobalKey();
+  final GlobalKey _wideLyricPreviewKey = GlobalKey();
   final Map<PageController, int> _requestedPageTargets = {};
   final Map<PageController, int> _pageDragOrigins = {};
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'audio-player');
@@ -1158,7 +1162,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         builder: (context, constraints) {
           final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
           final headerReserve = 72 + (textScale.clamp(1, 2) - 1) * 60;
-          final sharedWidth = _compactContentWidth(
+          final compactLayout = _compactContentLayout(
             context,
             BoxConstraints(
               maxWidth: constraints.maxWidth,
@@ -1168,6 +1172,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               ),
             ),
           );
+          final sharedWidth = compactLayout.width;
+          final actionWidth = math.min(sharedWidth + 24, constraints.maxWidth);
           _compactSharedWidth = sharedWidth;
           final titleDismissDrag = _dismissCoordinator.callbacks(context);
           final mainBodyDismissDrag = _dismissCoordinator.callbacks(
@@ -1218,6 +1224,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         track: track,
                         coverUrl: coverUrl,
                         sharedWidth: sharedWidth,
+                        actionWidth: actionWidth,
+                        previewMaxHeight: compactLayout.previewMaxHeight,
                         dismissDrag: mainBodyDismissDrag,
                         previewPalette: previewPalette,
                       ),
@@ -1229,7 +1237,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       key: const ValueKey('compact-lyrics-page-boundary'),
                       pageController: _compactPageController,
                       pageIndex: 2,
-                      child: _buildLyricsPane(context, isWide: false),
+                      child: _buildLyricsPane(
+                        context,
+                        isWide: false,
+                        actionWidth: actionWidth,
+                      ),
                     ),
                   ),
                 ], addRepaintBoundaries: false)
@@ -1341,6 +1353,32 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     double sharedWidth, {
     required PlayerVerticalDragCallbacks dismissDrag,
   }) {
+    const leftPadding = 12.0;
+    const titleGap = 20.0;
+    const actionSize = 48.0;
+    final stackHeader = sharedWidth <= leftPadding + titleGap + actionSize;
+    final title = ValueListenableBuilder<int>(
+      valueListenable: _semanticPageRevision,
+      builder: (context, _, __) => _buildTrackTitleBlock(
+        context,
+        track,
+        false,
+        allowAnimation:
+            !_queueTransitionActive && _rightPane != PlayerRightPane.queue,
+      ),
+    );
+    final moreButton = IconButton(
+      key: const ValueKey('player-more-button'),
+      tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+      onPressed: () => _showMoreSheet(context, track),
+      padding: EdgeInsets.zero,
+      alignment: Alignment.center,
+      constraints: const BoxConstraints(
+        minWidth: actionSize,
+        minHeight: actionSize,
+      ),
+      icon: const Icon(Icons.more_vert),
+    );
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-header-dismiss-surface'),
       swipeDownDrag: dismissDrag,
@@ -1349,38 +1387,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         child: SizedBox(
           width: sharedWidth + 24,
           child: Padding(
-            padding: const EdgeInsets.only(left: 12, top: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: ValueListenableBuilder<int>(
-                    valueListenable: _semanticPageRevision,
-                    builder: (context, _, __) => _buildTrackTitleBlock(
-                      context,
-                      track,
-                      false,
-                      allowAnimation:
-                          !_queueTransitionActive &&
-                          _rightPane != PlayerRightPane.queue,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                IconButton(
-                  key: const ValueKey('player-more-button'),
-                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-                  onPressed: () => _showMoreSheet(context, track),
-                  padding: EdgeInsets.zero,
-                  alignment: Alignment.center,
-                  constraints: const BoxConstraints(
-                    minWidth: 48,
-                    minHeight: 48,
-                  ),
-                  icon: const Icon(Icons.more_vert),
-                ),
-              ],
+            padding: EdgeInsets.only(
+              left: stackHeader ? 0 : leftPadding,
+              top: 12,
             ),
+            child: stackHeader
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      title,
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: moreButton,
+                      ),
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: title),
+                      const SizedBox(width: titleGap),
+                      moreButton,
+                    ],
+                  ),
           ),
         ),
       ),
@@ -1425,67 +1454,184 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required AudioTrack track,
     required String? coverUrl,
     required double sharedWidth,
+    required double actionWidth,
+    required double previewMaxHeight,
     required PlayerVerticalDragCallbacks dismissDrag,
     required PlayerVisualPalette previewPalette,
   }) {
+    final size = MediaQuery.sizeOf(context);
+    final isPortrait = size.width <= size.height;
+    final lyricSettings = ref.watch(playerLyricSettingsProvider);
+    final minimumPreviewHeight = playerLyricPreviewHeight(
+      width: sharedWidth,
+      fontSize: lyricSettings.smallFontSize,
+      lineHeight: lyricSettings.smallLineHeight,
+      textScaler: MediaQuery.textScalerOf(context),
+      lineCount: 1,
+      compact: false,
+    );
+    final verticalGap =
+        sharedWidth < PlayerControlsWidget.primaryRowMinimumWidth ||
+            (!isPortrait && size.height <= playerShortControlsHeightBreakpoint)
+        ? 0.0
+        : _compactPlayerLyricGap;
     final content = Center(
-      child: SizedBox(
-        key: const ValueKey('compact-main-shared-width'),
-        width: sharedWidth,
-        child: Column(
-          children: [
-            Expanded(
-              child: PlayerVerticalSwipeRegion(
-                key: const ValueKey('compact-main-cover-dismiss-surface'),
+      child: LayoutBuilder(
+        builder: (context, mainConstraints) => SizedBox(
+          key: const ValueKey('compact-main-shared-width'),
+          width: sharedWidth,
+          child: Column(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bodyHeight = math.max(
+                      0.0,
+                      constraints.maxHeight - verticalGap,
+                    );
+                    final lyricAreaHeight = math.min(
+                      isPortrait
+                          ? _compactPortraitLyricSlotHeight
+                          : previewMaxHeight,
+                      isPortrait
+                          ? math.min(
+                              bodyHeight,
+                              math.max(
+                                minimumPreviewHeight,
+                                bodyHeight -
+                                    sharedWidth /
+                                        PlayerCoverWidget.preferredAspectRatio,
+                              ),
+                            )
+                          : bodyHeight,
+                    );
+                    final coverAreaHeight = math.max(
+                      0.0,
+                      bodyHeight - lyricAreaHeight,
+                    );
+                    final coverHeight =
+                        math.min(
+                          sharedWidth,
+                          coverAreaHeight *
+                              PlayerCoverWidget.preferredAspectRatio,
+                        ) /
+                        PlayerCoverWidget.preferredAspectRatio;
+                    final coverBottomGap = math.max(
+                      0.0,
+                      (coverAreaHeight - coverHeight) / 2,
+                    );
+                    final coverBottom = coverAreaHeight - coverBottomGap;
+                    final trackTop =
+                        constraints.maxHeight +
+                        PlayerProgressSection.compactTrackTopInset;
+                    final availablePreviewHeight = isPortrait
+                        ? math.max(
+                            0.0,
+                            trackTop - coverBottom - _compactPlayerLyricGap * 2,
+                          )
+                        : lyricAreaHeight + coverBottomGap;
+                    final visiblePreviewHeight = math.min(
+                      previewMaxHeight,
+                      availablePreviewHeight,
+                    );
+                    final previewTop = isPortrait
+                        ? (coverBottom + trackTop - visiblePreviewHeight) / 2
+                        : bodyHeight - visiblePreviewHeight;
+                    return Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        Column(
+                          children: [
+                            Expanded(
+                              child: PlayerVerticalSwipeRegion(
+                                key: const ValueKey(
+                                  'compact-main-cover-dismiss-surface',
+                                ),
+                                swipeDownDrag: dismissDrag,
+                                pageDragCoordinator: _compactPageHandoff,
+                                child: RepaintBoundary(
+                                  child: _buildPlayerCoverArtwork(
+                                    track: track,
+                                    coverUrl: coverUrl,
+                                    isWide: false,
+                                    previewPalette: previewPalette,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              key: const ValueKey('compact-main-lyric-area'),
+                              height: lyricAreaHeight,
+                            ),
+                            SizedBox(height: verticalGap),
+                          ],
+                        ),
+                        Positioned(
+                          key: const ValueKey(
+                            'compact-main-lyric-expanded-area',
+                          ),
+                          left: 0,
+                          right: 0,
+                          top: previewTop,
+                          height: visiblePreviewHeight,
+                          child: SizedBox(
+                            key: const ValueKey(
+                              'compact-main-lyric-width-boundary',
+                            ),
+                            width: sharedWidth,
+                            height: isPortrait ? null : double.infinity,
+                            child: ThreeLineLyricDisplay(
+                              key: const ValueKey(
+                                'compact-main-lyric-scroll-surface',
+                              ),
+                              onSeekRequested: (position) => unawaited(
+                                ref
+                                    .read(
+                                      audioPlayerControllerProvider.notifier,
+                                    )
+                                    .seekAndPersist(position),
+                              ),
+                              onLineDoubleTap: _togglePlayback,
+                              enableLineTapFeedback: true,
+                              lineCount: 5,
+                              textHorizontalPadding: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              PlayerVerticalSwipeRegion(
+                key: const ValueKey('compact-main-controls-dismiss-surface'),
                 swipeDownDrag: dismissDrag,
                 pageDragCoordinator: _compactPageHandoff,
-                child: RepaintBoundary(
-                  child: _buildPlayerCoverArtwork(
-                    track: track,
-                    coverUrl: coverUrl,
-                    isWide: false,
-                    previewPalette: previewPalette,
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: sharedWidth,
-              height: 144,
-              child: Center(
-                child: SizedBox(
-                  key: const ValueKey('compact-main-lyric-width-boundary'),
-                  width: sharedWidth,
-                  child: ThreeLineLyricDisplay(
-                    key: const ValueKey('compact-main-lyric-scroll-surface'),
-                    onSeekRequested: (position) => unawaited(
-                      ref
-                          .read(audioPlayerControllerProvider.notifier)
-                          .seekAndPersist(position),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: math.max(
+                      0.0,
+                      mainConstraints.maxHeight - verticalGap,
                     ),
-                    onLineDoubleTap: _togglePlayback,
-                    enableLineTapFeedback: true,
-                    lineCount: 5,
-                    textHorizontalPadding: 12,
+                  ),
+                  child: SingleChildScrollView(
+                    key: const ValueKey('compact-main-controls-scroll'),
+                    primary: false,
+                    physics: const ClampingScrollPhysics(),
+                    child: _buildControlsPane(
+                      context,
+                      track: track,
+                      isWide: false,
+                      showTrackHeader: false,
+                      enableQueueGesture: false,
+                      horizontalPadding: 0,
+                      additionalActionWidth: actionWidth,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            PlayerVerticalSwipeRegion(
-              key: const ValueKey('compact-main-controls-dismiss-surface'),
-              swipeDownDrag: dismissDrag,
-              pageDragCoordinator: _compactPageHandoff,
-              child: _buildControlsPane(
-                context,
-                track: track,
-                isWide: false,
-                showTrackHeader: false,
-                enableQueueGesture: false,
-                horizontalPadding: 0,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1528,7 +1674,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
-  double _compactContentWidth(
+  ({double width, double previewMaxHeight}) _compactContentLayout(
     BuildContext context,
     BoxConstraints constraints,
   ) {
@@ -1538,7 +1684,81 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final heightBound =
         math.max(160.0, constraints.maxHeight - reservedHeight) *
         PlayerCoverWidget.preferredAspectRatio;
-    return math.min(availableWidth, heightBound);
+    final minWidth = math.min(
+      PlayerControlsWidget.compactMinimumWidth,
+      constraints.maxWidth,
+    );
+    final paddedWidth = math.max(minWidth, constraints.maxWidth - 24);
+    final originalWidth = math.max(
+      math.min(PlayerControlsWidget.compactPreferredWidth, paddedWidth),
+      math.min(availableWidth, heightBound),
+    );
+    final size = MediaQuery.sizeOf(context);
+    final isPortrait = size.width <= size.height;
+    final hasLyrics = ref.watch(
+      lyricControllerProvider.select((state) => state.displayLyrics.isNotEmpty),
+    );
+    if (!hasLyrics) {
+      return (
+        width: originalWidth,
+        previewMaxHeight: _compactPortraitLyricSlotHeight,
+      );
+    }
+    final lyricSettings = ref.watch(playerLyricSettingsProvider);
+    if (isPortrait) {
+      return (
+        width: originalWidth,
+        previewMaxHeight: playerLyricPreviewHeight(
+          width: originalWidth,
+          fontSize: lyricSettings.smallFontSize,
+          lineHeight: lyricSettings.smallLineHeight,
+          textScaler: MediaQuery.textScalerOf(context),
+          lineCount: 5,
+          compact: false,
+        ),
+      );
+    }
+    final preferredPreviewHeight = math.min(
+      constraints.maxHeight * 0.32,
+      playerLyricPreviewHeight(
+        width: originalWidth,
+        fontSize: lyricSettings.smallFontSize,
+        lineHeight: lyricSettings.smallLineHeight,
+        textScaler: MediaQuery.textScalerOf(context),
+        lineCount: 5,
+        compact: false,
+      ),
+    );
+    final extraHeight = math.max(0.0, preferredPreviewHeight - 144);
+    final width = math.max(
+      math.min(originalWidth, PlayerControlsWidget.compactPreferredWidth),
+      math.min(
+        originalWidth,
+        math.max(160.0, constraints.maxHeight - reservedHeight - extraHeight) *
+            PlayerCoverWidget.preferredAspectRatio,
+      ),
+    );
+    final spareHeight = math.max(
+      0.0,
+      constraints.maxHeight -
+          reservedHeight -
+          width / PlayerCoverWidget.preferredAspectRatio,
+    );
+    // reservedHeight already includes the original 144-pixel preview.
+    return (
+      width: width,
+      previewMaxHeight: math.max(
+        playerLyricPreviewHeight(
+          width: width,
+          fontSize: lyricSettings.smallFontSize,
+          lineHeight: lyricSettings.smallLineHeight,
+          textScaler: MediaQuery.textScalerOf(context),
+          lineCount: 3,
+          compact: false,
+        ),
+        math.min(constraints.maxHeight * 0.32, 144 + spareHeight),
+      ),
+    );
   }
 
   Widget _buildCoverPane(
@@ -1588,8 +1808,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   Widget _buildLyricPreview(
     AudioTrack track, {
+    Key? key,
     int lineCount = 5,
     bool compact = false,
+    double verticalPadding = 10,
   }) {
     return Consumer(
       builder: (context, ref, _) {
@@ -1598,9 +1820,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         );
         final preview = Padding(
           key: const ValueKey('player-lyric-preview'),
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: EdgeInsets.symmetric(vertical: verticalPadding),
           child: hasLyrics
               ? ThreeLineLyricDisplay(
+                  key: key,
                   onSeekRequested: (position) => unawaited(
                     ref
                         .read(audioPlayerControllerProvider.notifier)
@@ -1632,14 +1855,20 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     bool showTrackHeader = true,
     bool enableQueueGesture = true,
     double? horizontalPadding,
+    double? additionalActionWidth,
     PlayerVerticalDragCallbacks? dismissDrag,
   }) {
+    final size = MediaQuery.sizeOf(context);
+    final progressTrackTopInset = !isWide && size.width <= size.height
+        ? PlayerProgressSection.compactTrackTopInset
+        : PlayerProgressSection.centeredTrackTopInset;
     Widget buildControls(bool compactSpacing) =>
         ValueListenableBuilder<String?>(
           valueListenable: _workProgress,
           builder: (_, progress, _) => PlayerControlsWidget(
             isLandscape: isWide,
             compactSpacing: compactSpacing,
+            progressTrackTopInset: progressTrackTopInset,
             isSeekingManually: _isSeekingManually,
             seekValue: _seekValue,
             onSeekChanged: _handleSeekChanged,
@@ -1657,14 +1886,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                 : () => _navigateToWorkDetail(context, track.workId!),
             onQueuePressed: _showQueue,
             visibleActionCount: 5,
-            additionalActionWidth: isWide || _compactSharedWidth == null
-                ? null
-                : _compactSharedWidth! + 24,
+            additionalActionWidth: additionalActionWidth,
           ),
         );
     Widget buildContent({
       int previewLineCount = 5,
       double previewMaxHeight = double.infinity,
+      double previewMinHeight = 0,
+      bool tightPreview = false,
       bool compactSpacing = false,
     }) => Align(
       alignment: Alignment.center,
@@ -1710,15 +1939,20 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     swipeDownDrag: dismissDrag,
                     pageDragCoordinator: _widePageHandoff,
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: previewMaxHeight),
+                      constraints: BoxConstraints(
+                        minHeight: previewMinHeight,
+                        maxHeight: previewMaxHeight,
+                      ),
                       child: _buildLyricPreview(
                         track,
+                        key: _wideLyricPreviewKey,
                         lineCount: previewLineCount,
                         compact: previewLineCount == 3,
+                        verticalPadding: tightPreview ? 0 : 10,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: tightPreview ? 0 : 12),
                 ],
                 buildControls(compactSpacing),
               ],
@@ -1755,22 +1989,47 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final lyricSettings = ref.watch(playerLyricSettingsProvider);
+              final lyricPreviewWidth = math.max(
+                0.0,
+                math.min(680.0, constraints.maxWidth) - 24,
+              );
+              final lyricTextScaler = MediaQuery.textScalerOf(context);
               final timeStyle = Theme.of(context).textTheme.bodySmall;
-              final timeLabelHeight =
-                  (MediaQuery.textScalerOf(
-                            context,
-                          ).scale(timeStyle?.fontSize ?? 12) *
-                          (timeStyle?.height ?? 1))
-                      .ceilToDouble();
+              final timePainter = TextPainter(
+                text: TextSpan(text: '00:00', style: timeStyle),
+                textDirection: Directionality.of(context),
+                textScaler: lyricTextScaler,
+              )..layout();
+              final timeLabelHeight = timePainter.height;
+              timePainter.dispose();
               // Reserve every control row before expanding the lyric preview.
-              const fullPreviewHeight = 144.0 + 20 + 12;
-              const minimumPreviewHeight = 32.0 + 20;
+              final fullPreviewHeight =
+                  playerLyricPreviewHeight(
+                    width: lyricPreviewWidth,
+                    fontSize: lyricSettings.smallFontSize,
+                    lineHeight: lyricSettings.smallLineHeight,
+                    textScaler: lyricTextScaler,
+                    lineCount: 5,
+                    compact: false,
+                  ) +
+                  20 +
+                  12;
+              final threeLinePreviewHeight = playerLyricPreviewHeight(
+                width: lyricPreviewWidth,
+                fontSize: lyricSettings.smallFontSize,
+                lineHeight: lyricSettings.smallLineHeight,
+                textScaler: lyricTextScaler,
+                lineCount: 3,
+                compact: true,
+              );
+              final preferredPreviewHeight = threeLinePreviewHeight + 20;
               final fullControlsHeight =
                   32 + timeLabelHeight + 18 + 62 + 16 + 48;
               final verticalPadding = shortStage ? 0.0 : 36.0;
               final compactSpacing =
                   constraints.maxHeight <
-                  minimumPreviewHeight +
+                  preferredPreviewHeight +
                       12 +
                       fullControlsHeight +
                       verticalPadding;
@@ -1780,10 +2039,35 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   fullPreviewHeight + controlsHeight + verticalPadding;
               final previewLineCount =
                   constraints.maxHeight >= fiveLineContentHeight ? 5 : 3;
-              final previewMaxHeight = math.max(
-                minimumPreviewHeight,
-                constraints.maxHeight - controlsHeight - 12 - verticalPadding,
+              final size = MediaQuery.sizeOf(context);
+              final isLandscape = size.width > size.height;
+              final hasLyrics = ref.watch(
+                lyricControllerProvider.select(
+                  (state) => state.lyrics.isNotEmpty,
+                ),
               );
+              final tightPreview =
+                  isLandscape &&
+                  hasLyrics &&
+                  constraints.maxHeight <
+                      preferredPreviewHeight +
+                          12 +
+                          controlsHeight +
+                          verticalPadding;
+              final previewBottomSpacing = tightPreview ? 0.0 : 12.0;
+              final availablePreviewHeight = math.max(
+                52.0,
+                constraints.maxHeight -
+                    controlsHeight -
+                    previewBottomSpacing -
+                    verticalPadding,
+              );
+              final previewMaxHeight = isLandscape
+                  ? availablePreviewHeight
+                  : math.min(availablePreviewHeight, 144.0 + 20);
+              final previewMinHeight = tightPreview
+                  ? math.min(previewMaxHeight, threeLinePreviewHeight)
+                  : 0.0;
               return PlayerScrollEdgeActions(
                 pullDownDrag: dismissDrag,
                 child: KeyedSubtree(
@@ -1798,11 +2082,69 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         minHeight: constraints.maxHeight,
                       ),
                       child: Center(
-                        child: buildContent(
-                          previewLineCount: previewLineCount,
-                          previewMaxHeight: previewMaxHeight,
-                          compactSpacing: compactSpacing,
-                        ),
+                        child:
+                            !isLandscape && hasLyrics && previewLineCount == 5
+                            ? ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 680,
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: horizontalPadding ?? 12,
+                                  ),
+                                  child: SizedBox(
+                                    height: constraints.maxHeight,
+                                    child: CustomMultiChildLayout(
+                                      delegate: _WidePlayerPreviewLayout(
+                                        reservedPreviewHeight:
+                                            playerLyricPreviewHeight(
+                                              width: lyricPreviewWidth,
+                                              fontSize:
+                                                  lyricSettings.smallFontSize,
+                                              lineHeight:
+                                                  lyricSettings.smallLineHeight,
+                                              textScaler: lyricTextScaler,
+                                              lineCount: 5,
+                                              compact: false,
+                                              maxHeight: previewMaxHeight - 20,
+                                            ) +
+                                            20,
+                                        maxPreviewHeight:
+                                            fullPreviewHeight - 12,
+                                        controlsGap: previewBottomSpacing,
+                                      ),
+                                      children: [
+                                        LayoutId(
+                                          id: _WidePlayerPreviewPart.preview,
+                                          child: PlayerVerticalSwipeRegion(
+                                            key: const ValueKey(
+                                              'wide-controls-lyric-preview-surface',
+                                            ),
+                                            swipeDownDrag: dismissDrag,
+                                            pageDragCoordinator:
+                                                _widePageHandoff,
+                                            child: _buildLyricPreview(
+                                              track,
+                                              key: _wideLyricPreviewKey,
+                                            ),
+                                          ),
+                                        ),
+                                        LayoutId(
+                                          id: _WidePlayerPreviewPart.controls,
+                                          child: buildControls(compactSpacing),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : buildContent(
+                                previewLineCount: previewLineCount,
+                                previewMaxHeight: previewMaxHeight,
+                                previewMinHeight: previewMinHeight,
+                                tightPreview: tightPreview,
+                                compactSpacing: compactSpacing,
+                              ),
                       ),
                     ),
                   ),
@@ -1820,7 +2162,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _progressGestureActive.value = active;
   }
 
-  Widget _buildLyricsPane(BuildContext context, {required bool isWide}) {
+  Widget _buildLyricsPane(
+    BuildContext context, {
+    required bool isWide,
+    double? actionWidth,
+  }) {
     return Consumer(
       key: ValueKey('lyrics-pane-${isWide ? 'wide' : 'compact'}'),
       builder: (context, ref, child) {
@@ -1849,9 +2195,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   ? _wideLyricsScrollController
                   : _compactLyricsScrollController,
               lyricContentWidth: isWide ? null : _compactSharedWidth,
-              actionWidth: isWide || _compactSharedWidth == null
-                  ? null
-                  : _compactSharedWidth! + 24,
+              actionWidth: actionWidth,
               searchWidth: isWide ? null : _compactSharedWidth,
               translateButton: _buildLyricTranslateAppBarButton(context),
               onDownload: lyricState.source?.canSaveOriginal == true
@@ -1904,7 +2248,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     horizontalPadding: 10,
                     contentWidth: isWide
                         ? constraints.maxWidth - 20
-                        : _compactSharedWidth! + 20,
+                        : math.min(
+                            _compactSharedWidth! + 20,
+                            constraints.maxWidth,
+                          ),
                   ),
                 ),
               ),
@@ -3377,6 +3724,51 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
     }
     return content;
   }
+}
+
+enum _WidePlayerPreviewPart { preview, controls }
+
+class _WidePlayerPreviewLayout extends MultiChildLayoutDelegate {
+  _WidePlayerPreviewLayout({
+    required this.reservedPreviewHeight,
+    required this.maxPreviewHeight,
+    required this.controlsGap,
+  });
+
+  final double reservedPreviewHeight;
+  final double maxPreviewHeight;
+  final double controlsGap;
+
+  @override
+  void performLayout(Size size) {
+    final controls = layoutChild(
+      _WidePlayerPreviewPart.controls,
+      BoxConstraints.tightFor(width: size.width),
+    );
+    // Keep the original centered controls while the preview expands upward.
+    final controlsTop =
+        (size.height + reservedPreviewHeight + controlsGap - controls.height) /
+        2;
+    positionChild(_WidePlayerPreviewPart.controls, Offset(0, controlsTop));
+    final previewBottom = controlsTop - controlsGap;
+    final preview = layoutChild(
+      _WidePlayerPreviewPart.preview,
+      BoxConstraints.tightFor(
+        width: size.width,
+        height: math.min(maxPreviewHeight, math.max(0.0, previewBottom)),
+      ),
+    );
+    positionChild(
+      _WidePlayerPreviewPart.preview,
+      Offset(0, previewBottom - preview.height),
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant _WidePlayerPreviewLayout oldDelegate) =>
+      reservedPreviewHeight != oldDelegate.reservedPreviewHeight ||
+      maxPreviewHeight != oldDelegate.maxPreviewHeight ||
+      controlsGap != oldDelegate.controlsGap;
 }
 
 class _PlayerPageBoundary extends StatefulWidget {

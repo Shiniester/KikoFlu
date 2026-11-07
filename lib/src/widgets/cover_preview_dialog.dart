@@ -254,6 +254,7 @@ class CoverPreviewDialog extends StatefulWidget {
 }
 
 class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
+  final _overlayController = OverlayPortalController()..show();
   final TransformationController _transformController =
       TransformationController();
   final Set<int> _activePointers = <int>{};
@@ -520,6 +521,38 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    if (route == null ||
+        route.settings.name != appCoverPreviewRouteSettings.name) {
+      return _buildPreview(context);
+    }
+    // Paint above shell controls without resizing the browsing Navigator.
+    return OverlayPortal(
+      controller: _overlayController,
+      overlayLocation: OverlayChildLocation.rootOverlay,
+      overlayChildBuilder: (context) => Positioned.fill(
+        child: AnimatedBuilder(
+          animation: route.animation!,
+          builder: (context, child) => Offstage(
+            offstage: route.offstage,
+            child: AbsorbPointer(absorbing: !route.isCurrent, child: child),
+          ),
+          child: _buildPreview(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreview(BuildContext context) {
+    final windowMediaQuery = context
+        .dependOnInheritedWidgetOfExactType<AppNavigationScope>()
+        ?.mediaQuery;
+    final safePadding =
+        windowMediaQuery?.padding ?? MediaQuery.paddingOf(context);
+    final imagePadding = EdgeInsets.symmetric(
+      horizontal: math.max(16, math.max(safePadding.left, safePadding.right)),
+      vertical: math.max(16, math.max(safePadding.top, safePadding.bottom)),
+    );
     final palette = widget.backgroundPalette;
     Widget background = ColoredBox(color: widget.backgroundColor);
     if (palette != null) {
@@ -569,8 +602,8 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
                     minScale: 1.0,
                     maxScale: 5.0,
                     clipBehavior: Clip.none,
-                    child: SafeArea(
-                      minimum: const EdgeInsets.all(16),
+                    child: Padding(
+                      padding: imagePadding,
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final aspectRatio = widget.imageAspectRatio > 0

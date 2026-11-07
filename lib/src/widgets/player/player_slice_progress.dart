@@ -13,6 +13,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     this.pendingStartMs,
     this.onlySlices = false,
     this.selectedSlice,
+    this.verticalOffset = 0,
   });
 
   final Color sliceColor;
@@ -21,6 +22,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
   final int? pendingStartMs;
   final bool onlySlices;
   final AudioSlice? selectedSlice;
+  final double verticalOffset;
 
   static const _delegate = RectangularSliderTrackShape();
 
@@ -50,13 +52,15 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     required SliderThemeData sliderTheme,
     bool isEnabled = false,
     bool isDiscrete = false,
-  }) => _delegate.getPreferredRect(
-    parentBox: parentBox,
-    offset: offset,
-    sliderTheme: sliderTheme,
-    isEnabled: isEnabled,
-    isDiscrete: isDiscrete,
-  );
+  }) => _delegate
+      .getPreferredRect(
+        parentBox: parentBox,
+        offset: offset,
+        sliderTheme: sliderTheme,
+        isEnabled: isEnabled,
+        isDiscrete: isDiscrete,
+      )
+      .shift(Offset(0, verticalOffset));
 
   @override
   void paint(

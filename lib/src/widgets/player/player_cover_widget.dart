@@ -79,23 +79,58 @@ Widget _playerCoverFlightShuttle(
   final stableChild = direction == HeroFlightDirection.push
       ? to.flightChild
       : from.flightChild;
-  return AnimatedBuilder(
-    animation: animation,
-    child: stableChild,
-    builder: (context, child) {
-      final progress = direction == HeroFlightDirection.push
-          ? animation.value
-          : 1 - animation.value;
-      final radius = Tween<double>(
-        begin: from.cornerRadius,
-        end: to.cornerRadius,
-      ).transform(progress);
-      return ClipRRect(
-        key: to.flightFrameKey,
-        borderRadius: BorderRadius.circular(radius),
-        child: child,
-      );
-    },
+  return _PlayerCoverPreviewFlight(
+    child: AnimatedBuilder(
+      animation: animation,
+      child: stableChild,
+      builder: (context, child) {
+        final progress = direction == HeroFlightDirection.push
+            ? animation.value
+            : 1 - animation.value;
+        final radius = Tween<double>(
+          begin: from.cornerRadius,
+          end: to.cornerRadius,
+        ).transform(progress);
+        return ClipRRect(
+          key: to.flightFrameKey,
+          borderRadius: BorderRadius.circular(radius),
+          child: child,
+        );
+      },
+    ),
+  );
+}
+
+class _PlayerCoverPreviewFlight extends StatefulWidget {
+  const _PlayerCoverPreviewFlight({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PlayerCoverPreviewFlight> createState() =>
+      _PlayerCoverPreviewFlightState();
+}
+
+class _PlayerCoverPreviewFlightState extends State<_PlayerCoverPreviewFlight> {
+  final _overlayController = OverlayPortalController()..show();
+
+  @override
+  Widget build(BuildContext context) => OverlayPortal.overlayChildLayoutBuilder(
+    controller: _overlayController,
+    overlayLocation: OverlayChildLocation.rootOverlay,
+    overlayChildBuilder: (context, info) => Positioned(
+      left: 0,
+      top: 0,
+      width: info.childSize.width,
+      height: info.childSize.height,
+      child: IgnorePointer(
+        child: Transform(
+          transform: info.childPaintTransform,
+          child: widget.child,
+        ),
+      ),
+    ),
+    child: const SizedBox.expand(),
   );
 }
 

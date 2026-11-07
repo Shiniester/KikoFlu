@@ -146,7 +146,6 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       }
     }
     final mediaQuery = MediaQuery.of(context);
-    const actionRowHeight = 48.0;
     const searchRowHeight = 56.0;
     const viewportClearance = 4.0;
     final keyboardInset = _searchSessionActive
@@ -159,13 +158,18 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final selectedMatch = _matchCursor >= 0 && _matchCursor < _matches.length
         ? _matches[_matchCursor]
         : null;
-    final baseVisibleBottomInset =
-        controlsBottom + actionRowHeight + viewportClearance;
     _completeSearchCloseWhenSettled(keyboardInset);
     final surface = RepaintBoundary(
       key: ValueKey('player-lyrics-surface-${widget.isWide}'),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final actionWidth = (widget.actionWidth ?? constraints.maxWidth)
+              .clamp(0.0, constraints.maxWidth)
+              .toDouble();
+          final actionsPerRow = (actionWidth / 48).floor().clamp(1, 5).toInt();
+          final actionRowHeight = 48.0 * (5 / actionsPerRow).ceil();
+          final baseVisibleBottomInset =
+              controlsBottom + actionRowHeight + viewportClearance;
           return AnimatedBuilder(
             animation: _searchRevealController,
             builder: (context, _) {
@@ -248,9 +252,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                         ),
                       SizedBox(
                         key: const ValueKey('lyric-actions-width-boundary'),
-                        width: widget.actionWidth ?? double.infinity,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        width: actionWidth,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
                           children: [
                             _ActionButton(
                               key: const ValueKey(

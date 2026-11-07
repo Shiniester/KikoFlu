@@ -56,10 +56,10 @@ void main() {
       expect(from.curve, Curves.easeOutCubic);
       expect(from.reverseCurve, Curves.easeInCubic);
 
-      BorderRadius flightRadius(
+      Future<BorderRadius> flightRadius(
         HeroFlightDirection direction,
         double animationValue,
-      ) {
+      ) async {
         final fromContext = direction == HeroFlightDirection.push
             ? heroes.first
             : heroes.last;
@@ -67,41 +67,52 @@ void main() {
             ? heroes.last
             : heroes.first;
         final hero = direction == HeroFlightDirection.push ? from : to;
-        final shuttle =
-            hero.flightShuttleBuilder!(
-                  fromContext,
-                  AlwaysStoppedAnimation<double>(animationValue),
-                  direction,
-                  fromContext,
-                  toContext,
-                )
-                as AnimatedBuilder;
-        final clip = shuttle.builder(fromContext, shuttle.child) as ClipRRect;
-        return clip.borderRadius as BorderRadius;
+        final shuttle = hero.flightShuttleBuilder!(
+          fromContext,
+          AlwaysStoppedAnimation<double>(animationValue),
+          direction,
+          fromContext,
+          toContext,
+        );
+        final entry = OverlayEntry(
+          builder: (_) => Positioned.fromRect(rect: begin, child: shuttle),
+        );
+        Overlay.of(fromContext).insert(entry);
+        await tester.pump();
+        final frame = find.byKey(
+          const ValueKey('player-cover-preview-flight-frame'),
+        );
+        expect(tester.getRect(frame), begin);
+        final radius =
+            tester.widget<ClipRRect>(frame).borderRadius as BorderRadius;
+        entry.remove();
+        entry.dispose();
+        await tester.pump();
+        return radius;
       }
 
       expect(
-        flightRadius(HeroFlightDirection.push, 0),
+        await flightRadius(HeroFlightDirection.push, 0),
         BorderRadius.circular(14),
       );
       expect(
-        flightRadius(HeroFlightDirection.push, 0.5),
+        await flightRadius(HeroFlightDirection.push, 0.5),
         BorderRadius.circular(13),
       );
       expect(
-        flightRadius(HeroFlightDirection.push, 1),
+        await flightRadius(HeroFlightDirection.push, 1),
         BorderRadius.circular(12),
       );
       expect(
-        flightRadius(HeroFlightDirection.pop, 1),
+        await flightRadius(HeroFlightDirection.pop, 1),
         BorderRadius.circular(12),
       );
       expect(
-        flightRadius(HeroFlightDirection.pop, 0.5),
+        await flightRadius(HeroFlightDirection.pop, 0.5),
         BorderRadius.circular(13),
       );
       expect(
-        flightRadius(HeroFlightDirection.pop, 0),
+        await flightRadius(HeroFlightDirection.pop, 0),
         BorderRadius.circular(14),
       );
     },

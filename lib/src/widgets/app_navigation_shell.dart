@@ -8,7 +8,6 @@ import '../providers/settings_provider.dart';
 import '../providers/update_provider.dart';
 import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
-import 'cover_preview_dialog.dart';
 import 'mini_player.dart';
 import 'responsive_dialog.dart';
 
@@ -348,8 +347,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     final showOffline = offline && visible;
     final keyboardVisible =
         isLandscape && MediaQuery.viewInsetsOf(context).bottom > 0;
-    // An immersive route keeps its viewport while the Dock slides out.
-    Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
     final measuredMiniPlayer = miniPlayer == null
         ? null
         : NotificationListener<SizeChangedLayoutNotification>(
@@ -384,57 +381,74 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         : playerTransition != null && playback != null
         ? Offstage(child: playback)
         : null;
-    if (layoutVisible && isLandscape) {
-      final showRail = !explicitTransition || progress < 1;
-      final paddingFactor = explicitTransition ? 1 - progress : 1.0;
-      content = Row(
-        children: [
-          if (showRail && railOnstage != null)
-            ClipRect(
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                widthFactor: explicitTransition ? 1 - progress : 1,
-                child: FractionalTranslation(
-                  translation: Offset(
-                    explicitTransition || _keepAudioRailStationary
-                        ? 0
-                        : -progress,
-                    0,
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.only(top: railTop),
-                    child: railOnstage,
-                  ),
+    final landscapeLayout = layoutVisible && isLandscape;
+    final showRail = landscapeLayout && (!explicitTransition || progress < 1);
+    final paddingFactor = explicitTransition ? 1 - progress : 1.0;
+    // Keep the Navigator mounted in the same subtree when the window rotates.
+    final content = Row(
+      children: [
+        if (showRail && railOnstage != null)
+          ClipRect(
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: explicitTransition ? 1 - progress : 1,
+              child: FractionalTranslation(
+                translation: Offset(
+                  explicitTransition || _keepAudioRailStationary
+                      ? 0
+                      : -progress,
+                  0,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.only(top: railTop),
+                  child: railOnstage,
                 ),
               ),
             ),
-          if (showRail)
-            Padding(
-              padding: EdgeInsets.only(top: railTop),
-              child: SizedBox(
-                width: explicitTransition ? 1 - progress : 1,
-                child: _protectNavigation(
-                  const VerticalDivider(thickness: 1, width: 1),
-                ),
+          ),
+        if (showRail)
+          Padding(
+            padding: EdgeInsets.only(top: railTop),
+            child: SizedBox(
+              width: explicitTransition ? 1 - progress : 1,
+              child: _protectNavigation(
+                const VerticalDivider(thickness: 1, width: 1),
               ),
             ),
-          Expanded(
-            child: Builder(
-              builder: (context) => MediaQuery.removePadding(
-                context: context,
-                removeLeft: true,
-                removeRight: true,
-                removeBottom: true,
+          ),
+        Expanded(
+          child: Builder(
+            builder: (context) {
+              final mediaQuery = MediaQuery.of(context);
+              final viewportMediaQuery = landscapeLayout
+                  ? mediaQuery.removePadding(
+                      removeLeft: true,
+                      removeRight: true,
+                      removeBottom: true,
+                    )
+                  : layoutVisible
+                  ? mediaQuery.copyWith(
+                      viewPadding: mediaQuery.viewPadding.copyWith(
+                        bottom: mediaQuery.padding.bottom,
+                      ),
+                    )
+                  : mediaQuery;
+              return MediaQuery(
+                data: viewportMediaQuery,
                 child: Padding(
                   padding: EdgeInsets.only(
-                    right: safePadding.right * paddingFactor,
+                    right: landscapeLayout
+                        ? safePadding.right * paddingFactor
+                        : 0,
                   ),
                   child: Scaffold(
                     extendBody: true,
                     resizeToAvoidBottomInset: false,
                     body: child,
                     bottomNavigationBar:
-                        landscapePlayback == null && safePadding.bottom == 0
+                        !landscapeLayout ||
+                            (landscapePlayback == null &&
+                                safePadding.bottom == 0)
                         ? null
                         : ClipPath(
                             key: _dockClipKey,
@@ -463,28 +477,14 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                           ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
-        ],
-      );
-    } else if (layoutVisible) {
-      content = Builder(
-        builder: (context) {
-          final mediaQuery = MediaQuery.of(context);
-          return MediaQuery(
-            data: mediaQuery.copyWith(
-              viewPadding: mediaQuery.viewPadding.copyWith(
-                bottom: mediaQuery.padding.bottom,
-              ),
-            ),
-            child: child,
-          );
-        },
-      );
-    }
+        ),
+      ],
+    );
     return Scaffold(
-      extendBody: !isLandscape,
+      extendBody: true,
       resizeToAvoidBottomInset: visible,
       body: Stack(
         children: [
@@ -631,23 +631,21 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             child: ExcludeSemantics(excluding: excluded, child: navigation),
           ),
         ),
-        if (popup != null)
+        if (popup != null && !isCoverPreview)
           Positioned.fill(
-            child: isCoverPreview
-                ? _CoverPreviewShellBarrier(route: popup)
-                : AnimatedModalBarrier(
-                    color: popup.animation!.drive(
-                      ColorTween(
-                        begin: Colors.transparent,
-                        end: popup.barrierColor ?? Colors.transparent,
-                      ),
-                    ),
-                    dismissible: popup.barrierDismissible,
-                    onDismiss: () {
-                      if (popup.isCurrent) popup.navigator?.maybePop();
-                    },
-                    semanticsLabel: popup.barrierLabel,
-                  ),
+            child: AnimatedModalBarrier(
+              color: popup.animation!.drive(
+                ColorTween(
+                  begin: Colors.transparent,
+                  end: popup.barrierColor ?? Colors.transparent,
+                ),
+              ),
+              dismissible: popup.barrierDismissible,
+              onDismiss: () {
+                if (popup.isCurrent) popup.navigator?.maybePop();
+              },
+              semanticsLabel: popup.barrierLabel,
+            ),
           ),
       ],
     );
@@ -689,49 +687,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         ),
       ],
     ),
-  );
-}
-
-class _CoverPreviewShellBarrier extends StatefulWidget {
-  _CoverPreviewShellBarrier({required this.route})
-    : super(key: ObjectKey(route));
-
-  final ModalRoute<dynamic> route;
-
-  @override
-  State<_CoverPreviewShellBarrier> createState() =>
-      _CoverPreviewShellBarrierState();
-}
-
-class _CoverPreviewShellBarrierState extends State<_CoverPreviewShellBarrier> {
-  late final CurvedAnimation _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animation = CurvedAnimation(
-      parent: widget.route.animation!,
-      curve: CoverPreviewDialog.backgroundCurve,
-      reverseCurve: CoverPreviewDialog.backgroundReverseCurve,
-    );
-  }
-
-  @override
-  void dispose() {
-    _animation.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedModalBarrier(
-    color: _animation.drive(
-      ColorTween(begin: Colors.transparent, end: Colors.black),
-    ),
-    dismissible: widget.route.barrierDismissible,
-    onDismiss: () {
-      if (widget.route.isCurrent) widget.route.navigator?.maybePop();
-    },
-    semanticsLabel: widget.route.barrierLabel,
   );
 }
 

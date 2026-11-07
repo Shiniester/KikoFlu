@@ -547,7 +547,8 @@ _Avoid_: Track Switch, audio crossfade
 
 **Cover Preview (封面预览)**:
 The zoomable artwork view opened from the Player Cover Page, Work Details Screen,
-or Comic Details Screen. It is distinct from the Player Cover Page and saves the
+or Comic Details Screen. Artwork is centered in the full window and can be zoomed
+and panned across it. It is distinct from the Player Cover Page and saves the
 unblurred source artwork.
 _Avoid_: Player Cover Page, artwork editor
 
