@@ -563,8 +563,15 @@ void main() {
         final previewRect = tester.getRect(preview);
         final areaHeight = tester.getSize(baseLyricArea).height;
         expect(areaHeight, fullArea ? 144 : lessThan(144));
-        expect(previewRect.height, greaterThanOrEqualTo(areaHeight));
-        expect(previewRect.top, greaterThanOrEqualTo(coverRect.bottom - 0.01));
+        expect(previewRect.height, greaterThan(0));
+        expect(
+          previewRect.top - coverRect.bottom,
+          greaterThanOrEqualTo(16 - 0.01),
+        );
+        expect(
+          tester.getRect(controls).top - previewRect.bottom,
+          closeTo(16, 0.01),
+        );
         _expectSubtitleLineAtViewportCenter(tester, 'portrait lyric 5');
 
         if (showsFiveLines) {
@@ -705,7 +712,7 @@ void main() {
     final controlsRect = tester.getRect(
       find.byKey(const ValueKey('controls-pane-compact')),
     );
-    expect(previewRect.top, greaterThanOrEqualTo(coverRect.bottom - 0.01));
+    expect(previewRect.top - coverRect.bottom, greaterThanOrEqualTo(16 - 0.01));
     expect(previewRect.bottom, lessThanOrEqualTo(controlsRect.top));
     _expectSubtitleLineAtViewportCenter(tester, 'layout lyric 5');
     expect(tester.takeException(), isNull);

@@ -61,6 +61,7 @@ const double playerShortStageAspectRatio = 1.6;
 const double playerShortControlsHeightBreakpoint = 440;
 const double playerNarrowWideLayoutBreakpoint = 640;
 const double _compactPortraitLyricSlotHeight = 144;
+const double _compactPlayerLyricGap = 16;
 
 bool usesWidePlayerLayout(double width, {required double height}) =>
     width >= playerWideLayoutBreakpoint ||
@@ -1473,7 +1474,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         sharedWidth < PlayerControlsWidget.primaryRowMinimumWidth ||
             (!isPortrait && size.height <= playerShortControlsHeightBreakpoint)
         ? 0.0
-        : 16.0;
+        : _compactPlayerLyricGap;
     final content = Center(
       child: LayoutBuilder(
         builder: (context, mainConstraints) => SizedBox(
@@ -1517,7 +1518,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     );
                     final visiblePreviewHeight = math.min(
                       previewMaxHeight,
-                      lyricAreaHeight + coverBottomGap,
+                      math.max(
+                        0.0,
+                        lyricAreaHeight +
+                            coverBottomGap -
+                            (isPortrait ? _compactPlayerLyricGap : 0.0),
+                      ),
                     );
                     return Stack(
                       clipBehavior: Clip.hardEdge,
