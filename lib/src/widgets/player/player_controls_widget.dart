@@ -49,6 +49,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   final int visibleActionCount;
   final bool showMoreButton;
   final double? additionalActionWidth;
+  final double progressTrackTopInset;
   final VoidCallback? debugOnProgressBuild;
   final VoidCallback? debugOnPlayButtonBuild;
 
@@ -72,6 +73,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
     this.visibleActionCount = 5,
     this.showMoreButton = false,
     this.additionalActionWidth,
+    this.progressTrackTopInset = PlayerProgressSection.centeredTrackTopInset,
     this.debugOnProgressBuild,
     this.debugOnPlayButtonBuild,
   });
@@ -659,6 +661,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
       children: [
         // Progress slider
         PlayerProgressSection(
+          trackTopInset: widget.progressTrackTopInset,
           isSeekingManually: widget.isSeekingManually,
           seekValue: widget.seekValue,
           onSeekChanged: widget.onSeekChanged,
@@ -877,6 +880,11 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
 }
 
 class PlayerProgressSection extends ConsumerWidget {
+  static const sliderHeight = 32.0;
+  static const trackHeight = 4.0;
+  static const centeredTrackTopInset = (sliderHeight - trackHeight) / 2;
+  static const compactTrackTopInset = 6.0;
+
   const PlayerProgressSection({
     super.key,
     required this.isSeekingManually,
@@ -886,6 +894,7 @@ class PlayerProgressSection extends ConsumerWidget {
     this.onInteractionChanged,
     this.seekingPositionListenable,
     this.debugOnBuild,
+    this.trackTopInset = centeredTrackTopInset,
   });
 
   final bool isSeekingManually;
@@ -895,6 +904,7 @@ class PlayerProgressSection extends ConsumerWidget {
   final ValueChanged<bool>? onInteractionChanged;
   final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final VoidCallback? debugOnBuild;
+  final double trackTopInset;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1015,7 +1025,7 @@ class PlayerProgressSection extends ConsumerWidget {
                   onInteractionChanged?.call(false);
                 },
                 child: SizedBox(
-                  height: 32,
+                  height: sliderHeight,
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       activeTrackColor: colorScheme.primary,
@@ -1023,8 +1033,9 @@ class PlayerProgressSection extends ConsumerWidget {
                       inactiveTrackColor: Theme.of(
                         context,
                       ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-                      trackHeight: 4,
+                      trackHeight: trackHeight,
                       trackShape: PlayerUniformSliderTrackShape(
+                        verticalOffset: trackTopInset - centeredTrackTopInset,
                         slices: slices.slices,
                         duration: dur,
                         pendingStartMs: slices.pendingStartMs,

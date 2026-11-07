@@ -31,6 +31,7 @@ Future<void> _pumpProgress(
   Duration duration = const Duration(seconds: 100),
   double value = 0.7,
   double trackHeight = 4,
+  double verticalOffset = 0,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -55,6 +56,7 @@ Future<void> _pumpProgress(
                     disabledActiveTrackColor: _disabledActiveColor,
                     disabledInactiveTrackColor: _disabledInactiveColor,
                     trackShape: PlayerUniformSliderTrackShape(
+                      verticalOffset: verticalOffset,
                       sliceColor: _sliceColor,
                       slices: slices,
                       duration: duration,
@@ -141,6 +143,43 @@ void main() {
   }
 
   for (final direction in TextDirection.values) {
+    testWidgets('shifted progress keeps slice colors aligned with $direction', (
+      tester,
+    ) async {
+      await _pumpProgress(
+        tester,
+        direction: direction,
+        onlySlices: false,
+        verticalOffset: -8,
+      );
+      Offset point(double fraction, double y) => Offset(
+        300 * (direction == TextDirection.ltr ? fraction : 1 - fraction),
+        y,
+      );
+      expect(
+        await _paintedColors(tester, [
+          point(0.1, 5),
+          point(0.1, 6),
+          point(0.1, 8),
+          point(0.1, 9),
+          point(0.1, 10),
+          point(0.1, 16),
+          point(0.3, 8),
+          point(0.75, 8),
+        ]),
+        [
+          Colors.white,
+          _activeColor,
+          _activeColor,
+          _activeColor,
+          Colors.white,
+          Colors.white,
+          _sliceColor,
+          _onWhite(_sliceColor.withValues(alpha: 0.4)),
+        ],
+      );
+    });
+
     for (final onlySlices in [false, true]) {
       for (final enabled in [true, false]) {
         testWidgets(

@@ -478,7 +478,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
   }
 
   void _positionCurrentLine(
-    int index,
+    num index,
     double itemExtent, {
     required bool animate,
     Duration duration = const Duration(milliseconds: 460),
@@ -492,7 +492,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
           !_scrollController.hasClients) {
         return;
       }
-      final target = (index * itemExtent).clamp(
+      final target = (itemExtent * index).clamp(
         0.0,
         _scrollController.position.maxScrollExtent,
       );
@@ -808,7 +808,18 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
         );
         final desiredHeight =
             visibleLineCount * itemExtent + _lyricPreviewFadeExtent * 2;
-        final itemExtentChanged = _lastItemExtent != itemExtent;
+        final previousItemExtent = _lastItemExtent;
+        final itemExtentChanged = previousItemExtent != itemExtent;
+        if (itemExtentChanged &&
+            previousItemExtent != null &&
+            _isUserBrowsing &&
+            _scrollController.hasClients) {
+          _positionCurrentLine(
+            _scrollController.offset / previousItemExtent,
+            itemExtent,
+            animate: false,
+          );
+        }
         _lastItemExtent = itemExtent;
         if (index >= 0 &&
             (index != _lastIndex || sourceChanged || itemExtentChanged)) {

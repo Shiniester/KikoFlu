@@ -1070,6 +1070,83 @@ void main() {
     },
   );
 
+  for (final lineCount in [3, 5]) {
+    testWidgets('$lineCount-line preview preserves browsing through resize', (
+      tester,
+    ) async {
+      final previewLyrics = List.generate(
+        48,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'resize preview lyric $index',
+        ),
+      );
+      final positions = StreamController<Duration>();
+      final width = ValueNotifier<double>(334);
+      addTearDown(positions.close);
+      addTearDown(width.dispose);
+      positions.add(const Duration(seconds: 20));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: previewLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: width,
+                  builder: (context, value, _) => SizedBox(
+                    width: value,
+                    height: 240,
+                    child: ThreeLineLyricDisplay(
+                      lineCount: lineCount,
+                      onSeekRequested: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)),
+      );
+      double visibleLine() =>
+          scrollable.position.pixels /
+          tester.widget<ListView>(list).itemExtent!;
+
+      await tester.drag(list, const Offset(0, -80));
+      await tester.pumpAndSettle();
+      final browsedLine = visibleLine();
+      expect(browsedLine, greaterThan(21));
+      await tester.pump(const Duration(seconds: 2));
+
+      for (final nextWidth in [668.0, 334.0]) {
+        width.value = nextWidth;
+        await tester.pumpAndSettle();
+        expect(visibleLine(), closeTo(browsedLine, 0.01));
+      }
+      positions.add(const Duration(seconds: 21));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(visibleLine(), closeTo(browsedLine, 0.01));
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pumpAndSettle();
+      expect(visibleLine(), closeTo(21, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('dragged tablet lyric preview leaves both edges clear', (
     tester,
   ) async {
