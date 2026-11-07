@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:image/image.dart' as img;
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
 import 'package:kikoeru_flutter/src/comics/comic_library.dart';
@@ -305,6 +306,158 @@ void main() {
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    for (final withInsets in [false, true]) {
+      for (final check in ['center', 'zoom']) {
+        testWidgets(
+          'cover preview full-window $check at $size (insets=$withInsets)',
+          (tester) async {
+            final bytes = Uint8List.fromList(
+              img.encodePng(
+                img.fill(
+                  img.Image(width: 120, height: 120),
+                  color: img.ColorRgb8(0, 170, 0),
+                ),
+              ),
+            );
+            final navigation = await _pumpShell(
+              tester,
+              size: size,
+              safePadding: !withInsets
+                  ? FakeViewPadding.zero
+                  : size.width > size.height
+                  ? const FakeViewPadding(left: 44, bottom: 24)
+                  : const FakeViewPadding(top: 32, bottom: 24),
+              homeBuilder: (navigation) => _tabHome(
+                navigation,
+                Scaffold(
+                  body: SizedBox.expand(
+                    key: const ValueKey('full-window-preview-underlay'),
+                    child: Builder(
+                      builder: (context) => Center(
+                        child: TextButton(
+                          key: const ValueKey('open-full-window-preview'),
+                          onPressed: () => unawaited(
+                            CoverPreviewDialog.show(
+                              context,
+                              imageBytes: bytes,
+                              heroTag: 'full-window-cover',
+                            ),
+                          ),
+                          child: PlayerCoverPreviewHero(
+                            tag: 'full-window-cover',
+                            cornerRadius: 12,
+                            child: SizedBox(
+                              width: 120,
+                              height: 120,
+                              child: Image.memory(bytes),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            final opener = find.byKey(
+              const ValueKey('open-full-window-preview'),
+            );
+            final underlay = find.byKey(
+              const ValueKey('full-window-preview-underlay'),
+            );
+            final underlayRect = tester.getRect(underlay);
+            await tester.runAsync(
+              () => precacheImage(MemoryImage(bytes), tester.element(opener)),
+            );
+            await tester.tap(opener);
+            await tester.pumpAndSettle();
+            final viewport = find.byKey(
+              const ValueKey('cover-preview-background'),
+            );
+            final frame = find.byKey(
+              const ValueKey('cover-preview-image-frame'),
+            );
+            if (check == 'center') {
+              expect(tester.getRect(viewport), Offset.zero & size);
+              expect(tester.getCenter(frame), size.center(Offset.zero));
+            } else {
+              final viewer = find.byKey(
+                const ValueKey('cover-preview-interactive-viewer'),
+              );
+              final center = tester.getCenter(viewer);
+              final left = await tester.createGesture();
+              final right = await tester.createGesture();
+              await left.down(center - const Offset(20, 0));
+              await right.down(center + const Offset(20, 0));
+              await tester.pump();
+              await left.moveTo(center - const Offset(120, 0));
+              await right.moveTo(center + const Offset(120, 0));
+              await tester.pump();
+              await left.up();
+              await right.up();
+              await tester.pumpAndSettle();
+              expect(
+                tester
+                    .widget<InteractiveViewer>(viewer)
+                    .transformationController!
+                    .value
+                    .getMaxScaleOnAxis(),
+                greaterThan(1),
+              );
+              final transform = tester
+                  .widget<InteractiveViewer>(viewer)
+                  .transformationController!;
+              final beforePan = transform.value.getTranslation();
+              await tester.dragFrom(
+                Offset(size.width / 2, size.height - 8),
+                const Offset(0, -40),
+              );
+              await tester.pumpAndSettle();
+              expect(transform.value.getTranslation(), isNot(beforePan));
+              await tester.runAsync(() async {
+                final boundary = tester.renderObject<RenderRepaintBoundary>(
+                  find.byKey(const ValueKey('shell-paint')),
+                );
+                final image = await boundary.toImage();
+                try {
+                  final pixels = (await image.toByteData(
+                    format: ui.ImageByteFormat.rawRgba,
+                  ))!;
+                  for (final point in [
+                    Offset(size.width / 2, size.height - 8),
+                    if (size.width > size.height) Offset(8, size.height / 2),
+                  ]) {
+                    final offset =
+                        4 * (point.dy.floor() * image.width + point.dx.floor());
+                    expect(pixels.getUint32(offset), 0x00aa00ff);
+                  }
+                } finally {
+                  image.dispose();
+                }
+              });
+            }
+            expect(tester.getRect(underlay), underlayRect);
+            var closingUnderlayRect = underlayRect;
+            if (check == 'center') {
+              final rotatedSize = Size(size.height, size.width);
+              tester.view.physicalSize = rotatedSize;
+              await tester.pumpAndSettle();
+              expect(tester.getRect(viewport), Offset.zero & rotatedSize);
+              expect(tester.getCenter(frame), rotatedSize.center(Offset.zero));
+              closingUnderlayRect = tester.getRect(underlay);
+            }
+            Navigator.of(tester.element(find.byType(CoverPreviewDialog))).pop();
+            await tester.pumpAndSettle();
+            expect(navigation.navigationVisible, isTrue);
+            expect(tester.getRect(underlay), closingUnderlayRect);
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     for (final offline in [false, true]) {
       testWidgets(
         'detail cover preview preserves layout and system bars at $size (offline=$offline)',
@@ -426,7 +579,7 @@ void main() {
                 ))!;
                 for (final point in [
                   dockRect.center,
-                  miniPlayerRect.center,
+                  Offset(miniPlayerRect.right - 4, miniPlayerRect.center.dy),
                   if (size.width > size.height)
                     Offset(dockRect.right, dockRect.center.dy),
                 ]) {
@@ -456,7 +609,8 @@ void main() {
           final previewRect = tester.getRect(
             find.byKey(const ValueKey('cover-preview-image-frame')),
           );
-          Navigator.of(tester.element(preview)).pop();
+          final dismissPoint = Offset(size.width - 8, size.height - 8);
+          await tester.tapAt(dismissPoint);
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
           final flight = find.byKey(
@@ -468,6 +622,9 @@ void main() {
           expect(flightRect, isNot(previewRect));
           expect(tester.getRect(cover), coverRect);
           await expectDockCovered();
+          await tester.tapAt(dismissPoint);
+          await tester.pump();
+          expect(ModalRoute.of(tester.element(cover))!.isCurrent, isTrue);
           final closingFrames =
               (route.reverseTransitionDuration.inMilliseconds / 16).ceil() + 2;
           for (var frame = 0; frame < closingFrames; frame++) {
@@ -498,6 +655,14 @@ void main() {
   for (final reducedMotion in [false, true]) {
     testWidgets('tab cover preview retains its modal presentation '
         '(reduced motion=$reducedMotion)', (tester) async {
+      final bytes = Uint8List.fromList(
+        img.encodePng(
+          img.fill(
+            img.Image(width: 120, height: 120),
+            color: img.ColorRgb8(0, 170, 0),
+          ),
+        ),
+      );
       final navigation = await _pumpShell(
         tester,
         size: const Size(1280, 720),
@@ -512,7 +677,7 @@ void main() {
                   onTap: () => unawaited(
                     CoverPreviewDialog.show(
                       context,
-                      localPath: 'missing.jpg',
+                      imageBytes: bytes,
                       heroTag: 'tab-cover-preview',
                     ),
                   ),
@@ -533,8 +698,33 @@ void main() {
       );
       final source = find.byKey(const ValueKey('tab-cover-preview-source'));
       final sourceRect = tester.getRect(source);
+      await tester.runAsync(
+        () => precacheImage(MemoryImage(bytes), tester.element(source)),
+      );
       await tester.tap(source);
       await tester.pump();
+      if (!reducedMotion) {
+        await tester.runAsync(() async {
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('shell-paint')),
+          );
+          final image = await (boundary.debugLayer! as OffsetLayer).toImage(
+            boundary.paintBounds,
+          );
+          try {
+            final pixels = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!;
+            expect(
+              pixels.getUint32(4 * (650 * image.width + 640)),
+              isNot(0x00aa00ff),
+            );
+          } finally {
+            image.dispose();
+          }
+        });
+        expect(tester.takeException(), isNull);
+      }
       await tester.pump(const Duration(milliseconds: 100));
       final preview = find.byType(CoverPreviewDialog);
       final route = ModalRoute.of(tester.element(preview))!;
@@ -556,22 +746,18 @@ void main() {
       if (reducedMotion) expect(route.transitionDuration, Duration.zero);
       expect(tester.getRect(source), sourceRect);
 
-      void expectMatchingBackdropOpacity() {
-        final fade = tester.widget<FadeTransition>(
-          find
-              .descendant(of: preview, matching: find.byType(FadeTransition))
-              .first,
-        );
+      void expectFullWindowBackdrop() {
+        final fade = find
+            .descendant(of: preview, matching: find.byType(FadeTransition))
+            .first;
+        expect(tester.getRect(fade), const Rect.fromLTWH(0, 0, 1280, 720));
         final barriers = tester
             .widgetList<ModalBarrier>(find.byType(ModalBarrier))
             .where((barrier) => (barrier.color?.a ?? 0) > 0);
-        expect(barriers, isNotEmpty);
-        for (final barrier in barriers) {
-          expect(barrier.color!.a, closeTo(fade.opacity.value, 1 / 255));
-        }
+        expect(barriers, isEmpty);
       }
 
-      if (!reducedMotion) expectMatchingBackdropOpacity();
+      if (!reducedMotion) expectFullWindowBackdrop();
 
       Navigator.of(tester.element(preview)).pop();
       await tester.pump();
@@ -581,7 +767,7 @@ void main() {
         expect(find.byType(NavigationRail).hitTestable(), findsNothing);
         expect(flight, findsOneWidget);
         for (var frame = 0; frame < 4; frame++) {
-          expectMatchingBackdropOpacity();
+          expectFullWindowBackdrop();
           await tester.pump(const Duration(milliseconds: 16));
         }
       }

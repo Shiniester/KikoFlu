@@ -23,6 +23,40 @@ const _lyricTapFeedbackStaticDuration = Duration(milliseconds: 300);
 const _lyricTapFeedbackFallbackWindow = Duration(milliseconds: 360);
 const _lyricTapFeedbackAlpha = 0.10;
 const _lyricTapFeedbackRadius = 14.0;
+const _lyricPreviewBaseWidth = 334.0;
+const _lyricPreviewMaxScale = 1.45;
+const _lyricPreviewFadeExtent = 12.0;
+
+double playerLyricPreviewHeight({
+  required double width,
+  required double fontSize,
+  required double lineHeight,
+  required TextScaler textScaler,
+  required int lineCount,
+  required bool compact,
+}) {
+  final widthScale = _lyricPreviewWidthScale(width);
+  final activeFontSize = fontSize * widthScale + (compact ? 0 : 1);
+  final itemExtent = _lyricPreviewItemExtent(
+    activeFontSize,
+    lineHeight,
+    textScaler,
+  );
+  return lineCount * itemExtent + _lyricPreviewFadeExtent * 2;
+}
+
+double _lyricPreviewWidthScale(double width) => (width / _lyricPreviewBaseWidth)
+    .clamp(1.0, _lyricPreviewMaxScale)
+    .toDouble();
+
+double _lyricPreviewItemExtent(
+  double fontSize,
+  double lineHeight,
+  TextScaler textScaler,
+) => (textScaler.scale(fontSize) * lineHeight + 11)
+    .ceilToDouble()
+    .clamp(25.0, double.infinity)
+    .toDouble();
 
 Animatable<double> _lyricTapFeedbackOpacity() {
   return TweenSequence<double>([
@@ -572,11 +606,6 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       );
     }
 
-    final desiredHeight = widget.compact
-        ? 70.0
-        : (widget.lineCount == 5 ? 144.0 : 100.0);
-    final itemExtent = (settings.smallFontSize * settings.smallLineHeight + 11)
-        .clamp(25.0, 31.0);
     final signature = Object.hash(
       lyrics.length,
       lyrics.first.startTime,
@@ -592,18 +621,12 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       _lastIndex = null;
     }
     _latestIndex = index;
-    final itemExtentChanged = _lastItemExtent != itemExtent;
-    _lastItemExtent = itemExtent;
-    if (index >= 0 &&
-        (index != _lastIndex || sourceChanged || itemExtentChanged)) {
-      final animate = _lastIndex != null && !sourceChanged;
-      _lastIndex = index;
-      if (!_isUserBrowsing) {
-        _positionCurrentLine(index, itemExtent, animate: animate);
-      }
-    }
 
-    Widget buildPreview(double previewHeight) => Semantics(
+    Widget buildPreview(
+      double previewHeight,
+      double itemExtent,
+      double widthScale,
+    ) => Semantics(
       container: true,
       label: index >= 0 && index < lyrics.length ? lyrics[index].text : null,
       child: SizedBox(
@@ -616,8 +639,8 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
               blendMode: BlendMode.dstIn,
               shaderCallback: (bounds) => playerLyricEdgeFadeGradient(
                 bounds,
-                topFadeExtent: 24,
-                bottomFadeExtent: 24,
+                topFadeExtent: _lyricPreviewFadeExtent,
+                bottomFadeExtent: _lyricPreviewFadeExtent,
               ).createShader(bounds),
               // Fractional mask edges can leave the last pixel unmasked.
               child: Padding(
@@ -633,7 +656,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                     itemExtent: itemExtent,
                     scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
                     padding: EdgeInsets.symmetric(
-                      vertical: (previewHeight - itemExtent) / 2,
+                      vertical: math.max(0.0, (previewHeight - itemExtent) / 2),
                     ),
                     itemCount: lyrics.length,
                     itemBuilder: (context, lyricIndex) {
@@ -697,9 +720,9 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                                 child: _PreviewLine(
                                   text: lyrics[lyricIndex].text,
                                   fontSize: active
-                                      ? settings.smallFontSize +
+                                      ? settings.smallFontSize * widthScale +
                                             (widget.compact ? 0 : 1)
-                                      : settings.smallFontSize - 1,
+                                      : settings.smallFontSize * widthScale - 1,
                                   lineHeight: settings.smallLineHeight,
                                   opacity: active
                                       ? 1
@@ -742,10 +765,56 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       ),
     );
     return LayoutBuilder(
-      builder: (context, constraints) =>
-          buildPreview(constraints.constrainHeight(desiredHeight)),
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : _lyricPreviewBaseWidth;
+        final widthScale = _lyricPreviewWidthScale(width);
+        final activeFontSize =
+            settings.smallFontSize * widthScale + (widget.compact ? 0 : 1);
+        final itemExtent = _lyricPreviewItemExtent(
+          activeFontSize,
+          settings.smallLineHeight,
+          MediaQuery.textScalerOf(context),
+        );
+        final visibleLineCount = _visiblePreviewLineCount(
+          widget.lineCount,
+          constraints.maxHeight,
+          itemExtent,
+        );
+        final desiredHeight =
+            visibleLineCount * itemExtent + _lyricPreviewFadeExtent * 2;
+        final itemExtentChanged = _lastItemExtent != itemExtent;
+        _lastItemExtent = itemExtent;
+        if (index >= 0 &&
+            (index != _lastIndex || sourceChanged || itemExtentChanged)) {
+          final animate = _lastIndex != null && !sourceChanged;
+          _lastIndex = index;
+          if (!_isUserBrowsing) {
+            _positionCurrentLine(index, itemExtent, animate: animate);
+          }
+        }
+        return buildPreview(
+          constraints.constrainHeight(desiredHeight),
+          itemExtent,
+          widthScale,
+        );
+      },
     );
   }
+}
+
+int _visiblePreviewLineCount(
+  int requestedLineCount,
+  double maxHeight,
+  double itemExtent,
+) {
+  if (requestedLineCount == 5 &&
+      maxHeight >= 5 * itemExtent + _lyricPreviewFadeExtent * 2) {
+    return 5;
+  }
+  if (maxHeight >= 3 * itemExtent + _lyricPreviewFadeExtent * 2) return 3;
+  return 1;
 }
 
 class _PreviewLine extends StatelessWidget {

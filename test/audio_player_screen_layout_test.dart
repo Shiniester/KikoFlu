@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -151,6 +152,391 @@ void main() {
           .onPressed,
       isNull,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final (size, textScale, hasLyrics, inset) in const [
+    (Size(360, 700), 1.3, true, 0.0),
+    (Size(360, 700), 2.0, true, 0.0),
+    (Size(320, 700), 1.3, true, 0.0),
+    (Size(320, 700), 2.0, true, 0.0),
+    (Size(280, 700), 1.3, true, 0.0),
+    (Size(280, 700), 2.0, true, 0.0),
+    (Size(276, 700), 2.0, true, 0.0),
+    (Size(260, 700), 2.0, true, 0.0),
+    (Size(252, 700), 2.0, true, 0.0),
+    (Size(360, 700), 1.3, false, 0.0),
+    (Size(360, 700), 1.3, true, 40.0),
+    (Size(360, 700), 2.0, true, 50.0),
+  ]) {
+    testWidgets('compact playback controls fit at $size, scale $textScale, '
+        'safe inset $inset, lyrics $hasLyrics', (tester) async {
+      final padding = FakeViewPadding(left: inset, right: inset);
+      tester.view.padding = padding;
+      tester.view.viewPadding = padding;
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      final lyrics = List.generate(
+        5,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        size,
+        textScale: textScale,
+        lyrics: hasLyrics ? lyrics : null,
+      );
+      expect(tester.takeException(), isNull);
+
+      final controls = tester.getRect(
+        find.byKey(const ValueKey('controls-pane-compact')),
+      );
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      );
+      final preview = tester.getRect(
+        find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
+      );
+      expect(cover.width, closeTo(controls.width, 0.01));
+      expect(cover.bottom, lessThanOrEqualTo(preview.top));
+      expect(preview.bottom, lessThanOrEqualTo(controls.top));
+      for (final button in [
+        find.byKey(const ValueKey('player-slice-cut-button')),
+        find.byKey(const ValueKey('player-skip-previous-button')),
+        find.byType(PlayerPlayPauseButton),
+        find.byKey(const ValueKey('player-skip-next-button')),
+        find.byKey(const ValueKey('player-slice-manager-button')),
+      ]) {
+        final rect = tester.getRect(button);
+        expect(rect.left, greaterThanOrEqualTo(controls.left));
+        expect(rect.right, lessThanOrEqualTo(controls.right));
+        expect(rect.width, greaterThanOrEqualTo(48));
+      }
+      expect(find.byType(PlayerPlayPauseButton).hitTestable(), findsOneWidget);
+      for (final button
+          in find
+              .descendant(
+                of: find.byKey(const ValueKey('controls-pane-compact')),
+                matching: find.byType(IconButton),
+              )
+              .evaluate()) {
+        final finder = find.byElementPredicate((element) => element == button);
+        final rect = tester.getRect(finder);
+        expect(rect.left, greaterThanOrEqualTo(inset));
+        expect(rect.right, lessThanOrEqualTo(size.width - inset));
+        if ((button.widget as IconButton).onPressed != null) {
+          expect(finder.hitTestable(), findsOneWidget);
+        }
+      }
+    });
+  }
+
+  for (final (width, height, inset, hasLyrics) in [
+    (250.0, 700.0, 0.0, true),
+    (240.0, 700.0, 0.0, true),
+    (220.0, 700.0, 0.0, true),
+    (180.0, 700.0, 0.0, true),
+    (120.0, 700.0, 0.0, true),
+    (100.0, 700.0, 0.0, true),
+    (80.0, 700.0, 0.0, true),
+    (60.0, 700.0, 0.0, true),
+    (48.0, 700.0, 0.0, true),
+    (240.0, 700.0, 0.0, false),
+    (360.0, 700.0, 70.0, true),
+    (220.0, 600.0, 0.0, true),
+  ]) {
+    testWidgets('playback controls reflow below 252 at ${width}x$height, '
+        'inset $inset, lyrics $hasLyrics', (tester) async {
+      final padding = FakeViewPadding(left: inset, right: inset);
+      tester.view.padding = padding;
+      tester.view.viewPadding = padding;
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      final lyrics = List.generate(
+        5,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        Size(width, height),
+        textScale: 2,
+        lyrics: hasLyrics ? lyrics : null,
+      );
+      expect(tester.takeException(), isNull);
+
+      expect(tester.getSize(find.text(_track.title)).width, greaterThan(0));
+      final moreRect = tester.getRect(
+        find.byKey(const ValueKey('player-more-button')),
+      );
+      expect(moreRect.width, greaterThanOrEqualTo(48));
+      expect(moreRect.height, greaterThanOrEqualTo(48));
+      expect(moreRect.left, greaterThanOrEqualTo(inset));
+      expect(moreRect.right, lessThanOrEqualTo(width - inset));
+
+      final mainRects = <Rect>[];
+      for (final button in [
+        find.byKey(const ValueKey('player-slice-cut-button')),
+        find.byKey(const ValueKey('player-skip-previous-button')),
+        find.byType(PlayerPlayPauseButton),
+        find.byKey(const ValueKey('player-skip-next-button')),
+        find.byKey(const ValueKey('player-slice-manager-button')),
+      ]) {
+        final rect = tester.getRect(button);
+        expect(rect.left, greaterThanOrEqualTo(inset));
+        expect(rect.right, lessThanOrEqualTo(width - inset));
+        expect(rect.width, greaterThanOrEqualTo(48));
+        expect(rect.height, greaterThanOrEqualTo(48));
+        for (final previous in mainRects) {
+          expect(rect.overlaps(previous), isFalse);
+        }
+        mainRects.add(rect);
+      }
+      await tester.ensureVisible(find.byType(PlayerPlayPauseButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerPlayPauseButton).hitTestable(), findsOneWidget);
+      final playRect = tester.getRect(find.byType(PlayerPlayPauseButton));
+      final previousRect = tester.getRect(
+        find.byKey(const ValueKey('player-skip-previous-button')),
+      );
+      final nextRect = tester.getRect(
+        find.byKey(const ValueKey('player-skip-next-button')),
+      );
+      if (width - 2 * inset >= 156) {
+        expect(playRect.center.dx, closeTo(width / 2, 0.01));
+        expect(previousRect.center.dy, closeTo(playRect.center.dy, 0.01));
+        expect(nextRect.center.dy, closeTo(playRect.center.dy, 0.01));
+      }
+      for (final label in ['00:00', '04:00']) {
+        final finder = find.descendant(
+          of: find.byType(PlayerProgressSection),
+          matching: find.text(label),
+        );
+        expect(finder, findsOneWidget);
+        expect(
+          tester.renderObject<RenderParagraph>(finder).didExceedMaxLines,
+          isFalse,
+        );
+        final rect = tester.getRect(finder);
+        expect(rect.left, greaterThanOrEqualTo(inset));
+        expect(rect.right, lessThanOrEqualTo(width - inset));
+      }
+      final controlsScroll = find.byKey(
+        const ValueKey('compact-main-controls-scroll'),
+      );
+      final scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(of: controlsScroll, matching: find.byType(Scrollable))
+            .first,
+      );
+      if (scrollable.position.maxScrollExtent > 0) {
+        scrollable.position.jumpTo(0);
+        await tester.pump();
+        await tester.drag(controlsScroll, const Offset(0, -80));
+        await tester.pumpAndSettle();
+        expect(scrollable.position.pixels, greaterThan(0));
+        scrollable.position.jumpTo(0);
+        await tester.pump();
+      }
+      final scrollRect = tester.getRect(controlsScroll);
+      for (final button
+          in find
+              .descendant(
+                of: find.byKey(const ValueKey('controls-pane-compact')),
+                matching: find.byType(IconButton),
+              )
+              .evaluate()) {
+        final finder = find.byElementPredicate((element) => element == button);
+        var rect = tester.getRect(finder);
+        if (rect.top < scrollRect.top || rect.bottom > scrollRect.bottom) {
+          await tester.ensureVisible(finder);
+          await tester.pumpAndSettle();
+          rect = tester.getRect(finder);
+        }
+        expect(rect.left, greaterThanOrEqualTo(inset));
+        expect(rect.right, lessThanOrEqualTo(width - inset));
+        expect(rect.top, greaterThanOrEqualTo(scrollRect.top));
+        expect(rect.bottom, lessThanOrEqualTo(scrollRect.bottom));
+        expect(rect.width, greaterThanOrEqualTo(48));
+        expect(rect.height, greaterThanOrEqualTo(48));
+        if ((button.widget as IconButton).onPressed != null) {
+          expect(finder.hitTestable(), findsOneWidget);
+        }
+      }
+    });
+  }
+
+  testWidgets('playback controls preserve their state across width changes', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(220, 700), textScale: 2);
+    final controls = find.byType(PlayerControlsWidget);
+    final state = tester.state(controls);
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(tester.takeException(), isNull);
+
+    for (final width in [360.0, 220.0]) {
+      tester.view.physicalSize = Size(width, 700);
+      await tester.pumpAndSettle();
+      expect(tester.state(controls), same(state));
+      expect(pages.controller!.page, closeTo(1, 0.001));
+      expect(find.byType(PlayerPlayPauseButton).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  for (final width in [260.0, 240.0, 220.0, 180.0, 120.0, 80.0, 60.0, 48.0]) {
+    testWidgets('narrow player keeps lyric actions within width $width', (
+      tester,
+    ) async {
+      final lyrics = List.generate(
+        5,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'lyric $index',
+        ),
+      );
+      await _pumpPlayer(tester, Size(width, 700), textScale: 2, lyrics: lyrics);
+      await tester.fling(
+        find.byKey(const ValueKey('compact-main-controls-scroll')),
+        Offset(-width * 1.5, 0),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      final actions = tester.getRect(
+        find.byKey(const ValueKey('lyric-actions-width-boundary')),
+      );
+      expect(actions.left, greaterThanOrEqualTo(0));
+      expect(actions.right, lessThanOrEqualTo(width));
+      final lyricViewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      expect(lyricViewport.bottom, lessThanOrEqualTo(actions.top));
+      final actionRects = <Rect>[];
+      for (final key in [
+        'lyric-subtitle-picker-button',
+        'lyric-download-button',
+        'lyric-fullscreen-button',
+        'lyric-translate-button',
+        'lyric-search-button',
+      ]) {
+        final rect = tester.getRect(find.byKey(ValueKey(key)));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(width));
+        expect(rect.width, greaterThanOrEqualTo(48));
+        expect(rect.height, greaterThanOrEqualTo(48));
+        for (final previous in actionRects) {
+          expect(rect.overlaps(previous), isFalse);
+        }
+        actionRects.add(rect);
+      }
+      expect(tester.takeException(), isNull);
+      if (width < 252) return;
+
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(220, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.queue_music));
+      await tester.pumpAndSettle();
+      final queue = tester.getRect(
+        find.byKey(const ValueKey('player-queue-width-boundary')),
+      );
+      expect(queue.left, greaterThanOrEqualTo(0));
+      expect(queue.right, lessThanOrEqualTo(width));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final size in const [
+    Size(390, 844),
+    Size(360, 700),
+    Size(768, 1024),
+    Size(900, 412),
+  ]) {
+    testWidgets('subtitle preview text fits at $size', (tester) async {
+      final lyrics = List.generate(
+        12,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'layout lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        size,
+        textScale: size.width < 380 ? 1.1 : 1.3,
+        lyrics: lyrics,
+        positionStream: Stream.value(const Duration(seconds: 5)),
+      );
+      await tester.pumpAndSettle();
+
+      _expectSubtitlePreviewReadable(
+        tester,
+        centerIndex: 5,
+        checkTwoNeighbors: size.width == 390 || size.width == 768,
+      );
+      if (size.width >= 840) {
+        expect(
+          find.byKey(const ValueKey('player-progress-slider')),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .getRect(find.byKey(const ValueKey('player-progress-slider')))
+              .bottom,
+          lessThanOrEqualTo(size.height),
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('subtitle preview reflows and recenters after resize', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'resize lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: lyrics,
+      positionStream: Stream.value(const Duration(seconds: 5)),
+    );
+    await tester.pumpAndSettle();
+    final preview = find.byType(ThreeLineLyricDisplay);
+    final state = tester.state(preview);
+    final phoneFontSize = _scaledSubtitleFontSize(tester, 'resize lyric 5');
+    _expectSubtitleLineAtViewportCenter(tester, 'resize lyric 5');
+
+    tester.view.physicalSize = const Size(768, 1024);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(tester.state(preview), same(state));
+    expect(
+      _scaledSubtitleFontSize(tester, 'resize lyric 5'),
+      greaterThan(phoneFontSize),
+    );
+    _expectSubtitleLineAtViewportCenter(tester, 'resize lyric 5');
     expect(tester.takeException(), isNull);
   });
 
@@ -5013,6 +5399,41 @@ void main() {
     expect(tester.state(lyricSurface), same(lyricState));
     expect(tester.takeException(), isNull);
   });
+}
+
+double _scaledSubtitleFontSize(WidgetTester tester, String text) {
+  final finder = find.text(text);
+  final style = tester.widget<Text>(finder).style!;
+  return MediaQuery.textScalerOf(tester.element(finder)).scale(style.fontSize!);
+}
+
+void _expectSubtitlePreviewReadable(
+  WidgetTester tester, {
+  required int centerIndex,
+  bool checkTwoNeighbors = false,
+}) {
+  final mask = find.byKey(const ValueKey('compact-lyric-edge-fade-mask'));
+  final maskRect = tester.getRect(mask);
+  _expectSubtitleLineAtViewportCenter(tester, 'layout lyric $centerIndex');
+
+  final neighborIndexes = [
+    centerIndex - 1,
+    centerIndex + 1,
+    if (checkTwoNeighbors) centerIndex - 2,
+    if (checkTwoNeighbors) centerIndex + 2,
+  ];
+  for (final index in neighborIndexes) {
+    final row = tester.getRect(find.text('layout lyric $index'));
+    expect(row.top, greaterThanOrEqualTo(maskRect.top + 12));
+    expect(row.bottom, lessThanOrEqualTo(maskRect.bottom - 12));
+  }
+}
+
+void _expectSubtitleLineAtViewportCenter(WidgetTester tester, String text) {
+  final maskRect = tester.getRect(
+    find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+  );
+  expect(tester.getCenter(find.text(text)).dy, closeTo(maskRect.center.dy, 1));
 }
 
 void _expectSecondaryPageRouteGeometry(WidgetTester tester) {

@@ -26,6 +26,11 @@ export 'player_slice_progress.dart' show PlayerUniformSliderTrackShape;
 
 /// 播放器控制组件
 class PlayerControlsWidget extends ConsumerStatefulWidget {
+  // Four 48-pixel targets and the 60-pixel play button need 252 pixels.
+  static const double compactMinimumWidth = 252;
+  static const double compactPreferredWidth = 268;
+  static const double primaryRowMinimumWidth = 156;
+
   final bool isLandscape;
   final bool compactSpacing;
   final bool isSeekingManually;
@@ -666,11 +671,15 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           height: widget.compactSpacing ? 0 : (widget.isLandscape ? 18 : 10),
         ),
         // Main controls
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const PlayerSliceCutButton(),
-            IconButton(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compactPadding =
+                constraints.maxWidth <
+                    PlayerControlsWidget.compactPreferredWidth
+                ? EdgeInsets.zero
+                : null;
+            const sliceCutButton = PlayerSliceCutButton();
+            final skipPreviousButton = IconButton(
               key: const ValueKey('player-skip-previous-button'),
               onPressed: ref.watch(canSkipPreviousProvider)
                   ? () {
@@ -681,13 +690,16 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                   : null,
               icon: const Icon(Icons.skip_previous),
               iconSize: iconSize,
-            ),
-            PlayerPlayPauseButton(
-              buttonSize: playButtonSize,
+              padding: compactPadding,
+            );
+            final playButton = PlayerPlayPauseButton(
+              buttonSize: constraints.maxWidth
+                  .clamp(48.0, playButtonSize)
+                  .toDouble(),
               iconSize: playIconSize,
               debugOnBuild: widget.debugOnPlayButtonBuild,
-            ),
-            IconButton(
+            );
+            final skipNextButton = IconButton(
               key: const ValueKey('player-skip-next-button'),
               onPressed: ref.watch(canSkipNextProvider)
                   ? () {
@@ -698,9 +710,37 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                   : null,
               icon: const Icon(Icons.skip_next),
               iconSize: iconSize,
-            ),
-            const PlayerSliceManagerButton(),
-          ],
+              padding: compactPadding,
+            );
+            const sliceManagerButton = PlayerSliceManagerButton();
+            if (constraints.maxWidth <
+                PlayerControlsWidget.compactMinimumWidth) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [skipPreviousButton, playButton, skipNextButton],
+                  ),
+                  const Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [sliceCutButton, sliceManagerButton],
+                  ),
+                ],
+              );
+            }
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                sliceCutButton,
+                skipPreviousButton,
+                playButton,
+                skipNextButton,
+                sliceManagerButton,
+              ],
+            );
+          },
         ),
         SizedBox(
           height: widget.compactSpacing ? 0 : (widget.isLandscape ? 16 : 10),
@@ -716,83 +756,85 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               slotCount: widget.visibleActionCount,
             );
 
-            final actions = Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                ...visibleButtons.map(
-                  (type) => _buildButton(
-                    context,
-                    ref,
-                    type,
-                    widget.isLandscape,
-                    audioState,
-                  ),
+            final actionChildren = <Widget>[
+              ...visibleButtons.map(
+                (type) => _buildButton(
+                  context,
+                  ref,
+                  type,
+                  widget.isLandscape,
+                  audioState,
                 ),
-                if (widget.showMoreButton)
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        onPressed: () {
-                          if (widget.onMorePressed != null) {
-                            widget.onMorePressed!();
-                          } else {
-                            _showMoreMenu(context, ref);
-                          }
+              ),
+              if (widget.showMoreButton)
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        if (widget.onMorePressed != null) {
+                          widget.onMorePressed!();
+                        } else {
+                          _showMoreMenu(context, ref);
+                        }
+                      },
+                      icon: Builder(
+                        builder: (context) {
+                          final moreButtons = config.getMoreButtons(
+                            slotCount: widget.visibleActionCount,
+                          );
+                          final hasSpeedInMore = moreButtons.contains(
+                            PlayerButtonType.speed,
+                          );
+                          final hasRepeatInMore = moreButtons.contains(
+                            PlayerButtonType.repeat,
+                          );
+                          final hasSleepTimerInMore = moreButtons.contains(
+                            PlayerButtonType.sleepTimer,
+                          );
+                          final hasSubtitleAdjustmentInMore = moreButtons
+                              .contains(PlayerButtonType.subtitleAdjustment);
+                          final hasFloatingLyricInMore = moreButtons.contains(
+                            PlayerButtonType.floatingLyric,
+                          );
+                          final timerState = ref.watch(sleepTimerProvider);
+                          final lyricState = ref.watch(lyricControllerProvider);
+                          final isFloatingLyricEnabled = ref.watch(
+                            floatingLyricEnabledProvider,
+                          );
+
+                          final shouldShowBadge =
+                              (hasSpeedInMore && audioState.speed != 1.0) ||
+                              (hasRepeatInMore &&
+                                  audioState.repeatMode != LoopMode.off) ||
+                              (hasSleepTimerInMore && timerState.isActive) ||
+                              (hasSubtitleAdjustmentInMore &&
+                                  lyricState.timelineOffset != Duration.zero) ||
+                              (hasFloatingLyricInMore &&
+                                  isFloatingLyricEnabled);
+
+                          return Badge(
+                            isLabelVisible: shouldShowBadge,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primary,
+                            child: const Icon(Icons.more_horiz),
+                          );
                         },
-                        icon: Builder(
-                          builder: (context) {
-                            final moreButtons = config.getMoreButtons(
-                              slotCount: widget.visibleActionCount,
-                            );
-                            final hasSpeedInMore = moreButtons.contains(
-                              PlayerButtonType.speed,
-                            );
-                            final hasRepeatInMore = moreButtons.contains(
-                              PlayerButtonType.repeat,
-                            );
-                            final hasSleepTimerInMore = moreButtons.contains(
-                              PlayerButtonType.sleepTimer,
-                            );
-                            final hasSubtitleAdjustmentInMore = moreButtons
-                                .contains(PlayerButtonType.subtitleAdjustment);
-                            final hasFloatingLyricInMore = moreButtons.contains(
-                              PlayerButtonType.floatingLyric,
-                            );
-                            final timerState = ref.watch(sleepTimerProvider);
-                            final lyricState = ref.watch(
-                              lyricControllerProvider,
-                            );
-                            final isFloatingLyricEnabled = ref.watch(
-                              floatingLyricEnabledProvider,
-                            );
-
-                            final shouldShowBadge =
-                                (hasSpeedInMore && audioState.speed != 1.0) ||
-                                (hasRepeatInMore &&
-                                    audioState.repeatMode != LoopMode.off) ||
-                                (hasSleepTimerInMore && timerState.isActive) ||
-                                (hasSubtitleAdjustmentInMore &&
-                                    lyricState.timelineOffset !=
-                                        Duration.zero) ||
-                                (hasFloatingLyricInMore &&
-                                    isFloatingLyricEnabled);
-
-                            return Badge(
-                              isLabelVisible: shouldShowBadge,
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              child: const Icon(Icons.more_horiz),
-                            );
-                          },
-                        ),
-                        iconSize: widget.isLandscape ? 24 : null,
                       ),
-                      if (!widget.isLandscape) const SizedBox(height: 14),
-                    ],
-                  ),
-              ],
+                      iconSize: widget.isLandscape ? 24 : null,
+                    ),
+                    if (!widget.isLandscape) const SizedBox(height: 14),
+                  ],
+                ),
+            ];
+            final actions = SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: actionChildren,
+              ),
             );
             final width = widget.additionalActionWidth;
             if (width == null) return actions;
@@ -801,25 +843,29 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                 final edgeOffset = ((width - constraints.maxWidth) / 2)
                     .clamp(0.0, double.infinity)
                     .toDouble();
-                final lastIndex = actions.children.length - 1;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (
-                      var index = 0;
-                      index < actions.children.length;
-                      index++
-                    )
-                      Transform.translate(
-                        offset: Offset(
-                          lastIndex == 0
-                              ? 0
-                              : edgeOffset * (index * 2 / lastIndex - 1),
-                          0,
+                final lastIndex = actionChildren.length - 1;
+                return SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      for (
+                        var index = 0;
+                        index < actionChildren.length;
+                        index++
+                      )
+                        Transform.translate(
+                          offset: Offset(
+                            lastIndex == 0
+                                ? 0
+                                : edgeOffset * (index * 2 / lastIndex - 1),
+                            0,
+                          ),
+                          child: actionChildren[index],
                         ),
-                        child: actions.children[index],
-                      ),
-                  ],
+                    ],
+                  ),
                 );
               },
             );
@@ -1016,18 +1062,22 @@ class PlayerProgressSection extends ConsumerWidget {
             ),
             Padding(
               padding: EdgeInsets.zero,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    formatDuration(displayPos, padHours: false),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    formatDuration(dur, padHours: false),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      formatDuration(displayPos, padHours: false),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      formatDuration(dur, padHours: false),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

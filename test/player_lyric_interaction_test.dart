@@ -707,9 +707,12 @@ void main() {
                 children: [
                   SizedBox(
                     width: 350,
-                    child: ThreeLineLyricDisplay(
-                      lineCount: 5,
-                      onSeekRequested: (_) {},
+                    child: Transform.translate(
+                      offset: const Offset(0, 0.2),
+                      child: ThreeLineLyricDisplay(
+                        lineCount: 5,
+                        onSeekRequested: (_) {},
+                      ),
                     ),
                   ),
                   const SizedBox(height: 30),
@@ -745,6 +748,85 @@ void main() {
     expect(scrollable.position.pixels, lessThan(initialOffset));
     await gesture.up();
   });
+
+  testWidgets(
+    'large lyric settings and system scaling keep adjacent rows readable',
+    (tester) async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setDouble('player_lyric_smallFontSize', 20);
+      await preferences.setDouble('player_lyric_smallLineHeight', 1.5);
+      final scaledLyrics = List.generate(
+        12,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'scaled lyric $index',
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith(
+              (ref) => Stream.value(const Duration(seconds: 4)),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: scaledLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 360,
+                  height: 230,
+                  child: ThreeLineLyricDisplay(
+                    lineCount: 5,
+                    onSeekRequested: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final current = find.text('scaled lyric 4');
+      final textStyle = tester.widget<Text>(current).style!;
+      final textScaler = MediaQuery.textScalerOf(tester.element(current));
+      expect(textStyle.fontSize, greaterThan(20));
+      expect(
+        textScaler.scale(textStyle.fontSize!),
+        greaterThan(textStyle.fontSize!),
+      );
+      expect(
+        tester
+            .widget<ListView>(
+              find.byKey(const ValueKey('compact-lyric-scroll-list')),
+            )
+            .itemExtent,
+        greaterThan(textScaler.scale(textStyle.fontSize!) * 1.5),
+      );
+      final mask = tester.getRect(
+        find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+      );
+      for (final index in [3, 5]) {
+        final row = tester.getRect(find.text('scaled lyric $index'));
+        expect(row.top, greaterThanOrEqualTo(mask.top + 12));
+        expect(row.bottom, lessThanOrEqualTo(mask.bottom - 12));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact lyric rows seek, fade edges, and resume following', (
     tester,
@@ -799,7 +881,7 @@ void main() {
     requested = null;
     await tester.drag(
       find.byKey(const ValueKey('compact-lyric-scroll-list')),
-      const Offset(0, -190),
+      const Offset(0, -400),
     );
     await tester.pump();
     expect(requested, isNull);

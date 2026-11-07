@@ -11104,6 +11104,16 @@ void main() {
         find.byKey(const ValueKey('cover-preview-image-frame')),
       );
       expect(frame.aspectRatio, closeTo(1.8, 0.001));
+      expect(
+        tester.getRect(find.byKey(const ValueKey('cover-preview-background'))),
+        Offset.zero & size,
+      );
+      expect(
+        tester.getCenter(
+          find.byKey(const ValueKey('cover-preview-image-frame')),
+        ),
+        size.center(Offset.zero),
+      );
 
       await tester.tapAt(tester.getCenter(preview));
       await tester.pump();
