@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_palette_background.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
@@ -90,6 +91,74 @@ void main() {
           .first,
     );
     expect(clip.borderRadius, BorderRadius.circular(12));
+  });
+
+  testWidgets('shell preview uses window cutouts without dock padding', (
+    tester,
+  ) async {
+    const size = Size(844, 700);
+    const safePadding = FakeViewPadding(left: 40, right: 24, bottom: 18);
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = safePadding;
+    tester.view.viewPadding = safePadding;
+    addTearDown(tester.view.reset);
+
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          builder: (context, child) {
+            final windowMediaQuery = MediaQuery.of(context).copyWith(
+              padding: const EdgeInsets.fromLTRB(40, 0, 24, 18),
+              viewPadding: const EdgeInsets.fromLTRB(40, 0, 24, 18),
+            );
+            final shellMediaQuery = windowMediaQuery.copyWith(
+              padding: const EdgeInsets.only(bottom: 72),
+              viewPadding: const EdgeInsets.only(bottom: 72),
+            );
+            return AppNavigationScope(
+              controller: navigation,
+              mediaQuery: windowMediaQuery,
+              navigationMotion: const AlwaysStoppedAnimation<double>(0),
+              child: MediaQuery(data: shellMediaQuery, child: child!),
+            );
+          },
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                key: const ValueKey('open-shell-cover-preview'),
+                onPressed: () => unawaited(
+                  CoverPreviewDialog.show(context, localPath: 'missing.jpg'),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('open-shell-cover-preview')));
+    await tester.pumpAndSettle();
+
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('cover-preview-background')),
+    );
+    final frame = tester.getRect(
+      find.byKey(const ValueKey('cover-preview-image-frame')),
+    );
+    expect(viewport.size, size);
+    expect(frame.left - viewport.left, closeTo(40, 0.1));
+    expect(viewport.right - frame.right, closeTo(40, 0.1));
+    expect(frame.width, greaterThan(750));
+
+    await _tapPreviewCenter(tester);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('show uses supplied bytes for the image and aspect ratio', (

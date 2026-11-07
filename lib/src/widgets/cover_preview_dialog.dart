@@ -544,7 +544,11 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
   }
 
   Widget _buildPreview(BuildContext context) {
-    final safePadding = MediaQuery.paddingOf(context);
+    final windowMediaQuery = context
+        .dependOnInheritedWidgetOfExactType<AppNavigationScope>()
+        ?.mediaQuery;
+    final safePadding =
+        windowMediaQuery?.padding ?? MediaQuery.paddingOf(context);
     final imagePadding = EdgeInsets.symmetric(
       horizontal: math.max(16, math.max(safePadding.left, safePadding.right)),
       vertical: math.max(16, math.max(safePadding.top, safePadding.bottom)),
