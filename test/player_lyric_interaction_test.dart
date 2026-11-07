@@ -58,6 +58,122 @@ void main() {
     expect(height(5, maxHeight: 40), 40);
   });
 
+  testWidgets('five-line preview does not paint adjacent lyric fragments', (
+    tester,
+  ) async {
+    Future<List<int>> render({
+      required bool includeOutsideRows,
+      required ({double center, int first, int last}) window,
+    }) async {
+      final previewLyrics = List.generate(
+        20,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text:
+              includeOutsideRows ||
+                  (index >= window.first && index <= window.last)
+              ? 'MMMMMMMM lyric $index'
+              : '',
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          key: ValueKey(includeOutsideRows),
+          overrides: [
+            positionProvider.overrideWith(
+              (ref) => Stream.value(const Duration(seconds: 10)),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: previewLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 334,
+                  child: ThreeLineLyricDisplay(
+                    lineCount: 5,
+                    onSeekRequested: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)),
+      );
+      final itemExtent = tester.widget<ListView>(list).itemExtent!;
+      scrollable.position.jumpTo(window.center * itemExtent);
+      await tester.pump();
+      expect(
+        find
+            .descendant(of: list, matching: find.byType(Text))
+            .evaluate()
+            .length,
+        lessThanOrEqualTo(5),
+      );
+      if (window.center == 10) {
+        for (final index in [window.first, window.last]) {
+          final opacity = tester.widget<Opacity>(
+            find
+                .ancestor(
+                  of: find.byKey(ValueKey('compact-lyric-line-$index')),
+                  matching: find.byType(Opacity),
+                )
+                .first,
+          );
+          expect(opacity.opacity, greaterThan(0));
+          expect(opacity.opacity, lessThan(1));
+        }
+      }
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+              matching: find.byType(RepaintBoundary),
+            )
+            .first,
+      );
+      final image = (await tester.runAsync(
+        () => boundary.toImage(pixelRatio: 2.5),
+      ))!;
+      final pixels = (await tester.runAsync(
+        () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+      ))!;
+      image.dispose();
+      return pixels.buffer.asUint8List();
+    }
+
+    for (final window in const [
+      (center: 10.0, first: 8, last: 12),
+      (center: 10.25, first: 8, last: 12),
+      (center: 10.5, first: 9, last: 12),
+      (center: 4.25, first: 2, last: 6),
+    ]) {
+      final actual = await render(includeOutsideRows: true, window: window);
+      final reference = await render(includeOutsideRows: false, window: window);
+      expect(actual.length, reference.length);
+      var extraPixels = 0;
+      var referencePixels = 0;
+      for (var offset = 3; offset < actual.length; offset += 4) {
+        if (actual[offset] > reference[offset]) extraPixels++;
+        if (reference[offset] > 0) referencePixels++;
+      }
+      expect(referencePixels, greaterThan(0));
+      expect(extraPixels, 0, reason: 'Visible center: ${window.center}');
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('hidden preview follows without replaying a suspended scroll', (
     tester,
   ) async {

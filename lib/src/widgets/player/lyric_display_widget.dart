@@ -757,10 +757,27 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                               child: lyricRow,
                             )
                           : lyricRow;
-                      return Semantics(
-                        button: true,
-                        selected: active,
-                        child: content,
+                      return ListenableBuilder(
+                        listenable: _scrollController,
+                        child: Semantics(
+                          button: true,
+                          selected: active,
+                          child: content,
+                        ),
+                        builder: (context, child) {
+                          final center = _scrollController.hasClients
+                              ? _scrollController.offset / itemExtent
+                              : math.max(0, index).toDouble();
+                          final visibility =
+                              (widget.lineCount / 2 -
+                                      (lyricIndex - center).abs())
+                                  .clamp(0.0, 1.0)
+                                  .toDouble();
+                          return Offstage(
+                            offstage: visibility == 0,
+                            child: Opacity(opacity: visibility, child: child),
+                          );
+                        },
                       );
                     },
                   ),
