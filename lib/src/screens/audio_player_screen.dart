@@ -1456,8 +1456,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required PlayerVerticalDragCallbacks dismissDrag,
     required PlayerVisualPalette previewPalette,
   }) {
+    final size = MediaQuery.sizeOf(context);
+    final isPortrait = size.width <= size.height;
+    final lyricSettings = ref.watch(playerLyricSettingsProvider);
+    final minimumPreviewHeight = playerLyricPreviewHeight(
+      width: sharedWidth,
+      fontSize: lyricSettings.smallFontSize,
+      lineHeight: lyricSettings.smallLineHeight,
+      textScaler: MediaQuery.textScalerOf(context),
+      lineCount: 1,
+      compact: false,
+    );
     final verticalGap =
-        sharedWidth < PlayerControlsWidget.primaryRowMinimumWidth ? 0.0 : 16.0;
+        sharedWidth < PlayerControlsWidget.primaryRowMinimumWidth ||
+            (!isPortrait && size.height <= playerShortControlsHeightBreakpoint)
+        ? 0.0
+        : 16.0;
     final content = Center(
       child: LayoutBuilder(
         builder: (context, mainConstraints) => SizedBox(
@@ -1486,12 +1500,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           ),
                         ),
                       ),
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: math.min(
-                            previewMaxHeight,
-                            constraints.maxHeight,
-                          ),
+                      SizedBox(
+                        key: const ValueKey('compact-main-lyric-area'),
+                        height: math.min(
+                          previewMaxHeight,
+                          isPortrait
+                              ? math.min(
+                                  constraints.maxHeight,
+                                  math.max(
+                                    minimumPreviewHeight,
+                                    constraints.maxHeight -
+                                        sharedWidth /
+                                            PlayerCoverWidget
+                                                .preferredAspectRatio,
+                                  ),
+                                )
+                              : constraints.maxHeight,
                         ),
                         child: Align(
                           heightFactor: 1,
@@ -1501,6 +1525,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                               'compact-main-lyric-width-boundary',
                             ),
                             width: sharedWidth,
+                            height: isPortrait ? null : double.infinity,
                             child: ThreeLineLyricDisplay(
                               key: const ValueKey(
                                 'compact-main-lyric-scroll-surface',
@@ -1615,6 +1640,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       math.min(PlayerControlsWidget.compactPreferredWidth, paddedWidth),
       math.min(availableWidth, heightBound),
     );
+    final size = MediaQuery.sizeOf(context);
+    if (size.width <= size.height) {
+      return (width: originalWidth, previewMaxHeight: 144);
+    }
     final hasLyrics = ref.watch(
       lyricControllerProvider.select((state) => state.displayLyrics.isNotEmpty),
     );
@@ -1649,9 +1678,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     // reservedHeight already includes the original 144-pixel preview.
     return (
       width: width,
-      previewMaxHeight: math.min(
-        constraints.maxHeight * 0.32,
-        144 + spareHeight,
+      previewMaxHeight: math.max(
+        playerLyricPreviewHeight(
+          width: width,
+          fontSize: lyricSettings.smallFontSize,
+          lineHeight: lyricSettings.smallLineHeight,
+          textScaler: MediaQuery.textScalerOf(context),
+          lineCount: 3,
+          compact: false,
+        ),
+        math.min(constraints.maxHeight * 0.32, 144 + spareHeight),
       ),
     );
   }
@@ -1705,6 +1741,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     AudioTrack track, {
     int lineCount = 5,
     bool compact = false,
+    double verticalPadding = 10,
   }) {
     return Consumer(
       builder: (context, ref, _) {
@@ -1713,7 +1750,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         );
         final preview = Padding(
           key: const ValueKey('player-lyric-preview'),
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: EdgeInsets.symmetric(vertical: verticalPadding),
           child: hasLyrics
               ? ThreeLineLyricDisplay(
                   onSeekRequested: (position) => unawaited(
@@ -1779,6 +1816,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     Widget buildContent({
       int previewLineCount = 5,
       double previewMaxHeight = double.infinity,
+      double previewMinHeight = 0,
+      bool tightPreview = false,
       bool compactSpacing = false,
     }) => Align(
       alignment: Alignment.center,
@@ -1824,15 +1863,19 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     swipeDownDrag: dismissDrag,
                     pageDragCoordinator: _widePageHandoff,
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: previewMaxHeight),
+                      constraints: BoxConstraints(
+                        minHeight: previewMinHeight,
+                        maxHeight: previewMaxHeight,
+                      ),
                       child: _buildLyricPreview(
                         track,
                         lineCount: previewLineCount,
                         compact: previewLineCount == 3,
+                        verticalPadding: tightPreview ? 0 : 10,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: tightPreview ? 0 : 12),
                 ],
                 buildControls(compactSpacing),
               ],
@@ -1876,12 +1919,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               );
               final lyricTextScaler = MediaQuery.textScalerOf(context);
               final timeStyle = Theme.of(context).textTheme.bodySmall;
-              final timeLabelHeight =
-                  (MediaQuery.textScalerOf(
-                            context,
-                          ).scale(timeStyle?.fontSize ?? 12) *
-                          (timeStyle?.height ?? 1))
-                      .ceilToDouble();
+              final timePainter = TextPainter(
+                text: TextSpan(text: '00:00', style: timeStyle),
+                textDirection: Directionality.of(context),
+                textScaler: lyricTextScaler,
+              )..layout();
+              final timeLabelHeight = timePainter.height;
+              timePainter.dispose();
               // Reserve every control row before expanding the lyric preview.
               final fullPreviewHeight =
                   playerLyricPreviewHeight(
@@ -1894,16 +1938,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   ) +
                   20 +
                   12;
-              final preferredPreviewHeight =
-                  playerLyricPreviewHeight(
-                    width: lyricPreviewWidth,
-                    fontSize: lyricSettings.smallFontSize,
-                    lineHeight: lyricSettings.smallLineHeight,
-                    textScaler: lyricTextScaler,
-                    lineCount: 3,
-                    compact: true,
-                  ) +
-                  20;
+              final threeLinePreviewHeight = playerLyricPreviewHeight(
+                width: lyricPreviewWidth,
+                fontSize: lyricSettings.smallFontSize,
+                lineHeight: lyricSettings.smallLineHeight,
+                textScaler: lyricTextScaler,
+                lineCount: 3,
+                compact: true,
+              );
+              final preferredPreviewHeight = threeLinePreviewHeight + 20;
               final fullControlsHeight =
                   32 + timeLabelHeight + 18 + 62 + 16 + 48;
               final verticalPadding = shortStage ? 0.0 : 36.0;
@@ -1919,10 +1962,35 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   fullPreviewHeight + controlsHeight + verticalPadding;
               final previewLineCount =
                   constraints.maxHeight >= fiveLineContentHeight ? 5 : 3;
-              final previewMaxHeight = math.max(
-                52.0,
-                constraints.maxHeight - controlsHeight - 12 - verticalPadding,
+              final size = MediaQuery.sizeOf(context);
+              final isLandscape = size.width > size.height;
+              final hasLyrics = ref.watch(
+                lyricControllerProvider.select(
+                  (state) => state.lyrics.isNotEmpty,
+                ),
               );
+              final tightPreview =
+                  isLandscape &&
+                  hasLyrics &&
+                  constraints.maxHeight <
+                      preferredPreviewHeight +
+                          12 +
+                          controlsHeight +
+                          verticalPadding;
+              final previewBottomSpacing = tightPreview ? 0.0 : 12.0;
+              final availablePreviewHeight = math.max(
+                52.0,
+                constraints.maxHeight -
+                    controlsHeight -
+                    previewBottomSpacing -
+                    verticalPadding,
+              );
+              final previewMaxHeight = isLandscape
+                  ? availablePreviewHeight
+                  : math.min(availablePreviewHeight, 144.0 + 20);
+              final previewMinHeight = tightPreview
+                  ? math.min(previewMaxHeight, threeLinePreviewHeight)
+                  : 0.0;
               return PlayerScrollEdgeActions(
                 pullDownDrag: dismissDrag,
                 child: KeyedSubtree(
@@ -1940,6 +2008,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         child: buildContent(
                           previewLineCount: previewLineCount,
                           previewMaxHeight: previewMaxHeight,
+                          previewMinHeight: previewMinHeight,
+                          tightPreview: tightPreview,
                           compactSpacing: compactSpacing,
                         ),
                       ),

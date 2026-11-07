@@ -483,11 +483,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      _expectSubtitlePreviewReadable(
-        tester,
-        centerIndex: 5,
-        checkTwoNeighbors: size.width == 390 || size.width == 768,
-      );
+      if (size.width > size.height) {
+        _expectSubtitlePreviewReadable(tester, centerIndex: 5);
+      } else {
+        _expectSubtitleLineAtViewportCenter(tester, 'layout lyric 5');
+      }
       if (size.width >= 840) {
         expect(
           find.byKey(const ValueKey('player-progress-slider')),
@@ -500,6 +500,97 @@ void main() {
           lessThanOrEqualTo(size.height),
         );
       }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final (size, textScale, fullArea) in const [
+    (Size(390, 844), 1.3, true),
+    (Size(360, 700), 2.0, false),
+    (Size(768, 1024), 1.3, true),
+    (Size(900, 1200), 1.3, true),
+  ]) {
+    testWidgets('portrait subtitle preview keeps its original area at $size', (
+      tester,
+    ) async {
+      await _pumpPlayer(tester, size, textScale: textScale);
+      final cover = find.byKey(const ValueKey('player-cover-artwork-track-1'));
+      final originalCoverWidth = tester.getSize(cover).width;
+      await tester.pumpWidget(const SizedBox.shrink());
+      final lyrics = List.generate(
+        12,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'portrait lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        size,
+        textScale: textScale,
+        lyrics: lyrics,
+        positionStream: Stream.value(const Duration(seconds: 5)),
+      );
+      await tester.pumpAndSettle();
+      final preview = find.byKey(
+        const ValueKey('compact-lyric-edge-fade-mask'),
+      );
+      expect(tester.getSize(preview).height, lessThanOrEqualTo(144));
+      if (size.width < playerWideLayoutBreakpoint) {
+        final areaHeight = tester
+            .getSize(find.byKey(const ValueKey('compact-main-lyric-area')))
+            .height;
+        if (fullArea) {
+          expect(areaHeight, 144);
+        } else {
+          expect(areaHeight, lessThan(144));
+        }
+      }
+      expect(tester.getSize(cover).width, closeTo(originalCoverWidth, 0.01));
+      _expectSubtitleLineAtViewportCenter(tester, 'portrait lyric 5');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final (size, textScale) in const [
+    (Size(500, 400), 1.0),
+    (Size(550, 450), 1.0),
+    (Size(568, 320), 1.0),
+    (Size(640, 360), 1.0),
+    (Size(900, 412), 1.0),
+    (Size(900, 412), 2.0),
+    (Size(1280, 720), 1.0),
+  ]) {
+    testWidgets('landscape subtitle preview shows adjacent lines at $size '
+        'with text scale $textScale', (tester) async {
+      final lyrics = List.generate(
+        12,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'layout lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        size,
+        textScale: textScale,
+        lyrics: lyrics,
+        positionStream: Stream.value(const Duration(seconds: 5)),
+      );
+      await tester.pumpAndSettle();
+      _expectSubtitlePreviewReadable(
+        tester,
+        centerIndex: 5,
+        checkTwoNeighbors: size.width >= 1280,
+      );
+      final preview = tester.getRect(
+        find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+      );
+      final controls = tester.getRect(find.byType(PlayerControlsWidget));
+      expect(preview.bottom, lessThanOrEqualTo(controls.top));
+      expect(find.byType(PlayerPlayPauseButton).hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -536,6 +627,11 @@ void main() {
       _scaledSubtitleFontSize(tester, 'resize lyric 5'),
       greaterThan(phoneFontSize),
     );
+    _expectSubtitleLineAtViewportCenter(tester, 'resize lyric 5');
+
+    tester.view.physicalSize = const Size(550, 450);
+    await tester.pumpAndSettle();
+    expect(tester.state(preview), same(state));
     _expectSubtitleLineAtViewportCenter(tester, 'resize lyric 5');
     expect(tester.takeException(), isNull);
   });
