@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart' show kLongPressTimeout;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, kLongPressTimeout;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart'
+    show RenderParagraph, RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/string_utils.dart';
@@ -34,6 +38,24 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  test('preview height budget follows the available rows', () {
+    double height(int lines, {double maxHeight = double.infinity}) =>
+        playerLyricPreviewHeight(
+          width: 334,
+          fontSize: 14,
+          lineHeight: 1.2,
+          textScaler: TextScaler.noScaling,
+          lineCount: lines,
+          compact: false,
+          maxHeight: maxHeight,
+        );
+    expect(height(5), 169);
+    expect(height(5, maxHeight: 144), height(3));
+    expect(height(5, maxHeight: 100), height(1));
+    expect(height(1), 53);
+    expect(height(5, maxHeight: 40), 40);
   });
 
   testWidgets('hidden preview follows without replaying a suspended scroll', (
@@ -124,6 +146,8 @@ void main() {
   testWidgets('active lyric is bold white and tapping seeks to playback line', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     Duration? requested;
     final positions = StreamController<Duration>();
     addTearDown(positions.close);
@@ -194,6 +218,128 @@ void main() {
       tester.getCenter(find.text('lyric 3')).dy,
       closeTo(upperSettledCenter, 0.1),
     );
+  });
+
+  testWidgets('full lyric fonts follow available width and user settings', (
+    tester,
+  ) async {
+    final contentWidth = ValueNotifier<double>(320);
+    final foreground = ValueNotifier<Color>(Colors.white);
+    addTearDown(contentWidth.dispose);
+    addTearDown(foreground.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.25)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ValueListenableBuilder<Color>(
+              valueListenable: foreground,
+              builder: (context, color, child) => Theme(
+                data: Theme.of(context).copyWith(
+                  colorScheme: Theme.of(
+                    context,
+                  ).colorScheme.copyWith(onSurface: color),
+                ),
+                child: child!,
+              ),
+              child: Center(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: contentWidth,
+                  builder: (context, width, _) => SizedBox(
+                    width: width,
+                    height: 600,
+                    child: const FullLyricDisplay(isPortrait: true),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final display = find.byType(FullLyricDisplay);
+    final displayState = tester.state(display);
+    final active = find.text('matching lyric 2');
+    final inactive = find.text('lyric 3');
+    final activeSize = tester.widget<Text>(active).style!.fontSize!;
+    final inactiveSize = tester.widget<Text>(inactive).style!.fontSize!;
+    _expectLineAtPlaybackAnchor(tester, active);
+
+    contentWidth.value = 240;
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(active).style!.fontSize!, activeSize);
+
+    contentWidth.value = 640;
+    await tester.pumpAndSettle();
+    expect(tester.state(display), same(displayState));
+    expect(
+      tester.widget<Text>(active).style!.fontSize!,
+      greaterThan(activeSize),
+    );
+    expect(
+      tester.widget<Text>(inactive).style!.fontSize!,
+      greaterThan(inactiveSize),
+    );
+    _expectLineAtPlaybackAnchor(tester, active);
+    final wideSize = tester.widget<Text>(active).style!.fontSize!;
+    contentWidth.value = 760;
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(active).style!.fontSize!, wideSize);
+
+    final settings = ProviderScope.containerOf(
+      tester.element(display),
+    ).read(playerLyricSettingsProvider.notifier);
+    await settings.updateFullFontSize(22);
+    await tester.pumpAndSettle();
+    final adjustedSize = tester.widget<Text>(active).style!.fontSize!;
+    expect(adjustedSize, greaterThan(22));
+    expect(tester.widget<Text>(inactive).style!.fontSize!, adjustedSize);
+    expect(
+      MediaQuery.textScalerOf(tester.element(active)).scale(adjustedSize),
+      closeTo(adjustedSize * 1.25, 0.01),
+    );
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getDouble('player_lyric_fullActiveFontSize'), 22);
+    expect(preferences.getDouble('player_lyric_fullInactiveFontSize'), 22);
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    await tester.drag(list, const Offset(0, -143));
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        )
+        .position;
+    position.jumpTo(position.pixels + 11);
+    await tester.pump();
+    final browsedOffset = position.pixels;
+    expect(
+      Theme.of(tester.element(display)).colorScheme.onSurface,
+      Colors.white,
+    );
+    foreground.value = Colors.yellow;
+    await tester.pumpAndSettle();
+    expect(
+      Theme.of(tester.element(display)).colorScheme.onSurface,
+      Colors.yellow,
+    );
+    expect(position.pixels, closeTo(browsedOffset, 0.01));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('seek preview highlights lyrics and clearing follows playback', (
@@ -609,7 +755,7 @@ void main() {
         ),
       );
       scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
-      await tester.pump();
+      await tester.pumpAndSettle();
       _expectLineAtPlaybackAnchor(tester, find.text('edge lyric 19'));
       expect(
         scrollable.position.pixels,
@@ -669,7 +815,146 @@ void main() {
     },
   );
 
-  testWidgets('dragged tablet lyric preview leaves its bottom edge clear', (
+  testWidgets(
+    'mouse wheel lyric browsing survives resize and resumes following',
+    (tester) async {
+      final wheelLyrics = List.generate(
+        48,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'wheel lyric $index',
+        ),
+      );
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 20));
+      await tester.binding.setSurfaceSize(const Size(640, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: wheelLyrics),
+              ),
+            ),
+            audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+            durationProvider.overrideWith((ref) => const Stream.empty()),
+            isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: FullLyricDisplay(
+                isPortrait: true,
+                showPlaybackLineControls: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('full-lyric-list'));
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(list),
+          scrollDelta: const Offset(0, 180),
+        ),
+      );
+      await tester.pumpAndSettle();
+      String? playbackLineTime() => tester
+          .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+          .data;
+      final browsedTime = playbackLineTime();
+      expect(browsedTime, isNot('00:20'));
+
+      await tester.binding.setSurfaceSize(const Size(720, 844));
+      await tester.pumpAndSettle();
+      expect(playbackLineTime(), browsedTime);
+      positions.add(const Duration(seconds: 21));
+      await tester.pump(const Duration(seconds: 1));
+      expect(playbackLineTime(), browsedTime);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      _expectLineAtPlaybackAnchor(tester, find.text('wheel lyric 21'));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'browsing retains its position within a wrapped lyric on resize',
+    (tester) async {
+      final wrapped = List.filled(
+        60,
+        'a wrapped subtitle with several words',
+      ).join(' ');
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: [
+                    LyricLine(
+                      startTime: Duration.zero,
+                      endTime: const Duration(seconds: 1),
+                      text: wrapped,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: FullLyricDisplay(isPortrait: true, suspendAutoScroll: true),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('full-lyric-list'));
+      final row = find
+          .ancestor(of: find.text(wrapped), matching: find.byType(InkWell))
+          .first;
+      expect(
+        tester.getSize(row).height,
+        greaterThan(tester.getSize(list).height * 2),
+      );
+      await tester.drag(list, const Offset(0, -180));
+      await tester.pumpAndSettle();
+      double readingFraction() {
+        final viewport = tester.getRect(list);
+        final rect = tester.getRect(row);
+        return (viewport.top + viewport.height * 0.4 - rect.top) / rect.height;
+      }
+
+      final browsedFraction = readingFraction();
+      expect(browsedFraction, inExclusiveRange(0, 0.4));
+      for (final width in [391.0, 640.0]) {
+        await tester.binding.setSurfaceSize(Size(width, 844));
+        await tester.pumpAndSettle();
+        expect(readingFraction(), closeTo(browsedFraction, 0.01));
+      }
+      final settings = ProviderScope.containerOf(
+        tester.element(find.byType(FullLyricDisplay)),
+      ).read(playerLyricSettingsProvider.notifier);
+      await settings.updateFullFontSize(22);
+      await tester.pumpAndSettle();
+      expect(readingFraction(), closeTo(browsedFraction, 0.01));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('dragged tablet lyric preview leaves both edges clear', (
     tester,
   ) async {
     const pixelRatio = 2.5;
@@ -735,16 +1020,38 @@ void main() {
     await gesture.moveBy(const Offset(0, 10));
     await tester.pump(const Duration(milliseconds: 16));
 
-    final maskBottom = tester
-        .getRect(find.byKey(const ValueKey('compact-lyric-edge-fade-mask')))
-        .bottom;
-    final listBottom = tester.getRect(list).bottom;
-    final physicalMaskBottom = maskBottom * pixelRatio;
+    final maskRect = tester.getRect(
+      find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+    );
+    final listRect = tester.getRect(list);
+    final physicalMaskBottom = maskRect.bottom * pixelRatio;
     expect(
       physicalMaskBottom - physicalMaskBottom.floor(),
       closeTo(0.5, 0.001),
     );
-    expect((maskBottom - listBottom) * pixelRatio, closeTo(1, 0.001));
+    expect((listRect.top - maskRect.top) * pixelRatio, closeTo(1, 0.001));
+    expect((maskRect.bottom - listRect.bottom) * pixelRatio, closeTo(1, 0.001));
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+            matching: find.byType(RepaintBoundary),
+          )
+          .first,
+    );
+    final image = (await tester.runAsync(
+      () => boundary.toImage(pixelRatio: pixelRatio),
+    ))!;
+    addTearDown(image.dispose);
+    final pixels = (await tester.runAsync(
+      () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+    ))!;
+    for (final row in [0, image.height - 1]) {
+      expect([
+        for (var x = 0; x < image.width; x++)
+          pixels.getUint8((row * image.width + x) * 4 + 3),
+      ], everyElement(0));
+    }
     expect(scrollable.position.pixels, lessThan(initialOffset));
     await gesture.up();
   });
@@ -1101,9 +1408,14 @@ void main() {
 
       positions.add(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      final hiddenOffset = scrollable.position.pixels;
-      expect(hiddenOffset, greaterThan(initialOffset));
+      expect(scrollable.position.pixels, greaterThan(initialOffset));
       _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
+
+      await tester.binding.setSurfaceSize(const Size(360, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpAndSettle();
+      _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
+      final hiddenOffset = scrollable.position.pixels;
 
       updateActive(() => active = true);
       await tester.pump();
@@ -1264,6 +1576,78 @@ void main() {
     expect(find.byKey(const ValueKey('lyric-search-field')), findsNothing);
   });
 
+  testWidgets('resizing during a search transition keeps its target', (
+    tester,
+  ) async {
+    final searchLyrics = List.generate(
+      20,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: index == 5 || index == 8
+            ? 'needle lyric $index'
+            : 'other lyric $index',
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: searchLyrics),
+            ),
+          ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: PlayerLyricsSurface(
+              isWide: false,
+              onFullscreen: () {},
+              translateButton: const IconButton(
+                onPressed: null,
+                icon: Icon(Icons.translate),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lyric-search-field')),
+      'needle',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1/2'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey('full-lyric-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(scrollable.position.isScrollingNotifier.value, isTrue);
+    await tester.binding.setSurfaceSize(const Size(720, 844));
+    await tester.pumpAndSettle();
+    expect(find.text('2/2'), findsOneWidget);
+    _expectMatchAtPlaybackAnchor(tester, 'needle lyric 8', 0, 6);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'lyric search centers exact glyphs across five hundred wrapped lines',
     (tester) async {
@@ -1364,6 +1748,28 @@ void main() {
       await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
+      _expectMatchAtPlaybackAnchor(
+        tester,
+        middleText,
+        middleText.lastIndexOf('needle'),
+        middleText.length,
+      );
+
+      await tester.binding.setSurfaceSize(const Size(720, 844));
+      await tester.pumpAndSettle();
+      expect(find.text('2/3'), findsOneWidget);
+      _expectMatchAtPlaybackAnchor(
+        tester,
+        middleText,
+        middleText.lastIndexOf('needle'),
+        middleText.length,
+      );
+
+      final settings = ProviderScope.containerOf(
+        tester.element(find.byType(FullLyricDisplay)),
+      ).read(playerLyricSettingsProvider.notifier);
+      await settings.updateFullFontSize(22);
+      await tester.pumpAndSettle();
       _expectMatchAtPlaybackAnchor(
         tester,
         middleText,
@@ -1674,6 +2080,17 @@ void main() {
             .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
             .position,
         Duration(seconds: lineIndex * 10 + timelineOffset.inSeconds),
+      );
+      await tester.binding.setSurfaceSize(const Size(640, 720));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+            .data,
+        formatDuration(
+          Duration(seconds: lineIndex * 10 + timelineOffset.inSeconds),
+          padHours: false,
+        ),
       );
       expect(container.read(currentLyricIndexProvider), 0);
       expect(playbackToggles, 0);

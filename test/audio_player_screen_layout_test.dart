@@ -504,54 +504,212 @@ void main() {
     });
   }
 
-  for (final (size, textScale, fullArea) in const [
-    (Size(390, 844), 1.3, true),
-    (Size(360, 700), 2.0, false),
-    (Size(768, 1024), 1.3, true),
-    (Size(900, 1200), 1.3, true),
+  for (final (size, textScale, fullArea, showsFiveLines) in const [
+    (Size(390, 844), 1.3, true, true),
+    (Size(360, 700), 2.0, false, false),
+    (Size(768, 1024), 1.3, true, false),
+    (Size(768, 1400), 1.3, true, true),
   ]) {
-    testWidgets('portrait subtitle preview keeps its original area at $size', (
+    testWidgets(
+      'portrait preview uses empty space without moving controls at $size',
+      (tester) async {
+        await _pumpPlayer(tester, size, textScale: textScale);
+        final cover = find.byKey(
+          const ValueKey('player-cover-artwork-track-1'),
+        );
+        final controls = find.byKey(const ValueKey('controls-pane-compact'));
+        final progress = find.byKey(const ValueKey('player-progress-slider'));
+        final playButton = find.byType(PlayerPlayPauseButton);
+        final baseLyricArea = find.byKey(
+          const ValueKey('compact-main-lyric-area'),
+        );
+        final originalRects = [
+          (finder: cover, rect: tester.getRect(cover)),
+          (finder: controls, rect: tester.getRect(controls)),
+          (finder: progress, rect: tester.getRect(progress)),
+          (finder: playButton, rect: tester.getRect(playButton)),
+          (finder: baseLyricArea, rect: tester.getRect(baseLyricArea)),
+        ];
+        await tester.pumpWidget(const SizedBox.shrink());
+        final lyrics = List.generate(
+          12,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'portrait lyric $index',
+          ),
+        );
+        final seekPositions = <Duration>[];
+        await _pumpPlayer(
+          tester,
+          size,
+          textScale: textScale,
+          lyrics: lyrics,
+          positionStream: Stream.value(const Duration(seconds: 5)),
+          onSeek: seekPositions.add,
+        );
+        await tester.pumpAndSettle();
+
+        for (final original in originalRects) {
+          expect(
+            tester.getRect(original.finder),
+            rectMoreOrLessEquals(original.rect),
+          );
+        }
+        final preview = find.byKey(
+          const ValueKey('compact-lyric-edge-fade-mask'),
+        );
+        final coverRect = tester.getRect(cover);
+        final previewRect = tester.getRect(preview);
+        final areaHeight = tester.getSize(baseLyricArea).height;
+        expect(areaHeight, fullArea ? 144 : lessThan(144));
+        expect(previewRect.height, greaterThanOrEqualTo(areaHeight));
+        expect(previewRect.top, greaterThanOrEqualTo(coverRect.bottom - 0.01));
+        _expectSubtitleLineAtViewportCenter(tester, 'portrait lyric 5');
+
+        if (showsFiveLines) {
+          expect(previewRect.height, greaterThan(areaHeight));
+          for (final index in [3, 4, 5, 6, 7]) {
+            final row = tester.getRect(find.text('portrait lyric $index'));
+            expect(row.top, greaterThanOrEqualTo(previewRect.top + 12));
+            expect(row.bottom, lessThanOrEqualTo(previewRect.bottom - 12));
+          }
+          final expandedRow = find.text('portrait lyric 3');
+          expect(expandedRow.hitTestable(), findsOneWidget);
+          await tester.tap(expandedRow);
+          await tester.pump(const Duration(milliseconds: 700));
+          expect(seekPositions, [const Duration(seconds: 3)]);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('portrait wide player keeps its cover and right pane in place', (
+    tester,
+  ) async {
+    const size = Size(900, 1200);
+    await _pumpPlayer(tester, size, textScale: 1.3);
+    final cover = find.byKey(const ValueKey('player-cover-artwork-track-1'));
+    final controls = find.byKey(const ValueKey('controls-pane-wide'));
+    final coverRect = tester.getRect(cover);
+    final controlsRect = tester.getRect(controls);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _pumpPlayer(
       tester,
-    ) async {
-      await _pumpPlayer(tester, size, textScale: textScale);
-      final cover = find.byKey(const ValueKey('player-cover-artwork-track-1'));
-      final originalCoverWidth = tester.getSize(cover).width;
-      await tester.pumpWidget(const SizedBox.shrink());
-      final lyrics = List.generate(
+      size,
+      textScale: 1.3,
+      lyrics: List.generate(
         12,
         (index) => LyricLine(
           startTime: Duration(seconds: index),
           endTime: Duration(seconds: index + 1),
-          text: 'portrait lyric $index',
+          text: 'wide portrait lyric $index',
         ),
-      );
-      await _pumpPlayer(
-        tester,
-        size,
-        textScale: textScale,
-        lyrics: lyrics,
-        positionStream: Stream.value(const Duration(seconds: 5)),
-      );
-      await tester.pumpAndSettle();
-      final preview = find.byKey(
-        const ValueKey('compact-lyric-edge-fade-mask'),
-      );
-      expect(tester.getSize(preview).height, lessThanOrEqualTo(144));
-      if (size.width < playerWideLayoutBreakpoint) {
-        final areaHeight = tester
-            .getSize(find.byKey(const ValueKey('compact-main-lyric-area')))
-            .height;
-        if (fullArea) {
-          expect(areaHeight, 144);
-        } else {
-          expect(areaHeight, lessThan(144));
-        }
-      }
-      expect(tester.getSize(cover).width, closeTo(originalCoverWidth, 0.01));
-      _expectSubtitleLineAtViewportCenter(tester, 'portrait lyric 5');
-      expect(tester.takeException(), isNull);
-    });
-  }
+      ),
+      positionStream: Stream.value(const Duration(seconds: 5)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
+    expect(tester.getRect(cover), rectMoreOrLessEquals(coverRect));
+    expect(tester.getRect(controls), rectMoreOrLessEquals(controlsRect));
+    expect(
+      tester.getRect(find.byType(PlayerControlsWidget)),
+      rectMoreOrLessEquals(const Rect.fromLTRB(472, 624, 864, 821)),
+    );
+    final maskRect = tester.getRect(
+      find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+    );
+    for (final index in [3, 4, 5, 6, 7]) {
+      final row = tester.getRect(find.text('wide portrait lyric $index'));
+      expect(row.top, greaterThanOrEqualTo(maskRect.top + 12));
+      expect(row.bottom, lessThanOrEqualTo(maskRect.bottom - 12));
+    }
+    expect(find.text('wide portrait lyric 3').hitTestable(), findsOneWidget);
+    final preview = tester.getRect(
+      find.byKey(const ValueKey('player-lyric-preview')),
+    );
+    final controlsAfter = tester.getRect(controls);
+    expect(preview.bottom, lessThanOrEqualTo(controlsAfter.bottom));
+    expect(controlsAfter.bottom, lessThanOrEqualTo(size.height));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide preview keeps browsing state across rotation', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'wide rotate lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(900, 1200),
+      lyrics: lyrics,
+      positionStream: Stream.value(const Duration(seconds: 5)),
+    );
+    await tester.pumpAndSettle();
+    final preview = find.byType(ThreeLineLyricDisplay);
+    final state = tester.state(preview);
+    await tester.drag(preview, const Offset(0, -30));
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(1200, 900);
+    await tester.pumpAndSettle();
+    expect(tester.state(preview), same(state));
+    tester.view.physicalSize = const Size(900, 1200);
+    await tester.pumpAndSettle();
+    expect(tester.state(preview), same(state));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('portrait subtitle preview adapts after resizing', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'layout lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      textScale: 1.3,
+      lyrics: lyrics,
+      positionStream: Stream.value(const Duration(seconds: 5)),
+    );
+    await tester.pumpAndSettle();
+
+    _expectSubtitlePreviewReadable(
+      tester,
+      centerIndex: 5,
+      checkTwoNeighbors: true,
+    );
+    tester.view.physicalSize = const Size(768, 1024);
+    await tester.pumpAndSettle();
+
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    final previewRect = tester.getRect(
+      find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+    );
+    final controlsRect = tester.getRect(
+      find.byKey(const ValueKey('controls-pane-compact')),
+    );
+    expect(previewRect.top, greaterThanOrEqualTo(coverRect.bottom - 0.01));
+    expect(previewRect.bottom, lessThanOrEqualTo(controlsRect.top));
+    _expectSubtitleLineAtViewportCenter(tester, 'layout lyric 5');
+    expect(tester.takeException(), isNull);
+  });
 
   for (final (size, textScale) in const [
     (Size(500, 400), 1.0),
@@ -633,6 +791,143 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.state(preview), same(state));
     _expectSubtitleLineAtViewportCenter(tester, 'resize lyric 5');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('player lyric page adapts text across window sizes', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'full page lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: lyrics,
+      positionStream: Stream.value(const Duration(seconds: 5)),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+      const Offset(-240, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final display = find.byType(FullLyricDisplay);
+    final displayState = tester.state(display);
+    final active = find.descendant(
+      of: display,
+      matching: find.text('full page lyric 5'),
+    );
+    final phoneSize = tester.widget<Text>(active).style!.fontSize!;
+
+    tester.view.physicalSize = const Size(768, 1024);
+    await tester.pumpAndSettle();
+    expect(tester.state(display), same(displayState));
+    expect(
+      tester.widget<Text>(active).style!.fontSize!,
+      greaterThan(phoneSize),
+    );
+    expect(
+      tester.getCenter(active).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
+    );
+
+    tester.view.physicalSize = const Size(1280, 720);
+    await tester.pumpAndSettle();
+    final widePages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
+    );
+    expect(widePages.controller!.page, closeTo(2, 0.001));
+    expect(
+      tester.widget<Text>(active).style!.fontSize!,
+      greaterThan(phoneSize),
+    );
+    expect(
+      tester.getCenter(active).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
+    );
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final compactPages = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(compactPages.controller!.page, closeTo(2, 0.001));
+    expect(tester.widget<Text>(active).style!.fontSize!, phoneSize);
+    expect(
+      tester.getCenter(active).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('rotating during lyric following keeps the playback line', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 2));
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'transition lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: lyrics,
+      positionStream: positions.stream,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+      const Offset(-240, 0),
+    );
+    await tester.pumpAndSettle();
+
+    positions.add(const Duration(seconds: 5));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey('full-lyric-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(scrollable.position.isScrollingNotifier.value, isTrue);
+    tester.view.physicalSize = const Size(1280, 720);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getCenter(find.text('transition lyric 5')).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1978,7 +2273,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('lyric scroll offset survives compact and wide layouts', (
+  testWidgets('browsed lyric position survives compact and wide layouts', (
     tester,
   ) async {
     final lyrics = List.generate(
@@ -2000,13 +2295,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(widePages.controller!.page, 2);
 
-    final wideList = tester.widget<ListView>(
+    await tester.drag(
       find.byKey(const ValueKey('full-lyric-list')),
+      const Offset(0, -540),
     );
-    final widePosition = wideList.controller!.position;
-    expect(widePosition.maxScrollExtent, greaterThan(200));
-    widePosition.jumpTo(240);
-    await tester.pump();
+    await tester.pumpAndSettle();
+    String? playbackLineTime() => tester
+        .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+        .data;
+    final browsedTime = playbackLineTime();
+    expect(browsedTime, isNot('00:00'));
 
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
@@ -2014,22 +2312,12 @@ void main() {
       find.byKey(const ValueKey('compact-player-pages')),
     );
     expect(compactPages.controller!.page, 2);
-    final compactList = tester.widget<ListView>(
-      find.byKey(const ValueKey('full-lyric-list')),
-    );
-    expect(compactList.controller!.position.pixels, closeTo(240, 0.1));
+    expect(playbackLineTime(), browsedTime);
 
     tester.view.physicalSize = const Size(1280, 720);
     await tester.pumpAndSettle();
     expect(widePages.controller!.page, 2);
-    expect(
-      tester
-          .widget<ListView>(find.byKey(const ValueKey('full-lyric-list')))
-          .controller!
-          .position
-          .pixels,
-      closeTo(240, 0.1),
-    );
+    expect(playbackLineTime(), browsedTime);
     expect(tester.takeException(), isNull);
   });
 

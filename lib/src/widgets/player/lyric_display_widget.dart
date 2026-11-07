@@ -23,8 +23,8 @@ const _lyricTapFeedbackStaticDuration = Duration(milliseconds: 300);
 const _lyricTapFeedbackFallbackWindow = Duration(milliseconds: 360);
 const _lyricTapFeedbackAlpha = 0.10;
 const _lyricTapFeedbackRadius = 14.0;
-const _lyricPreviewBaseWidth = 334.0;
-const _lyricPreviewMaxScale = 1.45;
+const _lyricAdaptiveBaseWidth = 334.0;
+const _lyricAdaptiveMaxScale = 1.45;
 const _lyricPreviewFadeExtent = 12.0;
 
 double playerLyricPreviewHeight({
@@ -34,19 +34,24 @@ double playerLyricPreviewHeight({
   required TextScaler textScaler,
   required int lineCount,
   required bool compact,
+  double maxHeight = double.infinity,
 }) {
-  final widthScale = _lyricPreviewWidthScale(width);
+  final widthScale = _lyricWidthScale(width);
   final activeFontSize = fontSize * widthScale + (compact ? 0 : 1);
   final itemExtent = _lyricPreviewItemExtent(
     activeFontSize,
     lineHeight,
     textScaler,
   );
-  return lineCount * itemExtent + _lyricPreviewFadeExtent * 2;
+  return math.min(
+    maxHeight,
+    _visiblePreviewLineCount(lineCount, maxHeight, itemExtent) * itemExtent +
+        _lyricPreviewFadeExtent * 2,
+  );
 }
 
-double _lyricPreviewWidthScale(double width) => (width / _lyricPreviewBaseWidth)
-    .clamp(1.0, _lyricPreviewMaxScale)
+double _lyricWidthScale(double width) => (width / _lyricAdaptiveBaseWidth)
+    .clamp(1.0, _lyricAdaptiveMaxScale)
     .toDouble();
 
 double _lyricPreviewItemExtent(
@@ -621,6 +626,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       _lastIndex = null;
     }
     _latestIndex = index;
+    final edgeInset = 1 / MediaQuery.devicePixelRatioOf(context);
 
     Widget buildPreview(
       double previewHeight,
@@ -644,9 +650,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
               ).createShader(bounds),
               // Fractional mask edges can leave the last pixel unmasked.
               child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: 1 / MediaQuery.devicePixelRatioOf(context),
-                ),
+                padding: EdgeInsets.symmetric(vertical: edgeInset),
                 child: NotificationListener<UserScrollNotification>(
                   onNotification: _handleUserScrollNotification,
                   child: ListView.builder(
@@ -656,7 +660,10 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                     itemExtent: itemExtent,
                     scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
                     padding: EdgeInsets.symmetric(
-                      vertical: math.max(0.0, (previewHeight - itemExtent) / 2),
+                      vertical: math.max(
+                        0.0,
+                        (previewHeight - itemExtent) / 2 - edgeInset,
+                      ),
                     ),
                     itemCount: lyrics.length,
                     itemBuilder: (context, lyricIndex) {
@@ -768,8 +775,8 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       builder: (context, constraints) {
         final width = constraints.maxWidth.isFinite
             ? constraints.maxWidth
-            : _lyricPreviewBaseWidth;
-        final widthScale = _lyricPreviewWidthScale(width);
+            : _lyricAdaptiveBaseWidth;
+        final widthScale = _lyricWidthScale(width);
         final activeFontSize =
             settings.smallFontSize * widthScale + (widget.compact ? 0 : 1);
         final itemExtent = _lyricPreviewItemExtent(
@@ -813,7 +820,10 @@ int _visiblePreviewLineCount(
       maxHeight >= 5 * itemExtent + _lyricPreviewFadeExtent * 2) {
     return 5;
   }
-  if (maxHeight >= 3 * itemExtent + _lyricPreviewFadeExtent * 2) return 3;
+  if (requestedLineCount >= 3 &&
+      maxHeight >= 3 * itemExtent + _lyricPreviewFadeExtent * 2) {
+    return 3;
+  }
   return 1;
 }
 
@@ -1121,6 +1131,12 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   ConsumerState<FullLyricDisplay> createState() => _FullLyricDisplayState();
 }
 
+typedef _LyricBrowseAnchor = ({
+  List<LyricLine> lyrics,
+  int lineIndex,
+  double fraction,
+});
+
 class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     with SingleTickerProviderStateMixin {
   final ScrollController _ownedScrollController = ScrollController();
@@ -1139,6 +1155,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   bool _userScrollInProgress = false;
   bool _checkedStoredScrollOffset = false;
   bool _hasStoredScrollOffset = false;
+  bool _restoreFollowing = false;
+  _LyricBrowseAnchor? _restoredBrowseAnchor;
+  PageStorageBucket? _pageStorageBucket;
   Timer? _resumeAutoScrollTimer;
   Timer? _tapFeedbackClearTimer;
   Timer? _tapFeedbackDedupeTimer;
@@ -1152,6 +1171,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   LyricSearchMatch? _layoutSelectedMatch;
   int? _tapFeedbackIndex;
   int? _tapFeedbackDedupeIndex;
+
+  Object? get _scrollStorageIdentifier => widget.key is PageStorageKey
+      ? ('full-lyric-scroll-anchor', widget.key)
+      : null;
 
   @override
   void initState() {
@@ -1175,8 +1198,38 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     super.didChangeDependencies();
     if (_checkedStoredScrollOffset) return;
     _checkedStoredScrollOffset = true;
-    _hasStoredScrollOffset =
-        PageStorage.maybeOf(context)?.readState(context) is double;
+    _pageStorageBucket = PageStorage.maybeOf(context);
+    _hasStoredScrollOffset = _pageStorageBucket?.readState(context) is double;
+    final identifier = _scrollStorageIdentifier;
+    if (_hasStoredScrollOffset && identifier != null) {
+      final stored = _pageStorageBucket?.readState(
+        context,
+        identifier: identifier,
+      );
+      _restoreFollowing = stored == true;
+      _restoredBrowseAnchor = stored is _LyricBrowseAnchor ? stored : null;
+    }
+  }
+
+  @override
+  void deactivate() {
+    final identifier = _scrollStorageIdentifier;
+    final index = _currentLyricIndex;
+    if (identifier != null && _pageStorageBucket != null) {
+      final target = _autoScroll && !widget.suspendAutoScroll && index != null
+          ? _layoutTargetForLine(index, widget.visibleBottomInset)
+          : null;
+      final following =
+          target != null &&
+          ((target - _scrollController.position.pixels).abs() <= 2.1 ||
+              _scrollController.position.isScrollingNotifier.value);
+      _pageStorageBucket!.writeState(
+        context,
+        following ? true : _captureBrowseAnchor(),
+        identifier: identifier,
+      );
+    }
+    super.deactivate();
   }
 
   @override
@@ -1388,7 +1441,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       colors.primary,
       colors.onPrimary,
       textWidth,
-      textScaler.scale(16),
+      textScaler,
       textDirection,
       locale,
     );
@@ -1409,7 +1462,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     return _layoutIndex!;
   }
 
-  double? _layoutTargetForLine(int index, double visibleBottomInset) {
+  double? _layoutTargetForLine(
+    int index,
+    double visibleBottomInset, {
+    double lineFraction = 0.5,
+  }) {
     final layoutIndex = _layoutIndex;
     if (layoutIndex == null ||
         index < 0 ||
@@ -1431,7 +1488,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           currentIndex: _layoutCurrentIndex,
           selectedMatch: _layoutSelectedMatch,
         ) +
-        layout.extent / 2;
+        layout.extent * lineFraction;
     return (center - _playbackAnchorY(visibleBottomInset)).clamp(
       _scrollController.position.minScrollExtent,
       _scrollController.position.maxScrollExtent,
@@ -1475,6 +1532,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     bool ignoreAutoScroll = false,
     double? visibleBottomInset,
     Duration? animationDuration,
+    double lineFraction = 0.5,
   }) {
     if ((!_autoScroll || widget.suspendAutoScroll) && !ignoreAutoScroll) return;
     if (!_scrollController.hasClients || index < 0) return;
@@ -1489,6 +1547,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         force: force,
         request: request,
         visibleBottomInset: visibleBottomInset ?? widget.visibleBottomInset,
+        lineFraction: lineFraction,
       ),
     );
   }
@@ -1499,6 +1558,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     required bool force,
     required int request,
     required double visibleBottomInset,
+    required double lineFraction,
   }) async {
     if (!mounted ||
         request != _scrollRequestGeneration ||
@@ -1512,12 +1572,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         renderObject,
         duration,
         visibleBottomInset,
+        lineFraction: lineFraction,
       );
       return;
     }
     if (!force) return;
 
-    final target = _layoutTargetForLine(index, visibleBottomInset);
+    final target = _layoutTargetForLine(
+      index,
+      visibleBottomInset,
+      lineFraction: lineFraction,
+    );
     if (target == null) return;
     if (duration == Duration.zero) {
       _scrollController.jumpTo(target);
@@ -1550,6 +1615,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             ? Duration.zero
             : const Duration(milliseconds: 120),
         visibleBottomInset,
+        lineFraction: lineFraction,
       );
     }
   }
@@ -1747,6 +1813,37 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         widget.playbackAnchorFraction;
   }
 
+  _LyricBrowseAnchor? _captureBrowseAnchor() {
+    final layoutIndex = _layoutIndex;
+    if (layoutIndex == null || !_scrollController.hasClients) return null;
+    final anchorY = _playbackAnchorY(widget.visibleBottomInset);
+    final lineIndex = _lineAtPlaybackAnchor(layoutIndex.lyrics, anchorY);
+    if (lineIndex == null) return null;
+    final lineOffset = layoutIndex.offsetBefore(
+      lineIndex,
+      currentIndex: _layoutCurrentIndex,
+      selectedMatch: _layoutSelectedMatch,
+    );
+    final extent = layoutIndex.extentFor(
+      lineIndex,
+      currentIndex: _layoutCurrentIndex,
+      selectedMatch: _layoutSelectedMatch,
+    );
+    final fraction =
+        ((_scrollController.position.pixels +
+                    anchorY -
+                    _effectiveTopPadding -
+                    lineOffset) /
+                extent)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    return (
+      lyrics: layoutIndex.lyrics,
+      lineIndex: lineIndex,
+      fraction: fraction,
+    );
+  }
+
   int? _lineAtPlaybackAnchor(List<LyricLine> lyrics, double anchorY) {
     if (lyrics.isEmpty) return null;
     final layoutIndex = _layoutIndex;
@@ -1877,18 +1974,19 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   Future<void> _positionAtPlaybackAnchor(
     RenderBox item,
     Duration duration,
-    double visibleBottomInset,
-  ) async {
+    double visibleBottomInset, {
+    double lineFraction = 0.5,
+  }) async {
     if (!_scrollController.hasClients) return;
     final viewport = _viewportKey.currentContext?.findRenderObject();
     if (viewport is! RenderBox || !item.attached || !viewport.attached) return;
-    final itemCenter = item.localToGlobal(
-      item.size.center(Offset.zero),
+    final itemAnchor = item.localToGlobal(
+      Offset(item.size.width / 2, item.size.height * lineFraction),
       ancestor: viewport,
     );
     final target =
         (_scrollController.position.pixels +
-                itemCenter.dy -
+                itemAnchor.dy -
                 _playbackAnchorY(visibleBottomInset))
             .clamp(
               _scrollController.position.minScrollExtent,
@@ -1973,8 +2071,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollStartNotification &&
-        notification.dragDetails != null) {
+    if ((notification is ScrollStartNotification &&
+            notification.dragDetails != null) ||
+        (notification is UserScrollNotification &&
+            notification.direction != ScrollDirection.idle)) {
       _beginUserBrowse();
     } else if (notification is ScrollEndNotification && _userScrollInProgress) {
       _endUserBrowse();
@@ -2045,8 +2145,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       final previous = _currentLyricIndex;
       _currentLyricIndex = currentIndex;
       final restoredFirstLayout = previous == null && _hasStoredScrollOffset;
-      if (restoredFirstLayout) _hasStoredScrollOffset = false;
-      if (!restoredFirstLayout) {
+      final restoreFollowing =
+          restoredFirstLayout &&
+          _restoreFollowing &&
+          widget.snapToCurrentOnFirstLayout;
+      if (restoredFirstLayout) {
+        _hasStoredScrollOffset = false;
+        _restoreFollowing = false;
+      }
+      if (!restoredFirstLayout || restoreFollowing) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           _scrollToLyric(
@@ -2054,6 +2161,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             animate:
                 widget.isActive &&
                 seekingPosition == null &&
+                !restoreFollowing &&
                 !(widget.snapToCurrentOnFirstLayout && previous == null),
             force: previous == null || (currentIndex - previous).abs() > 5,
           );
@@ -2070,18 +2178,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final colors = theme.colorScheme;
           final baseStyle = theme.textTheme.bodyLarge ?? const TextStyle();
           final weight = _fontWeight(settings.fullFontWeight);
-          final activeStyle = baseStyle.copyWith(
-            color: colors.onSurface,
-            fontWeight: weight,
-            fontSize: settings.fullActiveFontSize,
-            height: settings.fullLineHeight,
-          );
-          final inactiveStyle = baseStyle.copyWith(
-            color: colors.onSurface.withValues(alpha: 0.34),
-            fontWeight: weight,
-            fontSize: settings.fullInactiveFontSize,
-            height: settings.fullLineHeight,
-          );
           final textScaler = MediaQuery.textScalerOf(context);
           final textDirection = Directionality.of(context);
           final locale = Localizations.maybeLocaleOf(context);
@@ -2118,9 +2214,70 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final textWidth = widget.showPlaybackLineControls
               ? math.min(requestedTextWidth, maxTextWidth)
               : requestedTextWidth;
+          final widthScale = _lyricWidthScale(textWidth);
+          final activeStyle = baseStyle.copyWith(
+            color: colors.onSurface,
+            fontWeight: weight,
+            fontSize: settings.fullActiveFontSize * widthScale,
+            height: settings.fullLineHeight,
+          );
+          final inactiveStyle = baseStyle.copyWith(
+            color: colors.onSurface.withValues(alpha: 0.34),
+            fontWeight: weight,
+            fontSize: settings.fullInactiveFontSize * widthScale,
+            height: settings.fullLineHeight,
+          );
           final normalizedQuery = widget.searchQuery.trim();
           final normalizedLayoutQuery =
               (widget.layoutSearchQuery ?? widget.searchQuery).trim();
+          final previousLayout = _layoutIndex;
+          final metricsChanged =
+              previousLayout != null &&
+              (previousLayout.textWidth != textWidth ||
+                  previousLayout.activeStyle.copyWith(
+                        color: activeStyle.color,
+                      ) !=
+                      activeStyle ||
+                  previousLayout.inactiveStyle.copyWith(
+                        color: inactiveStyle.color,
+                      ) !=
+                      inactiveStyle ||
+                  previousLayout.textScaler != textScaler ||
+                  previousLayout.textDirection != textDirection ||
+                  previousLayout.locale != locale);
+          final match = widget.selectedSearchMatch;
+          final canRestore =
+              metricsChanged &&
+              !_userScrollInProgress &&
+              _scrollController.hasClients &&
+              identical(match, _layoutSelectedMatch);
+          final matchTarget = canRestore && match != null
+              ? _preciseTargetForMatch(match, widget.visibleBottomInset) ??
+                    _layoutTargetForMatch(match, widget.visibleBottomInset)
+              : null;
+          final restoreMatch =
+              matchTarget != null &&
+              ((matchTarget - _scrollController.position.pixels).abs() <= 2.1 ||
+                  _scrollController.position.isScrollingNotifier.value);
+          final storedBrowseAnchor = _restoredBrowseAnchor;
+          _restoredBrowseAnchor = null;
+          final restoreBrowseAnchor =
+              storedBrowseAnchor != null &&
+                  identical(storedBrowseAnchor.lyrics, lyrics)
+              ? storedBrowseAnchor
+              : null;
+          if (restoreBrowseAnchor != null) {
+            _autoScroll = false;
+            _scheduleAutoScrollResume();
+          }
+          final browsedAnchor =
+              restoreBrowseAnchor ??
+              (canRestore &&
+                      !restoreMatch &&
+                      (!_autoScroll || widget.suspendAutoScroll)
+                  ? _captureBrowseAnchor()
+                  : null);
+          final request = _scrollRequestGeneration;
           final layoutIndex = _ensureLayoutIndex(
             lyrics: lyrics,
             query: normalizedLayoutQuery,
@@ -2134,6 +2291,34 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           );
           _layoutCurrentIndex = currentIndex;
           _layoutSelectedMatch = widget.selectedSearchMatch;
+          if (canRestore || browsedAnchor != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted ||
+                  _userScrollInProgress ||
+                  request != _scrollRequestGeneration ||
+                  !identical(layoutIndex, _layoutIndex) ||
+                  !identical(match, widget.selectedSearchMatch)) {
+                return;
+              }
+              if (restoreMatch && match != null) {
+                _scrollToMatch(
+                  match,
+                  animate: false,
+                  visibleBottomInset: () => widget.visibleBottomInset,
+                );
+              } else if (browsedAnchor != null) {
+                _scrollToLyric(
+                  browsedAnchor.lineIndex,
+                  animate: false,
+                  force: true,
+                  ignoreAutoScroll: true,
+                  lineFraction: browsedAnchor.fraction,
+                );
+              } else if (_autoScroll && !widget.suspendAutoScroll) {
+                _scrollToLyric(currentIndex, animate: false, force: true);
+              }
+            });
+          }
           final firstMatch = widget.selectedSearchMatch?.lineIndex == 0
               ? widget.selectedSearchMatch
               : null;
