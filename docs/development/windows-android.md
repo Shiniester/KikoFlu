@@ -133,6 +133,13 @@ future Flutter support for the repository's pinned Android Gradle Plugin or
 Kotlin versions are project upgrade work, not a reason to let Android Studio
 rewrite the build files.
 
+## Windows native archives
+
+CMake 4.3.1 can fail to extract `smtc_windows 0.1.3` through Flutter's plugin
+symlink, reporting `Cannot extract through symlink`. Extraction in the package's
+physical Pub cache directory succeeds. Complete that extraction before running
+the Windows INSTALL target, or use the documented CMake 3.22.1 toolchain.
+
 ## Performance toolchain
 
 `tool/performance/setup_android_toolchain.ps1` installs a separate, pinned SDK

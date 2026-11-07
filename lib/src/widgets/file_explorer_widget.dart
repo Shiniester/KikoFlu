@@ -12,7 +12,6 @@ import '../models/download_task.dart';
 import '../providers/auth_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/audio_provider.dart';
-import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/download_service.dart';
@@ -42,8 +41,6 @@ import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'app_bottom_dock_transition.dart';
 import 'app_navigation_scope.dart';
-import 'audio_subtitle_generation_sheet.dart';
-import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
 import 'work_detail/recommendation_section.dart';
@@ -590,33 +587,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     // 不需要手动调用 loadLyricForTrack
   }
 
-  Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
-    if (!mounted) return;
-    try {
-      if (!await confirmLyricTranslationIfNeeded(
-        context,
-        forGeneration: true,
-      )) {
-        return;
-      }
-      if (!mounted) return;
-      await ref
-          .read(audioSubtitleActionsProvider)
-          .startWork(
-            work: _work,
-            fileTree: _rootFiles,
-            variants: variants,
-            downloadedFiles: _downloadedFiles,
-            fileRelativePaths: _fileRelativePaths,
-          );
-      if (!mounted) return;
-      await showAudioSubtitleGenerationSheet(context);
-    } catch (error) {
-      if (!mounted) return;
-      SnackBarUtil.showError(context, error.toString());
-    }
-  }
-
   Future<void> _copyFileName(String title) async {
     await Clipboard.setData(ClipboardData(text: title));
     if (!mounted) return;
@@ -713,22 +683,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     String displayTitle,
     String parentPath, {
     List<dynamic>? audioFiles,
-    List<PlayerAudioVariant>? subtitleVariants,
   }) async {
     final isAudio = FileIconUtils.isAudioFile(file);
-    final generationVariants =
-        subtitleVariants ??
-        const PlayerAudioVariantClassifier().selectBest(
-          _audioVariants,
-          preference: ref.read(audioFormatPreferenceProvider),
-        );
-    final selectedVariant = _audioVariants
-        .where(
-          (variant) =>
-              identical(variant.source, file) &&
-              variant.parentPath == parentPath,
-        )
-        .firstOrNull;
     await showBottomSheetMenu<void>(
       context: context,
       children: [
@@ -737,26 +693,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isAudio) ...[
-                if (selectedVariant != null)
-                  ListTile(
-                    key: const ValueKey('file-action-generate-subtitles'),
-                    leading: const Icon(Icons.subtitles_outlined),
-                    title: Text(S.of(context).subtitleGenerate),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      _generateSubtitles([selectedVariant]);
-                    },
-                  ),
-                if (generationVariants.isNotEmpty)
-                  ListTile(
-                    key: const ValueKey('file-action-generate-all-subtitles'),
-                    leading: const Icon(Icons.playlist_add_check),
-                    title: Text(S.of(context).subtitleGenerateAll),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      _generateSubtitles(generationVariants);
-                    },
-                  ),
                 ListTile(
                   key: const ValueKey('file-action-add-to-queue'),
                   leading: const Icon(Icons.playlist_add),
@@ -1153,14 +1089,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
-      onAudioLongPress: (file, title, path, files, variants) =>
-          _showFileActionMenu(
-            file,
-            title,
-            path,
-            audioFiles: files,
-            subtitleVariants: variants,
-          ),
+      onAudioLongPress: (file, title, path, files) =>
+          _showFileActionMenu(file, title, path, audioFiles: files),
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,

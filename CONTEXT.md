@@ -300,8 +300,7 @@ Work Details Screen. Related Recommendations is the rightmost tab of online
 details when enabled; Images and Videos are present only when the work has
 resource images or videos, respectively. Videos follows Images and precedes
 Related Recommendations. Audio
-contains preferred audio files and their best matching work subtitles, with
-locally generated subtitles available through the same per-audio preview action; Images
+contains preferred audio files and their best matching work subtitles; Images
 contains the work's resource images, separate from its cover. Videos contains the
 work's resource videos.
 For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapters
@@ -381,9 +380,6 @@ the synchronized display in the Player Lyrics Page.
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
 Translation is active. Otherwise, work subtitle previews show the original text.
-Generated subtitle previews start with an available generated translation and
-allow switching back to the original. Without a completed translation, the
-preview shows the generated original.
 Translation uses the current original text, including edits. Editing the original
 invalidates its previous translation.
 
@@ -458,16 +454,6 @@ separately from Sound Effects.
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
-
-**Audio Subtitle Generation (音频字幕生成)**:
-Producing synchronized original-language subtitles from an audio file on the
-user's device. It is distinct from translating existing subtitle text.
-_Avoid_: Subtitle translation
-
-**Generated Subtitle Translation (生成字幕翻译)**:
-Automatic translation of newly generated original-language subtitles using the
-selected Translation Source and global translation target. The original subtitles
-remain available independently of the translation.
 
 **Translation Source (翻译源)**:
 The translation provider selected in Settings, with the app's existing fallback

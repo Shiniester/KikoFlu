@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,7 +10,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/cache_service.dart';
-import '../services/generated_subtitle_store.dart';
 import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_library_service.dart';
@@ -19,7 +17,6 @@ import '../services/storage_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/remote_text_loader.dart';
 import '../providers/settings_provider.dart';
-import '../providers/lyric_provider.dart';
 import '../providers/subtitle_search_query_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
@@ -885,52 +882,13 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           // 使用智能编码检测读取文件
           final content = await _readFileWithEncoding(localFile);
           if (!mounted) return;
-          String? translated;
-          String? translationTargetKey;
-          if (GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) {
-            final targetLocale = await ref.read(
-              effectiveTranslationTargetLocaleProvider.future,
-            );
-            if (!mounted) return;
-            translationTargetKey = GeneratedSubtitleStore.targetLanguageKey(
-              targetLocale,
-            );
-            translated = ref
-                .read(lyricControllerProvider.notifier)
-                .generatedTranslationContent(
-                  localPath,
-                  targetLocale: targetLocale,
-                );
-            if (translated == null) {
-              try {
-                final translatedPath = await const GeneratedSubtitleStore()
-                    .findTranslation(localPath, targetLocale: targetLocale);
-                if (translatedPath != null) {
-                  translated = await File(translatedPath).readAsString();
-                }
-              } on FileSystemException {
-                // The original remains readable if the optional translation is removed.
-              }
-            }
-            if (!mounted) return;
-            final latestTarget = await ref.read(
-              effectiveTranslationTargetLocaleProvider.future,
-            );
-            if (translationTargetKey !=
-                GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
-              translated = null;
-            }
-          }
-          if (!mounted) return;
           setState(() {
             _content = content;
             _textController.text = content;
-            _translatedContent = translated;
-            _translationTargetKey = translated == null
-                ? null
-                : translationTargetKey;
-            _translatedTextController.text = translated ?? '';
-            _showTranslation = translated != null;
+            _translatedContent = null;
+            _translationTargetKey = null;
+            _translatedTextController.clear();
+            _showTranslation = false;
             _isLoading = false;
           });
           _maybeAutoOpenSearchFromPreference();
@@ -1027,7 +985,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         effectiveTranslationTargetLocaleProvider.future,
       );
       if (!mounted || generation != _translationGeneration) return;
-      final targetKey = GeneratedSubtitleStore.targetLanguageKey(targetLocale);
+      final targetKey = TranslationService.targetLanguageKey(targetLocale);
       _translationTargetKey = targetKey;
       final translateContent = widget.translateContentForTesting;
       final translated = translateContent == null
@@ -1051,7 +1009,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         effectiveTranslationTargetLocaleProvider.future,
       );
       if (!mounted || generation != _translationGeneration) return;
-      if (targetKey != GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
+      if (targetKey != TranslationService.targetLanguageKey(latestTarget)) {
         setState(() => _isTranslating = false);
         return;
       }
@@ -1074,7 +1032,6 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         sourceContent,
         translated,
         generation,
-        targetLocale,
       );
     } catch (e) {
       if (!mounted || generation != _translationGeneration) return;
@@ -1090,7 +1047,6 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     String sourceContent,
     String translatedContent,
     int generation,
-    Locale targetLocale,
   ) async {
     if (translatedContent.isEmpty ||
         translatedContent == sourceContent ||
@@ -1107,21 +1063,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           _textController.text == sourceContent;
       if (!enabled || !isCurrent()) return;
 
-      final originalPath = LocalFileUrl.pathFromUrl(widget.textUrl);
-      if (originalPath != null &&
-          GeneratedSubtitleStore.isGeneratedOriginalPath(originalPath)) {
-        await const GeneratedSubtitleStore().saveTranslation(
-          originalPath,
-          translatedContent,
-          targetLocale: targetLocale,
-          cancelToken: CancelToken(),
-        );
-      } else {
-        await _writeSubtitleToLibrary(
-          translatedContent,
-          shouldWrite: isCurrent,
-        );
-      }
+      await _writeSubtitleToLibrary(translatedContent, shouldWrite: isCurrent);
       if (mounted && isCurrent()) widget.onSavedToLibrary?.call();
     } catch (e) {
       LogService.instance.error(
@@ -1132,10 +1074,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _maybeAutoTranslateContent() {
-    final localPath = LocalFileUrl.pathFromUrl(widget.textUrl);
     if (!widget.autoTranslate ||
-        (localPath != null &&
-            GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) ||
         _autoTranslationStarted ||
         !FileIconUtils.isLyricFile(widget.title) ||
         _content == null ||
@@ -1167,7 +1106,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       if (target == null ||
           _translationTargetKey == null ||
           _translationTargetKey ==
-              GeneratedSubtitleStore.targetLanguageKey(target)) {
+              TranslationService.targetLanguageKey(target)) {
         return;
       }
       setState(() {
@@ -1248,7 +1187,12 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           ),
         ],
       ),
-      body: SafeArea(top: false, left: false, right: false, child: _buildBody()),
+      body: SafeArea(
+        top: false,
+        left: false,
+        right: false,
+        child: _buildBody(),
+      ),
     );
   }
 

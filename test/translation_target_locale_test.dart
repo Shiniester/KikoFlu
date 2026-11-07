@@ -3,10 +3,37 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/services/translation_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'subtitle translation keeps simplified and traditional targets separate',
+    () {
+      const simplified = Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hans',
+      );
+      const traditional = Locale.fromSubtags(
+        languageCode: 'zh',
+        scriptCode: 'Hant',
+      );
+      expect(
+        TranslationService.targetLanguageKey(const Locale('zh')),
+        'zh-Hans',
+      );
+      expect(TranslationService.targetLanguageKey(simplified), 'zh-Hans');
+      expect(TranslationService.targetLanguageKey(traditional), 'zh-Hant');
+      for (final region in ['TW', 'HK', 'MO']) {
+        expect(
+          TranslationService.targetLanguageKey(Locale('zh', region)),
+          'zh-Hant',
+        );
+      }
+    },
+  );
 
   for (final (target, appLanguage, appScript, expected) in [
     ('zh_hans', 'en', null, 'zh-Hans'),

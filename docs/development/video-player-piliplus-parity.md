@@ -277,7 +277,7 @@ flutter test --no-pub --concurrency=1 test/videos test/work_detail_replacement_t
 方向判定自检见 [VideoOrientationCheck.kt](../../android/app/src/test/kotlin/com/meteor/kikoeruflutter/VideoOrientationCheck.kt)。
 
 Windows 使用 CMake 3.22.1 解压 `smtc_windows` 后完成 INSTALL。
-本机 CMake 4.3.1 的符号链接解压问题见[本地音频字幕构建记录](local-audio-subtitles.md)。
+本机 CMake 4.3.1 的符号链接解压问题见[Windows 原生依赖说明](windows-android.md#windows-native-archives)。
 
 真机回归覆盖视频画面、原生截图、全屏和画中画。
 字幕覆盖导入、关闭、从菜单选回、多文件切换和重载。

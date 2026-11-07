@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 
 import '../models/audio_track.dart';
 import '../services/subtitle_database.dart';
-import '../services/generated_subtitle_store.dart';
 import '../services/subtitle_library_service.dart';
 import '../services/subtitle_long_path.dart';
 import '../services/subtitle_language.dart';
@@ -221,17 +220,6 @@ class PlayerSubtitleCandidateRepository {
     if (candidateLanguage != previousLanguage) {
       return candidateLanguage ? -1 : 1;
     }
-    if (candidate.origin == PlayerSubtitleCandidateOrigin.library) {
-      final candidateGenerated = GeneratedSubtitleStore.isGeneratedOriginalPath(
-        candidate.source['localPath']?.toString() ?? '',
-      );
-      final previousGenerated = GeneratedSubtitleStore.isGeneratedOriginalPath(
-        previous.source['localPath']?.toString() ?? '',
-      );
-      if (candidateGenerated != previousGenerated) {
-        return candidateGenerated ? -1 : 1;
-      }
-    }
     final scoreCompare = previous.matchScore.compareTo(candidate.matchScore);
     if (scoreCompare != 0) return scoreCompare;
     if (candidate.sameDirectory != previous.sameDirectory) {
@@ -267,31 +255,7 @@ class PlayerSubtitleCandidateRepository {
 
       final result = <PlayerSubtitleCandidate>[];
       final originalPaths = <String, SubtitleLongPathInfo?>{};
-      final generated = await const GeneratedSubtitleStore().find(track);
-      if (generated != null) {
-        result.add(
-          PlayerSubtitleCandidate(
-            identity: _localIdentity(generated),
-            title: p.basename(generated),
-            pathLabel: p.relative(generated, from: root),
-            origin: PlayerSubtitleCandidateOrigin.library,
-            source: <String, dynamic>{
-              'title': p.basename(generated),
-              'localPath': generated,
-              'workId': track.workId,
-            },
-            matchesCurrentAudio: true,
-            matchScore: 1,
-            sameDirectory: false,
-          ),
-        );
-      }
       for (final record in records) {
-        if (GeneratedSubtitleStore.isGeneratedRelativePath(
-          record.relativePath,
-        )) {
-          continue;
-        }
         final absolutePath = record.absolutePath(root);
         if (!await File(absolutePath).exists()) continue;
         final directory = p.dirname(absolutePath);

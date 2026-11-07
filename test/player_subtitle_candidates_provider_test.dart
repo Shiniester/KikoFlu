@@ -104,6 +104,51 @@ void main() {
   );
 
   test(
+    'legacy generated-folder subtitles use normal library ranking',
+    () async {
+      final repository = PlayerSubtitleCandidateRepository(
+        libraryLoader: (_) async => const [
+          PlayerSubtitleCandidate(
+            identity: 'legacy-saved',
+            title: 'scene01.en.srt',
+            pathLabel: '已保存/生成字幕/scene01.en.srt',
+            origin: PlayerSubtitleCandidateOrigin.library,
+            source: {
+              'localPath': '/library/已保存/生成字幕/scene01.en.srt',
+              'workId': 42,
+            },
+            matchesCurrentAudio: true,
+            matchScore: 0.8,
+            sameDirectory: false,
+          ),
+          PlayerSubtitleCandidate(
+            identity: 'regular-saved',
+            title: 'scene01.en.srt',
+            pathLabel: '已保存/scene01.en.srt',
+            origin: PlayerSubtitleCandidateOrigin.library,
+            source: {'localPath': '/library/已保存/scene01.en.srt', 'workId': 42},
+            matchesCurrentAudio: true,
+            matchScore: 1,
+            sameDirectory: false,
+          ),
+        ],
+      );
+
+      final candidates = await repository.load(
+        track: _track,
+        fileTree: const [],
+        libraryPriority: SubtitleLibraryPriority.highest,
+        targetLocale: const Locale('en'),
+      );
+
+      expect(candidates.map((candidate) => candidate.identity), [
+        'regular-saved',
+        'legacy-saved',
+      ]);
+    },
+  );
+
+  test(
     'merges recursive work subtitles and keeps current source first',
     () async {
       final repository = PlayerSubtitleCandidateRepository(
