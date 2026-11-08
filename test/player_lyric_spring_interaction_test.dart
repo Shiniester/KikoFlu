@@ -314,6 +314,73 @@ void main() {
     _expectAnchor(tester, 'spring 60');
   });
 
+  testWidgets('same-line seek continues following later lyrics', (
+    tester,
+  ) async {
+    final playback = await _mount(
+      tester,
+      position: const Duration(milliseconds: 1200),
+    );
+    playback.discontinuities.add(
+      PositionDiscontinuity(
+        PositionDiscontinuityReason.seek,
+        PlaybackEvent(
+          currentIndex: 0,
+          updatePosition: const Duration(milliseconds: 1200),
+        ),
+        PlaybackEvent(
+          currentIndex: 0,
+          updatePosition: const Duration(milliseconds: 1700),
+        ),
+      ),
+    );
+    playback.positions.add(const Duration(milliseconds: 1700));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 1');
+    for (final next in [2, 3]) {
+      playback.positions.add(Duration(seconds: next));
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring $next');
+    }
+  });
+
+  testWidgets('seek target passed before a frame follows current playback', (
+    tester,
+  ) async {
+    final playback = await _mount(
+      tester,
+      lyrics: List.generate(
+        80,
+        (index) => LyricLine(
+          startTime: index == 2
+              ? const Duration(milliseconds: 1001)
+              : Duration(seconds: index),
+          endTime: index == 1
+              ? const Duration(milliseconds: 1001)
+              : Duration(seconds: index + 1),
+          text: 'spring $index',
+        ),
+      ),
+    );
+    playback.discontinuities.add(_jump(0, 1));
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.idle();
+    playback.positions.add(const Duration(milliseconds: 1002));
+    await tester.idle();
+    for (var frame = 0; frame < 4; frame++) {
+      await tester.pump();
+    }
+    _expectAnchor(tester, 'spring 2');
+    final adjacent = tester.getCenter(find.text('spring 4'));
+    await _frames(tester, 30);
+    expect(tester.getCenter(find.text('spring 4')), adjacent);
+    for (final next in [3, 4]) {
+      playback.positions.add(Duration(seconds: next));
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring $next');
+    }
+  });
+
   for (final target in [1, 2, 0, 70]) {
     testWidgets(
       'explicit seek to line $target cancels queued and moving targets',

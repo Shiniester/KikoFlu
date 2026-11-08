@@ -1315,7 +1315,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   Timer? _tapFeedbackDedupeTimer;
   final Map<int, Timer> _pointerFeedbackSuppressions = {};
   int _scrollRequestGeneration = 0;
-  int? _pendingDiscontinuityIndex;
+  ({int index, int originIndex})? _pendingDiscontinuity;
   List<LyricLine>? _lastDisplayLyrics;
   String? _lastTrackKey;
   PlayerLyricSpringPreset _springPreset = PlayerLyricSpringPreset.defaultPreset;
@@ -1654,7 +1654,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }) {
     _scrollRequestGeneration++;
     _clearLyricMotion();
-    _pendingDiscontinuityIndex = null;
+    _pendingDiscontinuity = null;
     final isSeek = discontinuity.reason == PositionDiscontinuityReason.seek;
     final isLoop =
         discontinuity.reason == PositionDiscontinuityReason.autoAdvance &&
@@ -1670,7 +1670,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
     final index = _indexForPosition(discontinuity.event.updatePosition, lyrics);
     if (index < 0) return;
-    _pendingDiscontinuityIndex = index;
+    final originIndex = ref.read(currentLyricIndexProvider);
+    setState(() {
+      _pendingDiscontinuity = (index: index, originIndex: originIndex);
+    });
     final request = _scrollRequestGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -2717,7 +2720,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final wasFollowing = _autoScroll;
     _autoScroll = false;
     _scrollRequestGeneration++;
-    _pendingDiscontinuityIndex = null;
+    _pendingDiscontinuity = null;
     _freezeLyricMotion();
     if (wasFollowing) _lyricMotionFrame.value++;
   }
@@ -2831,7 +2834,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _lastDisplayLyrics = null;
       _lastTrackKey = lyricContent.trackKey;
       _currentLyricIndex = null;
-      _pendingDiscontinuityIndex = null;
+      _pendingDiscontinuity = null;
       _pendingTappedIndex = null;
       _pendingTapOriginIndex = null;
       _layoutFingerprint = null;
@@ -2852,7 +2855,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _clearLyricMotion(notify: false);
       _clearTapFeedbackState(notify: false);
       _currentLyricIndex = null;
-      _pendingDiscontinuityIndex = null;
+      _pendingDiscontinuity = null;
       _pendingTappedIndex = null;
       _pendingTapOriginIndex = null;
       _itemKeys.clear();
@@ -2863,17 +2866,20 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final seekingIndex = seekingPosition == null
         ? null
         : _indexForPosition(seekingPosition, lyrics);
-    final pendingDiscontinuityIndex = _pendingDiscontinuityIndex;
+    final pendingDiscontinuity = _pendingDiscontinuity;
+    // Playback can pass a short seek target before this widget builds.
+    final discontinuityAcknowledged =
+        pendingDiscontinuity != null &&
+        (playbackIndex == pendingDiscontinuity.index ||
+            (playbackIndex >= 0 &&
+                playbackIndex != pendingDiscontinuity.originIndex));
+    if (discontinuityAcknowledged) _pendingDiscontinuity = null;
     final pendingIndex = seekingPosition == null ? _pendingTappedIndex : null;
     final currentIndex =
         seekingIndex ??
-        pendingDiscontinuityIndex ??
+        (discontinuityAcknowledged ? null : pendingDiscontinuity?.index) ??
         pendingIndex ??
         playbackIndex;
-    if (pendingDiscontinuityIndex != null &&
-        playbackIndex == pendingDiscontinuityIndex) {
-      _pendingDiscontinuityIndex = null;
-    }
     if (_pendingTappedIndex case final requestedIndex?) {
       final originIndex = _pendingTapOriginIndex;
       final requestSettled =
@@ -2892,7 +2898,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       final previousScale = _captureLyricScales(previous ?? currentIndex);
       final previousCenters = _captureLyricCenters();
       final previousTextCenters = _captureLyricTextCenters();
-      final isDiscontinuity = pendingDiscontinuityIndex == currentIndex;
+      final isDiscontinuity = pendingDiscontinuity != null;
       _currentLyricIndex = currentIndex;
       final restoredFirstLayout = previous == null && _hasStoredScrollOffset;
       final restoreFollowing =
@@ -2956,6 +2962,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   !restoreFollowing &&
                   !(widget.snapToCurrentOnFirstLayout && previous == null),
               force:
+                  isDiscontinuity ||
                   previewChanged ||
                   previous == null ||
                   (currentIndex - previous).abs() > 5,
