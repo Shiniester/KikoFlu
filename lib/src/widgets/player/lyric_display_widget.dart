@@ -1300,6 +1300,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   bool _appLifecycleVisible = true;
   bool _reducedMotion = false;
   int? _currentLyricIndex;
+  Duration? _lastSeekingPosition;
   int? _pendingTappedIndex;
   int? _pendingTapOriginIndex;
   bool _autoScroll = true;
@@ -1723,11 +1724,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _startLyricMotionTicker();
   }
 
-  Future<void> _startLyricSpringFollow({
+  void _startLyricSpringFollow({
     required int index,
     required int previousIndex,
     required int request,
-  }) async {
+  }) {
     if (!mounted ||
         request != _scrollRequestGeneration ||
         !_shouldAnimateLyrics ||
@@ -1755,40 +1756,20 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
     final now = _lyricMotionSeconds;
     final previousSamples = <int, _LyricSpringSample>{};
-    final previousOffsets = <int, double>{};
     for (final index in _itemKeys.keys) {
       final sample =
           _lyricMotion[index]?.sample(now) ?? _frozenLyricMotion[index];
       if (sample == null) continue;
       previousSamples[index] = sample;
-      final baseY = _lyricMotionBaseY[index];
-      if (baseY != null) previousOffsets[index] = sample.y - baseY;
     }
-    final transitionRequest = ++_scrollRequestGeneration;
-    _freezeLyricMotion();
-    final targetCenter = targetBox
-        .localToGlobal(Offset(0, targetBox.size.height / 2), ancestor: viewport)
-        .dy;
-    final naturalTargetCenter = targetCenter - (previousOffsets[index] ?? 0);
+    _scrollRequestGeneration++;
     final targetScroll =
-        (_scrollController.position.pixels +
-                naturalTargetCenter -
+        (_lyricContentCenter(index) -
                 _playbackAnchorY(widget.visibleBottomInset))
             .clamp(
               _scrollController.position.minScrollExtent,
               _scrollController.position.maxScrollExtent,
             );
-    if ((targetScroll - _scrollController.position.pixels).abs() > 0.01) {
-      _scrollController.jumpTo(targetScroll);
-    }
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted ||
-        transitionRequest != _scrollRequestGeneration ||
-        !_shouldAnimateLyrics ||
-        !_scrollController.hasClients) {
-      return;
-    }
-
     final visibleRows = <({int index, double center})>[];
     for (final entry in _itemKeys.entries) {
       final renderObject = entry.value.currentContext?.findRenderObject();
@@ -1837,12 +1818,14 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
 
     final motionStartTime = _lyricMotionSeconds;
+    // A selection can change between this frame's build and its callbacks.
+    _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
     final spring = _lyricPositionSpring(_springPreset);
     _lyricMotion.clear();
     _frozenLyricMotion.clear();
     _lyricMotionBaseY.clear();
     for (final row in visibleRows) {
-      final targetY = row.center - (previousOffsets[row.index] ?? 0);
+      final targetY = _lyricContentCenter(row.index) - targetScroll;
       _lyricMotionBaseY[row.index] = targetY;
       final previousSample = previousSamples[row.index];
       final startY = _startLyricPosition(row, previousSample);
@@ -1871,7 +1854,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         continue;
       }
       _lyricMotion[row.index] = _LyricSpringMotion(
-        startY: _startLyricPosition(row, previousSample),
+        startY: startY,
         targetY: targetY,
         velocityY: velocityY,
         startScale: startScale,
@@ -1886,7 +1869,26 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _pendingLyricY.clear();
     _pendingLyricTextY.clear();
     _lyricMotionFrame.value++;
+    if ((targetScroll - _scrollController.position.pixels).abs() > 0.01) {
+      _scrollController.jumpTo(targetScroll);
+    }
     _startLyricMotionTicker();
+  }
+
+  double _lyricContentCenter(int index) {
+    final layout = _layoutIndex!;
+    return _effectiveTopPadding +
+        layout.offsetBefore(
+          index,
+          currentIndex: _layoutCurrentIndex,
+          selectedMatch: _layoutSelectedMatch,
+        ) +
+        layout.extentFor(
+              index,
+              currentIndex: _layoutCurrentIndex,
+              selectedMatch: _layoutSelectedMatch,
+            ) /
+            2;
   }
 
   double _startLyricPosition(
@@ -1926,6 +1928,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     required double targetScale,
     required Widget child,
   }) {
+    final contentCenter = _lyricContentCenter(index);
     return AnimatedBuilder(
       animation: _lyricMotionFrame,
       child: child,
@@ -1933,11 +1936,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         final sample = _lyricMotion[index]?.sample(_lyricMotionSeconds);
         final frozen = _frozenLyricMotion[index];
         final baseY = _lyricMotionBaseY[index];
-        final offset = baseY == null
-            ? 0.0
+        final naturalY = contentCenter - _scrollController.position.pixels;
+        final pendingY = _pendingLyricY[index];
+        final offset = pendingY != null
+            ? pendingY - naturalY
             : sample != null
-            ? sample.y - baseY
-            : frozen != null
+            ? sample.y - naturalY
+            : frozen != null && baseY != null
             ? frozen.y - baseY
             : 0.0;
         final scale =
@@ -2801,6 +2806,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   Widget _buildDisplay(BuildContext context, Duration? seekingPosition) {
+    final previewChanged = seekingPosition != _lastSeekingPosition;
+    _lastSeekingPosition = seekingPosition;
     final lyricContent = ref.watch(
       lyricControllerProvider.select(
         (state) => (lyrics: state.displayLyrics, trackKey: state.trackKey),
@@ -2878,7 +2885,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       }
     }
 
-    if (currentIndex != _currentLyricIndex && currentIndex >= 0) {
+    if ((currentIndex != _currentLyricIndex || previewChanged) &&
+        currentIndex >= 0) {
       final previous = _currentLyricIndex;
       final previousScale = _captureLyricScales(previous ?? currentIndex);
       final previousCenters = _captureLyricCenters();
@@ -2924,12 +2932,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || motionRequest != _scrollRequestGeneration) return;
           if (canSpring) {
-            unawaited(
-              _startLyricSpringFollow(
-                index: currentIndex,
-                previousIndex: previous,
-                request: motionRequest,
-              ),
+            _startLyricSpringFollow(
+              index: currentIndex,
+              previousIndex: previous,
+              request: motionRequest,
             );
           } else {
             _scrollToLyric(

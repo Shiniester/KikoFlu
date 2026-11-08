@@ -41,6 +41,68 @@ void main() {
     },
   );
 
+  for (final interrupted in [false, true]) {
+    testWidgets(
+      'every retarget frame preserves adjacent text with interrupted=$interrupted',
+      (tester) async {
+        final playback = await _mount(tester);
+        if (interrupted) {
+          playback.positions.add(const Duration(seconds: 1));
+          await _frames(tester, 20);
+        }
+        final adjacent = find.text('spring 4');
+        final before = tester.getCenter(adjacent).dy;
+        playback.positions.add(Duration(seconds: interrupted ? 2 : 1));
+        for (var frame = 0; frame < 4; frame++) {
+          await tester.pump();
+          expect(
+            tester.getCenter(adjacent).dy,
+            closeTo(before, 0.5),
+            reason: 'retarget frame $frame must not expose the logical scroll',
+          );
+        }
+        await _frames(tester, 20);
+        expect(tester.getCenter(adjacent).dy, isNot(closeTo(before, 0.5)));
+        await tester.pumpAndSettle();
+        _expectAnchor(tester, 'spring ${interrupted ? 2 : 1}');
+      },
+    );
+  }
+
+  testWidgets('same-line preview stops pending cascade immediately', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 12);
+    playback.preview.value = (
+      isSeekingManually: true,
+      seekValue: 1.5,
+      position: const Duration(milliseconds: 1500),
+    );
+    for (var frame = 0; frame < 4; frame++) {
+      await tester.pump();
+    }
+    _expectAnchor(tester, 'spring 1');
+    final center = tester.getCenter(find.text('spring 4'));
+    await _frames(tester, 30);
+    expect(tester.getCenter(find.text('spring 4')), center);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    playback.preview.value = (
+      isSeekingManually: true,
+      seekValue: 1.8,
+      position: const Duration(milliseconds: 1800),
+    );
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 1');
+    expect(tester.getCenter(find.text('spring 4')), center);
+    playback.preview.value = null;
+    await tester.pumpAndSettle();
+    playback.positions.add(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 2');
+  });
+
   for (final input in ['drag', 'wheel', 'trackpad']) {
     testWidgets(
       '$input browsing cancels moving lyrics and resumes after three seconds',
