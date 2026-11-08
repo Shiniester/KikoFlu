@@ -16,6 +16,7 @@ import 'package:kikoeru_flutter/src/performance/performance_fixture_manifest.dar
 import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/background_work_scheduler.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
@@ -23,6 +24,7 @@ import 'package:kikoeru_flutter/src/services/screen_awake_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _profilePackage = String.fromEnvironment(
   'KIKOFLU_PROFILE_PACKAGE',
@@ -30,39 +32,48 @@ const _profilePackage = String.fromEnvironment(
 );
 
 /// Uses the production widgets, route and audio backend. Files and run controls
-/// are supplied through the test application's external-files directory.
+/// are supplied through the test application's private files directory.
 void main() {
   final startup = Stopwatch()..start();
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+  SharedPreferences.setMockInitialValues({});
 
   testWidgets('Android player Profile', (tester) async {
-    const root =
-        '/sdcard/Android/data/$_profilePackage/files/player_performance';
-    final control =
-        jsonDecode(await File('$root/control.json').readAsString())
-            as Map<String, dynamic>;
-    if (control['package'] != _profilePackage) {
-      throw StateError(
-        'Profile package mismatch: APK=$_profilePackage, '
-        'runner=${control['package']}',
-      );
-    }
-    final runNumber = (control['run'] as num).toInt();
-    final label = control['label'] as String;
-    final reportFile = File('$root/${label}_$runNumber.json');
+    const root = '/data/user/0/$_profilePackage/files/player_performance';
+    const fixtureRoot =
+        '/sdcard/Android/data/$_profilePackage/files/player_performance/fixtures';
+    final bootstrapFailureFile = File('$root/bootstrap_failure.json');
+    var control = <String, dynamic>{};
+    var runNumber = 0;
+    File? reportFile;
     final recorder = PerformanceRecorder.instance
       ..start(force: true)
       ..resetRun();
     final samples = <Map<String, Object?>>[];
     final checks = <Map<String, Object?>>[];
+    final metadata = <String, Object?>{};
     final positions = StreamController<Duration>.broadcast();
     final tracks = StreamController<AudioTrack?>();
     var presentationRevision = 0;
     final service = AudioPlayerService.instance;
     final navigator = GlobalKey<NavigatorState>();
     Object? failure;
+    Map<String, Object?>? recordedRun;
+    Duration? committedLyricSeek;
     try {
+      control =
+          jsonDecode(await File('$root/control.json').readAsString())
+              as Map<String, dynamic>;
+      if (control['package'] != _profilePackage) {
+        throw StateError(
+          'Profile package mismatch: APK=$_profilePackage, '
+          'runner=${control['package']}',
+        );
+      }
+      runNumber = (control['run'] as num).toInt();
+      final label = control['label'] as String;
+      reportFile = File('$root/${label}_$runNumber.json');
       app.main(const []);
       await _wait(tester, () => recorder.metric('firstInteractiveMs') != null);
       recorder.recordMetric('coldStartMs', startup.elapsedMicroseconds / 1000);
@@ -85,7 +96,7 @@ void main() {
         id: 'profile-visual',
         title: '播放器性能测试 · 日本語のタイトル',
         artist: 'Player Profile',
-        url: 'file://$root/fixtures/small_a.wav',
+        url: 'file://$fixtureRoot/small_a.wav',
         artworkUrl: cover.uri.toString(),
       );
       final queueTracks = List<AudioTrack>.generate(
@@ -105,7 +116,12 @@ void main() {
         (index) => LyricLine(
           startTime: Duration(seconds: index),
           endTime: Duration(seconds: index + 1),
-          text: '字幕 $index · 同じ景色を見ながら、ゆっくり歩いていく。',
+          text:
+              '字幕 $index · '
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。',
         ),
       );
       await tester.pumpWidget(
@@ -137,6 +153,13 @@ void main() {
             manualSkipAvailabilityProvider.overrideWith(
               (ref) => Stream.value(ManualSkipAvailability.unavailable),
             ),
+            if (control['lyricsOnly'] == true)
+              audioPlayerControllerProvider.overrideWith(
+                (ref) => _ProfileSeekController(service, ref, (position) {
+                  committedLyricSeek = position;
+                  positions.add(position);
+                }),
+              ),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
             lyricControllerProvider.overrideWith(
               (ref) => LyricController(
@@ -151,6 +174,13 @@ void main() {
             localizationsDelegates: S.localizationsDelegates,
             supportedLocales: S.supportedLocales,
             theme: ThemeData.dark(useMaterial3: true),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.noScaling,
+                disableAnimations: false,
+              ),
+              child: child!,
+            ),
             home: const Scaffold(
               body: Center(child: Text('Player Profile')),
               bottomNavigationBar: MiniPlayer(),
@@ -164,6 +194,36 @@ void main() {
         const ValueKey('mini-player-upward-launcher'),
       );
       final pages = find.byKey(const ValueKey('compact-player-pages'));
+      final profileContext = tester.element(launcher);
+      final profileContainer = ProviderScope.containerOf(
+        profileContext,
+        listen: false,
+      );
+      final style = profileContainer.read(playerLyricSettingsProvider);
+      metadata.addAll({
+        'lyricSpringPreset':
+            (await SharedPreferences.getInstance()).getString(
+              'player_lyric_spring_preset',
+            ) ??
+            'default',
+        'textScale': MediaQuery.textScalerOf(profileContext).scale(16) / 16,
+        'reducedMotion': MediaQuery.disableAnimationsOf(profileContext),
+        'lyricStyle': {
+          'activeFontSize': style.fullActiveFontSize,
+          'inactiveFontSize': style.fullInactiveFontSize,
+          'lineHeight': style.fullLineHeight,
+          'fontWeight': style.fullFontWeight,
+        },
+      });
+      expect(metadata['lyricSpringPreset'], 'default');
+      expect(metadata['textScale'], 1.0);
+      expect(metadata['reducedMotion'], false);
+      expect(metadata['lyricStyle'], {
+        'activeFontSize': 18.0,
+        'inactiveFontSize': 16.0,
+        'lineHeight': 1.5,
+        'fontWeight': 700,
+      });
       Future<void> beginScene(String name) async {
         // Read Android's current mode: Flutter's Display can retain the launch
         // refresh rate while the device switches its adaptive display mode.
@@ -274,6 +334,121 @@ void main() {
             swipe++;
           }
         }
+        navigator.currentState!.pop();
+        await tester.pump(const Duration(milliseconds: 650));
+      } else if (control['ui'] != false && control['lyricsOnly'] == true) {
+        for (var i = 0; i < cycles; i++) {
+          final seed = 10 + i * 2;
+          positions.add(Duration(seconds: seed));
+          await tester.pump(const Duration(milliseconds: 16));
+          await beginScene('lyricOpenClose$i');
+          await tester.tap(launcher);
+          await tester.pump(const Duration(milliseconds: 650));
+          await tester.drag(pages, const Offset(-300, 0));
+          await tester.pump(const Duration(milliseconds: 500));
+          expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+          expect(profileContainer.read(currentLyricIndexProvider), seed);
+          final movingLine = find.descendant(
+            of: find.byKey(const ValueKey('full-lyric-list')),
+            matching: find.text(lyrics[seed - 1].text),
+          );
+          final before = tester.getCenter(movingLine).dy;
+          positions.add(Duration(seconds: seed + 1));
+          for (var frame = 0; frame < 6; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          expect(tester.getCenter(movingLine).dy, isNot(closeTo(before, 0.1)));
+          final targetLine = find.descendant(
+            of: find.byKey(const ValueKey('full-lyric-list')),
+            matching: find.text(lyrics[seed + 1].text),
+          );
+          final anchor = tester.getCenter(
+            find.byKey(const ValueKey('playback-line-indicator')),
+          );
+          expect(
+            tester.getCenter(targetLine).dy,
+            isNot(closeTo(anchor.dy, 2.1)),
+          );
+          navigator.currentState!.pop();
+          await tester.pump(const Duration(milliseconds: 650));
+          recorder.endScenario();
+          await beginScene('lyricClosedIdle$i');
+          await tester.runAsync(() async {
+            await Future<void>.delayed(const Duration(seconds: 1));
+          });
+          recorder.endScenario();
+        }
+
+        positions.add(Duration.zero);
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.tap(launcher);
+        await tester.pump(const Duration(milliseconds: 650));
+        await tester.drag(pages, const Offset(-300, 0));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+
+        await beginScene('lyricFollow');
+        for (var i = 1; i <= 200; i++) {
+          positions.add(Duration(milliseconds: i * 100));
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        recorder.endScenario();
+
+        await beginScene('lyricJump');
+        for (final seconds in [400, 10, 320, 2, 498, 21]) {
+          final slider = find.byKey(
+            const ValueKey('player-progress-slider'),
+            skipOffstage: false,
+          );
+          final fraction = seconds / 500;
+          tester.widget<Slider>(slider).onChanged!(fraction);
+          await tester.pump(const Duration(milliseconds: 50));
+          tester.widget<Slider>(slider).onChangeEnd!(fraction);
+          await tester.pump(const Duration(milliseconds: 250));
+          expect(committedLyricSeek, Duration(seconds: seconds));
+          expect(profileContainer.read(currentLyricIndexProvider), seconds);
+          final target = find.descendant(
+            of: find.byKey(const ValueKey('full-lyric-list')),
+            matching: find.text(lyrics[seconds].text),
+          );
+          final anchor = tester.getCenter(
+            find.byKey(const ValueKey('playback-line-indicator')),
+          );
+          expect(tester.getCenter(target).dy, closeTo(anchor.dy, 2.1));
+        }
+        recorder.endScenario();
+
+        await beginScene('lyricScroll');
+        for (var i = 0; i < cycles; i++) {
+          await tester.fling(
+            find.byKey(const ValueKey('full-lyric-list')),
+            const Offset(0, -450),
+            1200,
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        recorder.endScenario();
+        await tester.pumpAndSettle(
+          const Duration(milliseconds: 50),
+          EnginePhase.sendSemanticsUpdate,
+          const Duration(seconds: 5),
+        );
+
+        await tester.drag(pages, const Offset(300, 0));
+        await tester.pump(const Duration(milliseconds: 650));
+        await beginScene('lyricHiddenUpdate');
+        positions.add(const Duration(seconds: 450));
+        await tester.pump(const Duration(milliseconds: 100));
+        recorder.endScenario();
+        await beginScene('lyricHidden');
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(seconds: 1));
+        });
+        recorder.endScenario();
+
+        await tester.drag(pages, const Offset(-300, 0));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
         navigator.currentState!.pop();
         await tester.pump(const Duration(milliseconds: 650));
       } else if (control['ui'] != false) {
@@ -436,9 +611,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
         await beginScene('lyricFollow');
-        for (var i = 1; i <= 20; i++) {
-          positions.add(Duration(seconds: i));
-          await tester.pump(const Duration(milliseconds: 350));
+        for (var i = 1; i <= 200; i++) {
+          positions.add(Duration(milliseconds: i * 100));
+          await tester.pump(const Duration(milliseconds: 100));
         }
         recorder.endScenario();
         await beginScene('lyricScroll');
@@ -455,7 +630,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 650));
       }
 
-      if (control['ui'] != false) {
+      if (control['ui'] != false && control['lyricsOnly'] != true) {
         await StorageService.setString('comic_reading_mode', 'spread');
         await tester.pumpWidget(
           ProviderScope(
@@ -484,7 +659,7 @@ void main() {
         recorder.endScenario();
       }
       if (control['audio'] != false) {
-        const manifestPath = '$root/fixtures/manifest.json';
+        const manifestPath = '$fixtureRoot/manifest.json';
         final manifest = await PerformanceAudioFixtureManifest.read(
           File(manifestPath),
         );
@@ -659,6 +834,40 @@ void main() {
       }
       // FrameTiming callbacks may be batched after the scene's last frame.
       await tester.pump(const Duration(seconds: 2));
+      recordedRun = recorder.createRun(run: runNumber, metadata: metadata);
+      if (control['lyricsOnly'] == true) {
+        final metrics = recordedRun['metrics'] as Map<String, num>;
+        final cycles = (control['cycles'] as num?)?.toInt() ?? 4;
+        for (var i = 0; i < cycles; i++) {
+          final frameCount = metrics['lyricClosedIdle${i}FrameCount']?.toInt();
+          final passed = frameCount == 0;
+          checks.add({
+            'case': 'lyricClosedIdle',
+            'cycle': i,
+            'passed': passed,
+            'frameCount': frameCount,
+            'windowMs': 1000,
+          });
+          if (!passed && (control['label'] as String).startsWith('candidate')) {
+            throw StateError(
+              'Closed subtitle cycle $i recorded $frameCount frames',
+            );
+          }
+        }
+        final hiddenFrameCount = metrics['lyricHiddenFrameCount']?.toInt();
+        final passed = hiddenFrameCount == 0;
+        checks.add({
+          'case': 'lyricHiddenIdle',
+          'passed': passed,
+          'frameCount': hiddenFrameCount,
+          'windowMs': 1000,
+        });
+        if (!passed && (control['label'] as String).startsWith('candidate')) {
+          throw StateError(
+            'Hidden subtitle page recorded $hiddenFrameCount frames in 1s',
+          );
+        }
+      }
     } catch (error, stack) {
       failure = error;
       checks.add({
@@ -672,12 +881,14 @@ void main() {
         'schemaVersion': 1,
         'scenario': 'real-android-player-v1',
         'control': control,
-        'run': recorder.createRun(run: runNumber),
+        'run':
+            recordedRun ??
+            recorder.createRun(run: runNumber, metadata: metadata),
         'switchSamples': samples,
         'checks': checks,
         'hapticsEnabled': false,
       };
-      await reportFile.writeAsString(
+      await (reportFile ?? bootstrapFailureFile).writeAsString(
         const JsonEncoder.withIndent('  ').convert(report),
       );
       binding.reportData = report;
@@ -701,6 +912,15 @@ void main() {
       }
     }
   }, timeout: const Timeout(Duration(minutes: 20)));
+}
+
+class _ProfileSeekController extends AudioPlayerController {
+  _ProfileSeekController(super.service, super.ref, this.onSeek);
+
+  final ValueChanged<Duration> onSeek;
+
+  @override
+  Future<void> seekAndPersist(Duration position) async => onSeek(position);
 }
 
 Future<Map<String, Object?>> _checkSeekPlayback(
