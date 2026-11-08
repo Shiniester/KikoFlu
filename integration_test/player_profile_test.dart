@@ -240,11 +240,19 @@ void main() {
         final isWide = widePages.evaluate().isNotEmpty;
         final pageFinder = isWide ? widePages : pages;
         final controller = tester.widget<PageView>(pageFinder).controller!;
-        final currentPage = controller.page!;
-        final targetPage = visible ? 2 : 1;
-        if ((currentPage - targetPage).abs() > 0.01) {
-          final gestureTarget = isWide && currentPage.round() == 1
-              ? find.byKey(const ValueKey('controls-queue-swipe-surface-wide'))
+        // Controls animate their lyric preview after position changes.
+        final targetPage = visible ? 2 : 0;
+        for (var step = 0; step < 2; step++) {
+          final currentPage = controller.page!;
+          if ((currentPage - targetPage).abs() <= 0.01) break;
+          final gestureTarget = currentPage.round() == 1
+              ? find.byKey(
+                  ValueKey(
+                    isWide
+                        ? 'controls-queue-swipe-surface-wide'
+                        : 'compact-main-cover-dismiss-surface',
+                  ),
+                )
               : pageFinder;
           final direction = targetPage > currentPage ? -1 : 1;
           await tester.fling(
@@ -257,6 +265,17 @@ void main() {
         expect(controller.page, closeTo(targetPage, 0.01));
         if (visible) {
           expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+        } else {
+          expect(
+            find.byKey(
+              ValueKey(
+                isWide
+                    ? 'wide-audio-details-pane'
+                    : 'compact-audio-details-pane',
+              ),
+            ),
+            findsOneWidget,
+          );
         }
       }
 
@@ -458,6 +477,8 @@ void main() {
         );
 
         await setLyricsVisible(false);
+        expect(profileContainer.read(isPlayingProvider), isTrue);
+        metadata['lyricHiddenHost'] = 'audioDetails';
         await beginScene('lyricHiddenUpdate');
         positions.add(const Duration(seconds: 450));
         await tester.pump(const Duration(milliseconds: 100));
