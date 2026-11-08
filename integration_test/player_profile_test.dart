@@ -327,7 +327,28 @@ void main() {
             1200,
           );
           await tester.pump(const Duration(milliseconds: 500));
+          final scrolling = controller.position.isScrollingNotifier;
+          final wasScrolling = scrolling.value;
+          final navigationWait = Stopwatch()..start();
+          if (wasScrolling) {
+            await tester.runAsync(() async {
+              while (scrolling.value &&
+                  navigationWait.elapsed < const Duration(seconds: 2)) {
+                await Future<void>.delayed(const Duration(milliseconds: 16));
+              }
+            });
+          }
+          checks.add({
+            'case': 'lyricNavigationSettled',
+            'targetPage': targetPage,
+            'step': step,
+            'wasScrolling': wasScrolling,
+            'waitMs': navigationWait.elapsedMilliseconds,
+            'passed': !scrolling.value,
+          });
+          expect(scrolling.value, isFalse);
         }
+        expect(controller.position.isScrollingNotifier.value, isFalse);
         expect(controller.page, closeTo(targetPage, 0.01));
         if (visible) {
           expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
