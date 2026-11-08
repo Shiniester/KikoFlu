@@ -1988,6 +1988,99 @@ void main() {
     },
   );
 
+  testWidgets(
+    'visible controls animate progress updates while the details page stays idle',
+    (tester) async {
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 10));
+      await _pumpPlayer(
+        tester,
+        const Size(1120, 800),
+        lyrics: List.generate(
+          500,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'idle lyric $index',
+          ),
+        ),
+        positionStream: positions.stream,
+        playing: true,
+      );
+      final pages = find.byKey(const ValueKey('wide-right-pages'));
+      final width = tester.getSize(pages).width;
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(-width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      positions.add(const Duration(seconds: 11));
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.fling(pages, Offset(width * 0.75, 0), 1200);
+      await tester.pumpAndSettle();
+      final preview = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const ValueKey('compact-lyric-scroll-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      positions.add(const Duration(seconds: 150));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final before = preview.position.pixels;
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(preview.position.pixels, isNot(closeTo(before, 0.1)));
+      expect(tester.binding.hasScheduledFrame, isTrue);
+      final full = find.byType(FullLyricDisplay, skipOffstage: false);
+      expect(TickerMode.valuesOf(tester.element(full)).enabled, isFalse);
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<PageView>(pages).controller!.page, closeTo(0, 0.01));
+      expect(
+        find.byKey(const ValueKey('wide-audio-details-pane')),
+        findsOneWidget,
+      );
+      positions.add(const Duration(seconds: 180));
+      for (var frame = 0; frame < 7; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final container = ProviderScope.containerOf(
+        tester.element(pages),
+        listen: false,
+      );
+      expect(container.read(isPlayingProvider), isTrue);
+      expect(container.read(currentLyricIndexProvider), 180);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.fling(pages, Offset(-width * 0.75, 0), 1200);
+      await tester.pumpAndSettle();
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(-width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<PageView>(pages).controller!.page, closeTo(2, 0.01));
+      final target = find.descendant(
+        of: find.byKey(const ValueKey('full-lyric-list')),
+        matching: find.text('idle lyric 180'),
+      );
+      final anchor = tester.getCenter(
+        find.byKey(const ValueKey('playback-line-indicator')),
+      );
+      expect(tester.getCenter(target).dy, closeTo(anchor.dy, 2.1));
+    },
+  );
+
   testWidgets('wide player has a dark-theme no-artwork fallback', (
     tester,
   ) async {
