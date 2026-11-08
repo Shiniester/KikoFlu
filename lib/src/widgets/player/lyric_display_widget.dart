@@ -1489,6 +1489,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   void _scheduleLyricResync() {
+    // The next build owns following; another jump here would use stale layout.
     _currentLyricIndex = null;
     _clearLyricMotion(notify: false);
     setState(() {});
@@ -1509,15 +1510,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         );
         return;
       }
-      if (widget.suspendAutoScroll || !_autoScroll) return;
-      final index = _currentLyricIndex ?? ref.read(currentLyricIndexProvider);
-      if (index == null || index < 0) return;
-      _scrollToLyric(
-        index,
-        animate: false,
-        force: true,
-        ignoreAutoScroll: true,
-      );
     });
   }
 
@@ -1685,6 +1677,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           request != _scrollRequestGeneration ||
           !identical(_lastDisplayLyrics, lyrics) ||
           _lastTrackKey != trackKey ||
+          !widget.isActive ||
+          !_tickerModeEnabled ||
+          !_appLifecycleVisible ||
           !_autoScroll ||
           widget.suspendAutoScroll) {
         return;
@@ -2193,9 +2188,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     Duration? animationDuration,
     double lineFraction = 0.5,
   }) {
-    if (!widget.isActive || !_tickerModeEnabled || !_appLifecycleVisible) {
-      return;
-    }
     if ((!_autoScroll || widget.suspendAutoScroll) && !ignoreAutoScroll) return;
     if (!_scrollController.hasClients || index < 0) return;
     final waitForMotionReset = _hasLyricMotion;
@@ -2747,6 +2739,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           (_layoutIndex?.lyrics.isNotEmpty == true ? 0 : null);
       if (index == null ||
           index < 0 ||
+          !widget.isActive ||
+          !_tickerModeEnabled ||
+          !_appLifecycleVisible ||
           widget.suspendAutoScroll ||
           widget.isLocked) {
         return;
@@ -2937,7 +2932,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             ..addAll(previousTextCenters);
         }
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || motionRequest != _scrollRequestGeneration) return;
+          if (!mounted ||
+              motionRequest != _scrollRequestGeneration ||
+              !widget.isActive ||
+              !_tickerModeEnabled ||
+              !_appLifecycleVisible) {
+            return;
+          }
           if (canSpring) {
             _startLyricSpringFollow(
               index: currentIndex,

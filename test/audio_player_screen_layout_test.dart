@@ -873,6 +873,15 @@ void main() {
       of: display,
       matching: find.text('full page lyric 5'),
     );
+    expect(
+      tester.getCenter(active).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
+    );
     final phoneSize = tester.widget<Text>(active).style!.fontSize!;
 
     tester.view.physicalSize = const Size(768, 1024);

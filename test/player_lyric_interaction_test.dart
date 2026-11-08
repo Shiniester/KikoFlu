@@ -1666,7 +1666,7 @@ void main() {
   });
 
   testWidgets(
-    'inactive lyric page follows before activation and stays stable',
+    'inactive lyric page stays still and follows latest on activation',
     (tester) async {
       final longLyrics = List.generate(
         48,
@@ -1721,21 +1721,24 @@ void main() {
 
       positions.add(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      expect(scrollable.position.pixels, greaterThan(initialOffset));
+      expect(scrollable.position.pixels, initialOffset);
+
+      updateActive(() => active = true);
+      await tester.pump();
+      await tester.pump();
       _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
+      final activeOffset = scrollable.position.pixels;
+      expect(activeOffset, greaterThan(initialOffset));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(scrollable.position.pixels, closeTo(activeOffset, 0.1));
 
       await tester.binding.setSurfaceSize(const Size(360, 600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpAndSettle();
       _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
-      final hiddenOffset = scrollable.position.pixels;
-
-      updateActive(() => active = true);
-      await tester.pump();
-      await tester.pump();
-      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
+      final resizedOffset = scrollable.position.pixels;
       await tester.pump(const Duration(milliseconds: 500));
-      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
+      expect(scrollable.position.pixels, closeTo(resizedOffset, 0.1));
     },
   );
 

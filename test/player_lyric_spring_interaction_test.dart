@@ -255,6 +255,18 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
         expect(scrollPosition.pixels, hiddenOffset);
         expect(tester.binding.hasScheduledFrame, isFalse);
+        playback.discontinuities.add(
+          _jump(450, 400, loop: hiddenBy == 'inactive'),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(scrollPosition.pixels, hiddenOffset);
+        expect(scrollPosition.isScrollingNotifier.value, isFalse);
+        playback.positions.add(const Duration(seconds: 400));
+        await tester.pump();
+        await tester.pump();
+        expect(scrollPosition.pixels, hiddenOffset);
         if (hiddenBy == 'inactive') {
           playback.active.value = true;
         } else if (hiddenBy == 'ticker mode') {
@@ -266,13 +278,41 @@ void main() {
         }
         await tester.pump();
         await tester.pump();
-        _expectAnchor(tester, 'spring 450');
-        final center = tester.getCenter(find.text('spring 450'));
+        _expectAnchor(tester, 'spring 400');
+        final center = tester.getCenter(find.text('spring 400'));
         await tester.pump(const Duration(milliseconds: 300));
-        expect(tester.getCenter(find.text('spring 450')), center);
+        expect(tester.getCenter(find.text('spring 400')), center);
       },
     );
   }
+
+  testWidgets('browse resume timer waits for foreground before following', (
+    tester,
+  ) async {
+    final playback = await _mount(
+      tester,
+      position: const Duration(seconds: 20),
+    );
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    await tester.drag(list, const Offset(0, -160));
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        )
+        .position;
+    final browsedOffset = position.pixels;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    playback.positions.add(const Duration(seconds: 60));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    expect(position.pixels, browsedOffset);
+    expect(position.isScrollingNotifier.value, isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+    _expectAnchor(tester, 'spring 60');
+  });
 
   for (final target in [1, 2, 0, 70]) {
     testWidgets(
