@@ -3508,6 +3508,48 @@ abstract class S {
   /// **'Mini and fullscreen lyric styles'**
   String get playerLyricStyleSubtitle;
 
+  /// No description provided for @subtitleSpringPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle Spring Preset'**
+  String get subtitleSpringPreset;
+
+  /// No description provided for @subtitleSpringPresetDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get subtitleSpringPresetDefault;
+
+  /// No description provided for @subtitleSpringPresetSmooth.
+  ///
+  /// In en, this message translates to:
+  /// **'Smooth'**
+  String get subtitleSpringPresetSmooth;
+
+  /// No description provided for @subtitleSpringPresetResponsive.
+  ///
+  /// In en, this message translates to:
+  /// **'Responsive'**
+  String get subtitleSpringPresetResponsive;
+
+  /// No description provided for @subtitleSpringPresetJello.
+  ///
+  /// In en, this message translates to:
+  /// **'Jello'**
+  String get subtitleSpringPresetJello;
+
+  /// No description provided for @subtitleSpringPresetHeavy.
+  ///
+  /// In en, this message translates to:
+  /// **'Heavy'**
+  String get subtitleSpringPresetHeavy;
+
+  /// No description provided for @subtitleSpringPresetNoBounce.
+  ///
+  /// In en, this message translates to:
+  /// **'No Bounce'**
+  String get subtitleSpringPresetNoBounce;
+
   /// No description provided for @workDetailDisplaySubtitle.
   ///
   /// In en, this message translates to:

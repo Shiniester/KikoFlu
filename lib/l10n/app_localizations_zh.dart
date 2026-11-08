@@ -1804,6 +1804,27 @@ class SZh extends S {
   String get playerLyricStyleSubtitle => '调整迷你与全屏歌词样式';
 
   @override
+  String get subtitleSpringPreset => '字幕弹簧预设';
+
+  @override
+  String get subtitleSpringPresetDefault => '默认';
+
+  @override
+  String get subtitleSpringPresetSmooth => '更平滑';
+
+  @override
+  String get subtitleSpringPresetResponsive => '快速跟手';
+
+  @override
+  String get subtitleSpringPresetJello => '果冻感';
+
+  @override
+  String get subtitleSpringPresetHeavy => '厚重缓慢';
+
+  @override
+  String get subtitleSpringPresetNoBounce => '无弹跳';
+
+  @override
   String get workDetailDisplaySubtitle => '选择详情页显示内容';
 
   @override
@@ -6590,6 +6611,27 @@ class SZhHant extends SZh {
 
   @override
   String get playerLyricStyleSubtitle => '調整迷你與全螢幕歌詞樣式';
+
+  @override
+  String get subtitleSpringPreset => '字幕彈簧預設';
+
+  @override
+  String get subtitleSpringPresetDefault => '預設';
+
+  @override
+  String get subtitleSpringPresetSmooth => '更平滑';
+
+  @override
+  String get subtitleSpringPresetResponsive => '快速跟隨';
+
+  @override
+  String get subtitleSpringPresetJello => '果凍感';
+
+  @override
+  String get subtitleSpringPresetHeavy => '厚重緩慢';
+
+  @override
+  String get subtitleSpringPresetNoBounce => '無彈跳';
 
   @override
   String get workDetailDisplaySubtitle => '選擇詳情頁顯示內容';

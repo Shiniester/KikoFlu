@@ -1807,6 +1807,27 @@ class SJa extends S {
   String get playerLyricStyleSubtitle => 'ミニ・全画面の歌詞スタイル';
 
   @override
+  String get subtitleSpringPreset => '字幕のスプリングプリセット';
+
+  @override
+  String get subtitleSpringPresetDefault => '標準';
+
+  @override
+  String get subtitleSpringPresetSmooth => 'なめらか';
+
+  @override
+  String get subtitleSpringPresetResponsive => '追従重視';
+
+  @override
+  String get subtitleSpringPresetJello => 'ジェリー';
+
+  @override
+  String get subtitleSpringPresetHeavy => '重厚';
+
+  @override
+  String get subtitleSpringPresetNoBounce => '弾まない';
+
+  @override
   String get workDetailDisplaySubtitle => '詳細ページの表示内容';
 
   @override

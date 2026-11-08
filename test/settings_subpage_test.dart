@@ -354,7 +354,10 @@ void main() {
   });
 
   testWidgets('lyric style restores defaults from the app bar', (tester) async {
-    SharedPreferences.setMockInitialValues({'player_lyric_miniFontSize': 18.0});
+    SharedPreferences.setMockInitialValues({
+      'player_lyric_miniFontSize': 18.0,
+      'player_lyric_spring_preset': 'noBounce',
+    });
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -381,6 +384,12 @@ void main() {
       container.read(playerLyricSettingsProvider).miniFontSize,
       const PlayerLyricSettings().miniFontSize,
     );
+    expect(
+      container.read(playerLyricSettingsProvider).springPreset,
+      PlayerLyricSpringPreset.defaultPreset,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('player_lyric_spring_preset'), 'default');
   });
 
   testWidgets('theme settings restores defaults from the app bar', (
