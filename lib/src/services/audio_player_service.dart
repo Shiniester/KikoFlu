@@ -3537,6 +3537,8 @@ class AudioPlayerService {
   // Getters and Streams
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   Stream<Duration> get positionStream => _player.positionStream;
+  Stream<PositionDiscontinuity> get positionDiscontinuityStream =>
+      _player.positionDiscontinuityStream;
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
