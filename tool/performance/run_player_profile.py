@@ -88,6 +88,7 @@ def main():
         control = dict(
             label=args.label, run=number, cycles=4, audioRepeats=args.audio_repeats,
             package=package,
+            lyricSpringPreset='default', textScale=1.0, reducedMotion=False,
             ui=not args.no_ui, audio=not args.no_audio, stopBeforeSwitch=args.stop,
             raceChecks=args.races, enforceLatest=args.races and args.label.startswith('candidate'),
             seekChecks=args.seeks,

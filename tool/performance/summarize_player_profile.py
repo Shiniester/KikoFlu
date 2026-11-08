@@ -13,6 +13,11 @@ SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
           'rapidTrackPresentation', 'galleryDoubleTap']
 HORIZONTAL_SCENES = ['pageDrag', 'pageRelease', 'pageSwitch']
 LYRIC_FRAME_SCENES = ['lyricFollow', 'lyricJump', 'lyricScroll', 'lyricOpenClose']
+LYRIC_SETTINGS = {
+    'lyricSpringPreset': 'default',
+    'textScale': 1.0,
+    'reducedMotion': False,
+}
 
 
 def label_role(label):
@@ -29,9 +34,83 @@ def distribution(values):
                 p95=round(percentile(values, .95), 3))
 
 
+def aggregate_lyric_open_close(report, path):
+    control = report['control']
+    run = report['run']
+    metrics = run['metrics']
+    windows = run.get('frameSamples', {})
+    cycles = control.get('cycles')
+    if not isinstance(cycles, int) or isinstance(cycles, bool) or cycles < 1:
+        raise ValueError(f'Invalid subtitle open-close cycle count in {path.name}')
+    names = [f'lyricOpenClose{cycle}' for cycle in range(cycles)]
+    actual_names = sorted(name for name in windows if name.startswith('lyricOpenClose'))
+    if actual_names != names:
+        raise ValueError(f'Missing subtitle open-close frame samples in {path.name}')
+
+    budgets = [metrics.get(name + 'FrameBudgetMs') for name in names]
+    if any(not isinstance(budget, (int, float)) or not math.isfinite(budget) or budget <= 0
+           for budget in budgets):
+        raise ValueError(f'Missing subtitle open-close frame budget in {path.name}')
+    if any(abs(budget - budgets[0]) > 0.001 for budget in budgets[1:]):
+        raise ValueError(f'Display frame budget changed between subtitle open-close cycles in {path.name}')
+
+    frames = []
+    for name in names:
+        samples = windows[name]
+        if not samples:
+            raise ValueError(f'No measured frames for {name} in {path.name}')
+        for frame in samples:
+            if (not isinstance(frame, list) or len(frame) != 2 or
+                    any(not isinstance(value, (int, float)) or
+                        isinstance(value, bool) or not math.isfinite(value) or value < 0
+                        for value in frame)):
+                raise ValueError(f'Invalid frame sample for {name} in {path.name}')
+            frames.append(frame)
+
+    frame_times = [max(frame) for frame in frames]
+    budget = budgets[0]
+    metrics.update({
+        'lyricOpenCloseUiP95Ms': percentile([frame[0] for frame in frames], .95),
+        'lyricOpenCloseRasterP95Ms': percentile([frame[1] for frame in frames], .95),
+        'lyricOpenCloseFrameP95Ms': percentile(frame_times, .95),
+        'lyricOpenCloseFrameBudgetMs': budget,
+        'lyricOpenCloseJankyFrames': sum(frame_time > budget for frame_time in frame_times),
+        'lyricOpenCloseFrameCount': len(frames),
+    })
+
+
+def validate_closed_idle(report, path, candidate):
+    checks = [check for check in report['checks']
+              if check['case'] == 'lyricClosedIdle']
+    cycles = report['control']['cycles']
+    if len(checks) != cycles:
+        raise ValueError(f'Closed subtitle idle checks are missing in {path.name}')
+    by_cycle = {}
+    for check in checks:
+        cycle = check.get('cycle')
+        frame_count = check.get('frameCount')
+        if (not isinstance(cycle, int) or isinstance(cycle, bool) or
+                cycle in by_cycle):
+            raise ValueError(f'Invalid closed subtitle idle cycle in {path.name}')
+        if (not isinstance(frame_count, (int, float)) or isinstance(frame_count, bool) or
+                not math.isfinite(frame_count) or frame_count < 0):
+            raise ValueError(f'Missing closed subtitle idle frame count in {path.name}')
+        if check.get('windowMs') != 1000 or not isinstance(check.get('passed'), bool):
+            raise ValueError(f'Invalid closed subtitle idle window in {path.name}')
+        by_cycle[cycle] = check
+    if set(by_cycle) != set(range(cycles)):
+        raise ValueError(f'Closed subtitle idle cycles do not match in {path.name}')
+    if candidate and any(
+        check['passed'] is not True or check['frameCount'] != 0
+        for check in by_cycle.values()
+    ):
+        raise ValueError(f'Closed subtitle page kept rendering in {path.name}')
+
+
 def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=False):
     candidate = label_role(label) == 'candidate'
     reports = []
+    settings = None
     for number in range(start, start + rounds):
         path = root / f'{label}_{number}.json'
         report = json.loads(path.read_text(encoding='utf-8'))
@@ -45,6 +124,24 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
                 raise ValueError(f'Non-lyrics-only run in {path.name}')
             if not report['control'].get('sourceSha'):
                 raise ValueError(f'Missing source SHA in {path.name}')
+            control_settings = {
+                key: report['control'].get(key) for key in LYRIC_SETTINGS
+            }
+            run_metadata = report['run'].get('metadata')
+            if not isinstance(run_metadata, dict):
+                raise ValueError(f'Missing runtime subtitle settings in {path.name}')
+            actual_settings = {
+                key: run_metadata.get(key) for key in LYRIC_SETTINGS
+            }
+            if control_settings != LYRIC_SETTINGS:
+                raise ValueError(f'Unexpected subtitle settings in {path.name}')
+            if actual_settings != control_settings:
+                raise ValueError(f'Runtime subtitle settings do not match control in {path.name}')
+            if settings is not None and actual_settings != settings:
+                raise ValueError(f'Subtitle settings changed between runs for {label}')
+            settings = actual_settings
+            aggregate_lyric_open_close(report, path)
+            validate_closed_idle(report, path, candidate)
             hidden_checks = [check for check in report['checks']
                              if check['case'] == 'lyricHiddenIdle']
             if len(hidden_checks) != 1:
@@ -101,6 +198,7 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
     )
     if lyrics_only:
         result['sourceSha'] = next(iter(source_shas))
+        result['settings'] = settings
         result['frameBudgets'] = {
             scene: [metric[scene + 'FrameBudgetMs'] for metric in metrics]
             for scene in LYRIC_FRAME_SCENES
@@ -167,6 +265,8 @@ def main():
         candidate = result[comparison_labels['candidate']]
         if baseline['sourceSha'] == candidate['sourceSha']:
             raise ValueError('Baseline and candidate source SHAs must differ')
+        if baseline['settings'] != candidate['settings']:
+            raise ValueError('Baseline and candidate subtitle settings differ')
         for scene in LYRIC_FRAME_SCENES:
             for run, (baseline_budget, candidate_budget) in enumerate(zip(
                 baseline['frameBudgets'][scene], candidate['frameBudgets'][scene],
