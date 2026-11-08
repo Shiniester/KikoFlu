@@ -2193,6 +2193,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     Duration? animationDuration,
     double lineFraction = 0.5,
   }) {
+    if (!widget.isActive || !_tickerModeEnabled || !_appLifecycleVisible) {
+      return;
+    }
     if ((!_autoScroll || widget.suspendAutoScroll) && !ignoreAutoScroll) return;
     if (!_scrollController.hasClients || index < 0) return;
     final waitForMotionReset = _hasLyricMotion;

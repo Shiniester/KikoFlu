@@ -217,7 +217,17 @@ void main() {
     testWidgets(
       '$hiddenBy stops motion and resumes at the latest playback line',
       (tester) async {
-        final playback = await _mount(tester);
+        final playback = await _mount(
+          tester,
+          lyrics: List.generate(
+            500,
+            (index) => LyricLine(
+              startTime: Duration(seconds: index),
+              endTime: Duration(seconds: index + 1),
+              text: 'spring $index',
+            ),
+          ),
+        );
         playback.positions.add(const Duration(seconds: 1));
         await _frames(tester, 10);
         if (hiddenBy == 'inactive') {
@@ -230,10 +240,20 @@ void main() {
           );
         }
         await tester.pump();
-        playback.positions.add(const Duration(seconds: 5));
+        final scrollPosition = tester
+            .state<ScrollableState>(
+              find.descendant(
+                of: find.byKey(const ValueKey('full-lyric-list')),
+                matching: find.byType(Scrollable),
+              ),
+            )
+            .position;
+        final hiddenOffset = scrollPosition.pixels;
+        playback.positions.add(const Duration(seconds: 450));
         await tester.pump();
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 16));
+        expect(scrollPosition.pixels, hiddenOffset);
         expect(tester.binding.hasScheduledFrame, isFalse);
         if (hiddenBy == 'inactive') {
           playback.active.value = true;
@@ -246,10 +266,10 @@ void main() {
         }
         await tester.pump();
         await tester.pump();
-        _expectAnchor(tester, 'spring 5');
-        final center = tester.getCenter(find.text('spring 5'));
+        _expectAnchor(tester, 'spring 450');
+        final center = tester.getCenter(find.text('spring 450'));
         await tester.pump(const Duration(milliseconds: 300));
-        expect(tester.getCenter(find.text('spring 5')), center);
+        expect(tester.getCenter(find.text('spring 450')), center);
       },
     );
   }
