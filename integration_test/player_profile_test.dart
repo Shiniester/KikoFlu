@@ -30,27 +30,20 @@ const _profilePackage = String.fromEnvironment(
 );
 
 /// Uses the production widgets, route and audio backend. Files and run controls
-/// are supplied through the test application's external-files directory.
+/// are supplied through the test application's private files directory.
 void main() {
   final startup = Stopwatch()..start();
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets('Android player Profile', (tester) async {
-    const root =
-        '/sdcard/Android/data/$_profilePackage/files/player_performance';
-    final control =
-        jsonDecode(await File('$root/control.json').readAsString())
-            as Map<String, dynamic>;
-    if (control['package'] != _profilePackage) {
-      throw StateError(
-        'Profile package mismatch: APK=$_profilePackage, '
-        'runner=${control['package']}',
-      );
-    }
-    final runNumber = (control['run'] as num).toInt();
-    final label = control['label'] as String;
-    final reportFile = File('$root/${label}_$runNumber.json');
+    const root = '/data/user/0/$_profilePackage/files/player_performance';
+    const fixtureRoot =
+        '/sdcard/Android/data/$_profilePackage/files/player_performance/fixtures';
+    final bootstrapFailureFile = File('$root/bootstrap_failure.json');
+    var control = <String, dynamic>{};
+    var runNumber = 0;
+    File? reportFile;
     final recorder = PerformanceRecorder.instance
       ..start(force: true)
       ..resetRun();
@@ -64,6 +57,18 @@ void main() {
     Object? failure;
     Map<String, Object?>? recordedRun;
     try {
+      control =
+          jsonDecode(await File('$root/control.json').readAsString())
+              as Map<String, dynamic>;
+      if (control['package'] != _profilePackage) {
+        throw StateError(
+          'Profile package mismatch: APK=$_profilePackage, '
+          'runner=${control['package']}',
+        );
+      }
+      runNumber = (control['run'] as num).toInt();
+      final label = control['label'] as String;
+      reportFile = File('$root/${label}_$runNumber.json');
       app.main(const []);
       await _wait(tester, () => recorder.metric('firstInteractiveMs') != null);
       recorder.recordMetric('coldStartMs', startup.elapsedMicroseconds / 1000);
@@ -86,7 +91,7 @@ void main() {
         id: 'profile-visual',
         title: '播放器性能测试 · 日本語のタイトル',
         artist: 'Player Profile',
-        url: 'file://$root/fixtures/small_a.wav',
+        url: 'file://$fixtureRoot/small_a.wav',
         artworkUrl: cover.uri.toString(),
       );
       final queueTracks = List<AudioTrack>.generate(
@@ -556,7 +561,7 @@ void main() {
         recorder.endScenario();
       }
       if (control['audio'] != false) {
-        const manifestPath = '$root/fixtures/manifest.json';
+        const manifestPath = '$fixtureRoot/manifest.json';
         final manifest = await PerformanceAudioFixtureManifest.read(
           File(manifestPath),
         );
@@ -766,7 +771,7 @@ void main() {
         'checks': checks,
         'hapticsEnabled': false,
       };
-      await reportFile.writeAsString(
+      await (reportFile ?? bootstrapFailureFile).writeAsString(
         const JsonEncoder.withIndent('  ').convert(report),
       );
       binding.reportData = report;

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -52,18 +53,36 @@ def main():
         encoding='utf-8', check=True,
     ).stdout.strip()
     package = args.package
-    remote = f'/sdcard/Android/data/{package}/files/player_performance'
+    remote = f'/data/user/0/{package}/files/player_performance'
     reports = args.output / 'reports'
     reports.mkdir(parents=True, exist_ok=True)
+    child_env = os.environ.copy()
+    for name in ('NO_PROXY', 'no_proxy'):
+        entries = [entry for entry in child_env.get(name, '').split(',') if entry]
+        child_env[name] = ','.join(dict.fromkeys(
+            [*entries, '127.0.0.1', 'localhost', '::1'],
+        ))
 
     def adb(*command, check=True):
         result = subprocess.run(
             ['adb', '-s', args.device, *command], capture_output=True,
-            encoding='utf-8', errors='replace', timeout=60,
+            encoding='utf-8', errors='replace', timeout=60, env=child_env,
         )
         if check and result.returncode:
             raise RuntimeError(result.stderr or result.stdout)
         return result.stdout
+
+    def run_as(*command, check=True):
+        return adb('shell', 'run-as', package, *command, check=check)
+
+    staging_path = '/data/local/tmp/kikoflu-player-profile-stage'
+
+    def stage_file(source, destination):
+        adb('push', str(source), staging_path)
+        try:
+            run_as('cp', staging_path, destination)
+        finally:
+            adb('shell', 'rm', '-f', staging_path, check=False)
 
     for number in range(args.start, args.start + args.rounds):
         control = dict(
@@ -92,13 +111,13 @@ def main():
         control_file.write_text(json.dumps(control), encoding='utf-8')
         report_name = f'{args.label}_{number}.json'
         output = f'{remote}/{report_name}'
-        adb('shell', 'mkdir', '-p', remote)
-        # Create a readable output before the app writes it on external storage.
+        run_as('mkdir', '-p', remote)
+        # App-private files are written by the profile app UID.
         empty_file = args.output / '.empty-report'
         empty_file.write_text('', encoding='utf-8')
-        adb('push', str(empty_file), output)
-        adb('shell', 'chmod', '666', output)
-        adb('push', str(control_file), f'{remote}/control.json')
+        stage_file(empty_file, output)
+        stage_file(empty_file, f'{remote}/bootstrap_failure.json')
+        stage_file(control_file, f'{remote}/control.json')
         adb('shell', 'am', 'force-stop', package)
         adb('shell', 'am', 'start', '-n', package + '/' + ACTIVITY_CLASS)
         print(f'{args.label} {number}: started', flush=True)
@@ -106,7 +125,27 @@ def main():
         try:
             while time.monotonic() - started < max(1200, args.soak + 180):
                 time.sleep(5)
-                raw = adb('shell', 'cat', output, check=False).strip()
+                bootstrap_raw = run_as(
+                    'cat', f'{remote}/bootstrap_failure.json', check=False,
+                ).strip()
+                if bootstrap_raw:
+                    try:
+                        bootstrap = json.loads(bootstrap_raw)
+                    except json.JSONDecodeError:
+                        bootstrap = None
+                    if bootstrap is not None:
+                        (reports / f'{args.label}_{number}_bootstrap_failure.json').write_text(
+                            json.dumps(bootstrap, ensure_ascii=False, indent=2),
+                            encoding='utf-8',
+                        )
+                        failure = next(
+                            (check for check in bootstrap.get('checks', [])
+                             if check.get('case') == 'harnessFailure'),
+                            None,
+                        )
+                        if failure is not None:
+                            raise RuntimeError(failure.get('error', str(failure)))
+                raw = run_as('cat', output, check=False).strip()
                 try:
                     report = json.loads(raw)
                 except json.JSONDecodeError:
@@ -114,6 +153,13 @@ def main():
                 (reports / report_name).write_text(
                     json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8',
                 )
+                harness_failure = next(
+                    (check for check in report.get('checks', [])
+                     if check.get('case') == 'harnessFailure'),
+                    None,
+                )
+                if harness_failure is not None:
+                    raise RuntimeError(harness_failure.get('error', str(harness_failure)))
                 if (report['control'] != control or report['run']['run'] != number):
                     raise RuntimeError('Profile report does not match the requested run')
                 if args.continuous_handoff:
