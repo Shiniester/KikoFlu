@@ -1236,7 +1236,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.showPlaybackLineControls = false,
     this.visibleBottomInset = 0,
     this.snapOnAutoScrollResume = true,
-    this.snapToCurrentOnFirstLayout = false,
+    this.snapToCurrentOnFirstLayout = true,
     this.onSeekRequested,
     this.onLineDoubleTap,
     this.enableLineTapFeedback = false,
@@ -1488,6 +1488,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   void _scheduleLyricResync() {
+    _currentLyricIndex = null;
+    _clearLyricMotion(notify: false);
+    setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           !_tickerModeEnabled ||
@@ -1496,8 +1499,18 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           !_scrollController.hasClients) {
         return;
       }
-      final index = ref.read(currentLyricIndexProvider);
-      if (index < 0) return;
+      final match = widget.selectedSearchMatch;
+      if (match != null) {
+        _scrollToMatch(
+          match,
+          animate: false,
+          visibleBottomInset: () => widget.visibleBottomInset,
+        );
+        return;
+      }
+      if (widget.suspendAutoScroll || !_autoScroll) return;
+      final index = _currentLyricIndex ?? ref.read(currentLyricIndexProvider);
+      if (index == null || index < 0) return;
       _scrollToLyric(
         index,
         animate: false,
@@ -1751,7 +1764,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       final baseY = _lyricMotionBaseY[index];
       if (baseY != null) previousOffsets[index] = sample.y - baseY;
     }
-    final spring = _lyricPositionSpring(_springPreset);
     final transitionRequest = ++_scrollRequestGeneration;
     _freezeLyricMotion();
     final targetCenter = targetBox
@@ -1825,6 +1837,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
 
     final motionStartTime = _lyricMotionSeconds;
+    final spring = _lyricPositionSpring(_springPreset);
     _lyricMotion.clear();
     _frozenLyricMotion.clear();
     _lyricMotionBaseY.clear();
@@ -2737,7 +2750,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if ((notification is ScrollStartNotification &&
+    if ((notification is ScrollUpdateNotification &&
             notification.dragDetails != null) ||
         (notification is UserScrollNotification &&
             notification.direction != ScrollDirection.idle)) {
@@ -2821,6 +2834,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         !identical(_lastDisplayLyrics, lyrics) ||
         _lastTrackKey != lyricContent.trackKey;
     if (lyricsChanged) {
+      _resumeAutoScrollTimer?.cancel();
+      _resumeAutoScrollTimer = null;
+      _autoScroll = true;
+      _userScrollInProgress = false;
       _lastDisplayLyrics = lyrics;
       _lastTrackKey = lyricContent.trackKey;
       _scrollRequestGeneration++;
@@ -2878,20 +2895,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         _restoreFollowing = false;
       }
       if (!restoredFirstLayout || restoreFollowing) {
-        _pendingLyricScale
-          ..clear()
-          ..addAll(previousScale);
-        _pendingLyricY
-          ..clear()
-          ..addAll(previousCenters);
-        _pendingLyricTextY
-          ..clear()
-          ..addAll(previousTextCenters);
         final motionRequest = ++_scrollRequestGeneration;
         final canSpring =
             previous != null &&
             !isDiscontinuity &&
-            (currentIndex - previous).abs() == 1 &&
+            currentIndex > previous &&
             isPlaying &&
             seekingPosition == null &&
             widget.isActive &&
@@ -2902,6 +2910,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             _tickerModeEnabled &&
             _appLifecycleVisible &&
             !MediaQuery.disableAnimationsOf(context);
+        if (canSpring) {
+          _pendingLyricScale
+            ..clear()
+            ..addAll(previousScale);
+          _pendingLyricY
+            ..clear()
+            ..addAll(previousCenters);
+          _pendingLyricTextY
+            ..clear()
+            ..addAll(previousTextCenters);
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || motionRequest != _scrollRequestGeneration) return;
           if (canSpring) {
