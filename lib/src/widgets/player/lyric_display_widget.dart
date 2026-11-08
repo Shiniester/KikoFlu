@@ -2948,7 +2948,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   seekingPosition == null &&
                   !restoreFollowing &&
                   !(widget.snapToCurrentOnFirstLayout && previous == null),
-              force: previous == null || (currentIndex - previous).abs() > 5,
+              force:
+                  previewChanged ||
+                  previous == null ||
+                  (currentIndex - previous).abs() > 5,
             );
           }
         });

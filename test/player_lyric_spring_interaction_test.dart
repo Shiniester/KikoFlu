@@ -130,6 +130,42 @@ void main() {
     },
   );
 
+  testWidgets(
+    'leaving a very tall preview locates the uncached adjacent line',
+    (tester) async {
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 1),
+        lyrics: List.generate(
+          3,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: index == 1
+                ? List.filled(180, 'a very tall wrapped subtitle').join(' ')
+                : 'spring $index',
+          ),
+        ),
+      );
+      playback.preview.value = (
+        isSeekingManually: true,
+        seekValue: 1.5,
+        position: const Duration(milliseconds: 1500),
+      );
+      await tester.pumpAndSettle();
+      playback.positions.add(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text('spring 2'), findsNothing);
+      playback.preview.value = null;
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring 2');
+      final center = tester.getCenter(find.text('spring 2'));
+      await _frames(tester, 30);
+      expect(tester.getCenter(find.text('spring 2')), center);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    },
+  );
+
   for (final input in ['drag', 'wheel', 'trackpad']) {
     testWidgets(
       '$input browsing cancels moving lyrics and resumes after three seconds',
