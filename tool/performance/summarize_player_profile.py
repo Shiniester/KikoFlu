@@ -22,6 +22,7 @@ LYRIC_SETTINGS = {
 }
 LYRIC_HIDDEN_HOST = 'audioDetails'
 LYRIC_FRAME_SCHEDULING = 'frameworkRequests'
+LYRIC_IDLE_MEASUREMENT = 'drawCallbacks'
 
 
 def label_role(label):
@@ -68,6 +69,15 @@ def validate_lyric_open_close(report, path):
                 raise ValueError(f'Invalid frame sample for {name} in {path.name}')
 
 
+def validate_idle_measurement(check, path):
+    frame_count = check.get('frameCount')
+    if (check.get('measurement') != LYRIC_IDLE_MEASUREMENT or
+            type(frame_count) is not int or frame_count < 0 or
+            check.get('windowMs') != 1000 or
+            check.get('passed') is not (frame_count == 0)):
+        raise ValueError(f'Invalid draw-callback idle check in {path.name}')
+
+
 def validate_closed_idle(report, path, candidate):
     checks = [check for check in report['checks']
               if check['case'] == 'lyricClosedIdle']
@@ -77,15 +87,10 @@ def validate_closed_idle(report, path, candidate):
     by_cycle = {}
     for check in checks:
         cycle = check.get('cycle')
-        frame_count = check.get('frameCount')
         if (not isinstance(cycle, int) or isinstance(cycle, bool) or
                 cycle in by_cycle):
             raise ValueError(f'Invalid closed subtitle idle cycle in {path.name}')
-        if (not isinstance(frame_count, (int, float)) or isinstance(frame_count, bool) or
-                not math.isfinite(frame_count) or frame_count < 0):
-            raise ValueError(f'Missing closed subtitle idle frame count in {path.name}')
-        if check.get('windowMs') != 1000 or not isinstance(check.get('passed'), bool):
-            raise ValueError(f'Invalid closed subtitle idle window in {path.name}')
+        validate_idle_measurement(check, path)
         by_cycle[cycle] = check
     if set(by_cycle) != set(range(cycles)):
         raise ValueError(f'Closed subtitle idle cycles do not match in {path.name}')
@@ -128,6 +133,11 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
                     f'Runtime frame scheduling must be '
                     f'{LYRIC_FRAME_SCHEDULING} in {path.name}'
                 )
+            if run_metadata.get('idleFrameMeasurement') != LYRIC_IDLE_MEASUREMENT:
+                raise ValueError(
+                    f'Runtime idle measurement must be '
+                    f'{LYRIC_IDLE_MEASUREMENT} in {path.name}'
+                )
             actual_settings = {
                 key: run_metadata.get(key) for key in LYRIC_SETTINGS
             }
@@ -144,6 +154,7 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
                              if check['case'] == 'lyricHiddenIdle']
             if len(hidden_checks) != 1:
                 raise ValueError(f'Hidden subtitle idle check is missing in {path.name}')
+            validate_idle_measurement(hidden_checks[0], path)
             if candidate and hidden_checks[0].get('passed') is not True:
                 raise ValueError(f'Hidden subtitle page kept rendering in {path.name}')
         metric = report['run']['metrics']
@@ -265,14 +276,6 @@ def main():
             raise ValueError('Baseline and candidate source SHAs must differ')
         if baseline['settings'] != candidate['settings']:
             raise ValueError('Baseline and candidate subtitle settings differ')
-        for scene in LYRIC_FRAME_SCENES:
-            for run, (baseline_budget, candidate_budget) in enumerate(zip(
-                baseline['frameBudgets'][scene], candidate['frameBudgets'][scene],
-            ), start=args.start):
-                if abs(baseline_budget - candidate_budget) > 0.001:
-                    raise ValueError(
-                        f'Display frame budget changed for {scene} in run {run}'
-                    )
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

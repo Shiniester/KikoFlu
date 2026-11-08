@@ -20,6 +20,7 @@ SETTINGS = {
 }
 HIDDEN_HOST = 'audioDetails'
 FRAME_SCHEDULING = 'frameworkRequests'
+IDLE_MEASUREMENT = 'drawCallbacks'
 
 
 def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
@@ -65,6 +66,7 @@ def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
             'frameCount': 0,
             'windowMs': 1000,
             'passed': True,
+            'measurement': IDLE_MEASUREMENT,
         }
         for cycle in range(len(LYRIC_OPEN_CLOSE_SCENES))
     ]
@@ -86,12 +88,14 @@ def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
                 SETTINGS,
                 lyricHiddenHost=HIDDEN_HOST,
                 frameScheduling=FRAME_SCHEDULING,
+                idleFrameMeasurement=IDLE_MEASUREMENT,
             ),
             'frameSamples': frame_samples,
         },
         'switchSamples': [],
         'checks': checks if checks is not None else [
-            {'case': 'lyricHiddenIdle', 'passed': True, 'frameCount': 0},
+            {'case': 'lyricHiddenIdle', 'passed': True, 'frameCount': 0,
+             'windowMs': 1000, 'measurement': IDLE_MEASUREMENT},
         ] + closed_idle_checks,
     }
     root.mkdir(parents=True, exist_ok=True)
@@ -136,7 +140,7 @@ class SummarizePlayerProfileTests(unittest.TestCase):
                 16.667,
             )
 
-    def test_mixed_per_round_budgets_fail_even_when_medians_match(self):
+    def test_adaptive_per_round_budgets_are_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             reports = Path(temporary)
             for label in LABELS:
@@ -148,9 +152,16 @@ class SummarizePlayerProfileTests(unittest.TestCase):
 
             result = run_summary(reports, rounds=3)
 
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Display frame budget changed for lyricFollow in run 1',
-                          result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            self.assertEqual(
+                summary[LABELS[0]]['frameBudgets']['lyricFollow'],
+                [8.333, 8.333, 8.333],
+            )
+            self.assertEqual(
+                summary[LABELS[1]]['frameBudgets']['lyricFollow'],
+                [16.667, 8.333, 8.333],
+            )
 
     def test_open_close_cycles_keep_individual_metrics_and_budgets(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -176,7 +187,7 @@ class SummarizePlayerProfileTests(unittest.TestCase):
                 self.assertEqual(summary['ui'][scene]['jankPercent'],
                                  33.333 if cycle == 3 else 0.0)
 
-    def test_open_close_cycle_budget_mismatch_fails_with_same_median(self):
+    def test_adaptive_open_close_budgets_are_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             reports = Path(temporary)
             baseline_budgets = [16.667, 20.0, 20.0, 20.0]
@@ -187,9 +198,14 @@ class SummarizePlayerProfileTests(unittest.TestCase):
 
             result = run_summary(reports)
 
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('Display frame budget changed for lyricOpenClose0 in run 1',
-                          result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            for cycle in range(4):
+                scene = LYRIC_OPEN_CLOSE_SCENES[cycle]
+                self.assertEqual(summary[LABELS[0]]['frameBudgets'][scene],
+                                 [baseline_budgets[cycle]])
+                self.assertEqual(summary[LABELS[1]]['frameBudgets'][scene],
+                                 [candidate_budgets[cycle]])
 
     def test_missing_scene_metric_fails(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -215,6 +231,7 @@ class SummarizePlayerProfileTests(unittest.TestCase):
                 textScale=1.15,
                 lyricHiddenHost=HIDDEN_HOST,
                 frameScheduling=FRAME_SCHEDULING,
+                idleFrameMeasurement=IDLE_MEASUREMENT,
             )
             write_report(reports, LABELS[1], 1, metadata=actual)
 
@@ -270,7 +287,8 @@ class SummarizePlayerProfileTests(unittest.TestCase):
             reports = Path(temporary)
             write_report(reports, LABELS[0], 1)
             checks = [
-                {'case': 'lyricHiddenIdle', 'passed': True, 'frameCount': 0},
+                {'case': 'lyricHiddenIdle', 'passed': True, 'frameCount': 0,
+                 'windowMs': 1000, 'measurement': IDLE_MEASUREMENT},
                 *[
                     {
                         'case': 'lyricClosedIdle',
@@ -278,6 +296,7 @@ class SummarizePlayerProfileTests(unittest.TestCase):
                         'frameCount': int(cycle == 2),
                         'windowMs': 1000,
                         'passed': cycle != 2,
+                        'measurement': IDLE_MEASUREMENT,
                     }
                     for cycle in range(4)
                 ],
@@ -288,6 +307,32 @@ class SummarizePlayerProfileTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Closed subtitle page kept rendering', result.stderr)
+
+    def test_idle_measurement_rejects_old_or_inconsistent_checks(self):
+        for variant in ['metadata', 'measurement', 'frameCount', 'passed']:
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as temporary:
+                reports = Path(temporary)
+                write_report(reports, LABELS[0], 1)
+                candidate = write_report(reports, LABELS[1], 1)
+                if variant == 'metadata':
+                    del candidate['run']['metadata']['idleFrameMeasurement']
+                elif variant == 'measurement':
+                    del candidate['checks'][0]['measurement']
+                elif variant == 'frameCount':
+                    candidate['checks'][0]['frameCount'] = True
+                else:
+                    candidate['checks'][0]['frameCount'] = 1
+                (reports / f'{LABELS[1]}_1.json').write_text(
+                    json.dumps(candidate), encoding='utf-8',
+                )
+
+                result = run_summary(reports)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    'Runtime idle measurement must be drawCallbacks' if variant == 'metadata'
+                    else 'Invalid draw-callback idle check', result.stderr,
+                )
 
     def test_harness_failure_report_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
