@@ -455,6 +455,15 @@ The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
 
+**Subtitle Spring Motion (字幕弹簧动画)**:
+The elastic movement and scaling of subtitle lines as the Player Lyrics Page
+follows playback. It is distinct from word-by-word highlighting.
+_Avoid_: Karaoke animation, word highlighting
+
+**Subtitle Spring Preset (字幕弹簧预设)**:
+A named motion style for Subtitle Spring Motion, describing its response and
+bounce. It is independent of subtitle font and line-height preferences.
+
 **Translation Source (翻译源)**:
 The translation provider selected in Settings, with the app's existing fallback
 providers used when the selected provider fails.
