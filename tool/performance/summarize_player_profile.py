@@ -12,6 +12,12 @@ SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
           'queueContinuousHandoff', 'lyricFollow', 'lyricScroll',
           'rapidTrackPresentation', 'galleryDoubleTap']
 HORIZONTAL_SCENES = ['pageDrag', 'pageRelease', 'pageSwitch']
+LYRIC_FRAME_SCENES = ['lyricFollow', 'lyricJump', 'lyricScroll', 'lyricOpenClose']
+
+
+def label_role(label):
+    role = label.casefold().replace('-', '_').split('_', 1)[0]
+    return role if role in ['baseline', 'candidate'] else None
 
 
 def percentile(values, fraction):
@@ -23,7 +29,8 @@ def distribution(values):
                 p95=round(percentile(values, .95), 3))
 
 
-def summarize(root, label, start, rounds, horizontal_only=False):
+def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=False):
+    candidate = label_role(label) == 'candidate'
     reports = []
     for number in range(start, start + rounds):
         path = root / f'{label}_{number}.json'
@@ -33,9 +40,22 @@ def summarize(root, label, start, rounds, horizontal_only=False):
             raise ValueError(f'Report identity does not match {path.name}')
         if any(check['case'] == 'harnessFailure' for check in report['checks']):
             raise ValueError(f'Harness failed in {path.name}')
+        if lyrics_only:
+            if report['control'].get('lyricsOnly') is not True:
+                raise ValueError(f'Non-lyrics-only run in {path.name}')
+            if not report['control'].get('sourceSha'):
+                raise ValueError(f'Missing source SHA in {path.name}')
+            hidden_checks = [check for check in report['checks']
+                             if check['case'] == 'lyricHiddenIdle']
+            if len(hidden_checks) != 1:
+                raise ValueError(f'Hidden subtitle idle check is missing in {path.name}')
+            if candidate and hidden_checks[0].get('passed') is not True:
+                raise ValueError(f'Hidden subtitle page kept rendering in {path.name}')
         metric = report['run']['metrics']
         if report['control']['ui']:
-            if horizontal_only or report['control'].get('horizontalOnly'):
+            if lyrics_only:
+                required_scenes = LYRIC_FRAME_SCENES
+            elif horizontal_only or report['control'].get('horizontalOnly'):
                 windows = report['run']['frameSamples']
                 for phase in ['pageDrag', 'pageRelease']:
                     for swipe in range(report['control']['cycles'] * 4):
@@ -73,8 +93,20 @@ def summarize(root, label, start, rounds, horizontal_only=False):
                     raise ValueError(f'No measured frames or frame budget for {scene} in {path.name}')
         reports.append(report)
     metrics = [report['run']['metrics'] for report in reports]
-    result = dict(runs=len(reports), ui={}, outgoing={}, requests={})
-    for scene in SCENES + ['pageDrag', 'pageRelease']:
+    source_shas = {report['control'].get('sourceSha') for report in reports}
+    if lyrics_only and (None in source_shas or len(source_shas) != 1):
+        raise ValueError(f'Runs for {label} used different source SHAs')
+    result = dict(runs=len(reports), ui={}) if lyrics_only else dict(
+        runs=len(reports), ui={}, outgoing={}, requests={},
+    )
+    if lyrics_only:
+        result['sourceSha'] = next(iter(source_shas))
+        result['frameBudgets'] = {
+            scene: [metric[scene + 'FrameBudgetMs'] for metric in metrics]
+            for scene in LYRIC_FRAME_SCENES
+        }
+    summary_scenes = LYRIC_FRAME_SCENES if lyrics_only else SCENES + ['pageDrag', 'pageRelease']
+    for scene in summary_scenes:
         if any(scene + 'FrameP95Ms' not in metric for metric in metrics):
             continue
         summary = {
@@ -87,21 +119,22 @@ def summarize(root, label, start, rounds, horizontal_only=False):
             sum(metric[scene + 'FrameCount'] for metric in metrics), 3,
         )
         result['ui'][scene] = summary
-    outgoing, timings = {}, {}
-    for report in reports:
-        for sample in report['switchSamples']:
-            outgoing.setdefault(sample['from'], []).append(sample['elapsedMs'])
-        for timing in report['run'].get('playbackTimings', []):
-            if not timing['incomplete']:
-                timings.setdefault(timing['trackId'], []).append(timing)
-    result['outgoing'] = {track: distribution(values) for track, values in outgoing.items()}
-    for track, samples in timings.items():
-        result['requests'][track] = {}
-        for phase in ['sourcePreparationMs', 'setFilePathMs', 'requestToReadyMs',
-                      'requestToFirstPositionMs']:
-            values = [sample[phase] for sample in samples if sample.get(phase) is not None]
-            if values:
-                result['requests'][track][phase] = distribution(values)
+    if not lyrics_only:
+        outgoing, timings = {}, {}
+        for report in reports:
+            for sample in report['switchSamples']:
+                outgoing.setdefault(sample['from'], []).append(sample['elapsedMs'])
+            for timing in report['run'].get('playbackTimings', []):
+                if not timing['incomplete']:
+                    timings.setdefault(timing['trackId'], []).append(timing)
+        result['outgoing'] = {track: distribution(values) for track, values in outgoing.items()}
+        for track, samples in timings.items():
+            result['requests'][track] = {}
+            for phase in ['sourcePreparationMs', 'setFilePathMs', 'requestToReadyMs',
+                          'requestToFirstPositionMs']:
+                values = [sample[phase] for sample in samples if sample.get(phase) is not None]
+                if values:
+                    result['requests'][track][phase] = distribution(values)
     result['checks'] = [dict(run=report['run']['run'], checks=report['checks']) for report in reports]
     return result
 
@@ -114,12 +147,34 @@ def main():
     parser.add_argument('--start', type=int, default=1)
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--horizontal-only', action='store_true')
+    parser.add_argument('--lyrics-only', action='store_true')
     args = parser.parse_args()
     if args.start < 1 or args.rounds < 1:
         parser.error('--start and --rounds must be positive')
+    comparison_labels = {}
+    if args.lyrics_only:
+        if len(args.labels) != 2:
+            parser.error('--lyrics-only requires one baseline and one candidate label')
+        comparison_labels = {label_role(label): label for label in args.labels}
+        if set(comparison_labels) != {'baseline', 'candidate'}:
+            parser.error('--lyrics-only labels must start with baseline and candidate')
     result = {label: summarize(args.reports, label, args.start, args.rounds,
-                               horizontal_only=args.horizontal_only)
+                               horizontal_only=args.horizontal_only,
+                               lyrics_only=args.lyrics_only)
               for label in args.labels}
+    if args.lyrics_only:
+        baseline = result[comparison_labels['baseline']]
+        candidate = result[comparison_labels['candidate']]
+        if baseline['sourceSha'] == candidate['sourceSha']:
+            raise ValueError('Baseline and candidate source SHAs must differ')
+        for scene in LYRIC_FRAME_SCENES:
+            for run, (baseline_budget, candidate_budget) in enumerate(zip(
+                baseline['frameBudgets'][scene], candidate['frameBudgets'][scene],
+            ), start=args.start):
+                if abs(baseline_budget - candidate_budget) > 0.001:
+                    raise ValueError(
+                        f'Display frame budget changed for {scene} in run {run}'
+                    )
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

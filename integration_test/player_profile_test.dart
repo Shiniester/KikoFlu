@@ -62,6 +62,7 @@ void main() {
     final service = AudioPlayerService.instance;
     final navigator = GlobalKey<NavigatorState>();
     Object? failure;
+    Map<String, Object?>? recordedRun;
     try {
       app.main(const []);
       await _wait(tester, () => recorder.metric('firstInteractiveMs') != null);
@@ -105,7 +106,12 @@ void main() {
         (index) => LyricLine(
           startTime: Duration(seconds: index),
           endTime: Duration(seconds: index + 1),
-          text: '字幕 $index · 同じ景色を見ながら、ゆっくり歩いていく。',
+          text:
+              '字幕 $index · '
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。'
+              '同じ景色を見ながら、ゆっくり歩いていく。',
         ),
       );
       await tester.pumpWidget(
@@ -276,6 +282,72 @@ void main() {
         }
         navigator.currentState!.pop();
         await tester.pump(const Duration(milliseconds: 650));
+      } else if (control['ui'] != false && control['lyricsOnly'] == true) {
+        await beginScene('lyricOpenClose');
+        for (var i = 0; i < cycles; i++) {
+          await tester.tap(launcher);
+          await tester.pump(const Duration(milliseconds: 650));
+          await tester.drag(pages, const Offset(-300, 0));
+          await tester.pump(const Duration(milliseconds: 500));
+          expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+          navigator.currentState!.pop();
+          await tester.pump(const Duration(milliseconds: 650));
+        }
+        recorder.endScenario();
+
+        await tester.tap(launcher);
+        await tester.pump(const Duration(milliseconds: 650));
+        await tester.drag(pages, const Offset(-300, 0));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+
+        await beginScene('lyricFollow');
+        for (var i = 1; i <= 200; i++) {
+          positions.add(Duration(milliseconds: i * 100));
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        recorder.endScenario();
+
+        await beginScene('lyricJump');
+        for (final seconds in [400, 10, 320, 2, 498, 21]) {
+          positions.add(Duration(seconds: seconds));
+          await tester.pump(const Duration(milliseconds: 250));
+        }
+        recorder.endScenario();
+
+        await beginScene('lyricScroll');
+        for (var i = 0; i < cycles; i++) {
+          await tester.fling(
+            find.byKey(const ValueKey('full-lyric-list')),
+            const Offset(0, -450),
+            1200,
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        recorder.endScenario();
+        await tester.pumpAndSettle(
+          const Duration(milliseconds: 50),
+          EnginePhase.sendSemanticsUpdate,
+          const Duration(seconds: 5),
+        );
+
+        await tester.drag(pages, const Offset(300, 0));
+        await tester.pump(const Duration(milliseconds: 650));
+        await beginScene('lyricHiddenUpdate');
+        positions.add(const Duration(seconds: 450));
+        await tester.pump(const Duration(milliseconds: 100));
+        recorder.endScenario();
+        await beginScene('lyricHidden');
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(seconds: 1));
+        });
+        recorder.endScenario();
+
+        await tester.drag(pages, const Offset(-300, 0));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+        navigator.currentState!.pop();
+        await tester.pump(const Duration(milliseconds: 650));
       } else if (control['ui'] != false) {
         await beginScene('expandCold');
         await tester.tap(launcher);
@@ -436,9 +508,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
         await beginScene('lyricFollow');
-        for (var i = 1; i <= 20; i++) {
-          positions.add(Duration(seconds: i));
-          await tester.pump(const Duration(milliseconds: 350));
+        for (var i = 1; i <= 200; i++) {
+          positions.add(Duration(milliseconds: i * 100));
+          await tester.pump(const Duration(milliseconds: 100));
         }
         recorder.endScenario();
         await beginScene('lyricScroll');
@@ -455,7 +527,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 650));
       }
 
-      if (control['ui'] != false) {
+      if (control['ui'] != false && control['lyricsOnly'] != true) {
         await StorageService.setString('comic_reading_mode', 'spread');
         await tester.pumpWidget(
           ProviderScope(
@@ -659,6 +731,23 @@ void main() {
       }
       // FrameTiming callbacks may be batched after the scene's last frame.
       await tester.pump(const Duration(seconds: 2));
+      recordedRun = recorder.createRun(run: runNumber);
+      if (control['lyricsOnly'] == true) {
+        final metrics = recordedRun['metrics'] as Map<String, num>;
+        final hiddenFrameCount = metrics['lyricHiddenFrameCount']?.toInt();
+        final passed = hiddenFrameCount == 0;
+        checks.add({
+          'case': 'lyricHiddenIdle',
+          'passed': passed,
+          'frameCount': hiddenFrameCount,
+          'windowMs': 1000,
+        });
+        if (!passed && (control['label'] as String).startsWith('candidate')) {
+          throw StateError(
+            'Hidden subtitle page recorded $hiddenFrameCount frames in 1s',
+          );
+        }
+      }
     } catch (error, stack) {
       failure = error;
       checks.add({
@@ -672,7 +761,7 @@ void main() {
         'schemaVersion': 1,
         'scenario': 'real-android-player-v1',
         'control': control,
-        'run': recorder.createRun(run: runNumber),
+        'run': recordedRun ?? recorder.createRun(run: runNumber),
         'switchSamples': samples,
         'checks': checks,
         'hapticsEnabled': false,

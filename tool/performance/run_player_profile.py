@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--no-ui', action='store_true')
     parser.add_argument('--no-audio', action='store_true')
+    parser.add_argument('--lyrics-only', action='store_true',
+                        help='Measure only the full subtitle page on the real player route')
     parser.add_argument('--horizontal-only', action='store_true',
                         help='Measure horizontal dragging and release separately')
     parser.add_argument('--stop', action='store_true')
@@ -39,6 +41,16 @@ def main():
         args.no_ui or not args.label.startswith('candidate')
     ):
         parser.error('--continuous-handoff requires a candidate UI run')
+    if args.lyrics_only and (
+        not args.no_audio or args.no_ui or args.horizontal_only or args.stop or
+        args.races or args.seeks or args.continuous_handoff or args.soak > 0
+    ):
+        parser.error('--lyrics-only requires --no-audio and a UI-only run')
+    repo_root = Path(__file__).resolve().parents[2]
+    source_sha = subprocess.run(
+        ['git', 'rev-parse', 'HEAD'], cwd=repo_root, capture_output=True,
+        encoding='utf-8', check=True,
+    ).stdout.strip()
     package = args.package
     remote = f'/sdcard/Android/data/{package}/files/player_performance'
     reports = args.output / 'reports'
@@ -60,9 +72,11 @@ def main():
             ui=not args.no_ui, audio=not args.no_audio, stopBeforeSwitch=args.stop,
             raceChecks=args.races, enforceLatest=args.races and args.label.startswith('candidate'),
             seekChecks=args.seeks,
+            lyricsOnly=args.lyrics_only,
             continuousHandoff=args.continuous_handoff,
             horizontalOnly=args.horizontal_only,
             soakSeconds=args.soak, soakIndex=args.soak_index,
+            sourceSha=source_sha,
         )
         environment = {
             name: adb('shell', 'dumpsys', name)
@@ -109,6 +123,14 @@ def main():
                         raise RuntimeError('Continuous queue handoff check is missing or failed')
                     if report['run']['metrics'].get('queueContinuousHandoffFrameCount', 0) <= 0:
                         raise RuntimeError('Continuous queue handoff did not record any frames')
+                if args.lyrics_only:
+                    hidden_checks = [check for check in report['checks']
+                                     if check['case'] == 'lyricHiddenIdle']
+                    if len(hidden_checks) != 1:
+                        raise RuntimeError('Hidden subtitle idle check is missing')
+                    if (args.label.startswith('candidate') and
+                            hidden_checks[0].get('passed') is not True):
+                        raise RuntimeError(f'Hidden subtitle page kept rendering: {hidden_checks[0]}')
                 for check in report['checks']:
                     if check['case'] == 'harnessFailure':
                         raise RuntimeError(check['error'])
@@ -127,6 +149,7 @@ def main():
                             raise RuntimeError(f'Continuous playback failed: {check}')
                 print(json.dumps(dict(
                     label=args.label, run=number,
+                    sourceSha=source_sha,
                     durationSeconds=round(time.monotonic() - started),
                     metrics=report['run']['metrics'], switches=len(report['switchSamples']),
                     checks=report['checks'],
