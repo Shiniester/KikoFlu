@@ -347,11 +347,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('file-action-generate-subtitles')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('file-action-generate-all-subtitles')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('file-action-copy-name')),
@@ -498,11 +498,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('file-action-generate-subtitles')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('file-action-generate-all-subtitles')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.byKey(const ValueKey('file-action-copy-name')), findsOneWidget);
     Navigator.of(

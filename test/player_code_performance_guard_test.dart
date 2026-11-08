@@ -193,7 +193,12 @@ void main() {
       expect(lyricDisplay, contains('playerLyricEdgeFadeGradient('));
       expect(lyricSurface, contains('playerLyricEdgeFadeGradient('));
       expect(lyricDisplay, contains('widget.onSeekRequested('));
-      expect(screen, contains("ValueKey('compact-main-lyric-scroll-surface')"));
+      expect(
+        screen,
+        contains(
+          RegExp(r"ValueKey\(\s*'compact-main-lyric-scroll-surface'\s*,?\s*\)"),
+        ),
+      );
       expect(
         screen,
         isNot(contains("ValueKey('compact-main-lyric-queue-surface')")),
