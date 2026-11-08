@@ -373,10 +373,12 @@ void main() {
           expect(profileContainer.read(currentLyricIndexProvider), seed);
           final movingLine = find.descendant(
             of: find.byKey(const ValueKey('full-lyric-list')),
-            matching: find.text(lyrics[seed - 1].text),
+            matching: find.text(lyrics[seed].text),
           );
-          final before = tester.getCenter(movingLine).dy;
           positions.add(Duration(seconds: seed + 1));
+          await tester.pump();
+          await tester.pump();
+          final before = tester.getCenter(movingLine).dy;
           for (var frame = 0; frame < 6; frame++) {
             await tester.pump(const Duration(milliseconds: 16));
           }
