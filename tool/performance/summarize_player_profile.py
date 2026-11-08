@@ -20,6 +20,7 @@ LYRIC_SETTINGS = {
     'textScale': 1.0,
     'reducedMotion': False,
 }
+LYRIC_HIDDEN_HOST = 'audioDetails'
 
 
 def label_role(label):
@@ -117,6 +118,10 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
             run_metadata = report['run'].get('metadata')
             if not isinstance(run_metadata, dict):
                 raise ValueError(f'Missing runtime subtitle settings in {path.name}')
+            if run_metadata.get('lyricHiddenHost') != LYRIC_HIDDEN_HOST:
+                raise ValueError(
+                    f'Runtime subtitle host must be {LYRIC_HIDDEN_HOST} in {path.name}'
+                )
             actual_settings = {
                 key: run_metadata.get(key) for key in LYRIC_SETTINGS
             }
