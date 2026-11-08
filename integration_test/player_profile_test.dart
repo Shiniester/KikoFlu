@@ -33,9 +33,11 @@ const _profilePackage = String.fromEnvironment(
 
 class _ProfileTestBinding extends IntegrationTestWidgetsFlutterBinding {
   LiveTestWidgetsFlutterBindingFramePolicy? _drawingFramePolicy;
+  int drawFrameCount = 0;
 
   @override
   void handleDrawFrame() {
+    drawFrameCount++;
     final policy = framePolicy;
     _drawingFramePolicy = policy;
     // Flutter 3.44's live binding otherwise requests another engine frame even
@@ -90,6 +92,8 @@ void main() {
     final samples = <Map<String, Object?>>[];
     final checks = <Map<String, Object?>>[];
     final metadata = <String, Object?>{};
+    final closedIdleFrameCounts = <int>[];
+    int? hiddenIdleFrameCount;
     final positions = StreamController<Duration>.broadcast();
     final tracks = StreamController<AudioTrack?>();
     var presentationRevision = 0;
@@ -267,6 +271,7 @@ void main() {
       final style = profileContainer.read(playerLyricSettingsProvider);
       metadata.addAll({
         'frameScheduling': 'frameworkRequests',
+        'idleFrameMeasurement': 'drawCallbacks',
         'lyricSpringPreset':
             (await SharedPreferences.getInstance()).getString(
               'player_lyric_spring_preset',
@@ -299,6 +304,17 @@ void main() {
         recorder
           ..setRefreshRate(refreshRate ?? tester.view.display.refreshRate)
           ..beginScenario(name);
+      }
+
+      Future<int> measureIdleDraws(String scene) async {
+        await beginScene(scene);
+        final startFrame = binding.drawFrameCount;
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(seconds: 1));
+        });
+        final frameCount = binding.drawFrameCount - startFrame;
+        recorder.endScenario();
+        return frameCount;
       }
 
       Future<void> setLyricsVisible(bool visible) async {
@@ -503,11 +519,9 @@ void main() {
           navigator.currentState!.pop();
           await tester.pump(const Duration(milliseconds: 650));
           recorder.endScenario();
-          await beginScene('lyricClosedIdle$i');
-          await tester.runAsync(() async {
-            await Future<void>.delayed(const Duration(seconds: 1));
-          });
-          recorder.endScenario();
+          closedIdleFrameCounts.add(
+            await measureIdleDraws('lyricClosedIdle$i'),
+          );
         }
 
         positions.add(Duration.zero);
@@ -570,11 +584,7 @@ void main() {
         positions.add(const Duration(seconds: 450));
         await tester.pump(const Duration(milliseconds: 100));
         recorder.endScenario();
-        await beginScene('lyricHidden');
-        await tester.runAsync(() async {
-          await Future<void>.delayed(const Duration(seconds: 1));
-        });
-        recorder.endScenario();
+        hiddenIdleFrameCount = await measureIdleDraws('lyricHidden');
 
         await setLyricsVisible(true);
         navigator.currentState!.pop();
@@ -967,13 +977,16 @@ void main() {
         final metrics = recordedRun['metrics'] as Map<String, num>;
         final cycles = (control['cycles'] as num?)?.toInt() ?? 4;
         for (var i = 0; i < cycles; i++) {
-          final frameCount = metrics['lyricClosedIdle${i}FrameCount']?.toInt();
+          final frameCount = closedIdleFrameCounts[i];
           final passed = frameCount == 0;
           checks.add({
             'case': 'lyricClosedIdle',
             'cycle': i,
             'passed': passed,
             'frameCount': frameCount,
+            'measurement': 'drawCallbacks',
+            'frameTimingCount': metrics['lyricClosedIdle${i}FrameCount']
+                ?.toInt(),
             'windowMs': 1000,
           });
           if (!passed && (control['label'] as String).startsWith('candidate')) {
@@ -982,12 +995,14 @@ void main() {
             );
           }
         }
-        final hiddenFrameCount = metrics['lyricHiddenFrameCount']?.toInt();
+        final hiddenFrameCount = hiddenIdleFrameCount;
         final passed = hiddenFrameCount == 0;
         checks.add({
           'case': 'lyricHiddenIdle',
           'passed': passed,
           'frameCount': hiddenFrameCount,
+          'measurement': 'drawCallbacks',
+          'frameTimingCount': metrics['lyricHiddenFrameCount']?.toInt(),
           'windowMs': 1000,
         });
         if (!passed && (control['label'] as String).startsWith('candidate')) {
