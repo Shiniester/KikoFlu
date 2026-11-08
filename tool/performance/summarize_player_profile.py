@@ -21,6 +21,7 @@ LYRIC_SETTINGS = {
     'reducedMotion': False,
 }
 LYRIC_HIDDEN_HOST = 'audioDetails'
+LYRIC_FRAME_SCHEDULING = 'frameworkRequests'
 
 
 def label_role(label):
@@ -121,6 +122,11 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
             if run_metadata.get('lyricHiddenHost') != LYRIC_HIDDEN_HOST:
                 raise ValueError(
                     f'Runtime subtitle host must be {LYRIC_HIDDEN_HOST} in {path.name}'
+                )
+            if run_metadata.get('frameScheduling') != LYRIC_FRAME_SCHEDULING:
+                raise ValueError(
+                    f'Runtime frame scheduling must be '
+                    f'{LYRIC_FRAME_SCHEDULING} in {path.name}'
                 )
             actual_settings = {
                 key: run_metadata.get(key) for key in LYRIC_SETTINGS
