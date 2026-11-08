@@ -4,10 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import 'responsive_dialog.dart';
 
-Future<bool> confirmLyricTranslationIfNeeded(
-  BuildContext context, {
-  bool forGeneration = false,
-}) async {
+Future<bool> confirmLyricTranslationIfNeeded(BuildContext context) async {
   const key = 'lyric_translation_confirmed_once';
   final prefs = await SharedPreferences.getInstance();
   if (prefs.getBool(key) ?? false) return true;
@@ -16,11 +13,7 @@ Future<bool> confirmLyricTranslationIfNeeded(
     context: context,
     builder: (dialogContext) => ResponsiveAlertDialog(
       title: Text(S.of(dialogContext).translateLyrics),
-      content: Text(
-        forGeneration
-            ? S.of(dialogContext).subtitleGenerationTranslationConfirm
-            : S.of(dialogContext).lyricTranslationConfirmMessage,
-      ),
+      content: Text(S.of(dialogContext).lyricTranslationConfirmMessage),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),

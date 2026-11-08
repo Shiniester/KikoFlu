@@ -21,6 +21,16 @@ class TranslationService {
   factory TranslationService() => _instance;
   TranslationService._internal();
 
+  static String targetLanguageKey(Locale locale) {
+    if (locale.languageCode == 'zh') {
+      return locale.scriptCode == 'Hant' ||
+              const ['TW', 'HK', 'MO'].contains(locale.countryCode)
+          ? 'zh-Hant'
+          : 'zh-Hans';
+    }
+    return locale.languageCode.toLowerCase();
+  }
+
   final GoogleTranslator _googleTranslator = GoogleTranslator();
   final YoudaoTranslator _youdaoTranslator = YoudaoTranslator();
   final MicrosoftTranslator _microsoftTranslator = MicrosoftTranslator();

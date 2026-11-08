@@ -25,7 +25,6 @@ import '../services/file_name_translation_controller.dart';
 import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../providers/audio_provider.dart';
-import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
@@ -36,8 +35,6 @@ import 'app_navigation_scope.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
-import 'audio_subtitle_generation_sheet.dart';
-import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
@@ -511,43 +508,7 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
-    if (!mounted) return;
-    try {
-      if (!await confirmLyricTranslationIfNeeded(
-        context,
-        forGeneration: true,
-      )) {
-        return;
-      }
-      if (!mounted) return;
-      await ref
-          .read(audioSubtitleActionsProvider)
-          .startWork(
-            work: widget.work,
-            fileTree: _localFiles,
-            variants: variants,
-            workDirPath: _workDirPath,
-          );
-      if (!mounted) return;
-      await showAudioSubtitleGenerationSheet(context);
-    } catch (error) {
-      if (!mounted) return;
-      SnackBarUtil.showError(context, error.toString());
-    }
-  }
-
-  Future<void> _showAudioActionMenu(
-    dynamic file,
-    String title,
-    String parentPath,
-    List<dynamic> audioFiles,
-    List<PlayerAudioVariant> variants,
-  ) async {
-    final selected = variants.firstWhere(
-      (variant) =>
-          identical(variant.source, file) && variant.parentPath == parentPath,
-    );
+  Future<void> _showAudioActionMenu(String title) async {
     await showBottomSheetMenu<void>(
       context: context,
       children: [
@@ -555,24 +516,6 @@ class _OfflineFileExplorerWidgetState
           builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                key: const ValueKey('file-action-generate-subtitles'),
-                leading: const Icon(Icons.subtitles_outlined),
-                title: Text(S.of(context).subtitleGenerate),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _generateSubtitles([selected]);
-                },
-              ),
-              ListTile(
-                key: const ValueKey('file-action-generate-all-subtitles'),
-                leading: const Icon(Icons.playlist_add_check),
-                title: Text(S.of(context).subtitleGenerateAll),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _generateSubtitles(variants);
-                },
-              ),
               ListTile(
                 key: const ValueKey('file-action-copy-name'),
                 leading: const Icon(Icons.copy_outlined),
@@ -873,7 +816,7 @@ class _OfflineFileExplorerWidgetState
       audioMetadataBuilder: _buildFileMetadata,
       audioDurationBuilder: _buildAudioDuration,
       audioTrailingBuilder: _buildFileActions,
-      onAudioLongPress: _showAudioActionMenu,
+      onAudioLongPress: (_, title, _, _) => _showAudioActionMenu(title),
       onPlayVideo: (file, path) => unawaited(_playVideo(file, path)),
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,

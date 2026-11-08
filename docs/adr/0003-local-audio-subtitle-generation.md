@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Retired. Audio subtitle generation and its post-generation translation were
+removed from the product. Translation of existing subtitles remains supported.
+This record describes the retired implementation.
 
 ## Decision
 
@@ -24,9 +26,6 @@ The format expansion retains miniaudio and falls back to the libmpv already used
 by media_kit when miniaudio cannot open an audio file. A separate libmpv instance
 passes mono PCM through a bounded local pipe for AAC, M4A, Ogg, and Opus. On
 Linux, the system libmpv must include PCM output and the corresponding decoders.
-
-The product scope, task lifecycle and acceptance checks are defined in
-[Local audio subtitle generation](../development/local-audio-subtitles.md).
 
 ## Evidence
 

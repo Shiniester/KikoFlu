@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../utils/file_tree_utils.dart';
-import 'generated_subtitle_store.dart';
 import 'subtitle_language.dart';
 import 'subtitle_library_service.dart';
 import 'subtitle_long_path.dart';
@@ -37,22 +36,11 @@ class SubtitleAvailabilityScanner {
       SubtitleLibraryService.parsedFolderName,
     );
 
-    Future<void> scanFolder(
-      Directory folder, {
-      bool skipGenerated = false,
-    }) async {
+    Future<void> scanFolder(Directory folder) async {
       if (!await folder.exists()) return;
 
       await for (final entity in folder.list(recursive: true)) {
         if (entity is! File) continue;
-        if (skipGenerated &&
-            GeneratedSubtitleStore.isGeneratedRelativePath(
-              p
-                  .relative(entity.path, from: libraryDir.path)
-                  .replaceAll('\\', '/'),
-            )) {
-          continue;
-        }
 
         final original = SubtitleLongPath.readFileSync(
           entity.path,
@@ -84,7 +72,6 @@ class SubtitleAvailabilityScanner {
       Directory(
         p.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
       ),
-      skipGenerated: true,
     );
 
     return matchedAudioTitles;
