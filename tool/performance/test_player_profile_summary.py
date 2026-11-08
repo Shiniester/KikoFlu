@@ -19,6 +19,7 @@ SETTINGS = {
     'reducedMotion': False,
 }
 HIDDEN_HOST = 'audioDetails'
+FRAME_SCHEDULING = 'frameworkRequests'
 
 
 def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
@@ -82,7 +83,9 @@ def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
             'run': run,
             'metrics': metrics,
             'metadata': metadata if metadata is not None else dict(
-                SETTINGS, lyricHiddenHost=HIDDEN_HOST,
+                SETTINGS,
+                lyricHiddenHost=HIDDEN_HOST,
+                frameScheduling=FRAME_SCHEDULING,
             ),
             'frameSamples': frame_samples,
         },
@@ -207,7 +210,12 @@ class SummarizePlayerProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             reports = Path(temporary)
             write_report(reports, LABELS[0], 1)
-            actual = dict(SETTINGS, textScale=1.15, lyricHiddenHost=HIDDEN_HOST)
+            actual = dict(
+                SETTINGS,
+                textScale=1.15,
+                lyricHiddenHost=HIDDEN_HOST,
+                frameScheduling=FRAME_SCHEDULING,
+            )
             write_report(reports, LABELS[1], 1, metadata=actual)
 
             result = run_summary(reports)
@@ -218,8 +226,9 @@ class SummarizePlayerProfileTests(unittest.TestCase):
 
     def test_runtime_hidden_host_must_be_audio_details(self):
         invalid_metadata = [
-            SETTINGS,
-            dict(SETTINGS, lyricHiddenHost='mainPage'),
+            dict(SETTINGS, frameScheduling=FRAME_SCHEDULING),
+            dict(SETTINGS, lyricHiddenHost='mainPage',
+                 frameScheduling=FRAME_SCHEDULING),
         ]
         for metadata in invalid_metadata:
             with self.subTest(host=metadata.get('lyricHiddenHost')):
@@ -233,6 +242,27 @@ class SummarizePlayerProfileTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(
                         'Runtime subtitle host must be audioDetails', result.stderr,
+                    )
+
+    def test_runtime_frame_scheduling_must_be_framework_requests(self):
+        invalid_metadata = [
+            dict(SETTINGS, lyricHiddenHost=HIDDEN_HOST),
+            dict(SETTINGS, lyricHiddenHost=HIDDEN_HOST,
+                 frameScheduling='fullyLive'),
+        ]
+        for metadata in invalid_metadata:
+            with self.subTest(frame_scheduling=metadata.get('frameScheduling')):
+                with tempfile.TemporaryDirectory() as temporary:
+                    reports = Path(temporary)
+                    write_report(reports, LABELS[0], 1)
+                    write_report(reports, LABELS[1], 1, metadata=metadata)
+
+                    result = run_summary(reports)
+
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        'Runtime frame scheduling must be frameworkRequests',
+                        result.stderr,
                     )
 
     def test_candidate_closed_idle_frames_fail(self):
