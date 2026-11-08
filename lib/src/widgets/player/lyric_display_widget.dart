@@ -2696,6 +2696,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = null;
     _userScrollInProgress = false;
+    final request = ++_scrollRequestGeneration;
     setState(() {
       _autoScroll = true;
       _pendingTappedIndex = index;
@@ -2703,7 +2704,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _currentLyricIndex = index;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || request != _scrollRequestGeneration) return;
       _scrollToLyric(index, force: true, ignoreAutoScroll: true);
     });
     if (widget.onSeekRequested case final callback?) {
@@ -2874,12 +2875,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             (playbackIndex >= 0 &&
                 playbackIndex != pendingDiscontinuity.originIndex));
     if (discontinuityAcknowledged) _pendingDiscontinuity = null;
-    final pendingIndex = seekingPosition == null ? _pendingTappedIndex : null;
-    final currentIndex =
-        seekingIndex ??
-        (discontinuityAcknowledged ? null : pendingDiscontinuity?.index) ??
-        pendingIndex ??
-        playbackIndex;
     if (_pendingTappedIndex case final requestedIndex?) {
       final originIndex = _pendingTapOriginIndex;
       final requestSettled =
@@ -2891,6 +2886,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         _pendingTapOriginIndex = null;
       }
     }
+    final pendingIndex = seekingPosition == null ? _pendingTappedIndex : null;
+    final currentIndex =
+        seekingIndex ??
+        (discontinuityAcknowledged ? null : pendingDiscontinuity?.index) ??
+        pendingIndex ??
+        playbackIndex;
 
     if ((currentIndex != _currentLyricIndex || previewChanged) &&
         currentIndex >= 0) {

@@ -826,13 +826,14 @@ void main() {
 
       positions.add(const Duration(seconds: 8));
       await tester.pumpAndSettle();
-      final upperLine = find.text('lyric 3');
+      _expectLineAtPlaybackAnchor(tester, find.text('matching lyric 8'));
+      final upperLine = find.text('lyric 7');
       await tester.tap(upperLine);
       await tester.pump(const Duration(milliseconds: 320));
       await _expectFeedbackTravelTracksLine(
         tester,
         line: upperLine,
-        feedback: const ValueKey('full-lyric-tap-feedback-3'),
+        feedback: const ValueKey('full-lyric-tap-feedback-7'),
         movesUp: false,
       );
     },

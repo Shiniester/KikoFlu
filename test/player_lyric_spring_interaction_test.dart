@@ -381,6 +381,53 @@ void main() {
     }
   });
 
+  testWidgets(
+    'tapping a short line follows playback beyond the tapped target',
+    (tester) async {
+      Duration? requested;
+      final playback = await _mount(
+        tester,
+        lyrics: List.generate(
+          80,
+          (index) => LyricLine(
+            startTime: index == 2
+                ? const Duration(milliseconds: 1001)
+                : Duration(seconds: index),
+            endTime: index == 1
+                ? const Duration(milliseconds: 1001)
+                : Duration(seconds: index + 1),
+            text: 'spring $index',
+          ),
+        ),
+        display: (playback) => FullLyricDisplay(
+          isPortrait: true,
+          showPlaybackLineControls: true,
+          onSeekRequested: (target) {
+            requested = target;
+            playback.discontinuities.add(_jump(0, 1));
+            playback.positions.add(target);
+            playback.positions.add(const Duration(milliseconds: 1002));
+          },
+        ),
+      );
+      await tester.tap(find.text('spring 1'));
+      await tester.idle();
+      expect(requested, const Duration(seconds: 1));
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump();
+      }
+      _expectAnchor(tester, 'spring 2');
+      final adjacent = tester.getCenter(find.text('spring 4'));
+      await _frames(tester, 30);
+      expect(tester.getCenter(find.text('spring 4')), adjacent);
+      for (final next in [3, 4]) {
+        playback.positions.add(Duration(seconds: next));
+        await tester.pumpAndSettle();
+        _expectAnchor(tester, 'spring $next');
+      }
+    },
+  );
+
   for (final target in [1, 2, 0, 70]) {
     testWidgets(
       'explicit seek to line $target cancels queued and moving targets',
