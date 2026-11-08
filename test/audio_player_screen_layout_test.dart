@@ -561,6 +561,16 @@ void main() {
         );
         final coverRect = tester.getRect(cover);
         final previewRect = tester.getRect(preview);
+        final progressRect = tester.getRect(progress);
+        final sliderTheme = SliderTheme.of(
+          tester.element(progress),
+        ).copyWith(overlayShape: SliderComponentShape.noOverlay);
+        final trackRect = sliderTheme.trackShape!.getPreferredRect(
+          parentBox: tester.renderObject<RenderBox>(progress),
+          offset: progressRect.topLeft,
+          sliderTheme: sliderTheme,
+          isEnabled: true,
+        );
         final areaHeight = tester.getSize(baseLyricArea).height;
         expect(areaHeight, fullArea ? 144 : lessThan(144));
         expect(previewRect.height, greaterThan(0));
@@ -569,9 +579,11 @@ void main() {
           greaterThanOrEqualTo(16 - 0.01),
         );
         expect(
-          tester.getRect(controls).top - previewRect.bottom,
-          closeTo(16, 0.01),
+          trackRect.top - previewRect.bottom,
+          closeTo(previewRect.top - coverRect.bottom, 0.01),
         );
+        expect(progressRect.height, 32);
+        expect(trackRect.top - progressRect.top, 6);
         _expectSubtitleLineAtViewportCenter(tester, 'portrait lyric 5');
 
         if (showsFiveLines) {
@@ -591,6 +603,36 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'portrait progress keeps its full hit area around the raised track',
+    (tester) async {
+      final seeks = <Duration>[];
+      await _pumpPlayer(tester, const Size(390, 844), onSeek: seeks.add);
+      await tester.pumpAndSettle();
+      final target = tester.getRect(
+        find.byKey(const ValueKey('player-progress-gesture-target')),
+      );
+      final slider = find.byKey(const ValueKey('player-progress-slider'));
+      final theme = SliderTheme.of(
+        tester.element(slider),
+      ).copyWith(overlayShape: SliderComponentShape.noOverlay);
+      final track = theme.trackShape!.getPreferredRect(
+        parentBox: tester.renderObject<RenderBox>(slider),
+        offset: target.topLeft,
+        sliderTheme: theme,
+        isEnabled: true,
+      );
+      expect(target.height, 32);
+      for (final y in [target.top + 1, target.bottom - 1]) {
+        await tester.tapAt(Offset(track.left + track.width * 0.75, y));
+        await tester.pumpAndSettle();
+        expect(seeks.last.inMilliseconds, inExclusiveRange(0, 240000));
+      }
+      expect(seeks, hasLength(2));
+      expect(seeks.first, seeks.last);
+    },
+  );
 
   testWidgets('portrait wide player keeps its cover and right pane in place', (
     tester,

@@ -1485,25 +1485,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
+                    final bodyHeight = math.max(
+                      0.0,
+                      constraints.maxHeight - verticalGap,
+                    );
                     final lyricAreaHeight = math.min(
                       isPortrait
                           ? _compactPortraitLyricSlotHeight
                           : previewMaxHeight,
                       isPortrait
                           ? math.min(
-                              constraints.maxHeight,
+                              bodyHeight,
                               math.max(
                                 minimumPreviewHeight,
-                                constraints.maxHeight -
+                                bodyHeight -
                                     sharedWidth /
                                         PlayerCoverWidget.preferredAspectRatio,
                               ),
                             )
-                          : constraints.maxHeight,
+                          : bodyHeight,
                     );
                     final coverAreaHeight = math.max(
                       0.0,
-                      constraints.maxHeight - lyricAreaHeight,
+                      bodyHeight - lyricAreaHeight,
                     );
                     final coverHeight =
                         math.min(
@@ -1516,15 +1520,23 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       0.0,
                       (coverAreaHeight - coverHeight) / 2,
                     );
+                    final coverBottom = coverAreaHeight - coverBottomGap;
+                    final trackTop =
+                        constraints.maxHeight +
+                        PlayerProgressSection.compactTrackTopInset;
+                    final availablePreviewHeight = isPortrait
+                        ? math.max(
+                            0.0,
+                            trackTop - coverBottom - _compactPlayerLyricGap * 2,
+                          )
+                        : lyricAreaHeight + coverBottomGap;
                     final visiblePreviewHeight = math.min(
                       previewMaxHeight,
-                      math.max(
-                        0.0,
-                        lyricAreaHeight +
-                            coverBottomGap -
-                            (isPortrait ? _compactPlayerLyricGap : 0.0),
-                      ),
+                      availablePreviewHeight,
                     );
+                    final previewTop = isPortrait
+                        ? (coverBottom + trackTop - visiblePreviewHeight) / 2
+                        : bodyHeight - visiblePreviewHeight;
                     return Stack(
                       clipBehavior: Clip.hardEdge,
                       children: [
@@ -1551,6 +1563,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                               key: const ValueKey('compact-main-lyric-area'),
                               height: lyricAreaHeight,
                             ),
+                            SizedBox(height: verticalGap),
                           ],
                         ),
                         Positioned(
@@ -1559,7 +1572,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           ),
                           left: 0,
                           right: 0,
-                          bottom: 0,
+                          top: previewTop,
                           height: visiblePreviewHeight,
                           child: SizedBox(
                             key: const ValueKey(
@@ -1590,7 +1603,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   },
                 ),
               ),
-              SizedBox(height: verticalGap),
               PlayerVerticalSwipeRegion(
                 key: const ValueKey('compact-main-controls-dismiss-surface'),
                 swipeDownDrag: dismissDrag,
@@ -1846,12 +1858,17 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     double? additionalActionWidth,
     PlayerVerticalDragCallbacks? dismissDrag,
   }) {
+    final size = MediaQuery.sizeOf(context);
+    final progressTrackTopInset = !isWide && size.width <= size.height
+        ? PlayerProgressSection.compactTrackTopInset
+        : PlayerProgressSection.centeredTrackTopInset;
     Widget buildControls(bool compactSpacing) =>
         ValueListenableBuilder<String?>(
           valueListenable: _workProgress,
           builder: (_, progress, _) => PlayerControlsWidget(
             isLandscape: isWide,
             compactSpacing: compactSpacing,
+            progressTrackTopInset: progressTrackTopInset,
             isSeekingManually: _isSeekingManually,
             seekValue: _seekValue,
             onSeekChanged: _handleSeekChanged,
