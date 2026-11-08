@@ -18,6 +18,7 @@ SETTINGS = {
     'textScale': 1.0,
     'reducedMotion': False,
 }
+HIDDEN_HOST = 'audioDetails'
 
 
 def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
@@ -80,7 +81,9 @@ def write_report(root, label, run, budget=16.667, metadata=None, checks=None,
         'run': {
             'run': run,
             'metrics': metrics,
-            'metadata': metadata if metadata is not None else SETTINGS,
+            'metadata': metadata if metadata is not None else dict(
+                SETTINGS, lyricHiddenHost=HIDDEN_HOST,
+            ),
             'frameSamples': frame_samples,
         },
         'switchSamples': [],
@@ -204,7 +207,7 @@ class SummarizePlayerProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             reports = Path(temporary)
             write_report(reports, LABELS[0], 1)
-            actual = dict(SETTINGS, textScale=1.15)
+            actual = dict(SETTINGS, textScale=1.15, lyricHiddenHost=HIDDEN_HOST)
             write_report(reports, LABELS[1], 1, metadata=actual)
 
             result = run_summary(reports)
@@ -212,6 +215,25 @@ class SummarizePlayerProfileTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Runtime subtitle settings do not match control',
                           result.stderr)
+
+    def test_runtime_hidden_host_must_be_audio_details(self):
+        invalid_metadata = [
+            SETTINGS,
+            dict(SETTINGS, lyricHiddenHost='mainPage'),
+        ]
+        for metadata in invalid_metadata:
+            with self.subTest(host=metadata.get('lyricHiddenHost')):
+                with tempfile.TemporaryDirectory() as temporary:
+                    reports = Path(temporary)
+                    write_report(reports, LABELS[0], 1)
+                    write_report(reports, LABELS[1], 1, metadata=metadata)
+
+                    result = run_summary(reports)
+
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        'Runtime subtitle host must be audioDetails', result.stderr,
+                    )
 
     def test_candidate_closed_idle_frames_fail(self):
         with tempfile.TemporaryDirectory() as temporary:
