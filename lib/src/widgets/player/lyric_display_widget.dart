@@ -2907,6 +2907,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         final canSpring =
             previous != null &&
             !isDiscontinuity &&
+            !previewChanged &&
             currentIndex > previous &&
             isPlaying &&
             seekingPosition == null &&
@@ -2942,6 +2943,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               currentIndex,
               animate:
                   !isDiscontinuity &&
+                  !previewChanged &&
                   widget.isActive &&
                   seekingPosition == null &&
                   !restoreFollowing &&

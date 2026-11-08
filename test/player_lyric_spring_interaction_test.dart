@@ -103,6 +103,33 @@ void main() {
     _expectAnchor(tester, 'spring 2');
   });
 
+  testWidgets(
+    'leaving preview directly follows newer playback without a cascade',
+    (tester) async {
+      final playback = await _mount(tester);
+      playback.positions.add(const Duration(seconds: 1));
+      await _frames(tester, 12);
+      playback.preview.value = (
+        isSeekingManually: true,
+        seekValue: 1.5,
+        position: const Duration(milliseconds: 1500),
+      );
+      await tester.pumpAndSettle();
+      playback.positions.add(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring 1');
+      playback.preview.value = null;
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump();
+      }
+      _expectAnchor(tester, 'spring 2');
+      final adjacent = tester.getCenter(find.text('spring 4'));
+      await _frames(tester, 30);
+      expect(tester.getCenter(find.text('spring 4')), adjacent);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    },
+  );
+
   for (final input in ['drag', 'wheel', 'trackpad']) {
     testWidgets(
       '$input browsing cancels moving lyrics and resumes after three seconds',
