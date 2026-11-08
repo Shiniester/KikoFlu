@@ -235,6 +235,31 @@ void main() {
           ..beginScenario(name);
       }
 
+      Future<void> setLyricsVisible(bool visible) async {
+        final widePages = find.byKey(const ValueKey('wide-right-pages'));
+        final isWide = widePages.evaluate().isNotEmpty;
+        final pageFinder = isWide ? widePages : pages;
+        final controller = tester.widget<PageView>(pageFinder).controller!;
+        final currentPage = controller.page!;
+        final targetPage = visible ? 2 : 1;
+        if ((currentPage - targetPage).abs() > 0.01) {
+          final gestureTarget = isWide && currentPage.round() == 1
+              ? find.byKey(const ValueKey('controls-queue-swipe-surface-wide'))
+              : pageFinder;
+          final direction = targetPage > currentPage ? -1 : 1;
+          await tester.fling(
+            gestureTarget,
+            Offset(tester.getSize(pageFinder).width * 0.75 * direction, 0),
+            1200,
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(controller.page, closeTo(targetPage, 0.01));
+        if (visible) {
+          expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+        }
+      }
+
       final queueButton = find.byIcon(Icons.queue_music);
       final queueList = find.byKey(const ValueKey('player-queue-list'));
 
@@ -344,9 +369,7 @@ void main() {
           await beginScene('lyricOpenClose$i');
           await tester.tap(launcher);
           await tester.pump(const Duration(milliseconds: 650));
-          await tester.drag(pages, const Offset(-300, 0));
-          await tester.pump(const Duration(milliseconds: 500));
-          expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+          await setLyricsVisible(true);
           expect(profileContainer.read(currentLyricIndexProvider), seed);
           final movingLine = find.descendant(
             of: find.byKey(const ValueKey('full-lyric-list')),
@@ -383,9 +406,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
         await tester.tap(launcher);
         await tester.pump(const Duration(milliseconds: 650));
-        await tester.drag(pages, const Offset(-300, 0));
-        await tester.pump(const Duration(milliseconds: 500));
-        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+        await setLyricsVisible(true);
 
         await beginScene('lyricFollow');
         for (var i = 1; i <= 200; i++) {
@@ -434,8 +455,7 @@ void main() {
           const Duration(seconds: 5),
         );
 
-        await tester.drag(pages, const Offset(300, 0));
-        await tester.pump(const Duration(milliseconds: 650));
+        await setLyricsVisible(false);
         await beginScene('lyricHiddenUpdate');
         positions.add(const Duration(seconds: 450));
         await tester.pump(const Duration(milliseconds: 100));
@@ -446,9 +466,7 @@ void main() {
         });
         recorder.endScenario();
 
-        await tester.drag(pages, const Offset(-300, 0));
-        await tester.pump(const Duration(milliseconds: 500));
-        expect(find.byKey(const ValueKey('full-lyric-list')), findsOneWidget);
+        await setLyricsVisible(true);
         navigator.currentState!.pop();
         await tester.pump(const Duration(milliseconds: 650));
       } else if (control['ui'] != false) {
