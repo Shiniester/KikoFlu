@@ -12,7 +12,9 @@ SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
           'queueContinuousHandoff', 'lyricFollow', 'lyricScroll',
           'rapidTrackPresentation', 'galleryDoubleTap']
 HORIZONTAL_SCENES = ['pageDrag', 'pageRelease', 'pageSwitch']
-LYRIC_FRAME_SCENES = ['lyricFollow', 'lyricJump', 'lyricScroll', 'lyricOpenClose']
+LYRIC_OPEN_CLOSE_SCENES = [f'lyricOpenClose{cycle}' for cycle in range(4)]
+LYRIC_FRAME_SCENES = ['lyricFollow', 'lyricJump', 'lyricScroll',
+                      *LYRIC_OPEN_CLOSE_SCENES]
 LYRIC_SETTINGS = {
     'lyricSpringPreset': 'default',
     'textScale': 1.0,
@@ -34,28 +36,25 @@ def distribution(values):
                 p95=round(percentile(values, .95), 3))
 
 
-def aggregate_lyric_open_close(report, path):
+def validate_lyric_open_close(report, path):
     control = report['control']
     run = report['run']
     metrics = run['metrics']
     windows = run.get('frameSamples', {})
     cycles = control.get('cycles')
-    if not isinstance(cycles, int) or isinstance(cycles, bool) or cycles < 1:
+    if (not isinstance(cycles, int) or isinstance(cycles, bool) or
+            cycles != len(LYRIC_OPEN_CLOSE_SCENES)):
         raise ValueError(f'Invalid subtitle open-close cycle count in {path.name}')
-    names = [f'lyricOpenClose{cycle}' for cycle in range(cycles)]
+    names = LYRIC_OPEN_CLOSE_SCENES
     actual_names = sorted(name for name in windows if name.startswith('lyricOpenClose'))
     if actual_names != names:
         raise ValueError(f'Missing subtitle open-close frame samples in {path.name}')
 
-    budgets = [metrics.get(name + 'FrameBudgetMs') for name in names]
-    if any(not isinstance(budget, (int, float)) or not math.isfinite(budget) or budget <= 0
-           for budget in budgets):
-        raise ValueError(f'Missing subtitle open-close frame budget in {path.name}')
-    if any(abs(budget - budgets[0]) > 0.001 for budget in budgets[1:]):
-        raise ValueError(f'Display frame budget changed between subtitle open-close cycles in {path.name}')
-
-    frames = []
     for name in names:
+        budget = metrics.get(name + 'FrameBudgetMs')
+        if (not isinstance(budget, (int, float)) or not math.isfinite(budget) or
+                budget <= 0):
+            raise ValueError(f'Missing subtitle open-close frame budget in {path.name}')
         samples = windows[name]
         if not samples:
             raise ValueError(f'No measured frames for {name} in {path.name}')
@@ -65,18 +64,6 @@ def aggregate_lyric_open_close(report, path):
                         isinstance(value, bool) or not math.isfinite(value) or value < 0
                         for value in frame)):
                 raise ValueError(f'Invalid frame sample for {name} in {path.name}')
-            frames.append(frame)
-
-    frame_times = [max(frame) for frame in frames]
-    budget = budgets[0]
-    metrics.update({
-        'lyricOpenCloseUiP95Ms': percentile([frame[0] for frame in frames], .95),
-        'lyricOpenCloseRasterP95Ms': percentile([frame[1] for frame in frames], .95),
-        'lyricOpenCloseFrameP95Ms': percentile(frame_times, .95),
-        'lyricOpenCloseFrameBudgetMs': budget,
-        'lyricOpenCloseJankyFrames': sum(frame_time > budget for frame_time in frame_times),
-        'lyricOpenCloseFrameCount': len(frames),
-    })
 
 
 def validate_closed_idle(report, path, candidate):
@@ -140,7 +127,7 @@ def summarize(root, label, start, rounds, horizontal_only=False, lyrics_only=Fal
             if settings is not None and actual_settings != settings:
                 raise ValueError(f'Subtitle settings changed between runs for {label}')
             settings = actual_settings
-            aggregate_lyric_open_close(report, path)
+            validate_lyric_open_close(report, path)
             validate_closed_idle(report, path, candidate)
             hidden_checks = [check for check in report['checks']
                              if check['case'] == 'lyricHiddenIdle']
