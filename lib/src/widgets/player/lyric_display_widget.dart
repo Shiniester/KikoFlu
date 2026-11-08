@@ -1955,6 +1955,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           transformHitTests: true,
           child: Transform.scale(
             scale: scale,
+            filterQuality: _autoScroll ? FilterQuality.low : null,
             transformHitTests: true,
             child: child,
           ),
@@ -2718,10 +2719,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = null;
     _userScrollInProgress = true;
+    final wasFollowing = _autoScroll;
     _autoScroll = false;
     _scrollRequestGeneration++;
     _pendingDiscontinuityIndex = null;
     _freezeLyricMotion();
+    if (wasFollowing) _lyricMotionFrame.value++;
   }
 
   void _endUserBrowse() {
