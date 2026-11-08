@@ -31,11 +31,48 @@ const _profilePackage = String.fromEnvironment(
   defaultValue: 'com.meteor.kikoeruflutter',
 );
 
+class _ProfileTestBinding extends IntegrationTestWidgetsFlutterBinding {
+  LiveTestWidgetsFlutterBindingFramePolicy? _drawingFramePolicy;
+
+  @override
+  void handleDrawFrame() {
+    final policy = framePolicy;
+    _drawingFramePolicy = policy;
+    // Flutter 3.44's live binding otherwise requests another engine frame even
+    // when the application has no work. Keep the draw and post-frame callbacks.
+    framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.benchmark;
+    try {
+      super.handleDrawFrame();
+    } finally {
+      framePolicy = policy;
+      _drawingFramePolicy = null;
+    }
+  }
+
+  void _forwardFrameworkRequest(VoidCallback schedule) {
+    final policy = framePolicy;
+    // Real requests made during draw/post-frame must still reach the engine.
+    framePolicy = _drawingFramePolicy ?? policy;
+    try {
+      schedule();
+    } finally {
+      framePolicy = policy;
+    }
+  }
+
+  @override
+  void scheduleFrame() => _forwardFrameworkRequest(super.scheduleFrame);
+
+  @override
+  void scheduleForcedFrame() =>
+      _forwardFrameworkRequest(super.scheduleForcedFrame);
+}
+
 /// Uses the production widgets, route and audio backend. Files and run controls
 /// are supplied through the test application's private files directory.
 void main() {
   final startup = Stopwatch()..start();
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = _ProfileTestBinding();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   SharedPreferences.setMockInitialValues({});
 
@@ -86,6 +123,34 @@ void main() {
       await service.clearQueue();
       await service.updateHapticsSettings(enabled: false, intensity: 0.85);
       recorder.setRefreshRate(tester.view.display.refreshRate);
+
+      if (control['lyricsOnly'] == true) {
+        var updated = false;
+        final updatedFrame = Completer<void>();
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                if (!updated) {
+                  binding.addPostFrameCallback((_) {
+                    setState(() => updated = true);
+                  });
+                } else if (!updatedFrame.isCompleted) {
+                  updatedFrame.complete();
+                }
+                return Text(updated ? 'Frame updated' : 'Frame pending');
+              },
+            ),
+          ),
+        );
+        // The post-frame update must reach a real frame without another pump.
+        await tester.runAsync(
+          () => updatedFrame.future.timeout(const Duration(seconds: 2)),
+        );
+        expect(find.text('Frame updated'), findsOneWidget);
+        checks.add({'case': 'postFrameScheduling', 'passed': true});
+      }
 
       final cover = File('$root/cover.png');
       final coverBytes = await rootBundle.load(
@@ -201,6 +266,7 @@ void main() {
       );
       final style = profileContainer.read(playerLyricSettingsProvider);
       metadata.addAll({
+        'frameScheduling': 'frameworkRequests',
         'lyricSpringPreset':
             (await SharedPreferences.getInstance()).getString(
               'player_lyric_spring_preset',
