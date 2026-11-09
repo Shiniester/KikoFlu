@@ -16,9 +16,9 @@ import '../responsive_dialog.dart';
 import '../subtitle_adjustment_dialog.dart';
 import '../volume_control.dart';
 import 'sleep_timer_button.dart';
-import 'sleep_timer_dialog.dart';
 import 'playlist_dialog.dart';
 import 'player_seek_preview.dart';
+import 'player_action_menu_item.dart';
 import 'player_slice_controls.dart';
 import 'player_slice_progress.dart';
 import '../../../l10n/app_localizations.dart';
@@ -85,52 +85,6 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
 }
 
 class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
-  void _showSpeedDialog(
-    BuildContext context,
-    WidgetRef ref,
-    double currentSpeed,
-  ) {
-    double localSpeed = currentSpeed;
-
-    showDialog(
-      context: context,
-      builder: (context) => ResponsiveAlertDialog(
-        title: Text(S.of(context).playbackSpeed),
-        content: StatefulBuilder(
-          builder: (context, setState) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Slider(
-                  value: localSpeed,
-                  min: 0.25,
-                  max: 2.5,
-                  divisions: 9,
-                  label: '${localSpeed.toStringAsFixed(1)}x',
-                  onChanged: (value) {
-                    setState(() {
-                      localSpeed = value;
-                    });
-                    ref
-                        .read(audioPlayerControllerProvider.notifier)
-                        .setSpeed(value);
-                  },
-                ),
-                Text('${localSpeed.toStringAsFixed(1)}x'),
-              ],
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(S.of(context).confirm),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showMoreMenu(BuildContext context, WidgetRef ref) {
     final isDesktop = !Platform.isAndroid && !Platform.isIOS;
     final config = isDesktop
@@ -142,290 +96,25 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
 
     showResponsiveBottomSheet(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => BottomSheetMenu(
-          header: BottomSheetHeader(
-            title: MaterialLocalizations.of(context).moreButtonTooltip,
-          ),
-          children: [
-            ...moreButtons.map((buttonType) {
-              return _buildMenuItemForButton(
-                context,
-                ref,
-                buttonType,
-                setState,
-              );
-            }),
-          ],
+      builder: (context) => BottomSheetMenu(
+        header: BottomSheetHeader(
+          title: MaterialLocalizations.of(context).moreButtonTooltip,
         ),
+        children: [
+          ...moreButtons.map(
+            (buttonType) => PlayerActionMenuItem(
+              action: buttonType,
+              mode: PlayerActionMenuMode.controls,
+              actionContext: this.context,
+              currentProgress: widget.currentProgress,
+              onMarkPressed: widget.onMarkPressed,
+              onDetailPressed: widget.onDetailPressed,
+              onQueuePressed: widget.onQueuePressed,
+            ),
+          ),
+        ],
       ),
     );
-  }
-
-  Widget _buildMenuItemForButton(
-    BuildContext context,
-    WidgetRef ref,
-    PlayerButtonType buttonType, [
-    StateSetter? setState,
-  ]) {
-    final audioState = ref.read(audioPlayerControllerProvider);
-    switch (buttonType) {
-      case PlayerButtonType.playbackAudioEffects:
-        return ListTile(
-          leading: const Icon(Icons.equalizer),
-          title: Text(S.of(context).playbackAudioEffects),
-          onTap: () {
-            Navigator.pop(context);
-            showPlaybackAudioEffects(this.context);
-          },
-        );
-      case PlayerButtonType.seekBackward:
-        return ListTile(
-          leading: const Icon(Icons.replay_10),
-          title: Text(S.of(context).backward10s),
-          onTap: () {
-            Navigator.pop(context);
-            ref
-                .read(audioPlayerControllerProvider.notifier)
-                .seekBackward(const Duration(seconds: 10));
-          },
-        );
-      case PlayerButtonType.seekForward:
-        return ListTile(
-          leading: const Icon(Icons.forward_10),
-          title: Text(S.of(context).forward10s),
-          onTap: () {
-            Navigator.pop(context);
-            ref
-                .read(audioPlayerControllerProvider.notifier)
-                .seekForward(const Duration(seconds: 10));
-          },
-        );
-      case PlayerButtonType.sleepTimer:
-        final timerState = ref.watch(sleepTimerProvider);
-        return ListTile(
-          leading: Icon(
-            timerState.isActive ? Icons.timer : Icons.timer_outlined,
-            color: timerState.isActive
-                ? Theme.of(context).colorScheme.primary
-                : null,
-          ),
-          title: Text(S.of(context).sleepTimer),
-          trailing: timerState.isActive && timerState.remainingTime != null
-              ? Text(
-                  timerState.formattedTime,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                )
-              : null,
-          onTap: () {
-            Navigator.pop(context);
-            SleepTimerDialog.show(context);
-          },
-        );
-      case PlayerButtonType.speed:
-        return ListTile(
-          leading: const Icon(Icons.speed),
-          title: Text(S.of(context).playbackSpeed),
-          trailing: Text(
-            '${audioState.speed.toStringAsFixed(1)}x',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          onTap: () {
-            Navigator.pop(context);
-            _showSpeedDialog(context, ref, audioState.speed);
-          },
-        );
-      case PlayerButtonType.repeat:
-        return ListTile(
-          leading: Icon(
-            switch (audioState.repeatMode) {
-              LoopMode.off => Icons.repeat,
-              LoopMode.one => Icons.repeat_one,
-              LoopMode.all => Icons.repeat_on,
-            },
-            color: audioState.repeatMode != LoopMode.off
-                ? Theme.of(context).colorScheme.primary
-                : null,
-          ),
-          title: Text(S.of(context).repeatMode),
-          trailing: Text(
-            switch (audioState.repeatMode) {
-              LoopMode.off => S.of(context).repeatOff,
-              LoopMode.one => S.of(context).repeatOne,
-              LoopMode.all => S.of(context).repeatAll,
-            },
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: audioState.repeatMode != LoopMode.off
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-            ),
-          ),
-          onTap: () {
-            final nextMode = switch (audioState.repeatMode) {
-              LoopMode.off => LoopMode.one,
-              LoopMode.one => LoopMode.all,
-              LoopMode.all => LoopMode.off,
-            };
-            ref
-                .read(audioPlayerControllerProvider.notifier)
-                .setRepeatMode(nextMode);
-            Navigator.pop(context);
-          },
-        );
-      case PlayerButtonType.queue:
-        return ListTile(
-          leading: const Icon(Icons.queue_music),
-          title: Text(S.of(context).playlistTitle),
-          onTap: () {
-            Navigator.pop(context);
-            if (widget.onQueuePressed case final callback?) {
-              callback();
-            } else {
-              PlaylistDialog.show(context);
-            }
-          },
-        );
-      case PlayerButtonType.mark:
-        return ListTile(
-          leading: Icon(
-            widget.currentProgress != null
-                ? Icons.bookmark
-                : Icons.bookmark_border,
-            color: widget.currentProgress != null
-                ? Theme.of(context).colorScheme.primary
-                : null,
-          ),
-          title: Text(S.of(context).addMark),
-          trailing: widget.currentProgress != null
-              ? Icon(
-                  Icons.check_circle,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 20,
-                )
-              : null,
-          onTap: () {
-            Navigator.pop(context);
-            if (widget.onMarkPressed != null) {
-              widget.onMarkPressed!();
-            }
-          },
-        );
-      case PlayerButtonType.detail:
-        return ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: Text(S.of(context).viewDetail),
-          onTap: () {
-            Navigator.pop(context);
-            if (widget.onDetailPressed != null) {
-              widget.onDetailPressed!();
-            }
-          },
-        );
-      case PlayerButtonType.volume:
-        // 使用局部变量跟踪当前音量值以实现实时反馈
-        final currentVolume = ref.read(audioPlayerControllerProvider).volume;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.volume_up),
-              title: Text(S.of(context).volume),
-              trailing: Text(
-                '${(currentVolume * 100).round()}%',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.volume_down,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                  Expanded(
-                    child: Slider(
-                      value: currentVolume,
-                      onChanged: (value) {
-                        ref
-                            .read(audioPlayerControllerProvider.notifier)
-                            .setVolume(value);
-                        // 触发菜单重建以更新显示
-                        if (setState != null) {
-                          setState(() {});
-                        }
-                      },
-                    ),
-                  ),
-                  Icon(
-                    Icons.volume_up,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      case PlayerButtonType.subtitleAdjustment:
-        final lyricState = ref.watch(lyricControllerProvider);
-        final hasOffset = lyricState.timelineOffset != Duration.zero;
-        return ListTile(
-          leading: Icon(
-            Icons.tune,
-            color: hasOffset ? Theme.of(context).colorScheme.primary : null,
-          ),
-          title: Text(S.of(context).subtitleTimingAdjustment),
-          trailing: hasOffset
-              ? Text(
-                  '${lyricState.timelineOffset.inMilliseconds}ms',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                )
-              : null,
-          onTap: () {
-            Navigator.pop(context);
-            showDialog(
-              context: context,
-              builder: (context) => const SubtitleAdjustmentDialog(),
-            );
-          },
-        );
-      case PlayerButtonType.floatingLyric:
-        return Consumer(
-          builder: (context, ref, child) {
-            final isEnabled = ref.watch(floatingLyricEnabledProvider);
-            return ListTile(
-              leading: Icon(
-                Icons.picture_in_picture_alt,
-                color: isEnabled ? Theme.of(context).colorScheme.primary : null,
-              ),
-              title: Text(S.of(context).floatingSubtitle),
-              trailing: Transform.scale(
-                scale: 0.8,
-                alignment: Alignment.centerRight,
-                child: Switch(
-                  value: isEnabled,
-                  onChanged: (value) {
-                    ref.read(floatingLyricEnabledProvider.notifier).toggle();
-                  },
-                ),
-              ),
-              onTap: () {
-                ref.read(floatingLyricEnabledProvider.notifier).toggle();
-              },
-            );
-          },
-        );
-    }
   }
 
   Widget _buildButton(
@@ -505,7 +194,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               children: [
                 IconButton(
                   onPressed: () {
-                    _showSpeedDialog(context, ref, audioState.speed);
+                    showPlayerSpeedDialog(context, audioState.speed);
                   },
                   icon: Icon(
                     Icons.speed,
