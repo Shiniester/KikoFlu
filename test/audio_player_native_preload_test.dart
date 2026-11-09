@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,7 @@ void main() {
   late _WindowPlayer player;
   late _CacheDownloader downloader;
   late AudioPlayerService service;
+  late StreamController<AudioInterruptionEvent> interruptionEvents;
   const a = AudioTrack(
     id: 'a',
     title: 'a.wav',
@@ -54,6 +56,9 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+    interruptionEvents = StreamController<AudioInterruptionEvent>.broadcast(
+      sync: true,
+    );
     root = await Directory.systemTemp.createTemp('kiko-native-next-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -69,11 +74,13 @@ void main() {
       androidNativePreload: true,
       seekRecoveryTimeout: const Duration(milliseconds: 100),
       cacheDownloader: downloader,
+      interruptionEvents: interruptionEvents.stream,
     );
   });
 
   tearDown(() async {
     await service.dispose();
+    await interruptionEvents.close();
     SpeculativeTransferCoordinator.instance.resetForTest();
     debugDefaultTargetPlatformOverride = null;
     await root.delete(recursive: true);
@@ -202,6 +209,31 @@ void main() {
     await until(() => player.window.children.length == 1);
     expect(service.currentTrack, a);
   });
+
+  test(
+    'native preparation accepts a full buffer when position advances per read',
+    () async {
+      await service.updateQueue([a, b], autoplay: true);
+      service.updatePreloadThreshold(const Duration(seconds: 4));
+      await Future<void>.delayed(Duration.zero);
+      expect(player.window.children, hasLength(1));
+
+      player.position = const Duration(
+        minutes: 4,
+        seconds: 59,
+        milliseconds: 999,
+      );
+      player.bufferedPosition = const Duration(minutes: 5);
+      player.advancePositionOnRead = true;
+      player.emitStoredPosition();
+
+      await until(() => player.window.children.length == 2);
+      expect(
+        (player.window.children[1] as UriAudioSource).uri.toString(),
+        b.url,
+      );
+    },
+  );
 
   for (final shuffle in [false, true]) {
     test(
@@ -368,6 +400,45 @@ void main() {
     expect(service.currentTrack, b);
     expect(player.activeUri.scheme, 'file');
   });
+
+  test(
+    'MPV volume mapping preserves platform volume curves and gain',
+    () async {
+      await service.setVolume(0.125);
+      expect(player.volumes.last, closeTo(0.5, 1e-9));
+
+      await service.updateAudioGain(6);
+      expect(player.volumes.last, closeTo(0.6294627, 1e-7));
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      await service.setVolume(0.125);
+      expect(player.volumes.last, closeTo(0.1573657, 1e-7));
+    },
+  );
+
+  test(
+    'duck end restores gain above normal volume at the current user level',
+    () async {
+      await service.setVolume(0.5);
+      await service.updateAudioGain(12);
+      const expected = 1.257930560485005;
+      expect(player.volumes.last, closeTo(expected, 1e-9));
+      final volumeUpdatesBeforeDuck = player.volumes.length;
+      interruptionEvents.add(
+        AudioInterruptionEvent(true, AudioInterruptionType.duck),
+      );
+      expect(player.volumes, hasLength(volumeUpdatesBeforeDuck));
+
+      // just_audio clamps its duck-end volume restoration to 1.0.
+      await player.setVolume(1.0);
+      interruptionEvents.add(
+        AudioInterruptionEvent(false, AudioInterruptionType.duck),
+      );
+
+      await until(() => player.volumes.last > 1.0);
+      expect(player.volumes.last, closeTo(expected, 1e-9));
+    },
+  );
 }
 
 class _CacheDownloader extends AudioCacheDownloader {
@@ -384,12 +455,31 @@ class _WindowPlayer extends ControlledPlayer {
   final indices = StreamController<int?>.broadcast(sync: true);
   final errors = StreamController<PlaybackEvent>.broadcast(sync: true);
   final indexedSeeks = <int>[];
+  final volumes = <double>[];
+  bool advancePositionOnRead = false;
+  int _positionReadOffsetMicros = 0;
   AudioSource? activeChild;
   bool reportStaleIndex = false;
   bool failIndexedSeek = false;
   ConcatenatingAudioSource get window =>
       loadedAudioSource! as ConcatenatingAudioSource;
   Uri get activeUri => (window.children[currentIndex] as UriAudioSource).uri;
+  @override
+  Duration get position {
+    final position =
+        super.position + Duration(microseconds: _positionReadOffsetMicros);
+    if (advancePositionOnRead) _positionReadOffsetMicros++;
+    return position;
+  }
+
+  @override
+  set position(Duration value) {
+    super.position = value;
+    _positionReadOffsetMicros = 0;
+  }
+
+  void emitStoredPosition() => positions.add(super.position);
+
   @override
   int get currentIndex {
     if (reportStaleIndex) return 1;
@@ -403,6 +493,11 @@ class _WindowPlayer extends ControlledPlayer {
   Stream<int?> get currentIndexStream => indices.stream;
   @override
   Stream<PlaybackEvent> get playbackEventStream => errors.stream;
+  @override
+  Future<void> setVolume(double volume) async {
+    volumes.add(volume);
+  }
+
   @override
   Future<void> setShuffleModeEnabled(bool enabled) async {}
   @override

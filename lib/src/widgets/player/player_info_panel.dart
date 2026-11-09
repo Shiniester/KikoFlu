@@ -1,3 +1,4 @@
+import 'playback_audio_effects.dart';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -145,6 +146,7 @@ class _PlayerOverflowAction extends ConsumerWidget {
       _ => false,
     };
     final icon = switch (action) {
+      PlayerButtonType.playbackAudioEffects => Icons.equalizer,
       PlayerButtonType.seekBackward => Icons.replay_10,
       PlayerButtonType.seekForward => Icons.forward_10,
       PlayerButtonType.sleepTimer =>
@@ -164,6 +166,8 @@ class _PlayerOverflowAction extends ConsumerWidget {
       PlayerButtonType.floatingLyric => Icons.picture_in_picture_alt_outlined,
     };
     final label = switch (action) {
+      PlayerButtonType.playbackAudioEffects =>
+        S.of(context).playbackAudioEffects,
       PlayerButtonType.seekBackward => S.of(context).backward10s,
       PlayerButtonType.seekForward => S.of(context).forward10s,
       PlayerButtonType.sleepTimer => S.of(context).sleepTimer,
@@ -201,6 +205,8 @@ class _PlayerOverflowAction extends ConsumerWidget {
   Future<void> _invoke(BuildContext context, WidgetRef ref) async {
     final controller = ref.read(audioPlayerControllerProvider.notifier);
     switch (action) {
+      case PlayerButtonType.playbackAudioEffects:
+        if (context.mounted) showPlaybackAudioEffects(context);
       case PlayerButtonType.seekBackward:
         await controller.seekBackward(const Duration(seconds: 10));
       case PlayerButtonType.seekForward:

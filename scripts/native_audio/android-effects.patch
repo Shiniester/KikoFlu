@@ -1,0 +1,70 @@
+diff --git a/buildscripts/build.sh b/buildscripts/build.sh
+index 33282bd..87de670 100644
+--- a/buildscripts/build.sh
++++ b/buildscripts/build.sh
+@@ -9 +9 @@ target=mpv
+-archs=(armv7l arm64 x86 x86_64)
++archs=(arm64 armv7l x86 x86_64)
+diff --git a/buildscripts/flavors/default.sh b/buildscripts/flavors/default.sh
+index 5968d5d..ca5267c 100644
+--- a/buildscripts/flavors/default.sh
++++ b/buildscripts/flavors/default.sh
+@@ -224,0 +225,24 @@ cpuflags=
++	--enable-filter=aformat \
++	--enable-filter=aresample \
++	--enable-filter=anull \
++	--enable-filter=aeval \
++	--enable-filter=aiir \
++	--enable-filter=allpass \
++	--enable-filter=aselect \
++	--enable-filter=alimiter \
++	--enable-filter=pan \
++	--enable-filter=asplit \
++	--enable-filter=join \
++	--enable-filter=volume \
++	--enable-filter=biquad \
++	--enable-filter=adelay \
++	--enable-filter=amix \
++	--enable-filter=anullsrc \
++	--enable-filter=atrim \
++	--enable-filter=concat \
++	--enable-filter=asetpts \
++	--enable-filter=asetnsamples \
++	--enable-filter=asettb \
++	--enable-filter=arealtime \
++	--enable-filter=asendcmd \
++	--enable-filter=apad \
+diff --git a/buildscripts/include/download-deps.sh b/buildscripts/include/download-deps.sh
+index 11c1e40..d641b64 100644
+--- a/buildscripts/include/download-deps.sh
++++ b/buildscripts/include/download-deps.sh
+@@ -18,12 +17,0 @@ mkdir -p deps && cd deps
+-# libogg
+-[ ! -d libogg ] && $WGET https://github.com/xiph/ogg/releases/download/v${v_libogg}/libogg-${v_libogg}.tar.gz && tar -xf libogg-${v_libogg}.tar.gz && mv libogg-${v_libogg} libogg && rm libogg-${v_libogg}.tar.gz
+-
+-# libvorbis
+-[ ! -d libvorbis ] && $WGET https://github.com/xiph/vorbis/releases/download/v${v_libvorbis}/libvorbis-${v_libvorbis}.tar.gz && tar -xf libvorbis-${v_libvorbis}.tar.gz && mv libvorbis-${v_libvorbis} libvorbis && rm libvorbis-${v_libvorbis}.tar.gz
+-
+-# libvpx
+-[ ! -d libvpx ] && git clone --depth 1 --branch meson-$v_libvpx https://gitlab.freedesktop.org/gstreamer/meson-ports/libvpx.git
+-
+-# libx264
+-[ ! -d libx264 ] && git clone --depth 1 https://code.videolan.org/videolan/x264.git --branch master libx264
+-
+@@ -55,9 +42,0 @@ HEREDOC
+-# fftools_ffi
+-[ ! -d fftools_ffi ] && git clone --depth 1 --branch main https://github.com/moffatman/fftools-ffi.git fftools_ffi
+-
+-# media-kit-android-helper
+-[ ! -d media-kit-android-helper ] && git clone --branch main https://github.com/media-kit/media-kit-android-helper.git && cd media-kit-android-helper && git reset --hard 42054e5d479f39ccbb0ae604862e2bcaf59b74c2 && cd ..
+-
+-# media_kit
+-[ ! -d media_kit ] && git clone --depth 1 --single-branch --branch main https://github.com/alexmercerind/media_kit.git
+-
+diff --git a/buildscripts/include/download-sdk.sh b/buildscripts/include/download-sdk.sh
+index 45261eb..2178cc4 100644
+--- a/buildscripts/include/download-sdk.sh
++++ b/buildscripts/include/download-sdk.sh
+@@ -71 +71 @@ mkdir -p bin
+-$WGET "https://github.com/FFmpeg/gas-preprocessor/raw/master/gas-preprocessor.pl" \
++$WGET "https://raw.githubusercontent.com/FFmpeg/gas-preprocessor/ac1836309c2e77023c228b7184485597286289d3/gas-preprocessor.pl" \

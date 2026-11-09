@@ -122,9 +122,24 @@ jobs:
           echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
           echo "Building release $tag with filename suffix $suffix"
 
+  native-audio:
+    name: Build Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      android_all_abis: true
+
+  native-audio-darwin:
+    name: Build Darwin Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio_darwin.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+
   android:
     name: Android Build
-    needs: prepare
+    needs: [prepare, native-audio]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -182,6 +197,12 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+
+      - name: Download Android libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
 
       - name: Get Dependencies
         run: flutter pub get
@@ -278,7 +299,7 @@ jobs:
 
   windows:
     name: Windows Build
-    needs: prepare
+    needs: [prepare, native-audio]
     # windows-latest currently ships newer VS/CMake versions that break
     # older native Flutter plugins used by this project.
     runs-on: windows-2022
@@ -286,6 +307,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download Windows libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-windows
+          path: build/native-audio/windows-output
 
       - name: Set Application Version
         shell: pwsh
@@ -341,12 +368,18 @@ jobs:
 
   ios:
     name: iOS Build (Unsigned)
-    needs: prepare
+    needs: [prepare, native-audio-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download custom iOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-ios
+          path: build/native-audio/darwin-output
 
       - name: Set Application Version
         run: |
@@ -384,12 +417,18 @@ jobs:
 
   macos:
     name: macOS Build
-    needs: prepare
+    needs: [prepare, native-audio-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download custom macOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-macos
+          path: build/native-audio/darwin-output
 
       - name: Set Application Version
         run: |

@@ -1,3 +1,4 @@
+import 'playback_audio_effects.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
@@ -169,6 +170,15 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
   ]) {
     final audioState = ref.read(audioPlayerControllerProvider);
     switch (buttonType) {
+      case PlayerButtonType.playbackAudioEffects:
+        return ListTile(
+          leading: const Icon(Icons.equalizer),
+          title: Text(S.of(context).playbackAudioEffects),
+          onTap: () {
+            Navigator.pop(context);
+            showPlaybackAudioEffects(this.context);
+          },
+        );
       case PlayerButtonType.seekBackward:
         return ListTile(
           leading: const Icon(Icons.replay_10),
@@ -428,6 +438,13 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
     final iconSize = isLandscape ? 24.0 : null;
 
     switch (buttonType) {
+      case PlayerButtonType.playbackAudioEffects:
+        return IconButton(
+          tooltip: S.of(context).playbackAudioEffects,
+          icon: const Icon(Icons.equalizer),
+          iconSize: iconSize,
+          onPressed: () => showPlaybackAudioEffects(context),
+        );
       case PlayerButtonType.seekBackward:
         return Column(
           mainAxisSize: MainAxisSize.min,

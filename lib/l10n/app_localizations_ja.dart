@@ -4817,4 +4817,109 @@ class SJa extends S {
   @override
   String get automaticMarkingConflict =>
       '自動マークを安全に同期できないため、更新を破棄しました。アカウントのオンラインのマークは保持しました。';
+
+  @override
+  String get playbackAudioEffects => '再生音響効果';
+
+  @override
+  String get audioEffectsEqualizer => 'イコライザー';
+
+  @override
+  String get audioEffectsChannel => 'チャンネルモード';
+
+  @override
+  String get audioEffectsScene => 'シーン効果';
+
+  @override
+  String get audioEffectsResetModule => 'モジュールをリセット';
+
+  @override
+  String get audioEffectsResetAll => 'すべてリセット';
+
+  @override
+  String get audioEffectsCustom => 'カスタム';
+
+  @override
+  String get audioEffectsFlat => 'デフォルト';
+
+  @override
+  String get audioEffectsBright => '明るい音';
+
+  @override
+  String get audioEffectsBass => '低音強調';
+
+  @override
+  String get audioEffectsCrisp => '鮮明なタッピング';
+
+  @override
+  String get audioEffectsDull => 'こもったタッピング';
+
+  @override
+  String get audioEffectsVocal => 'ボーカル強調';
+
+  @override
+  String get audioEffectsNormal => '通常';
+
+  @override
+  String get audioEffectsSwap => '左右を入れ替え';
+
+  @override
+  String get audioEffectsCloneLeft => '左チャンネルを複製';
+
+  @override
+  String get audioEffectsCloneRight => '右チャンネルを複製';
+
+  @override
+  String get audioEffectsBathroom => '浴室の反響';
+
+  @override
+  String get audioEffectsMuffled => 'こもった音';
+
+  @override
+  String get audioEffectsTelephone => '電話の音';
+
+  @override
+  String get audioEffectsIntensity => '強さ';
+
+  @override
+  String get audioEffectsWaiting => '音声を再生すると音響効果の対応状況を確認できます。';
+
+  @override
+  String get audioEffectsReady => 'この音声プレーヤーで音響効果を使用できます。';
+
+  @override
+  String get audioEffectsPassthrough => 'パススルー中は音響効果が無効です。解除すると保存した設定が適用されます。';
+
+  @override
+  String get audioEffectsUnavailable =>
+      '現在の音声ライブラリでは音響効果を適用できません。設定は保持されます。対応ライブラリの導入後、アプリを再起動してください。';
+
+  @override
+  String audioEffectsResetNamed(String module) {
+    return '$moduleをリセット';
+  }
+
+  @override
+  String get audioEffectsBinaural => 'バイノーラル効果';
+
+  @override
+  String get audioEffectsBinauralOff => 'オフ';
+
+  @override
+  String get audioEffectsBinauralStereo => 'ステレオ拡張';
+
+  @override
+  String get audioEffectsBinauralMono => 'モノラル拡張';
+
+  @override
+  String get audioEffectsStereoIntensity => 'ステレオ拡張の強さ';
+
+  @override
+  String get audioEffectsMonoIntensity => 'モノラル拡張の強さ';
+
+  @override
+  String get audioEffectsStereoHint => 'ステレオ拡張は中央の音を保ち、既存の左右の差を広げます。';
+
+  @override
+  String get audioEffectsMonoHint => 'モノラル拡張は共通の音から左右の差を作り、元のチャンネルの内容も保ちます。';
 }

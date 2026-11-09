@@ -1,0 +1,690 @@
+{
+  "gate_status": "incomplete",
+  "scope": "host-only reusable template checks; no new Android/device validation or production migration",
+  "reference_versions": {
+    "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+    "ffmpeg-version": "N-128607-g1ddef7d76"
+  },
+  "native_rc_requirement": "asendcmd with %.17g expression formatting; native RC never automatically falls back to expression RC",
+  "precision_budget": 1e-06,
+  "neutral_budget": 0,
+  "exports": {
+    "mono_auto_graph": {
+      "amount": "0..1",
+      "target": "volume@mono_amount"
+    },
+    "scene_auto_graph": {
+      "amount": "0..100",
+      "runtime_command_amount": "0..1",
+      "dynamic": true,
+      "native_rc": true,
+      "target": "volume@scene_amount"
+    },
+    "command": [
+      "af-command",
+      "<module-label>",
+      "volume",
+      "<amount 0..1>",
+      "<target>"
+    ],
+    "target_fallback": "only after actual reply -12, retry exact instance name after @; never broadcast type/all",
+    "format_boundary": "lavfi resets history and ramps from zero; resend latest amount on native audio-reconfig",
+    "chain": "mpv format=channels=stereo, then separate labeled lavfi nodes with o=[threads=1]"
+  },
+  "initial_snapshot_regression": {
+    "old_last_amount": 0,
+    "requested_amount": 0.5,
+    "old_template_commit": "7f87f835",
+    "native_pcm_frames": 9617,
+    "fixed_checks": "initial_amount_*"
+  },
+  "pacer_regression": {
+    "original_frames": 57347,
+    "failed_last_amount": 0.003401360474526882,
+    "expected_last_amount": 0.75,
+    "fix": "test-only 128-sample frames before arealtime; unchanged times, frames, timeout, and oracle"
+  },
+  "unverified": [
+    "custom %.17g Windows library replay",
+    "new-library Android/device behavior",
+    "production scheduling latency and sustained performance"
+  ],
+  "results": [
+    {
+      "suite": "expression58",
+      "passed": 58,
+      "total": 58,
+      "report": "build/host-adaptive-integration/expression58-paced/result.json",
+      "complete_frames": true,
+      "maximum_error": 1.0341766010224518e-07,
+      "failures": [],
+      "neutral_checks": [
+        {
+          "name": "auto_mono_0_44100",
+          "error": 0.0
+        },
+        {
+          "name": "auto_bathroom_0_44100",
+          "error": 0.0
+        },
+        {
+          "name": "auto_through_wall_0_44100",
+          "error": 0.0
+        },
+        {
+          "name": "auto_telephone_0_44100",
+          "error": 0.0
+        },
+        {
+          "name": "auto_mono_0_48000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_bathroom_0_48000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_through_wall_0_48000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_telephone_0_48000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_mono_0_96000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_bathroom_0_96000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_through_wall_0_96000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_telephone_0_96000",
+          "error": 0.0
+        },
+        {
+          "name": "auto_mono_aligned_neutral_96000",
+          "error": 0.0
+        }
+      ],
+      "feedback_write_clips": [
+        21416,
+        23290,
+        47332
+      ],
+      "cost": {
+        "name": "auto_96k_cost",
+        "passed": true,
+        "frames": 384017,
+        "timing": {
+          "wall_seconds": 2.962109899999632,
+          "process_cpu_seconds": 2.875
+        },
+        "end_file": {
+          "reason": 0,
+          "error": 0
+        },
+        "ao_closed": true
+      }
+    },
+    {
+      "suite": "reference_native58",
+      "passed": 43,
+      "total": 58,
+      "report": "build/host-adaptive-integration/reference-native58/result.json",
+      "complete_frames": true,
+      "maximum_error": 2.5535594033010423e-05,
+      "failures": [
+        {
+          "name": "auto_bathroom_feedback_44100",
+          "frames": 30887,
+          "expected_frames": 30887,
+          "max_error": 1.0081070765277644e-05
+        },
+        {
+          "name": "auto_dynamic_bathroom_44100",
+          "frames": 57347,
+          "expected_frames": 57347,
+          "max_error": 7.931783998271769e-06
+        },
+        {
+          "name": "auto_dynamic_through_wall_44100",
+          "frames": 57347,
+          "expected_frames": 57347,
+          "max_error": 2.298230417877023e-06
+        },
+        {
+          "name": "auto_dynamic_telephone_44100",
+          "frames": 57347,
+          "expected_frames": 57347,
+          "max_error": 4.2474045469226285e-06
+        },
+        {
+          "name": "auto_telephone_100_48000",
+          "frames": 4817,
+          "expected_frames": 4817,
+          "max_error": 3.1618153806256544e-06
+        },
+        {
+          "name": "auto_bathroom_feedback_48000",
+          "frames": 33617,
+          "expected_frames": 33617,
+          "max_error": 1.2342881853921739e-05
+        },
+        {
+          "name": "auto_rc_clip_48000",
+          "frames": 2418,
+          "expected_frames": 2418,
+          "max_error": 2.7865171432495117e-06
+        },
+        {
+          "name": "auto_dynamic_bathroom_48000",
+          "frames": 62417,
+          "expected_frames": 62417,
+          "max_error": 9.549961226928971e-06
+        },
+        {
+          "name": "auto_dynamic_through_wall_48000",
+          "frames": 62417,
+          "expected_frames": 62417,
+          "max_error": 2.4741053606947006e-06
+        },
+        {
+          "name": "auto_dynamic_telephone_48000",
+          "frames": 62417,
+          "expected_frames": 62417,
+          "max_error": 2.5535594033010423e-05
+        },
+        {
+          "name": "auto_bathroom_feedback_96000",
+          "frames": 67217,
+          "expected_frames": 67217,
+          "max_error": 1.012631129126973e-05
+        },
+        {
+          "name": "auto_dynamic_bathroom_96000",
+          "frames": 124817,
+          "expected_frames": 124817,
+          "max_error": 7.844213751995177e-06
+        },
+        {
+          "name": "auto_dynamic_through_wall_96000",
+          "frames": 124817,
+          "expected_frames": 124817,
+          "max_error": 1.3557969245292512e-05
+        },
+        {
+          "name": "auto_dynamic_telephone_96000",
+          "frames": 124817,
+          "expected_frames": 124817,
+          "max_error": 3.6259366677504623e-06
+        },
+        {
+          "name": "auto_same_player_fs_rc",
+          "frames": 18861,
+          "expected_frames": 18861,
+          "max_error": 6.084378810722324e-06
+        }
+      ],
+      "performance_scope": "RC precision failed; CPU is not acceptance evidence for the native variant"
+    },
+    {
+      "suite": "expression_contracts",
+      "passed": 6,
+      "total": 6,
+      "report": "build/host-adaptive-integration/expression-contracts/result.json",
+      "complete_frames": true,
+      "maximum_error": 3.008852322849975e-08,
+      "failures": [],
+      "contracts": [
+        {
+          "name": "rc_step_120_44100",
+          "passed": true,
+          "frames": 4427,
+          "expected_frames": 4427,
+          "max_error": 2.7356692355873236e-08,
+          "timing": {
+            "wall_seconds": 0.22851770000124816,
+            "process_cpu_seconds": 0.015625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "rc_step_120_48000",
+          "passed": true,
+          "frames": 4817,
+          "expected_frames": 4817,
+          "max_error": 2.7715268524630687e-08,
+          "timing": {
+            "wall_seconds": 0.2647930999955861,
+            "process_cpu_seconds": 0.0625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "rc_step_120_96000",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 2.8166915244653978e-08,
+          "timing": {
+            "wall_seconds": 0.2209147000030498,
+            "process_cpu_seconds": 0.03125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_bathroom",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 2.9783995381116313e-08,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.3056390999990981,
+            "process_cpu_seconds": 0.046875
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_through_wall",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 2.8919286187978344e-08,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.24645629999577068,
+            "process_cpu_seconds": 0.140625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_telephone",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 3.008852322849975e-08,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.24470979999750853,
+            "process_cpu_seconds": 0.015625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        }
+      ]
+    },
+    {
+      "suite": "reference_native_contracts",
+      "passed": 3,
+      "total": 6,
+      "report": "build/host-adaptive-integration/reference-native-contracts/result.json",
+      "complete_frames": true,
+      "maximum_error": 6.447278218191244e-06,
+      "failures": [
+        {
+          "name": "rc_step_120_44100",
+          "frames": 4427,
+          "expected_frames": 4427,
+          "max_error": 3.9697223682133576e-06
+        },
+        {
+          "name": "rc_step_120_96000",
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 6.447278218191244e-06
+        },
+        {
+          "name": "initial_amount_telephone",
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 2.6466205163000467e-06
+        }
+      ],
+      "contracts": [
+        {
+          "name": "rc_step_120_44100",
+          "passed": false,
+          "frames": 4427,
+          "expected_frames": 4427,
+          "max_error": 3.9697223682133576e-06,
+          "timing": {
+            "wall_seconds": 0.2173691999996663,
+            "process_cpu_seconds": 0.03125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "rc_step_120_48000",
+          "passed": true,
+          "frames": 4817,
+          "expected_frames": 4817,
+          "max_error": 5.776853764793977e-07,
+          "timing": {
+            "wall_seconds": 0.21603350000077626,
+            "process_cpu_seconds": 0.03125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "rc_step_120_96000",
+          "passed": false,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 6.447278218191244e-06,
+          "timing": {
+            "wall_seconds": 0.2652617999992799,
+            "process_cpu_seconds": 0.015625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_bathroom",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 7.020116391531772e-07,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.25597380000544945,
+            "process_cpu_seconds": 0.0625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_through_wall",
+          "passed": true,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 4.263989155928183e-07,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.28371960000367835,
+            "process_cpu_seconds": 0.03125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "initial_amount_telephone",
+          "passed": false,
+          "frames": 9617,
+          "expected_frames": 9617,
+          "max_error": 2.6466205163000467e-06,
+          "maximum_amount_step": 0.0010416805744171143,
+          "last_amount": 0.5,
+          "timing": {
+            "wall_seconds": 0.23326670000096783,
+            "process_cpu_seconds": 0.03125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        }
+      ]
+    },
+    {
+      "suite": "expression_hls",
+      "passed": 6,
+      "total": 7,
+      "report": "build/host-adaptive-integration/reference-hls-expression/result.json",
+      "complete_frames": true,
+      "maximum_error": 3.8310887351400424e-08,
+      "failures": [
+        {
+          "name": "hls_runtime_parameter_retention",
+          "frames": 72704,
+          "max_error": 2.069678989302659e-08
+        }
+      ],
+      "checks": [
+        {
+          "name": "hls_bypass",
+          "passed": true,
+          "frames": 72704,
+          "ranges": [
+            [
+              0,
+              44100.0
+            ],
+            [
+              23552,
+              96000.0
+            ]
+          ],
+          "timing": {
+            "wall_seconds": 1.8732317999965744,
+            "process_cpu_seconds": 0.1875
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_ap",
+          "passed": true,
+          "frames": 72704,
+          "max_error": 2.7483865738808788e-08,
+          "ranges": [
+            [
+              0,
+              44100.0
+            ],
+            [
+              23552,
+              96000.0
+            ]
+          ],
+          "timing": {
+            "wall_seconds": 1.8567637000014656,
+            "process_cpu_seconds": 0.171875
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_mono",
+          "passed": true,
+          "frames": 72704,
+          "max_error": 2.9389885414232708e-08,
+          "ranges": [
+            [
+              0,
+              44100.0
+            ],
+            [
+              23552,
+              96000.0
+            ]
+          ],
+          "timing": {
+            "wall_seconds": 1.9161395000046468,
+            "process_cpu_seconds": 0.265625
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_telephone",
+          "passed": true,
+          "frames": 72704,
+          "max_error": 3.8310887351400424e-08,
+          "ranges": [
+            [
+              0,
+              44100.0
+            ],
+            [
+              23552,
+              96000.0
+            ]
+          ],
+          "timing": {
+            "wall_seconds": 1.8572980000026291,
+            "process_cpu_seconds": 0.25
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_bathroom",
+          "passed": true,
+          "frames": 72704,
+          "max_error": 1.4900741307499743e-08,
+          "ranges": [
+            [
+              0,
+              44100.0
+            ],
+            [
+              23552,
+              96000.0
+            ]
+          ],
+          "timing": {
+            "wall_seconds": 1.858468400001584,
+            "process_cpu_seconds": 0.359375
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_runtime_parameter_retention",
+          "passed": false,
+          "frames": 72704,
+          "max_error": 2.069678989302659e-08,
+          "timing": {
+            "wall_seconds": 1.9147818999990704,
+            "process_cpu_seconds": 0.203125
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        },
+        {
+          "name": "hls_audio_reconfig_resend",
+          "passed": true,
+          "frames": 72704,
+          "max_error": 2.270743942878184e-08,
+          "boundary": [
+            {
+              "sample_rate": 0,
+              "pcm_bytes": 0
+            },
+            {
+              "sample_rate": 44100,
+              "pcm_bytes": 0
+            },
+            {
+              "sample_rate": 44100,
+              "pcm_bytes": 0
+            },
+            {
+              "sample_rate": 96000,
+              "pcm_bytes": 733184
+            },
+            {
+              "sample_rate": 96000,
+              "pcm_bytes": 819200
+            },
+            {
+              "sample_rate": 0,
+              "pcm_bytes": 1454080
+            },
+            {
+              "sample_rate": 0,
+              "pcm_bytes": 1454080
+            },
+            {
+              "total_frames": 72704,
+              "new_fs_frames": 49152,
+              "initial_zero_amount_frames": 17664,
+              "first_full_amount_frame": 19583,
+              "last_amount": 1.0
+            }
+          ],
+          "timing": {
+            "wall_seconds": 1.9273331000003964,
+            "process_cpu_seconds": 0.34375
+          },
+          "end_file": {
+            "reason": 0,
+            "error": 0
+          },
+          "ao_closed": true
+        }
+      ]
+    }
+  ]
+}

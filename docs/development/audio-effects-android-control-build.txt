@@ -1,0 +1,13 @@
+mpv_commit=78d43740f52db817d98bcf24fb30a76ab6fa13ff
+mpv_version=0.36.0-UNKNOWN
+mpv_patches=mpv-audio-reinit.patch,mpv-audio-controls.patch
+compiler=cc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+meson=1.2.1
+ninja=1.13.2
+libass=0.15.2
+libavcodec=58.134.100
+libavfilter=7.110.100
+libavformat=58.76.100
+libavutil=56.70.100
+libswresample=3.9.100
+libswscale=5.9.100

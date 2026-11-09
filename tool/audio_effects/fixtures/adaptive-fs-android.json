@@ -1,0 +1,1610 @@
+{
+  "gate_status": "incomplete",
+  "platform": "Android standalone C API / PCM AO; not APK or production migration",
+  "device": {
+    "model": "OPD2405",
+    "abi": "arm64-v8a",
+    "api": "36",
+    "release": "16"
+  },
+  "versions": {
+    "mpv-version": "mpv v0.36.0-549-g78d43740f5-dirty",
+    "ffmpeg-version": "n6.0"
+  },
+  "native_sources": {
+    "builder_source": "8bb6722ada223998e41f8366c9429924a946f125",
+    "mpv": "78d43740f52db817d98bcf24fb30a76ab6fa13ff",
+    "ffmpeg": "ea3d24bbe3c58b171e55fe2151fc7ffaca3ab3d2"
+  },
+  "baseline90": {
+    "passed": 90,
+    "total": 90,
+    "pulls_succeeded": 90
+  },
+  "eof_regressions_before_fix": [
+    {
+      "name": "mono-red",
+      "expected_frames": 4427,
+      "captured_frames": 4096,
+      "end_files": [
+        {
+          "reason": 0,
+          "error": 0
+        }
+      ],
+      "timed_out": false,
+      "ao_closed": true,
+      "pull_return_code": 0
+    },
+    {
+      "name": "bath-red",
+      "expected_frames": 4427,
+      "captured_frames": 3072,
+      "end_files": [
+        {
+          "reason": 0,
+          "error": 0
+        }
+      ],
+      "timed_out": false,
+      "ao_closed": true,
+      "pull_return_code": 0
+    }
+  ],
+  "adaptive57": {
+    "passed": 57,
+    "total": 57,
+    "checks": [
+      {
+        "name": "auto_ap_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 7.450580596923828e-09,
+        "timing": {
+          "process_cpu_seconds": 0.234705153,
+          "wall_seconds": 0.444528
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_mono_0_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.237363388,
+          "wall_seconds": 0.448447077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_mono_1_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 1.4896908817618737e-08,
+        "timing": {
+          "process_cpu_seconds": 0.227522223,
+          "wall_seconds": 0.438596923
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_bathroom_0_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.220486541,
+          "wall_seconds": 0.41834
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_bathroom_50_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 7.449324629371645e-09,
+        "timing": {
+          "process_cpu_seconds": 0.356090769,
+          "wall_seconds": 0.572175692
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_bathroom_100_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 7.449347749766133e-09,
+        "timing": {
+          "process_cpu_seconds": 0.361961005,
+          "wall_seconds": 0.579476384
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_through_wall_0_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.205118782,
+          "wall_seconds": 0.423123462
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_through_wall_50_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 4.518684426635389e-09,
+        "timing": {
+          "process_cpu_seconds": 0.275409151,
+          "wall_seconds": 0.48078223
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_through_wall_100_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 3.6805604952672155e-09,
+        "timing": {
+          "process_cpu_seconds": 0.281260827,
+          "wall_seconds": 0.506897
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_telephone_0_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.202908082,
+          "wall_seconds": 0.413376539
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_telephone_50_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 1.655054415738988e-08,
+        "timing": {
+          "process_cpu_seconds": 0.233035463,
+          "wall_seconds": 0.447107077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_telephone_100_44100",
+        "passed": true,
+        "frames": 4427,
+        "expected_frames": 4427,
+        "max_error": 2.166508528134159e-08,
+        "timing": {
+          "process_cpu_seconds": 0.227791158,
+          "wall_seconds": 0.445032307
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4427,
+        "pcm_bytes": 35416
+      },
+      {
+        "name": "auto_bathroom_feedback_44100",
+        "passed": true,
+        "frames": 30887,
+        "expected_frames": 30887,
+        "max_error": 2.980192914669999e-08,
+        "oracle_feedback_write_clips": 21416,
+        "timing": {
+          "process_cpu_seconds": 0.446824084,
+          "wall_seconds": 0.665897308
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 30887,
+        "pcm_bytes": 247096
+      },
+      {
+        "name": "auto_mono_clip_44100",
+        "passed": true,
+        "frames": 2222,
+        "expected_frames": 2222,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.251684153,
+          "wall_seconds": 0.458141846
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 2222,
+        "pcm_bytes": 17776
+      },
+      {
+        "name": "auto_rc_clip_44100",
+        "passed": true,
+        "frames": 2222,
+        "expected_frames": 2222,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.263679926,
+          "wall_seconds": 0.458653461
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 2222,
+        "pcm_bytes": 17776
+      },
+      {
+        "name": "auto_dynamic_bathroom_44100",
+        "passed": true,
+        "frames": 57347,
+        "expected_frames": 57347,
+        "max_error": 5.7937881270397895e-08,
+        "maximum_amount_step": 0.0011337995529174805,
+        "timing": {
+          "process_cpu_seconds": 0.806781925,
+          "wall_seconds": 1.758141923
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 57347,
+        "pcm_bytes": 688164
+      },
+      {
+        "name": "auto_dynamic_through_wall_44100",
+        "passed": true,
+        "frames": 57347,
+        "expected_frames": 57347,
+        "max_error": 5.6631746514490544e-08,
+        "maximum_amount_step": 0.0011337995529174805,
+        "timing": {
+          "process_cpu_seconds": 0.754047787,
+          "wall_seconds": 1.750167
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 57347,
+        "pcm_bytes": 688164
+      },
+      {
+        "name": "auto_dynamic_telephone_44100",
+        "passed": true,
+        "frames": 57347,
+        "expected_frames": 57347,
+        "max_error": 1.0787549925561635e-07,
+        "maximum_amount_step": 0.0011337995529174805,
+        "timing": {
+          "process_cpu_seconds": 0.75713931,
+          "wall_seconds": 1.742554538
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 57347,
+        "pcm_bytes": 688164
+      },
+      {
+        "name": "auto_ap_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 7.450580596923828e-09,
+        "timing": {
+          "process_cpu_seconds": 0.226410312,
+          "wall_seconds": 0.442282538
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_mono_0_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.240099072,
+          "wall_seconds": 0.453446154
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_mono_1_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 1.4882262755477882e-08,
+        "timing": {
+          "process_cpu_seconds": 0.240734607,
+          "wall_seconds": 0.459362231
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_bathroom_0_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.221778617,
+          "wall_seconds": 0.434842769
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_bathroom_50_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 7.904533194658114e-09,
+        "timing": {
+          "process_cpu_seconds": 0.369303156,
+          "wall_seconds": 0.582389539
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_bathroom_100_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 7.450359718053079e-09,
+        "timing": {
+          "process_cpu_seconds": 0.376428471,
+          "wall_seconds": 0.597373923
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_through_wall_0_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.205787609,
+          "wall_seconds": 0.408903385
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_through_wall_50_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 4.435477901632012e-09,
+        "timing": {
+          "process_cpu_seconds": 0.292698387,
+          "wall_seconds": 0.508984
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_through_wall_100_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 3.509306650828492e-09,
+        "timing": {
+          "process_cpu_seconds": 0.294374772,
+          "wall_seconds": 0.505222154
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_telephone_0_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.218898315,
+          "wall_seconds": 0.419603693
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_telephone_50_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 1.6635413102594754e-08,
+        "timing": {
+          "process_cpu_seconds": 0.248080625,
+          "wall_seconds": 0.463020308
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_telephone_100_48000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 2.1499479530007193e-08,
+        "timing": {
+          "process_cpu_seconds": 0.249438626,
+          "wall_seconds": 0.457712539
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_bathroom_feedback_48000",
+        "passed": true,
+        "frames": 33617,
+        "expected_frames": 33617,
+        "max_error": 2.9801269008089548e-08,
+        "oracle_feedback_write_clips": 23290,
+        "timing": {
+          "process_cpu_seconds": 0.478597018,
+          "wall_seconds": 0.692696
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 33617,
+        "pcm_bytes": 268936
+      },
+      {
+        "name": "auto_mono_clip_48000",
+        "passed": true,
+        "frames": 2418,
+        "expected_frames": 2418,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.247068157,
+          "wall_seconds": 0.454803077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 2418,
+        "pcm_bytes": 19344
+      },
+      {
+        "name": "auto_rc_clip_48000",
+        "passed": true,
+        "frames": 2418,
+        "expected_frames": 2418,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.233773064,
+          "wall_seconds": 0.439659154
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 2418,
+        "pcm_bytes": 19344
+      },
+      {
+        "name": "auto_dynamic_bathroom_48000",
+        "passed": true,
+        "frames": 62417,
+        "expected_frames": 62417,
+        "max_error": 5.278079318049578e-08,
+        "maximum_amount_step": 0.001041710376739502,
+        "timing": {
+          "process_cpu_seconds": 0.839184984,
+          "wall_seconds": 1.747139462
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 62417,
+        "pcm_bytes": 749004
+      },
+      {
+        "name": "auto_dynamic_through_wall_48000",
+        "passed": true,
+        "frames": 62417,
+        "expected_frames": 62417,
+        "max_error": 5.4149583594842454e-08,
+        "maximum_amount_step": 0.001041710376739502,
+        "timing": {
+          "process_cpu_seconds": 0.768769548,
+          "wall_seconds": 1.732325231
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 62417,
+        "pcm_bytes": 749004
+      },
+      {
+        "name": "auto_dynamic_telephone_48000",
+        "passed": true,
+        "frames": 62417,
+        "expected_frames": 62417,
+        "max_error": 1.0626149865577972e-07,
+        "maximum_amount_step": 0.001041710376739502,
+        "timing": {
+          "process_cpu_seconds": 0.777817683,
+          "wall_seconds": 1.731155154
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 62417,
+        "pcm_bytes": 749004
+      },
+      {
+        "name": "auto_ap_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 7.450580596923828e-09,
+        "timing": {
+          "process_cpu_seconds": 0.241433382,
+          "wall_seconds": 0.456832307
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_mono_0_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.256900768,
+          "wall_seconds": 0.458596077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_mono_1_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 1.4881886001294475e-08,
+        "timing": {
+          "process_cpu_seconds": 0.243766993,
+          "wall_seconds": 0.454876693
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_bathroom_0_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.224570228,
+          "wall_seconds": 0.428049539
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_bathroom_50_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 1.4255309543909078e-08,
+        "timing": {
+          "process_cpu_seconds": 0.640958463,
+          "wall_seconds": 0.863887
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_bathroom_100_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 7.449831723738143e-09,
+        "timing": {
+          "process_cpu_seconds": 0.643177544,
+          "wall_seconds": 0.863172
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_through_wall_0_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.211164927,
+          "wall_seconds": 0.42212277
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_through_wall_50_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 3.725271591203949e-09,
+        "timing": {
+          "process_cpu_seconds": 0.346090844,
+          "wall_seconds": 0.566487077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_through_wall_100_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 1.7369102545128356e-09,
+        "timing": {
+          "process_cpu_seconds": 0.345895685,
+          "wall_seconds": 0.567838462
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_telephone_0_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.216376166,
+          "wall_seconds": 0.426844616
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_telephone_50_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 1.0250524679067397e-08,
+        "timing": {
+          "process_cpu_seconds": 0.269633695,
+          "wall_seconds": 0.474755692
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_telephone_100_96000",
+        "passed": true,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "max_error": 1.1007987937849961e-08,
+        "timing": {
+          "process_cpu_seconds": 0.259082694,
+          "wall_seconds": 0.479517462
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 9617,
+        "pcm_bytes": 76936
+      },
+      {
+        "name": "auto_bathroom_feedback_96000",
+        "passed": true,
+        "frames": 67217,
+        "expected_frames": 67217,
+        "max_error": 2.9801132672702124e-08,
+        "oracle_feedback_write_clips": 47332,
+        "timing": {
+          "process_cpu_seconds": 0.81819262,
+          "wall_seconds": 1.031437847
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 67217,
+        "pcm_bytes": 537736
+      },
+      {
+        "name": "auto_mono_clip_96000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.242166764,
+          "wall_seconds": 0.433727154
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_rc_clip_96000",
+        "passed": true,
+        "frames": 4817,
+        "expected_frames": 4817,
+        "max_error": 0.0,
+        "timing": {
+          "process_cpu_seconds": 0.249703624,
+          "wall_seconds": 0.453621538
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 4817,
+        "pcm_bytes": 38536
+      },
+      {
+        "name": "auto_dynamic_bathroom_96000",
+        "passed": true,
+        "frames": 124817,
+        "expected_frames": 124817,
+        "max_error": 5.3350348916403334e-08,
+        "maximum_amount_step": 0.0005208849906921387,
+        "timing": {
+          "process_cpu_seconds": 1.438351606,
+          "wall_seconds": 1.800640693
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 124817,
+        "pcm_bytes": 1497804
+      },
+      {
+        "name": "auto_dynamic_through_wall_96000",
+        "passed": true,
+        "frames": 124817,
+        "expected_frames": 124817,
+        "max_error": 5.9356565995649646e-08,
+        "maximum_amount_step": 0.0005208849906921387,
+        "timing": {
+          "process_cpu_seconds": 1.204033464,
+          "wall_seconds": 1.734079077
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 124817,
+        "pcm_bytes": 1497804
+      },
+      {
+        "name": "auto_dynamic_telephone_96000",
+        "passed": true,
+        "frames": 124817,
+        "expected_frames": 124817,
+        "max_error": 1.0013397244712507e-07,
+        "maximum_amount_step": 0.0005208849906921387,
+        "timing": {
+          "process_cpu_seconds": 1.230571677,
+          "wall_seconds": 1.743095385
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 124817,
+        "pcm_bytes": 1497804
+      },
+      {
+        "name": "auto_same_player_fs_mono",
+        "passed": true,
+        "frames": 18861,
+        "expected_frames": 18861,
+        "max_error": 1.4900994771416265e-08,
+        "observed_native_sample_rates": [
+          44100.0,
+          48000.0,
+          96000.0
+        ],
+        "timing": {
+          "process_cpu_seconds": 0.436963782,
+          "wall_seconds": 1.274652847
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          },
+          {
+            "reason": 0,
+            "error": 0
+          },
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 18861,
+        "pcm_bytes": 226332
+      },
+      {
+        "name": "auto_same_player_fs_rc",
+        "passed": true,
+        "frames": 18861,
+        "expected_frames": 18861,
+        "max_error": 3.828057759669434e-08,
+        "observed_native_sample_rates": [
+          44100.0,
+          48000.0,
+          96000.0
+        ],
+        "timing": {
+          "process_cpu_seconds": 0.409221536,
+          "wall_seconds": 1.241072308
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          },
+          {
+            "reason": 0,
+            "error": 0
+          },
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 18861,
+        "pcm_bytes": 226332
+      },
+      {
+        "name": "auto_96k_cost",
+        "passed": true,
+        "frames": 384017,
+        "timing": {
+          "process_cpu_seconds": 6.920557018,
+          "wall_seconds": 6.978336616
+        },
+        "native_return_code": 0,
+        "end_files": [
+          {
+            "reason": 0,
+            "error": 0
+          }
+        ],
+        "timed_out": false,
+        "ao_closed": true,
+        "pull_return_code": 0,
+        "pcm_frames": 384017,
+        "pcm_bytes": 3072136
+      }
+    ]
+  },
+  "hls": {
+    "passed": 0,
+    "total": 7,
+    "scope": "PCM AO capture blocks before second Fs; changed-Fs algorithm and parameter replay not assessed",
+    "checks": [
+      {
+        "name": "hls_bypass",
+        "passed": false,
+        "frames": 23552,
+        "ranges": [
+          [
+            0,
+            44100.0
+          ]
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 282624
+      },
+      {
+        "name": "hls_ap",
+        "passed": false,
+        "frames": 23552,
+        "ranges": [
+          [
+            0,
+            44100.0
+          ]
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 282624
+      },
+      {
+        "name": "hls_mono",
+        "passed": false,
+        "frames": 23552,
+        "ranges": [
+          [
+            0,
+            44100.0
+          ]
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 282624
+      },
+      {
+        "name": "hls_telephone",
+        "passed": false,
+        "frames": 23552,
+        "ranges": [
+          [
+            0,
+            44100.0
+          ]
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 282624
+      },
+      {
+        "name": "hls_bathroom",
+        "passed": false,
+        "frames": 23552,
+        "ranges": [
+          [
+            0,
+            44100.0
+          ]
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 282624
+      },
+      {
+        "name": "hls_runtime_parameter_retention",
+        "passed": false,
+        "frames": 23552,
+        "max_error": 1.9727313949058356e-08,
+        "amount_by_native_fs": {
+          "44100.0": {
+            "min": 0.0,
+            "max": 1.0,
+            "last": 1.0
+          }
+        },
+        "reason": "An amount set by af-command must survive native input-format reinitialization",
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 471040
+      },
+      {
+        "name": "hls_audio_reconfig_resend",
+        "passed": false,
+        "frames": 23552,
+        "max_error": 2.007960814287557e-08,
+        "boundary": [
+          {
+            "sample_rate": 0,
+            "pcm_bytes": 0
+          },
+          {
+            "sample_rate": 44100,
+            "pcm_bytes": 0
+          },
+          {
+            "sample_rate": 44100,
+            "pcm_bytes": 0
+          },
+          {
+            "total_frames": 23552,
+            "new_fs_frames": 0,
+            "initial_zero_amount_frames": 0,
+            "first_full_amount_frame": null,
+            "last_amount": null
+          }
+        ],
+        "native_return_code": 4,
+        "end_files": [],
+        "timed_out": true,
+        "ao_closed": null,
+        "pull_return_code": 0,
+        "pcm_frames": 23552,
+        "pcm_bytes": 471040,
+        "audio_reconfigs": [
+          {
+            "sample_rate": 0,
+            "pcm_bytes": 0
+          },
+          {
+            "sample_rate": 44100,
+            "pcm_bytes": 0
+          },
+          {
+            "sample_rate": 44100,
+            "pcm_bytes": 0
+          }
+        ]
+      }
+    ]
+  },
+  "hls_isolation": [
+    {
+      "name": "native-format-only",
+      "native_return_code": 4,
+      "end_files": [],
+      "timed_out": true,
+      "ao_closed": null,
+      "pull_return_code": 0,
+      "pcm_frames": 23552,
+      "pcm_bytes": 188416
+    },
+    {
+      "name": "lavfi-anull-offline",
+      "native_return_code": 4,
+      "end_files": [],
+      "timed_out": true,
+      "ao_closed": null,
+      "pull_return_code": 0,
+      "pcm_frames": 23552,
+      "pcm_bytes": 188416
+    }
+  ],
+  "performance": {
+    "input_frames": 384017,
+    "rate": 96000,
+    "input_seconds": 4.000177083333333,
+    "cpu_seconds": 6.920557018,
+    "wall_seconds": 6.978336616,
+    "realtime_performance_passed": false,
+    "scope": "one offline EQ+15/mono1/limiter/three resident dynamic scenes case, telephone1/others0"
+  },
+  "unverified": [
+    "HLS format change after the proposed official PCM AO fix",
+    "event parameter replay on this old-core capture path",
+    "sustained real-device audio output and listening",
+    "packaged app/production migration"
+  ]
+}

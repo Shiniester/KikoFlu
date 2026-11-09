@@ -3,8 +3,10 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:media_kit/media_kit.dart' show NativePlayer;
 import 'package:path/path.dart' as p;
 import 'package:smtc_windows/smtc_windows.dart';
 
@@ -12,6 +14,8 @@ import '../models/audio_slice.dart';
 import '../models/audio_track.dart';
 import '../models/automatic_marking_event.dart';
 import '../models/audio_gain_settings.dart';
+import '../models/audio_effects_settings.dart';
+import 'native_audio_effects.dart';
 import '../models/playback_diagnostic_event.dart';
 import '../performance/performance_build_guard.dart';
 import '../performance/performance_recorder.dart';
@@ -198,36 +202,26 @@ class AudioPlayerService {
 
   AudioPlayerService._() {
     _androidNativePreload = Platform.isAndroid;
-    if (Platform.isAndroid) {
-      _androidLoudnessEnhancer = AndroidLoudnessEnhancer();
-      _player = AudioPlayer(
-        useProxyForRequestHeaders: false,
-        audioLoadConfiguration: const AudioLoadConfiguration(
-          androidLoadControl: AndroidLoadControl(
-            bufferForPlaybackDuration: Duration(milliseconds: 750),
-            bufferForPlaybackAfterRebufferDuration: Duration(seconds: 5),
-            // Keep the back buffer from crowding out forward buffering.
-            backBufferDuration: _androidBackBufferDuration,
-            prioritizeTimeOverSizeThresholds: true,
-          ),
-        ),
-        audioPipeline: AudioPipeline(
-          androidAudioEffects: [_androidLoudnessEnhancer!],
-        ),
-      );
-    } else {
-      _player = AudioPlayer();
-    }
+    _player = AudioPlayer(
+      useProxyForRequestHeaders: !Platform.isAndroid,
+      androidApplyAudioAttributes: false,
+    );
+    _nativePlayerId = _player.platformId;
+    unawaited(_refreshNativePlayerConfiguration());
+    _listenForDuckEndFromAudioSession();
     _audioCacheDownloader = _createAudioCacheDownloader();
     _listenForPlaybackErrors();
     _startHistoricalQueueLoad();
   }
 
   late final AudioPlayer _player;
+  late final String? _nativePlayerId;
 
   @visibleForTesting
   AudioPlayerService.forTesting(
     AudioPlayer player, {
+    String? nativePlayerId,
+    Future<void> Function(NativePlayer)? nativePlayerInitializer,
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
     PlaybackQueueHistoryStore queueHistoryStore =
@@ -237,14 +231,21 @@ class AudioPlayerService {
     bool androidNativePreload = false,
     Duration seekRecoveryTimeout = const Duration(seconds: 8),
     AudioCacheDownloader? cacheDownloader,
+    Stream<AudioInterruptionEvent>? interruptionEvents,
   }) {
     _player = player;
+    _nativePlayerId = nativePlayerId;
+    _nativePlayerInitializer = nativePlayerInitializer;
+    unawaited(_refreshNativePlayerConfiguration());
     _playbackSessionStore = sessionStore;
     _playbackQueueHistoryStore = queueHistoryStore;
     _audioSliceStore = sliceStore;
     _androidSeekRecovery = androidSeekRecovery;
     _androidNativePreload = androidNativePreload;
     _seekRecoveryTimeout = seekRecoveryTimeout;
+    if (interruptionEvents != null) {
+      _subscribeForDuckEnd(interruptionEvents);
+    }
     _audioCacheDownloader = cacheDownloader ?? _createAudioCacheDownloader();
     _listenForPlaybackErrors();
     _setupPlayerListeners();
@@ -259,7 +260,6 @@ class AudioPlayerService {
     logger: _log.captureOutput,
   );
 
-  AndroidLoudnessEnhancer? _androidLoudnessEnhancer;
   final AudioHapticsService _hapticsService = AudioHapticsService.instance;
   final List<AudioTrack> _queue = [];
   int _currentIndex = 0;
@@ -316,6 +316,7 @@ class AudioPlayerService {
   Completer<void>? _nativeWindowError;
   int? _seekRecoveryGeneration;
   StreamSubscription<PlaybackEvent>? _playbackErrorSubscription;
+  StreamSubscription<AudioInterruptionEvent>? _duckEndSubscription;
   AudioSource? _failedSeekSource;
   Duration? _failedSeekPosition;
   Duration _seekRecoveryTimeout = const Duration(seconds: 8);
@@ -325,6 +326,10 @@ class AudioPlayerService {
   int _mediaItemRevision = 0;
   int _committedTrackGeneration = 0;
   bool _disposed = false;
+
+  @visibleForTesting
+  bool isNativeNextPreparedForTesting(String trackId) =>
+      _nativePreparedTrackId == trackId;
 
   static const Duration _sessionCheckpointInterval = Duration(seconds: 5);
   PlaybackSessionStore _playbackSessionStore =
@@ -394,6 +399,73 @@ class AudioPlayerService {
   double _userVolume = 1;
   double _audioGainDecibels = AudioGainSettings.defaultDecibels;
   bool _audioPassthroughEnabled = false;
+
+  AudioEffectsSettings _audioEffectsSettings = AudioEffectsSettings();
+  AudioEffectsStatus _audioEffectsStatus = AudioEffectsStatus.waiting;
+  final _audioEffectsStatusController =
+      StreamController<AudioEffectsStatus>.broadcast();
+  AudioEffectsStatus get audioEffectsStatus => _audioEffectsStatus;
+  Stream<AudioEffectsStatus> get audioEffectsStatusStream =>
+      _audioEffectsStatusController.stream;
+  late final _nativeEffects = NativeAudioEffects((status) {
+    _audioEffectsStatus = status;
+    if (!_audioEffectsStatusController.isClosed) {
+      _audioEffectsStatusController.add(status);
+    }
+  });
+  NativePlayer? _configuredNativePlayer;
+  Future<void> Function(NativePlayer)? _nativePlayerInitializer;
+  bool? _configuredPassthrough;
+
+  Future<void> updateAudioEffects(AudioEffectsSettings settings) async {
+    _audioEffectsSettings = settings;
+    await _refreshNativePlayerConfiguration();
+  }
+
+  Future<void> _refreshNativePlayerConfiguration() async {
+    if (_disposed) return;
+    final id = _nativePlayerId;
+    if (id == null) return;
+    await JustAudioMediaKit.configurePlayer(id, _configureNativeAudioPlayer);
+  }
+
+  Future<void> _configureNativeAudioPlayer(NativePlayer player) async {
+    final passthrough = _audioPassthroughEnabled;
+    if (!identical(_configuredNativePlayer, player)) {
+      await _nativePlayerInitializer?.call(player);
+    }
+    if (!identical(_configuredNativePlayer, player) ||
+        _configuredPassthrough != passthrough) {
+      await player.setProperty('volume-max', '400');
+      await player.setProperty('prefetch-playlist', 'yes');
+      await player.setProperty('vid', 'no');
+      await player.setProperty('sid', 'no');
+      await player.setProperty('sub-auto', 'no');
+      if (Platform.isWindows || Platform.isMacOS) {
+        if (passthrough ||
+            await player.getProperty('audio-exclusive') == 'yes') {
+          await player.setProperty(
+            'ao',
+            passthrough
+                ? (Platform.isWindows ? 'wasapi' : 'coreaudio')
+                : 'auto',
+          );
+        }
+        await player.setProperty('audio-exclusive', passthrough ? 'yes' : 'no');
+      }
+      await player.setProperty(
+        'audio-spdif',
+        passthrough ? 'ac3,dts,eac3' : '',
+      );
+      _configuredNativePlayer = player;
+      _configuredPassthrough = passthrough;
+    }
+    await _nativeEffects.configure(
+      player,
+      _audioEffectsSettings,
+      _audioPassthroughEnabled,
+    );
+  }
 
   void _startHistoricalQueueLoad() {
     _historicalQueueLoad ??= _loadHistoricalQueues();
@@ -703,18 +775,10 @@ class AudioPlayerService {
   /// 更新音频会话配置（直通/独占模式）
   Future<void> updateAudioSessionConfig(bool enablePassthrough) async {
     _audioPassthroughEnabled = enablePassthrough;
+    await _refreshNativePlayerConfiguration();
     await _applyOutputLevel();
 
     if (!Platform.isAndroid && !Platform.isIOS) return;
-
-    // iOS 平台如果用户认为不支持，则不应用直通配置，或者仅应用基础配置
-    // 这里根据需求，如果是在 iOS 上，我们可能不希望开启 "movie" 模式，或者保持默认
-    // 但为了代码一致性，我们还是允许配置，但可以通过平台判断来调整参数
-    if (Platform.isIOS && enablePassthrough) {
-      // 如果用户明确说 iOS 不支持，我们可以选择在这里直接返回，或者应用一个"无害"的配置
-      // 暂时保持与 Android 一致的逻辑，但如果用户反馈有问题，可以随时禁用
-      // _log.captureOutput('[AudioPlayerService] iOS passthrough requested but might not be fully supported.');
-    }
 
     try {
       _log.captureOutput(
@@ -1683,7 +1747,7 @@ class AudioPlayerService {
         _nativeWindowError = errorSignal;
         try {
           await Future.any<void>([
-            _player.seek(null, index: request.nativeWindowIndex),
+            _seekNativePlayer(null, index: request.nativeWindowIndex),
             errorSignal.future.then((_) {
               throw StateError('Native next source failed during seek');
             }),
@@ -2279,12 +2343,11 @@ class AudioPlayerService {
     }
     final threshold = _preloadThreshold;
     final duration = _player.duration;
+    final position = duration == null ? null : _player.position;
     final requiredBuffer = _nativePreparedTrackId == next?.id
         ? _androidCacheContinueBuffer
         : _androidCacheStartBuffer;
-    final remaining = duration == null
-        ? requiredBuffer
-        : duration - _player.position;
+    final remaining = duration == null ? requiredBuffer : duration - position!;
     final minimumBuffer = remaining <= Duration.zero
         ? Duration.zero
         : remaining < requiredBuffer
@@ -2311,9 +2374,9 @@ class AudioPlayerService {
         next != null &&
         (next.workId == null || next.workId! >= 0) &&
         duration != null &&
-        duration - _player.position <= threshold &&
+        duration - position! <= threshold &&
         remaining > Duration.zero &&
-        _player.bufferedPosition - _player.position >= minimumBuffer &&
+        _player.bufferedPosition - position >= minimumBuffer &&
         _player.currentIndex == 0;
     final uri = next == null ? null : Uri.tryParse(next.url);
     if (!eligible ||
@@ -2372,7 +2435,7 @@ class AudioPlayerService {
     _nativePreparingTrackId = capturedNextId;
     _nativePreloadCurrentPosition = _player.position;
     try {
-      await window.add(source);
+      await window.add(_clipAudioSourceForTrack(next, source, uri));
       if (!_canPrepareNativeNext(
         capturedCurrentId,
         capturedNextId,
@@ -2406,13 +2469,12 @@ class AudioPlayerService {
   ) {
     final duration = _player.duration;
     final threshold = _preloadThreshold;
+    final position = duration == null ? null : _player.position;
     final requiredBuffer =
         _nativePreparingTrackId == nextId || _nativePreparedTrackId == nextId
         ? _androidCacheContinueBuffer
         : _androidCacheStartBuffer;
-    final remaining = duration == null
-        ? Duration.zero
-        : duration - _player.position;
+    final remaining = duration == null ? Duration.zero : duration - position!;
     final minimumBuffer = remaining <= Duration.zero
         ? Duration.zero
         : remaining < requiredBuffer
@@ -2429,7 +2491,7 @@ class AudioPlayerService {
         threshold != null &&
         threshold > Duration.zero &&
         duration != null &&
-        duration - _player.position <= threshold &&
+        duration - position! <= threshold &&
         _appLoopMode != LoopMode.one &&
         !_shuffleEnabled &&
         _desiredPlaying &&
@@ -2437,7 +2499,7 @@ class AudioPlayerService {
         _player.processingState == ProcessingState.ready &&
         _player.currentIndex == 0 &&
         remaining > Duration.zero &&
-        _player.bufferedPosition - _player.position >= minimumBuffer &&
+        _player.bufferedPosition - position >= minimumBuffer &&
         !SpeculativeTransferCoordinator
             .instance
             .shouldPauseSpeculativeTransfers;
@@ -2526,7 +2588,7 @@ class AudioPlayerService {
       }
       try {
         final window = _androidSourceWindow;
-        await _player.seek(
+        await _seekNativePlayer(
           Duration(milliseconds: preview.endMs),
           index: window == null || window.children.isEmpty ? null : 0,
         );
@@ -2884,6 +2946,11 @@ class AudioPlayerService {
     );
   }
 
+  Future<void> _seekNativePlayer(Duration? position, {int? index}) {
+    _nativeEffects.resetHistory();
+    return _player.seek(position, index: index);
+  }
+
   Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
 
   Future<bool> _seek(Duration position, {required bool userInitiated}) async {
@@ -3003,7 +3070,7 @@ class AudioPlayerService {
       // completing seek(). Its derived playerStateStream discards the errors.
       try {
         await Future.any<void>([
-          _player.seek(targetPosition),
+          _seekNativePlayer(targetPosition),
           nativeError.future,
           cancellation.future,
         ]).timeout(_seekRecoveryTimeout);
@@ -3047,7 +3114,7 @@ class AudioPlayerService {
         }
       }
     } else if (cachedTrackLoad == null) {
-      await _player.seek(targetPosition);
+      await _seekNativePlayer(targetPosition);
     }
     if (!isCurrentSeekResult(cachedTrackLoad)) return false;
     if (!_handlingTrackCompletion &&
@@ -3476,7 +3543,7 @@ class AudioPlayerService {
               restoredPosition >= trackDuration) {
             restoredPosition = trackDuration - const Duration(milliseconds: 1);
             await Future.any<void>([
-              _player.seek(restoredPosition),
+              _seekNativePlayer(restoredPosition),
               request.supersedeSignal.future,
             ]).timeout(_seekRecoveryTimeout);
             _ensureCurrentTrackLoad(request);
@@ -4043,32 +4110,40 @@ class AudioPlayerService {
         ? AudioGainSettings.defaultDecibels
         : _audioGainDecibels;
 
-    if (Platform.isAndroid) {
-      final enhancer = _androidLoudnessEnhancer;
-      if (enhancer != null) {
-        await enhancer.setTargetGain(math.max(gainDecibels, 0));
-        await enhancer.setEnabled(gainDecibels > 0);
-      }
-      final effectiveVolume = gainDecibels < 0
-          ? _userVolume * AudioGainSettings.linearMultiplier(gainDecibels)
-          : _userVolume;
-      await _player.setVolume(effectiveVolume);
-      return;
-    }
-
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final effectiveVolume =
-          _userVolume * AudioGainSettings.linearMultiplier(gainDecibels);
-      await _player.setVolume(effectiveVolume);
-      return;
-    }
-
-    // AVPlayer cannot boost above its native 1.0 ceiling, but attenuation is
-    // reliable. Ignore positive values instead of pretending they work.
+    // mpv cubes its volume control; preserve the old mobile/Apple linear curve.
+    final linearUserVolume = switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.macOS => true,
+      _ => false,
+    };
+    final baseVolume = linearUserVolume
+        ? math.pow(_userVolume, 1 / 3).toDouble()
+        : _userVolume;
     final effectiveVolume =
-        _userVolume *
-        AudioGainSettings.linearMultiplier(math.min(gainDecibels, 0));
+        baseVolume * math.pow(10, gainDecibels / 60).toDouble();
     await _player.setVolume(effectiveVolume);
+  }
+
+  void _listenForDuckEndFromAudioSession() {
+    unawaited(
+      AudioSession.instance.then((session) {
+        if (_disposed) return;
+        _subscribeForDuckEnd(session.interruptionEventStream);
+      }),
+    );
+  }
+
+  void _subscribeForDuckEnd(Stream<AudioInterruptionEvent> events) {
+    if (_duckEndSubscription != null) return;
+    _duckEndSubscription = events.listen((event) {
+      if (_disposed ||
+          event.begin ||
+          event.type != AudioInterruptionType.duck) {
+        return;
+      }
+      unawaited(_applyOutputLevel());
+    });
   }
 
   Future<void> setSpeed(double speed) async {
@@ -4131,6 +4206,7 @@ class AudioPlayerService {
     if (_disposed) return;
     _disposed = true;
     _desiredPlaying = false;
+    await _duckEndSubscription?.cancel();
     await _playbackErrorSubscription?.cancel();
     await _currentIndexSubscription?.cancel();
     ++_intentRevision;
@@ -4153,7 +4229,14 @@ class AudioPlayerService {
     await _playbackDiagnosticController.close();
     await _historicalQueueLoad;
     await _storedHistoricalQueuesController.close();
-    await _player.dispose();
+    await _nativeEffects.dispose();
+    await _audioEffectsStatusController.close();
+    try {
+      await _player.dispose();
+    } finally {
+      final id = _nativePlayerId;
+      if (id != null) JustAudioMediaKit.forgetPlayerConfiguration(id);
+    }
     _releaseCachedPlaybackLease();
     await _audioCacheDownloader.dispose();
   }
@@ -4213,9 +4296,8 @@ class AudioPlayerService {
   }
 
   Future<String?> _prepareLocalPlaybackPath(String originalPath) async {
-    // Android's Media3/ExoPlayer accepts the original local path, including
-    // Unicode names and sibling subtitle files. Copying an entire FLAC/WAV
-    // into a temporary ASCII path only adds latency and I/O on this platform.
+    // The audio instance disables subtitle loading; retain Android source paths
+    // instead of copying whole FLAC/WAV files before playback.
     if (Platform.isAndroid) return null;
 
     final lowerPath = originalPath.toLowerCase();

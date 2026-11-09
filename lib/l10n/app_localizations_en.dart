@@ -4957,4 +4957,113 @@ class SEn extends S {
   @override
   String get automaticMarkingConflict =>
       'An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.';
+
+  @override
+  String get playbackAudioEffects => 'Playback audio effects';
+
+  @override
+  String get audioEffectsEqualizer => 'Equalizer';
+
+  @override
+  String get audioEffectsChannel => 'Channel mode';
+
+  @override
+  String get audioEffectsScene => 'Scene effect';
+
+  @override
+  String get audioEffectsResetModule => 'Reset module';
+
+  @override
+  String get audioEffectsResetAll => 'Reset all effects';
+
+  @override
+  String get audioEffectsCustom => 'Custom';
+
+  @override
+  String get audioEffectsFlat => 'Default';
+
+  @override
+  String get audioEffectsBright => 'Bright';
+
+  @override
+  String get audioEffectsBass => 'Bass boost';
+
+  @override
+  String get audioEffectsCrisp => 'Crisp tapping';
+
+  @override
+  String get audioEffectsDull => 'Dull tapping';
+
+  @override
+  String get audioEffectsVocal => 'Vocal boost';
+
+  @override
+  String get audioEffectsNormal => 'Normal';
+
+  @override
+  String get audioEffectsSwap => 'Swap left and right';
+
+  @override
+  String get audioEffectsCloneLeft => 'Clone left channel';
+
+  @override
+  String get audioEffectsCloneRight => 'Clone right channel';
+
+  @override
+  String get audioEffectsBathroom => 'Bathroom echo';
+
+  @override
+  String get audioEffectsMuffled => 'Muffled';
+
+  @override
+  String get audioEffectsTelephone => 'Telephone';
+
+  @override
+  String get audioEffectsIntensity => 'Intensity';
+
+  @override
+  String get audioEffectsWaiting => 'Play audio to check effect support.';
+
+  @override
+  String get audioEffectsReady =>
+      'Audio effects are ready for this audio player.';
+
+  @override
+  String get audioEffectsPassthrough =>
+      'Passthrough bypasses audio effects. Saved settings resume when passthrough is off.';
+
+  @override
+  String get audioEffectsUnavailable =>
+      'This audio library cannot apply the effects. Settings are retained. Restart the app after installing a supported library.';
+
+  @override
+  String audioEffectsResetNamed(String module) {
+    return 'Reset $module';
+  }
+
+  @override
+  String get audioEffectsBinaural => 'Binaural effect';
+
+  @override
+  String get audioEffectsBinauralOff => 'Off';
+
+  @override
+  String get audioEffectsBinauralStereo => 'Stereo widening';
+
+  @override
+  String get audioEffectsBinauralMono => 'Mono widening';
+
+  @override
+  String get audioEffectsStereoIntensity => 'Stereo widening intensity';
+
+  @override
+  String get audioEffectsMonoIntensity => 'Mono widening intensity';
+
+  @override
+  String get audioEffectsStereoHint =>
+      'Stereo widening expands existing left/right differences and preserves centered sound.';
+
+  @override
+  String get audioEffectsMonoHint =>
+      'Mono widening generates differences from shared sound and retains existing channel content.';
 }

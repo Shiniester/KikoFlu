@@ -446,6 +446,30 @@ _Avoid_: Audio Format Preference, player-only preferences
 The sound-effect component of an audio variant. A no-effects variant removes
 that component while retaining the voice audio.
 
+**Playback Audio Effects (播放音效)**:
+收听时调整声音的处理，包括均衡器、声道模式、场景效果和双耳效果。
+播放音效与音源版本中已有的效果音分开设置。
+_Avoid_: Sound Effects, 效果音
+
+**Channel Mode (声道模式)**:
+播放时保留、交换或克隆左右声道的规则。
+“反转”表示交换左右声道。
+_Avoid_: 波形反相
+
+**Scene Effects (场景效果)**:
+模拟浴室回声、闷声或电话音等听感的播放音效。
+
+**Binaural Effects (双耳效果)**:
+耳机聆听时扩展声音左右分布的播放音效。
+双耳效果包括立体声扩宽和单声道扩宽。
+_Avoid_: 双耳录音, 自动环绕
+
+**Stereo Widening (立体声扩宽)**:
+利用左右声道已有差异扩展声像的双耳效果。
+
+**Mono Widening (单声道扩宽)**:
+为单声道或左右内容相同的音源生成左右差异的双耳效果。
+
 **Ejaculation Audio (射精音)**:
 The ejaculation or climax audio component of an audio variant, classified
 separately from Sound Effects.

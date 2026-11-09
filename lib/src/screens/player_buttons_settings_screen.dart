@@ -13,6 +13,8 @@ class PlayerButtonsSettingsScreen extends ConsumerWidget {
 
   IconData _getButtonIcon(PlayerButtonType type) {
     switch (type) {
+      case PlayerButtonType.playbackAudioEffects:
+        return Icons.equalizer;
       case PlayerButtonType.seekBackward:
         return Icons.replay_10;
       case PlayerButtonType.seekForward:

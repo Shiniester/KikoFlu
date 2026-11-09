@@ -89,14 +89,29 @@ jobs:
           echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
           echo "Building Android release $tag with filename suffix $suffix"
 
+  native-audio:
+    name: Build Android Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      android_only: true
+      android_all_abis: true
+
   android:
     name: Android Build
-    needs: prepare
+    needs: [prepare, native-audio]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.commit_sha }}
+
+      - name: Download Android libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
 
       - name: Set Application Version
         run: |

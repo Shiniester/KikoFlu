@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "source_revision": "40faeac1efb036ba065f977e1de91b9a2eca04c6",
+  "native_library": {
+    "source": "build/native-audio-probe/android-custom-limiter/arm64-v8a/libmpv.so",
+    "source_revision_short": "2dad3041",
+    "ci_run": 42490996422,
+    "abi": "arm64-v8a",
+    "size_bytes": 37241312,
+    "runtime": {
+      "mpv": "mpv v0.36.0-549-g78d43740f5-dirty",
+      "ffmpeg": "n6.0"
+    }
+  },
+  "device": {
+    "model": "OPD2405",
+    "os": "Android 16",
+    "api": 36,
+    "abi": "arm64-v8a"
+  },
+  "apk": {
+    "path": "build/app/outputs/flutter-apk/app-debug-audioeffectsgate-native.apk",
+    "application_id": "com.meteor.kikoeruflutter.audioeffectsgate",
+    "debuggable": true,
+    "min_sdk": 24,
+    "target_sdk": 36,
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86_64"
+    ],
+    "size_bytes": 180848028,
+    "zipalign_page_size_kb": 16,
+    "signature_schemes": [
+      "v2",
+      "v3"
+    ]
+  },
+  "flutter_run": {
+    "version": "3.44.7",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 40,
+    "test_widgets_total": 12,
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0,
+    "groups": [
+      {
+        "name": "packaged native scene modes switch through neutral",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native playback boundaries preserve and reset history",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native limiter preserves timing and bounds linked peaks",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native HTTP and HLS use the same PCM effects",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native full modular chain survives hot PCM",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native channel mappings and stereo width",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native 10-band EQ center gains and neutral",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native static Eara scenes match recurrence",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native mono protection at 44100 Hz",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native mono protection at 48000 Hz",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native mono protection at 96000 Hz",
+        "status": "passed"
+      },
+      {
+        "name": "packaged native scene amount updates change actual parameters",
+        "status": "passed"
+      }
+    ],
+    "package_state_after_run": "uninstalled_by_flutter_drive",
+    "install_confirmation": "OPPO test-only unknown-source confirmation accepted; no system settings changed",
+    "driver_template": "flutter drive --no-pub --driver=test_driver/video_player_driver.dart --target=integration_test/audio_effects_native_test.dart --use-application-binary=build/app/outputs/flutter-apk/app-debug-audioeffectsgate-native.apk -d <device-id>"
+  },
+  "binding_report_data": {
+    "scene_modes": {
+      "max_error": 7.694739770358616e-08,
+      "neutral_max_error": 0.0,
+      "maximum_amount_steps": [
+        0.001041710376739502,
+        0.0010416805744171143,
+        0.001041710376739502
+      ],
+      "neutral_frames": 55186
+    },
+    "gate_status": "incomplete",
+    "boundaries": {
+      "pause_frames": 144017,
+      "pause_anchor_pcm_bytes": 524288,
+      "seek_mono": {
+        "post_seek_frames": 48017,
+        "captured_prefix_frames": 79872,
+        "prefix_max_error": 0.0,
+        "action_anchor_pcm_bytes": 524288
+      },
+      "seek_scene": {
+        "post_seek_frames": 48017,
+        "captured_prefix_frames": 79872,
+        "prefix_max_error": 1.4900698286357539e-08,
+        "action_anchor_pcm_bytes": 524288
+      },
+      "stop_reload_silence_frames": 9617,
+      "stop_reload_prefix_frames": 79872,
+      "stop_reload_prefix_max_error": 1.7903811821984306e-08,
+      "stop_anchor_pcm_bytes": 524288,
+      "recreated_silence_frames": 9617
+    },
+    "limiter": {
+      "44100": {
+        "peak": 0.9700000286102295,
+        "linked_channel_error": 0.0
+      },
+      "48000": {
+        "peak": 0.9700000286102295,
+        "linked_channel_error": 0.0
+      },
+      "96000": {
+        "peak": 0.9700000286102295,
+        "linked_channel_error": 0.0
+      },
+      "limited_prefix_af": {
+        "peak": 0.9700000286102295,
+        "placement": "after EQ/mono, before scene"
+      },
+      "limited_combination_af": {
+        "peak": 1.0,
+        "placement": "after EQ/mono, before scene"
+      }
+    },
+    "network": {
+      "http": {
+        "frames": 48000,
+        "max_error": 3.584080154883651e-08
+      },
+      "hls": {
+        "frames": 49152,
+        "max_error": 3.259592040727455e-08
+      }
+    },
+    "full_combination": {
+      "frames": 384000,
+      "peak": 1.0,
+      "scene_clipped_samples": 729139,
+      "scope": "buffer/crash regression; headroom remains unverified"
+    },
+    "scenes": {
+      "scene_bathroom_0": {
+        "frames": 33600,
+        "max_error": 0.0
+      },
+      "scene_bathroom_50": {
+        "frames": 33600,
+        "max_error": 4.9670723978323394e-08
+      },
+      "scene_bathroom_100": {
+        "frames": 33600,
+        "max_error": 4.061949943068299e-08
+      },
+      "scene_through_wall_0": {
+        "frames": 33600,
+        "max_error": 0.0
+      },
+      "scene_through_wall_50": {
+        "frames": 33600,
+        "max_error": 3.523199199051419e-08
+      },
+      "scene_through_wall_100": {
+        "frames": 33600,
+        "max_error": 4.1123312088942043e-08
+      },
+      "scene_telephone_0": {
+        "frames": 33600,
+        "max_error": 0.0
+      },
+      "scene_telephone_50": {
+        "frames": 33600,
+        "max_error": 3.2707523911490455e-08
+      },
+      "scene_telephone_100": {
+        "frames": 33600,
+        "max_error": 3.736363296535927e-08
+      }
+    },
+    "mono_44100": {
+      "frames": 13230,
+      "midside_max_error": 7.450580596923828e-09,
+      "block_max_error": 0.0,
+      "protected_onset_peak": 0.0059051513671875,
+      "unprotected_onset_peak": 0.4218578338623047,
+      "tail_after_30ms_peak": 9.709232244858867e-07
+    },
+    "mono_48000": {
+      "frames": 14400,
+      "midside_max_error": 7.450580596923828e-09,
+      "block_max_error": 0.0,
+      "protected_onset_peak": 0.006197929382324219,
+      "unprotected_onset_peak": 0.4218578338623047,
+      "tail_after_30ms_peak": 8.860378102326649e-07
+    },
+    "mono_96000": {
+      "frames": 28800,
+      "midside_max_error": 7.450580596923828e-09,
+      "block_max_error": 0.0,
+      "protected_onset_peak": 0.006965458393096924,
+      "unprotected_onset_peak": 0.4218578338623047,
+      "tail_after_30ms_peak": 9.472563533563516e-07
+    },
+    "dynamic_scenes": {
+      "bathroom": {
+        "max_error": 5.274179382119826e-08,
+        "zero_amount_error": 0.0,
+        "maximum_amount_step": 0.001041710376739502,
+        "fade_only_max_error": 0.7224552533797842
+      },
+      "through_wall": {
+        "max_error": 5.8897359378473624e-08,
+        "zero_amount_error": 0.0,
+        "maximum_amount_step": 0.001041710376739502,
+        "fade_only_max_error": 0.16667141838052935
+      },
+      "telephone": {
+        "max_error": 8.879366864000815e-08,
+        "zero_amount_error": 0.0,
+        "maximum_amount_step": 0.001041710376739502,
+        "fade_only_max_error": 0.47616008894377543
+      }
+    }
+  },
+  "c_api_reference": {
+    "passed": 90,
+    "total": 90,
+    "source": "parent-provided Android C runner result",
+    "report": "docs/development/audio-effects-android-probe.json"
+  },
+  "scope": {
+    "gate_status": "incomplete",
+    "service_migration_proven": false,
+    "full_combination_headroom_verified": false
+  },
+  "artifacts": {
+    "binding_report": "build/app/outputs/flutter-apk/audioeffectsgate-native-40faeac1-report.json",
+    "host_log": "build/app/outputs/flutter-apk/flutter-drive-40faeac1.log",
+    "app_pid_log": "build/app/outputs/flutter-apk/native-integration-logcat-40faeac1.txt",
+    "repack_log": "build/app/outputs/flutter-apk/apk-repack-40faeac1.log",
+    "previous_green_apk": "build/app/outputs/flutter-apk/app-debug-audioeffectsgate-native-07c23ce9.apk"
+  }
+}

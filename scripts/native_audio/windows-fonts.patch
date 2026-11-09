@@ -1,0 +1,37 @@
+diff --git a/packages/fontconfig.cmake b/packages/fontconfig.cmake
+--- a/packages/fontconfig.cmake
++++ b/packages/fontconfig.cmake
+@@ -7,10 +7,9 @@ ExternalProject_Add(fontconfig
+     GIT_REPOSITORY https://gitlab.freedesktop.org/fontconfig/fontconfig.git
+     SOURCE_DIR ${SOURCE_LOCATION}
+     UPDATE_COMMAND ""
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 6d0580b2427f50b45e1432ba0fb6128c19b6dbd4
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    PATCH_COMMAND ${EXEC} git am --3way ${CMAKE_CURRENT_SOURCE_DIR}/fontconfig-*.patch
++    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/fontconfig-*.patch
+     CONFIGURE_COMMAND ${EXEC} CONF=1 meson setup <BINARY_DIR> <SOURCE_DIR>
+         --prefix=${MINGW_INSTALL_PREFIX}
+         --libdir=${MINGW_INSTALL_PREFIX}/lib
+diff --git a/packages/harfbuzz.cmake b/packages/harfbuzz.cmake
+--- a/packages/harfbuzz.cmake
++++ b/packages/harfbuzz.cmake
+@@ -4,8 +4,7 @@ ExternalProject_Add(harfbuzz
+         libpng
+     GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git
+     SOURCE_DIR ${SOURCE_LOCATION}
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 71d5df6158e9bfc284d24eb9f23b68fa1665d1e2
+     GIT_CLONE_FLAGS "--sparse --filter=tree:0"
+     GIT_CLONE_POST_COMMAND "sparse-checkout set --no-cone /* !test"
+     UPDATE_COMMAND ""
+@@ -22,6 +21,7 @@ ExternalProject_Add(harfbuzz
+         -Dtests=disabled
+         -Ddocs=disabled
+         -Dbenchmark=disabled
++        -Dutilities=disabled
+     BUILD_COMMAND ${EXEC} ninja -C <BINARY_DIR>
+     INSTALL_COMMAND ${EXEC} ninja -C <BINARY_DIR> install
+     LOG_DOWNLOAD 1 LOG_UPDATE 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1

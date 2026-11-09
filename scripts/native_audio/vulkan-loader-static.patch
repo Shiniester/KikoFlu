@@ -1,0 +1,108 @@
+diff --git a/loader/CMakeLists.txt b/loader/CMakeLists.txt
+index 6296ebff1..7408a63b8 100644
+--- a/loader/CMakeLists.txt
++++ b/loader/CMakeLists.txt
+@@ -24,0 +25 @@ target_include_directories(loader_specific_options INTERFACE ${CMAKE_CURRENT_SOU
++configure_file("vulkan_own.pc.in" "vulkan_own.pc" @ONLY)
+@@ -26 +27 @@ target_include_directories(loader_specific_options INTERFACE ${CMAKE_CURRENT_SOU
+-if(WIN32)
++if(WIN32 AND NOT MINGW)
+@@ -375 +376 @@ endif()
+-if(WIN32)
++if(MSVC)
+@@ -415,15 +416,2 @@ else()
+-    if(APPLE)
+-        option(APPLE_STATIC_LOADER "Build a loader that can be statically linked. Intended for Chromium usage/testing.")
+-        mark_as_advanced(APPLE_STATIC_LOADER)
+-    endif()
+-
+-    if(APPLE_STATIC_LOADER)
+-        add_library(vulkan STATIC)
+-        target_compile_definitions(vulkan PRIVATE APPLE_STATIC_LOADER)
+-
+-        message(WARNING "The APPLE_STATIC_LOADER option has been set. Note that this will only work on MacOS and is not supported "
+-                "or tested as part of the loader. Use it at your own risk.")
+-    else()
+-        add_library(vulkan SHARED)
+-    endif()
+-
++    add_library(vulkan STATIC)
++    target_compile_definitions(vulkan PRIVATE BUILD_STATIC_LOADER)
+@@ -529 +517 @@ endif()
+-if (APPLE_STATIC_LOADER)
++if (BUILD_STATIC_LOADER)
+diff --git a/loader/loader.c b/loader/loader.c
+index 434674b72..a5248ca83 100644
+--- a/loader/loader.c
++++ b/loader/loader.c
+@@ -1935 +1935 @@ out:
+-#if defined(_WIN32)
++#if defined(LOADER_DYNAMIC_LIB)
+@@ -1973 +1973 @@ void loader_initialize(void) {
+-#if defined(_WIN32)
++#if defined(LOADER_DYNAMIC_LIB)
+diff --git a/loader/loader.h b/loader/loader.h
+index fcd95dd10..61c9515a1 100644
+--- a/loader/loader.h
++++ b/loader/loader.h
+@@ -35,0 +36 @@
++#if defined(_WIN32) && !defined(LOADER_DYNAMIC_LIB)
+@@ -36,0 +38 @@ LOADER_PLATFORM_THREAD_ONCE_EXTERN_DEFINITION(once_init)
++#endif
+@@ -97 +99 @@ VkResult loader_validate_instance_extensions(struct loader_instance *inst, const
+-#if defined(_WIN32)
++#if defined(LOADER_DYNAMIC_LIB)
+diff --git a/loader/loader.rc.in b/loader/loader.rc.in
+index 0dc4227da..e7fcea06f 100644
+--- a/loader/loader.rc.in
++++ b/loader/loader.rc.in
+@@ -21,0 +22,3 @@
++#ifdef __MINGW64__
++#include <winresrc.h>
++#else // MSVC
+@@ -22,0 +26 @@
++#endif
+diff --git a/loader/loader_windows.c b/loader/loader_windows.c
+index 76c49d5be..4ea239dc1 100644
+--- a/loader/loader_windows.c
++++ b/loader/loader_windows.c
+@@ -97,0 +98 @@ void windows_initialization(void) {
++#if defined(LOADER_DYNAMIC_LIB)
+@@ -118,0 +120 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
++#endif
+diff --git a/loader/vk_loader_platform.h b/loader/vk_loader_platform.h
+index 58f734957..9a5715c68 100644
+--- a/loader/vk_loader_platform.h
++++ b/loader/vk_loader_platform.h
+@@ -73,0 +74 @@
++#include <pthread.h> // for mingw
+@@ -78,5 +79 @@
+-#if defined(APPLE_STATIC_LOADER) && !defined(__APPLE__)
+-#error "APPLE_STATIC_LOADER can only be defined on Apple platforms!"
+-#endif
+-
+-#if defined(APPLE_STATIC_LOADER)
++#if defined(BUILD_STATIC_LOADER)
+@@ -244 +241 @@ static inline bool loader_platform_is_path(const char *path) { return strchr(pat
+-#if defined(APPLE_STATIC_LOADER)
++#if defined(BUILD_STATIC_LOADER)
+@@ -253 +250 @@ static inline void loader_platform_thread_once_fn(pthread_once_t *ctl, void (*fu
+-#elif defined(WIN32)
++#elif defined(LOADER_DYNAMIC_LIB)
+diff --git a/loader/vulkan_own.pc.in b/loader/vulkan_own.pc.in
+new file mode 100644
+index 000000000..ed2f30bb2
+--- /dev/null
++++ b/loader/vulkan_own.pc.in
+@@ -0,0 +1,11 @@
++prefix=@CMAKE_INSTALL_PREFIX@
++exec_prefix=${prefix}
++libdir=${exec_prefix}/lib
++includedir=${prefix}/include
++
++Name: Vulkan-Loader
++Description: Vulkan Loader
++Version: @VULKAN_LOADER_VERSION@
++Libs: -L${libdir} -lvulkan
++Libs.private: -lshlwapi -lcfgmgr32
++Cflags: -I${includedir}

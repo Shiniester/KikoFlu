@@ -1,0 +1,143 @@
+{
+  "status": "passed",
+  "source_revision": "e95805226b4072146a04771e3458e489f1e5ec42",
+  "platform": "Windows x86_64",
+  "library": {
+    "file": "libmpv-2.dll",
+    "client_api_version": {
+      "major": 2,
+      "minor": 1
+    },
+    "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+    "ffmpeg_version": "n6.0"
+  },
+  "scope": "Current project media_kit_libs_windows_video 1.0.11 SDK through Flutter tester and real FFI; no app plugin build",
+  "gate_status": "incomplete",
+  "native_contract_tests": 11,
+  "pending_load_unit_tests": 4,
+  "binding_report": {
+    "empty_seektable": [
+      {
+        "percent": 25,
+        "target_ms": 6000,
+        "advanced_position_ms": 6549
+      },
+      {
+        "percent": 80,
+        "target_ms": 19200,
+        "advanced_position_ms": 19743
+      },
+      {
+        "percent": 10,
+        "target_ms": 2400,
+        "advanced_position_ms": 2947
+      }
+    ],
+    "gate_status": "incomplete",
+    "authenticated_http": [
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=606252-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=61484-"
+      }
+    ],
+    "authenticated_clipping": [
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=512044-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=188460-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=606252-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=127020-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      }
+    ],
+    "native_preload": [
+      {
+        "next": "B",
+        "prepared_request": {
+          "route": "/queue/B.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 20235
+        }
+      },
+      {
+        "next": "C",
+        "prepared_request": {
+          "route": "/queue/C.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 20000
+        }
+      }
+    ],
+    "latest_wins": {
+      "published": [
+        "A",
+        "C"
+      ],
+      "requests": [
+        {
+          "route": "/queue/A.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        },
+        {
+          "route": "/queue/B.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        },
+        {
+          "route": "/queue/C.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        }
+      ]
+    },
+    "failed_transition": {
+      "error_count": 0,
+      "service_failure_count": 1,
+      "current": "C"
+    }
+  },
+  "unverified": [
+    "Required DSP filters remain unavailable in this stock SDK",
+    "Packaged app/background/system controls",
+    "Large-file performance"
+  ]
+}

@@ -23,6 +23,25 @@ void main() {
     await expectation;
   });
 
+  test('interruption before awaiting ends the pending load as abort', () async {
+    final pendingLoad = MediaKitPendingLoad();
+    pendingLoad.interrupt();
+    await Future<void>.delayed(Duration.zero);
+    await expectLater(
+        pendingLoad.future,
+        throwsA(isA<PlatformException>()
+            .having((error) => error.code, 'code', 'abort')
+            .having(
+                (error) => error.message, 'message', 'Loading interrupted')));
+  });
+
+  test('late interruption preserves a completed load', () async {
+    final pendingLoad = MediaKitPendingLoad();
+    pendingLoad.complete(const Duration(seconds: 12));
+    pendingLoad.interrupt();
+    expect(await pendingLoad.future, const Duration(seconds: 12));
+  });
+
   test('late media errors do not replace a completed load', () async {
     final pendingLoad = MediaKitPendingLoad();
     pendingLoad.complete(const Duration(seconds: 12));

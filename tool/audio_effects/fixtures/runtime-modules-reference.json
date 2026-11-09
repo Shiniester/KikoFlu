@@ -1,0 +1,873 @@
+{
+  "gate_status": "incomplete",
+  "scope": "host native templates; no production orchestration or format-change resend verification",
+  "passed": 48,
+  "total": 48,
+  "reference_versions": {
+    "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+    "ffmpeg-version": "N-128607-g1ddef7d76"
+  },
+  "sample_rates_hz": [
+    44100,
+    48000,
+    96000
+  ],
+  "frame_lengths": [
+    49152,
+    49169
+  ],
+  "native_always_on_limiter_comparisons": 6,
+  "budgets": {
+    "mix_error": 1e-06,
+    "endpoint_copy_error": 0,
+    "weight_maximum_step": "1/(Fs*.02)+1e-7",
+    "guard_limit": 0.9700000999999999
+  },
+  "exports": {
+    "channel_mode_graph": {
+      "snapshot": "0 normal, 1 swap, 2 clone left, 3 clone right",
+      "target": "volume@channel_mode",
+      "diagnostic_output": [
+        "L",
+        "R",
+        "left-ear L weight",
+        "right-ear L weight",
+        "target mode"
+      ],
+      "slew": "20ms full scale, initialize from snapshot"
+    },
+    "warm_limiter_graph": {
+      "snapshot": "bool enabled",
+      "target": "volume@guard_mix",
+      "diagnostic_output": [
+        "L",
+        "R",
+        "guard selection"
+      ],
+      "control": "0 exact dry, 1 continuously warm limiter; immediate selection"
+    },
+    "commands": [
+      "af-command",
+      "<module label>",
+      "volume",
+      "<value>",
+      "<target>"
+    ],
+    "fallback": "only actual -12 retries the exact bare instance after @, never type/all broadcast"
+  },
+  "baseline_comparisons": {
+    "static_channel_graph": {
+      "final_reply": -12,
+      "frames": 144017,
+      "passed": false
+    },
+    "limiter_timeline_disable": {
+      "reply": 0,
+      "frames": 144017,
+      "expected_frames": 144017,
+      "tail_error": 1.6312717199325562,
+      "passed": false
+    }
+  },
+  "report": "build/runtime-module-host/reference/result.json",
+  "unverified": [
+    "custom Windows SDK",
+    "format-change latest-setting resends",
+    "seek and natural-track history orchestration",
+    "production/UI integration"
+  ],
+  "checks": [
+    {
+      "name": "channel_44100_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49152_2",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49152_3",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_44100_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 6.133632268756628e-08,
+      "maximum_weight_step": 0.0011337995529174805,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_44100_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_44100_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_44100_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49169_2",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_44100_49169_3",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_44100_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 6.133632268756628e-08,
+      "maximum_weight_step": 0.0011337995529174805,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_44100_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_44100_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_44100_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49152_2",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49152_3",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_48000_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 6.181835487950593e-08,
+      "maximum_weight_step": 0.001041710376739502,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_48000_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_48000_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_48000_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49169_2",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_48000_49169_3",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_48000_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 6.301343091763556e-08,
+      "maximum_weight_step": 0.001041710376739502,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_48000_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_48000_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_48000_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49152_2",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49152_3",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_96000_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 5.946276360191405e-08,
+      "maximum_weight_step": 0.0005208849906921387,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_96000_49152_0",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_96000_49152_1",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_96000_49152",
+      "passed": true,
+      "frames": 49152,
+      "expected_frames": 49152,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49169_2",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_96000_49169_3",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "channel_dynamic_96000_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 6.702612154185772e-08,
+      "maximum_weight_step": 0.0005208849906921387,
+      "observed_modes": [
+        0,
+        1,
+        2,
+        3,
+        0
+      ],
+      "neutral_error": 0.0,
+      "tail_neutral_error": 0.0,
+      "last_weights": [
+        1.0,
+        0.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_96000_49169_0",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.994873046875,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_96000_49169_1",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "maximum_error": 0.0,
+      "peak": 0.9700000286102295,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "guard_dynamic_96000_49169",
+      "passed": true,
+      "frames": 49169,
+      "expected_frames": 49169,
+      "dry_error": 0.0,
+      "warm_error": 0.0,
+      "active_peak": 0.9700000286102295,
+      "observed_guard_states": [
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    }
+  ]
+}

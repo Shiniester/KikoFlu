@@ -1,4 +1,4 @@
-/// `package:media_kit` bindings for `just_audio` to support Linux and Windows.
+/// `package:media_kit` bindings for `just_audio` across native platforms.
 library just_audio_media_kit;
 
 import 'dart:collection';
@@ -10,8 +10,27 @@ import 'package:logging/logging.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:universal_platform/universal_platform.dart';
 
+typedef NativePlayerConfiguration = Future<void> Function(NativePlayer player);
+
 class JustAudioMediaKit extends JustAudioPlatform {
   JustAudioMediaKit();
+
+  static JustAudioMediaKit? _instance;
+
+  /// Stores or refreshes configuration for one just_audio player ID.
+  ///
+  /// Configuration is retained when that player is stopped and recreated.
+  static Future<void> configurePlayer(
+    String id,
+    NativePlayerConfiguration configuration,
+  ) async {
+    await _instance?._configurePlayer(id, configuration);
+  }
+
+  /// Removes retained configuration after the owning service is disposed.
+  static void forgetPlayerConfiguration(String id) {
+    _instance?._nativePlayerConfigurations.remove(id);
+  }
 
   /// The internal MPV player's logLevel
   static MPVLogLevel mpvLogLevel = MPVLogLevel.error;
@@ -50,6 +69,8 @@ class JustAudioMediaKit extends JustAudioPlatform {
 
   static final _logger = Logger('JustAudioMediaKit');
   final _players = HashMap<String, MediaKitPlayer>();
+  final _nativePlayerConfigurations =
+      HashMap<String, NativePlayerConfiguration>();
 
   /// Players that are disposing (player id -> future that completes when the player is disposed)
   final _disposingPlayers = HashMap<String, Future<void>>();
@@ -81,7 +102,9 @@ class JustAudioMediaKit extends JustAudioPlatform {
 
   /// Registers the plugin with [JustAudioPlatform]
   static void registerWith() {
-    JustAudioPlatform.instance = JustAudioMediaKit();
+    final instance = JustAudioMediaKit();
+    _instance = instance;
+    JustAudioPlatform.instance = instance;
   }
 
   @override
@@ -92,11 +115,22 @@ class JustAudioMediaKit extends JustAudioPlatform {
     }
 
     _logger.fine('instantiating new player ${request.id}');
-    final player = MediaKitPlayer(request.id);
+    final player = MediaKitPlayer(
+      request.id,
+      nativePlayerConfiguration: _nativePlayerConfigurations[request.id],
+    );
     _players[request.id] = player;
     await player.ready();
     _logger.fine('player ready! (players: $_players)');
     return player;
+  }
+
+  Future<void> _configurePlayer(
+    String id,
+    NativePlayerConfiguration configuration,
+  ) async {
+    _nativePlayerConfigurations[id] = configuration;
+    await _players[id]?.configureNativePlayer(configuration);
   }
 
   @override

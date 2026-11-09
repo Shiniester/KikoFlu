@@ -27,7 +27,9 @@ dependencies:
   translator: ^1.0.0
   
   # Audio & Video & Pdf
-  just_audio: ^0.9.36
+  just_audio:
+    path: third_party/just_audio
+  just_audio_platform_interface: ^4.3.0
   # Upstream 2.1.0 leaves load() pending when libmpv reports an open error.
   # Keep the pinned adapter patch local so restore failures reach Dart.
   just_audio_media_kit:
@@ -109,6 +111,16 @@ dev_dependencies:
   json_serializable: ^6.7.1
   build_runner: ^2.4.7
   flutter_launcher_icons: ^0.13.1
+
+dependency_overrides:
+  media_kit_libs_android_video:
+    path: third_party/media_kit_libs_android_video
+  media_kit_libs_windows_video:
+    path: third_party/media_kit_libs_windows_video
+  media_kit_libs_ios_video:
+    path: third_party/media_kit_libs_ios_video
+  media_kit_libs_macos_video:
+    path: third_party/media_kit_libs_macos_video
 
 flutter:
   generate: true

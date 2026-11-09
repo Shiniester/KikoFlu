@@ -2244,5 +2244,54 @@
   "automaticMarkingConflict": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.",
   "@automaticMarkingConflict": {
     "description": "An automatic mark could not be synced safely and was discarded. The account’s online mark was kept."
-  }
+  },
+  "playbackAudioEffects": "Playback audio effects",
+  "audioEffectsEqualizer": "Equalizer",
+  "audioEffectsChannel": "Channel mode",
+  "audioEffectsScene": "Scene effect",
+  "audioEffectsResetModule": "Reset module",
+  "audioEffectsResetAll": "Reset all effects",
+  "audioEffectsCustom": "Custom",
+  "audioEffectsFlat": "Default",
+  "audioEffectsBright": "Bright",
+  "audioEffectsBass": "Bass boost",
+  "audioEffectsCrisp": "Crisp tapping",
+  "audioEffectsDull": "Dull tapping",
+  "audioEffectsVocal": "Vocal boost",
+  "audioEffectsNormal": "Normal",
+  "audioEffectsSwap": "Swap left and right",
+  "audioEffectsCloneLeft": "Clone left channel",
+  "audioEffectsCloneRight": "Clone right channel",
+  "audioEffectsBathroom": "Bathroom echo",
+  "audioEffectsMuffled": "Muffled",
+  "audioEffectsTelephone": "Telephone",
+  "audioEffectsIntensity": "Intensity",
+  "audioEffectsWaiting": "Play audio to check effect support.",
+  "audioEffectsReady": "Audio effects are ready for this audio player.",
+  "audioEffectsPassthrough": "Passthrough bypasses audio effects. Saved settings resume when passthrough is off.",
+  "audioEffectsUnavailable": "This audio library cannot apply the effects. Settings are retained. Restart the app after installing a supported library.",
+  "audioEffectsResetNamed": "Reset {module}",
+  "@audioEffectsResetNamed": {
+    "placeholders": {
+      "module": {
+        "type": "String"
+      }
+    }
+  },
+  "audioEffectsBinaural": "Binaural effect",
+  "@audioEffectsBinaural": {"description": "Playback audio effects: Binaural effect"},
+  "audioEffectsBinauralOff": "Off",
+  "@audioEffectsBinauralOff": {"description": "Playback audio effects: Off"},
+  "audioEffectsBinauralStereo": "Stereo widening",
+  "@audioEffectsBinauralStereo": {"description": "Playback audio effects: Stereo widening"},
+  "audioEffectsBinauralMono": "Mono widening",
+  "@audioEffectsBinauralMono": {"description": "Playback audio effects: Mono widening"},
+  "audioEffectsStereoIntensity": "Stereo widening intensity",
+  "@audioEffectsStereoIntensity": {"description": "Playback audio effects: Stereo widening intensity"},
+  "audioEffectsMonoIntensity": "Mono widening intensity",
+  "@audioEffectsMonoIntensity": {"description": "Playback audio effects: Mono widening intensity"},
+  "audioEffectsStereoHint": "Stereo widening expands existing left/right differences and preserves centered sound.",
+  "@audioEffectsStereoHint": {"description": "Playback audio effects: Stereo widening expands existing left/right differences and preserves centered sound."},
+  "audioEffectsMonoHint": "Mono widening generates differences from shared sound and retains existing channel content.",
+  "@audioEffectsMonoHint": {"description": "Playback audio effects: Mono widening generates differences from shared sound and retains existing channel content."}
 }

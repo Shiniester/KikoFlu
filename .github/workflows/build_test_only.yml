@@ -4,13 +4,128 @@ on:
   push:
   
   workflow_dispatch:
+    inputs:
+      native_audio_only:
+        description: 'Build and verify native audio libraries'
+        type: boolean
+        default: false
+      native_audio_all_abis:
+        description: 'Build all Android ABIs in the native audio task'
+        type: boolean
+        default: false
+      native_audio_windows_only:
+        description: 'Retry only the Windows native audio build'
+        type: boolean
+        default: false
+      native_audio_android_only:
+        description: 'Run Android builds and checks, or only its native libraries with native_audio_only'
+        type: boolean
+        default: false
+      native_audio_darwin_only:
+        description: 'Build only the custom iOS and macOS native audio libraries'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  native-audio:
+    name: Native Audio Libraries
+    if: ${{ !inputs.native_audio_darwin_only }}
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      windows_only: ${{ inputs.native_audio_only && inputs.native_audio_windows_only }}
+      android_only: ${{ inputs.native_audio_android_only }}
+      android_all_abis: ${{ !inputs.native_audio_only || inputs.native_audio_all_abis }}
+
+  native-audio-darwin:
+    name: Darwin Native Audio Libraries
+    if: ${{ !inputs.native_audio_android_only && (!inputs.native_audio_only || inputs.native_audio_darwin_only) }}
+    uses: ./.github/workflows/native_audio_darwin.yml
+    with:
+      commit_sha: ${{ github.sha }}
+
+  validate-native-audio-windows:
+    name: Validate Windows Audio Effects
+    if: ${{ inputs.native_audio_only && !inputs.native_audio_android_only && !inputs.native_audio_darwin_only }}
+    needs: native-audio
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v6
+        with:
+          name: native-audio-windows
+          path: build/native-audio/windows-output
+      - name: Verify actual effect output
+        run: python tool/audio_effects/validate.py --libmpv "$env:GITHUB_WORKSPACE\build\native-audio\windows-output\mpv-dev\libmpv-2.dll" --output "$env:RUNNER_TEMP\audio-effects-validation.json"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+      - name: Get dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Verify native Player integration
+        run: flutter test -d windows integration_test/audio_effects_native_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$env:GITHUB_WORKSPACE\build\native-audio\windows-output\mpv-dev\libmpv-2.dll"
+      - name: Verify actual audio adapter contracts
+        run: |
+          flutter test -d windows integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true --dart-define="KIKOFLU_AUDIO_LIBMPV=$env:GITHUB_WORKSPACE\build\native-audio\windows-output\mpv-dev\libmpv-2.dll" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\audio-backend-contract.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload effect evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-audio-windows-effects
+          path: |
+            ${{ runner.temp }}\audio-effects-validation.json
+            ${{ runner.temp }}\audio-backend-contract.log
+          if-no-files-found: warn
+
+  validate-android-controls:
+    name: Verify Android MPV Controls on Host
+    if: ${{ !inputs.native_audio_windows_only && !inputs.native_audio_darwin_only }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11.5'
+      - name: Install native proof build tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential git pkg-config python3-pip ninja-build \
+            libass-dev libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev
+          python3 -m pip install --user --disable-pip-version-check meson==1.2.1
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build the patched Android MPV source for host verification
+        run: |
+          set -euo pipefail
+          bash scripts/native_audio/build_linux_audio_probe.sh 2>&1 | tee "$RUNNER_TEMP/android-control-build.log"
+      - name: Verify control retention across input rate changes
+        run: |
+          python3 tool/audio_effects/control_cache_contracts.py \
+            --libmpv build/native-audio/linux-probe-output/libmpv.so \
+            --output build/native-audio/linux-probe-output/control-cache-contract.json
+      - name: Upload Android control evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-native-control-evidence
+          path: |
+            build/native-audio/linux-probe-output/provenance.txt
+            build/native-audio/linux-probe-output/control-cache-contract.json
+            ${{ runner.temp }}/android-control-build.log
+          if-no-files-found: warn
+
   quality:
     name: Analyze and Test
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -23,6 +138,9 @@ jobs:
 
       - name: Test release metadata
         run: python3 scripts/test_release_metadata.py
+
+      - name: Test audio effects probe
+        run: python3 scripts/test_audio_effects_probe.py
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -52,9 +170,17 @@ jobs:
 
   android:
     name: Android Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    needs: native-audio
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download Android libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
 
       - name: Prepare Android Signing
         id: android_signing
@@ -175,9 +301,17 @@ jobs:
 
   ios:
     name: iOS Build (Unsigned)
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: native-audio-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download custom iOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-ios
+          path: build/native-audio/darwin-output
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -208,9 +342,17 @@ jobs:
 
   macos:
     name: macOS Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: native-audio-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download custom macOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-macos
+          path: build/native-audio/darwin-output
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -242,10 +384,18 @@ jobs:
 
   windows:
     name: Windows Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: native-audio
     # Keep this pinned for native plugin compatibility.
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download Windows libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-windows
+          path: build/native-audio/windows-output
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -293,6 +443,7 @@ jobs:
 
   linux:
     name: Linux x64 Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -331,6 +482,7 @@ jobs:
 
   linux-arm64:
     name: Linux ARM64 Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v6

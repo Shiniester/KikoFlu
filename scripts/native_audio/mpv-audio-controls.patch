@@ -1,0 +1,127 @@
+diff --git a/filters/f_lavfi.c b/filters/f_lavfi.c
+index fe7d3e4..ad73a97 100644
+--- a/filters/f_lavfi.c
++++ b/filters/f_lavfi.c
+@@ -57,1 +64,8 @@
++struct lavfi_command_cache {
++    struct lavfi_command_cache *next;
++    char *target;
++    char *cmd;
++    char *arg;
++};
++
+ struct lavfi {
+@@ -68,2 +75,3 @@ struct lavfi {
+     AVFilterGraph *graph;
++    struct lavfi_command_cache *command_cache;
+     // Set to true once all inputs have been initialized, and the graph is
+@@ -133,1 +141,95 @@ struct lavfi_pad {
++static bool lavfi_command_target_has_index(const char *target, const char *prefix)
++{
++    size_t len = strlen(prefix);
++    return strncmp(target, prefix, len) == 0 &&
++           target[len] >= '0' && target[len] <= '9' &&
++           target[len + 1] == '\0';
++}
++
++static bool lavfi_command_is_replayable(const char *target, const char *cmd)
++{
++    if (!target || !cmd)
++        return false;
++
++    if (strcmp(cmd, "g") == 0 || strcmp(cmd, "enable") == 0) {
++        return lavfi_command_target_has_index(target, "equalizer@eq_band") ||
++               lavfi_command_target_has_index(target, "eq_band");
++    }
++
++    static const char *volume_targets[] = {
++        "channel_mode",
++        "guard_mix",
++        "scene_amount",
++        "mono_amount",
++        "stereo_amount",
++    };
++    if (strcmp(cmd, "volume") == 0) {
++        for (size_t n = 0; n < MP_ARRAY_SIZE(volume_targets); n++) {
++            if (strcmp(target, volume_targets[n]) == 0)
++                return true;
++            if (strncmp(target, "volume@", 7) == 0 &&
++                strcmp(target + 7, volume_targets[n]) == 0)
++                return true;
++        }
++    }
++
++    return false;
++}
++
++static bool lavfi_command_arg_is_finite_number(const char *arg)
++{
++    if (!arg || !arg[0] || strpbrk(arg, " \t\r\n\v\f"))
++        return false;
++
++    char *end = NULL;
++    double value = strtod(arg, &end);
++    return end != arg && *end == '\0' && isfinite(value);
++}
++
++static bool cache_lavfi_command(struct lavfi *c, struct mp_filter_command *cmd)
++{
++    if (!lavfi_command_is_replayable(cmd->target, cmd->cmd) ||
++        !lavfi_command_arg_is_finite_number(cmd->arg))
++        return true;
++
++    for (struct lavfi_command_cache *entry = c->command_cache; entry;
++         entry = entry->next) {
++        if (strcmp(entry->target, cmd->target) == 0 &&
++            strcmp(entry->cmd, cmd->cmd) == 0) {
++            char *arg = talloc_strdup(entry, cmd->arg);
++            MP_HANDLE_OOM(arg);
++            talloc_free(entry->arg);
++            entry->arg = arg;
++            return true;
++        }
++    }
++
++    struct lavfi_command_cache *entry =
++        talloc_zero(c, struct lavfi_command_cache);
++    MP_HANDLE_OOM(entry);
++    entry->target = talloc_strdup(entry, cmd->target);
++    entry->cmd = talloc_strdup(entry, cmd->cmd);
++    entry->arg = talloc_strdup(entry, cmd->arg);
++    MP_HANDLE_OOM(entry->target);
++    MP_HANDLE_OOM(entry->cmd);
++    MP_HANDLE_OOM(entry->arg);
++    entry->next = c->command_cache;
++    c->command_cache = entry;
++    return true;
++}
++
++static bool replay_lavfi_commands(struct lavfi *c)
++{
++    for (struct lavfi_command_cache *entry = c->command_cache; entry;
++         entry = entry->next) {
++        if (avfilter_graph_send_command(c->graph, entry->target, entry->cmd,
++                                        entry->arg, &(char){0}, 0, 0) < 0) {
++            MP_FATAL(c, "failed to restore libavfilter command %s for target %s\n",
++                     entry->cmd, entry->target);
++            return false;
++        }
++    }
++    return true;
++}
++
+ // Free the libavfilter graph (not c), reset all state.
+@@ -581,1 +682,7 @@ static void init_graph(struct lavfi *c)
++        if (!replay_lavfi_commands(c)) {
++            free_graph(c);
++            c->failed = true;
++            return;
++        }
++
+         // The timebase is available after configuring.
+@@ -819,3 +927,4 @@ static bool lavfi_command(struct mp_filter *f, struct mp_filter_command *cmd)
+-                                           &(char){0}, 0, 0) >= 0;
++                                           &(char){0}, 0, 0) >= 0 &&
++               cache_lavfi_command(c, cmd);
+     }
+     case MP_FILTER_COMMAND_GET_META: {

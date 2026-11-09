@@ -1,0 +1,22 @@
+diff --git a/packages/mpv.cmake b/packages/mpv.cmake
+index c029a64..0000000 100644
+--- a/packages/mpv.cmake
++++ b/packages/mpv.cmake
+@@ -17,4 +17,17 @@ ExternalProject_Add(mpv
+     GIT_TAG 0f7858451817c5fd5ebdb74a807a7c997662c390
+     SOURCE_DIR ${SOURCE_LOCATION}
+     UPDATE_COMMAND ""
++    PATCH_COMMAND bash
++        ${CMAKE_CURRENT_LIST_DIR}/apply_mpv_audio_reinit.sh
++        --apply
++        <SOURCE_DIR>
++        0f7858451817c5fd5ebdb74a807a7c997662c390
++        ${CMAKE_CURRENT_LIST_DIR}/mpv-audio-reinit.patch
++        a7f6460e7eb5995704c8940092c411feb6038932
++    COMMAND bash
++        ${CMAKE_CURRENT_LIST_DIR}/apply_mpv_audio_controls.sh
++        --apply
++        <SOURCE_DIR>
++        0f7858451817c5fd5ebdb74a807a7c997662c390
++        ${CMAKE_CURRENT_LIST_DIR}/mpv-audio-controls.patch
+     CONFIGURE_COMMAND ${EXEC} CONF=1 meson setup <BINARY_DIR> <SOURCE_DIR>

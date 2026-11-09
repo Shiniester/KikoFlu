@@ -7,6 +7,11 @@ import 'package:flutter/services.dart';
 class MediaKitPendingLoad {
   static const String errorCode = '1';
 
+  MediaKitPendingLoad() {
+    // open() may still be awaited when release interrupts this result.
+    _completer.future.ignore();
+  }
+
   final Completer<Duration?> _completer = Completer<Duration?>();
 
   Future<Duration?> get future => _completer.future;
@@ -16,6 +21,14 @@ class MediaKitPendingLoad {
   void complete(Duration? duration) {
     if (!_completer.isCompleted) {
       _completer.complete(duration);
+    }
+  }
+
+  void interrupt() {
+    if (!_completer.isCompleted) {
+      _completer.completeError(
+        PlatformException(code: 'abort', message: 'Loading interrupted'),
+      );
     }
   }
 

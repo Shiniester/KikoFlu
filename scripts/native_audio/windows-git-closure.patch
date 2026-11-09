@@ -1,0 +1,405 @@
+diff --git a/packages/amf-headers.cmake b/packages/amf-headers.cmake
+index 2a449c9..9b6076b 100644
+--- a/packages/amf-headers.cmake
++++ b/packages/amf-headers.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(amf-headers
+     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git
++    GIT_TAG 57ee0cfb0e1a08d9041f77435653794c1b012be0
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/angle-headers.cmake b/packages/angle-headers.cmake
+index 590aad5..96df847 100644
+--- a/packages/angle-headers.cmake
++++ b/packages/angle-headers.cmake
+@@ -3,4 +3,3 @@ ExternalProject_Add(angle-headers
+     SOURCE_DIR ${SOURCE_LOCATION}
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 686adbb2a39854ab687da009e534f6842a85f453
+     GIT_CLONE_FLAGS "--sparse --filter=tree:0"
+diff --git a/packages/avisynth-headers.cmake b/packages/avisynth-headers.cmake
+index 2bbeb0c..9a1b701 100644
+--- a/packages/avisynth-headers.cmake
++++ b/packages/avisynth-headers.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(avisynth-headers
+     GIT_REPOSITORY https://github.com/AviSynth/AviSynthPlus.git
++    GIT_TAG f4971686b673d835e531f7db18bf54355c4ec388
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/brotli.cmake b/packages/brotli.cmake
+index 9316c17..12f3570 100644
+--- a/packages/brotli.cmake
++++ b/packages/brotli.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(brotli
+     GIT_REPOSITORY https://github.com/google/brotli.git
++    GIT_TAG d89c4b1c52e25ddafe047bc78bbee5c1e24b1809
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/bzip2.cmake b/packages/bzip2.cmake
+index 5297594..f378df8 100644
+--- a/packages/bzip2.cmake
++++ b/packages/bzip2.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(bzip2
+     GIT_REPOSITORY https://gitlab.com/bzip2/bzip2.git
++    GIT_TAG 66c46b8c9436613fd81bc5d03f63a61933a4dcc3
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/dav1d.cmake b/packages/dav1d.cmake
+index 92c3c8b..6d854c5 100644
+--- a/packages/dav1d.cmake
++++ b/packages/dav1d.cmake
+@@ -4,2 +4,3 @@ ExternalProject_Add(dav1d
+     GIT_REPOSITORY https://code.videolan.org/videolan/dav1d.git
++    GIT_TAG e5af12796d46cd7788e5f5349da1a27c5f7a8f1a
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/expat.cmake b/packages/expat.cmake
+index a39602c..7d6ceaa 100644
+--- a/packages/expat.cmake
++++ b/packages/expat.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(expat
+     GIT_REPOSITORY https://github.com/libexpat/libexpat.git
++    GIT_TAG dbf04c543a2549e29a0f36b4d9560709f57cbada
+     SOURCE_DIR ${SOURCE_LOCATION}
+@@ -6,3 +7,2 @@ ExternalProject_Add(expat
+     UPDATE_COMMAND ""
+-    GIT_REMOTE_NAME origin
+     CONFIGURE_COMMAND ${EXEC} CONF=1 cmake -H<SOURCE_DIR>/expat -B<BINARY_DIR>
+diff --git a/packages/fast_float.cmake b/packages/fast_float.cmake
+index 7bafdef..dd0dd3a 100644
+--- a/packages/fast_float.cmake
++++ b/packages/fast_float.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(fast_float
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG dbeabeeb3e6791cb96994c2a7a084c36e62ccfb2
+     UPDATE_COMMAND ""
+diff --git a/packages/freetype2.cmake b/packages/freetype2.cmake
+index 1b5ca64..9f9df0b 100644
+--- a/packages/freetype2.cmake
++++ b/packages/freetype2.cmake
+@@ -6,2 +6,3 @@ ExternalProject_Add(freetype2
+     GIT_REPOSITORY https://github.com/freetype/freetype.git
++    GIT_TAG c4a3c188e82bc5b457390a87630ac782316421a1
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/fribidi.cmake b/packages/fribidi.cmake
+index 40455a4..e1543ec 100644
+--- a/packages/fribidi.cmake
++++ b/packages/fribidi.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(fribidi
+     GIT_REPOSITORY https://github.com/fribidi/fribidi.git
++    GIT_TAG 15393e4937aa95bcf865d92143735746aeb654fa
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/glad.cmake b/packages/glad.cmake
+index 75d2756..8d95754 100644
+--- a/packages/glad.cmake
++++ b/packages/glad.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(glad
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG glad2
++    GIT_TAG 0a7cf1af9e25e02821587bd4095807fc90b6426a
+     UPDATE_COMMAND ""
+diff --git a/packages/glslang.cmake b/packages/glslang.cmake
+index ca59d42..217f643 100644
+--- a/packages/glslang.cmake
++++ b/packages/glslang.cmake
+@@ -5,4 +5,3 @@ ExternalProject_Add(glslang
+     GIT_CLONE_POST_COMMAND "sparse-checkout set --no-cone /* !Test"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 83f75db6ada23801a65eed1cde4763a0a5bfbda6
+     UPDATE_COMMAND ""
+diff --git a/packages/highway.cmake b/packages/highway.cmake
+index 7cb3887..8be206d 100644
+--- a/packages/highway.cmake
++++ b/packages/highway.cmake
+@@ -6,2 +6,3 @@ ExternalProject_Add(highway
+     GIT_REPOSITORY https://github.com/google/highway.git
++    GIT_TAG b62552a3ba63a927836f61940f60d1ec8a98f061
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/lame.cmake b/packages/lame.cmake
+index 371f029..a67fc47 100644
+--- a/packages/lame.cmake
++++ b/packages/lame.cmake
+@@ -9,2 +9,3 @@ ExternalProject_Add(lame
+     GIT_REPOSITORY https://gitlab.com/shinchiro/lame.git
++    GIT_TAG 9a5b35c430a2e6d150d65a96c7d7acdd64962a8f
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/lcms2.cmake b/packages/lcms2.cmake
+index 3ed38cf..52ac804 100644
+--- a/packages/lcms2.cmake
++++ b/packages/lcms2.cmake
+@@ -5,2 +5,3 @@ ExternalProject_Add(lcms2
+     GIT_REPOSITORY https://github.com/mm2/Little-CMS.git
++    GIT_TAG 689a84bcae6dc0173f3f45b55ffb8dea721c3d6b
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libarchive.cmake b/packages/libarchive.cmake
+index 4773fae..e2831cd 100644
+--- a/packages/libarchive.cmake
++++ b/packages/libarchive.cmake
+@@ -11,2 +11,3 @@ ExternalProject_Add(libarchive
+     GIT_REPOSITORY https://github.com/libarchive/libarchive.git
++    GIT_TAG eb57ffefe20e98eb7ba05829ee1c23b90e589a71
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libass.cmake b/packages/libass.cmake
+index d6aba07..f0666a4 100644
+--- a/packages/libass.cmake
++++ b/packages/libass.cmake
+@@ -9,2 +9,3 @@ ExternalProject_Add(libass
+     GIT_REPOSITORY https://github.com/libass/libass.git
++    GIT_TAG fada3a6901319b2ba36ff40ec25c805c2bac0e60
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libbs2b.cmake b/packages/libbs2b.cmake
+index d6cb803..6ef4afc 100644
+--- a/packages/libbs2b.cmake
++++ b/packages/libbs2b.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(libbs2b
+     GIT_REPOSITORY https://github.com/alexmarsev/libbs2b.git
++    GIT_TAG 5ca2d59888df047f1e4b028e3a2fd5be8b5a7277
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libdovi.cmake b/packages/libdovi.cmake
+index 0b275c8..8f43da1 100644
+--- a/packages/libdovi.cmake
++++ b/packages/libdovi.cmake
+@@ -5,4 +5,3 @@ ExternalProject_Add(libdovi
+     GIT_CLONE_POST_COMMAND "sparse-checkout set --no-cone dolby_vision"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 41dae646193c12de152333ff5dbc33579cb9ef4a
+     UPDATE_COMMAND ""
+diff --git a/packages/libjpeg.cmake b/packages/libjpeg.cmake
+index 0912161..ec33026 100644
+--- a/packages/libjpeg.cmake
++++ b/packages/libjpeg.cmake
+@@ -3,4 +3,3 @@ ExternalProject_Add(libjpeg
+     SOURCE_DIR ${SOURCE_LOCATION}
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG a7c80014045fc4ccdd88feba88e00a5a9c7fde97
+     GIT_CLONE_FLAGS "--filter=tree:0"
+diff --git a/packages/libjxl.cmake b/packages/libjxl.cmake
+index cbc9ea3..eb76bab 100644
+--- a/packages/libjxl.cmake
++++ b/packages/libjxl.cmake
+@@ -12,4 +12,3 @@ ExternalProject_Add(libjxl
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 1e812edf683fa48b540c193aba0a4b69ad44827f
+     GIT_SUBMODULES ""
+diff --git a/packages/libmodplug.cmake b/packages/libmodplug.cmake
+index 056c577..73034bb 100644
+--- a/packages/libmodplug.cmake
++++ b/packages/libmodplug.cmake
+@@ -3,2 +3,3 @@ ExternalProject_Add(libmodplug
+     GIT_REPOSITORY https://github.com/Konstanty/libmodplug.git
++    GIT_TAG 6b3937da975eff2627fa8f73fa093b7769c1bff5
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libmysofa.cmake b/packages/libmysofa.cmake
+index 6416a6c..c5924ba 100644
+--- a/packages/libmysofa.cmake
++++ b/packages/libmysofa.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(libmysofa
+     SOURCE_DIR ${SOURCE_LOCATION}
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 648eed03472e6720a1ea45d1a1f86c4efb569ff9
+     GIT_CLONE_FLAGS "--sparse --filter=tree:0"
+diff --git a/packages/libplacebo.cmake b/packages/libplacebo.cmake
+index da8a017..346d673 100644
+--- a/packages/libplacebo.cmake
++++ b/packages/libplacebo.cmake
+@@ -13,2 +13,3 @@ ExternalProject_Add(libplacebo
+     GIT_REPOSITORY https://github.com/haasn/libplacebo.git
++    GIT_TAG 9fabf6d5057c40089afb020017c6347002b07308
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libpng.cmake b/packages/libpng.cmake
+index c5e9a98..c13da8d 100644
+--- a/packages/libpng.cmake
++++ b/packages/libpng.cmake
+@@ -3,2 +3,3 @@ ExternalProject_Add(libpng
+     GIT_REPOSITORY https://github.com/glennrp/libpng.git
++    GIT_TAG ac0c3532476fa4876a83a279127840741cf216f2
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libsdl2.cmake b/packages/libsdl2.cmake
+index f84e5dd..5c32734 100644
+--- a/packages/libsdl2.cmake
++++ b/packages/libsdl2.cmake
+@@ -9,4 +9,3 @@ ExternalProject_Add(libsdl2
+     UPDATE_COMMAND ""
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG SDL2
++    GIT_TAG cee83f2d9a916e9de30c5712e798541fdc134b06
+     CONFIGURE_COMMAND ${EXEC} CONF=1 cmake -H<SOURCE_DIR> -B<BINARY_DIR>
+diff --git a/packages/libsoxr.cmake b/packages/libsoxr.cmake
+index e793a3f..d27a4b0 100644
+--- a/packages/libsoxr.cmake
++++ b/packages/libsoxr.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(libsoxr
+     GIT_REPOSITORY https://gitlab.com/shinchiro/soxr.git
++    GIT_TAG 945b592b70470e29f917f4de89b4281fbbd540c0
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libsrt.cmake b/packages/libsrt.cmake
+index 188ba41..744c077 100644
+--- a/packages/libsrt.cmake
++++ b/packages/libsrt.cmake
+@@ -4,2 +4,3 @@ ExternalProject_Add(libsrt
+     GIT_REPOSITORY https://github.com/Haivision/srt.git
++    GIT_TAG 5c8272843d9d098a5049cbafdb7b513a8eb4bb24
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libssh.cmake b/packages/libssh.cmake
+index 78add39..6a24b90 100644
+--- a/packages/libssh.cmake
++++ b/packages/libssh.cmake
+@@ -5,2 +5,3 @@ ExternalProject_Add(libssh
+     GIT_REPOSITORY https://gitlab.com/libssh/libssh-mirror.git
++    GIT_TAG 904cbd21a53928f8f687092c77de59f45410dcce
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libunibreak.cmake b/packages/libunibreak.cmake
+index d0a526f..f4c35f1 100644
+--- a/packages/libunibreak.cmake
++++ b/packages/libunibreak.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(libunibreak
+     GIT_REPOSITORY https://github.com/adah1972/libunibreak.git
++    GIT_TAG 32555542453f59101356ecbb8686f5e198f92b62
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/libvpl.cmake b/packages/libvpl.cmake
+index d934857..1d4113a 100644
+--- a/packages/libvpl.cmake
++++ b/packages/libvpl.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(libvpl
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 412c5cffe3022d5ebb8a955c3b30afe7bd2e3929
+     UPDATE_COMMAND ""
+diff --git a/packages/libwebp.cmake b/packages/libwebp.cmake
+index 46224de..b5a59fb 100644
+--- a/packages/libwebp.cmake
++++ b/packages/libwebp.cmake
+@@ -8,4 +8,3 @@ ExternalProject_Add(libwebp
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 646eb38008299ea2115d5eec6fdd7abf55f19502
+     UPDATE_COMMAND ""
+diff --git a/packages/libxml2.cmake b/packages/libxml2.cmake
+index 2148bd5..e1f498e 100644
+--- a/packages/libxml2.cmake
++++ b/packages/libxml2.cmake
+@@ -5,2 +5,3 @@ ExternalProject_Add(libxml2
+     GIT_REPOSITORY https://github.com/GNOME/libxml2.git
++    GIT_TAG febeb5c91fffeca92b84162d57a1832fe5a60b09
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/nvcodec-headers.cmake b/packages/nvcodec-headers.cmake
+index 77fa098..4356af2 100644
+--- a/packages/nvcodec-headers.cmake
++++ b/packages/nvcodec-headers.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(nvcodec-headers
+     GIT_REPOSITORY https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
++    GIT_TAG f2053071ea93137255b6dcf42e9b4c9e0965a44e
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/ogg.cmake b/packages/ogg.cmake
+index 9df683e..c16624f 100644
+--- a/packages/ogg.cmake
++++ b/packages/ogg.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(ogg
+     GIT_REPOSITORY https://github.com/xiph/ogg.git
++    GIT_TAG be05b13e98b048f0b5a0f5fa8ce514d56db5f822
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/openal-soft.cmake b/packages/openal-soft.cmake
+index e173bc4..cfa73b1 100644
+--- a/packages/openal-soft.cmake
++++ b/packages/openal-soft.cmake
+@@ -4,2 +4,3 @@ ExternalProject_Add(openal-soft
+     GIT_REPOSITORY https://github.com/kcat/openal-soft.git
++    GIT_TAG 2fc99332b9be52a62c8d7525ce444c70c48e530a
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/openssl.cmake b/packages/openssl.cmake
+index 261de64..6bfb540 100644
+--- a/packages/openssl.cmake
++++ b/packages/openssl.cmake
+@@ -6,2 +6,3 @@ ExternalProject_Add(openssl
+     GIT_REPOSITORY https://github.com/openssl/openssl.git
++    GIT_TAG dffc5e3a5e65fe3fe9e8a610fbb4b8aff9332fdc
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/shaderc.cmake b/packages/shaderc.cmake
+index 2540ff1..b0876da 100644
+--- a/packages/shaderc.cmake
++++ b/packages/shaderc.cmake
+@@ -7,4 +7,3 @@ ExternalProject_Add(shaderc
+     SOURCE_DIR ${SOURCE_LOCATION}
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 4f0683ab2419ecbb9e18c9edfd4ffd70c2ba8cc6
+     GIT_CLONE_FLAGS "--filter=tree:0"
+diff --git a/packages/speex.cmake b/packages/speex.cmake
+index 9498c81..d47ceda 100644
+--- a/packages/speex.cmake
++++ b/packages/speex.cmake
+@@ -4,2 +4,3 @@ ExternalProject_Add(speex
+     GIT_REPOSITORY https://github.com/xiph/speex.git
++    GIT_TAG 05895229896dc942d453446eba6f9f5ddcf95422
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/spirv-cross.cmake b/packages/spirv-cross.cmake
+index e5679a4..4e200a8 100644
+--- a/packages/spirv-cross.cmake
++++ b/packages/spirv-cross.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(spirv-cross
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 57e4efcc84112abcd426dc5ec248b5339bee04f2
+     UPDATE_COMMAND ""
+diff --git a/packages/spirv-headers.cmake b/packages/spirv-headers.cmake
+index 567c2b1..b182b01 100644
+--- a/packages/spirv-headers.cmake
++++ b/packages/spirv-headers.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(spirv-headers
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 6efe5ae6b7c6ad29da3f2cc3f164b9c3d72b78b1
+     UPDATE_COMMAND ""
+diff --git a/packages/spirv-tools.cmake b/packages/spirv-tools.cmake
+index 8e1e44b..35f7472 100644
+--- a/packages/spirv-tools.cmake
++++ b/packages/spirv-tools.cmake
+@@ -4,4 +4,3 @@ ExternalProject_Add(spirv-tools
+     GIT_CLONE_FLAGS "--filter=tree:0"
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG b570f00a782a7bf4006964e8284dd8c10c4c549b
+     UPDATE_COMMAND ""
+diff --git a/packages/uchardet.cmake b/packages/uchardet.cmake
+index b4d3e4b..3fa2c71 100644
+--- a/packages/uchardet.cmake
++++ b/packages/uchardet.cmake
+@@ -2,2 +2,3 @@ ExternalProject_Add(uchardet
+     GIT_REPOSITORY https://gitlab.freedesktop.org/uchardet/uchardet.git
++    GIT_TAG 06029ec3340cdf6bf9a6a537dafb3f39eda0560e
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/vorbis.cmake b/packages/vorbis.cmake
+index 5e8f679..87d7911 100644
+--- a/packages/vorbis.cmake
++++ b/packages/vorbis.cmake
+@@ -4,2 +4,3 @@ ExternalProject_Add(vorbis
+     GIT_REPOSITORY https://github.com/xiph/vorbis.git
++    GIT_TAG c2aa86b05e981c96bf381fc6aa11cdd03eccc2fb
+     SOURCE_DIR ${SOURCE_LOCATION}
+diff --git a/packages/xz.cmake b/packages/xz.cmake
+index bf1cce3..72e39db 100644
+--- a/packages/xz.cmake
++++ b/packages/xz.cmake
+@@ -5,3 +5,3 @@ ExternalProject_Add(xz
+     UPDATE_COMMAND ""
+-    GIT_TAG v5.4.1
++    GIT_TAG 18b845e69752c975dfeda418ec00eda22605c2ee
+     CONFIGURE_COMMAND ${EXEC} CONF=1 autoreconf -fi && <SOURCE_DIR>/configure
+diff --git a/packages/zlib.cmake b/packages/zlib.cmake
+index 5a1aa65..bb71839 100644
+--- a/packages/zlib.cmake
++++ b/packages/zlib.cmake
+@@ -5,4 +5,3 @@ ExternalProject_Add(zlib
+     UPDATE_COMMAND ""
+-    GIT_REMOTE_NAME origin
+-    GIT_TAG develop
++    GIT_TAG 1bfa59ae103efa858ccfb16c75d4767603ea954e
+     CONFIGURE_COMMAND ${EXEC} CONF=1 cmake -H<SOURCE_DIR> -B<BINARY_DIR>

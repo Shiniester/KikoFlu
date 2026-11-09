@@ -1,0 +1,64 @@
+diff --git a/scripts/ffmpeg/meson.build b/scripts/ffmpeg/meson.build
+--- a/scripts/ffmpeg/meson.build
++++ b/scripts/ffmpeg/meson.build
+@@ -156,4 +156,28 @@ audio_default_options = [
+     # filters
+     '--enable-filter=overlay',
+     '--enable-filter=equalizer',
++    '--enable-filter=aformat',
++    '--enable-filter=aresample',
++    '--enable-filter=anull',
++    '--enable-filter=aeval',
++    '--enable-filter=aiir',
++    '--enable-filter=allpass',
++    '--enable-filter=aselect',
++    '--enable-filter=alimiter',
++    '--enable-filter=pan',
++    '--enable-filter=asplit',
++    '--enable-filter=join',
++    '--enable-filter=volume',
++    '--enable-filter=biquad',
++    '--enable-filter=adelay',
++    '--enable-filter=amix',
++    '--enable-filter=anullsrc',
++    '--enable-filter=atrim',
++    '--enable-filter=concat',
++    '--enable-filter=asetpts',
++    '--enable-filter=asetnsamples',
++    '--enable-filter=asettb',
++    '--enable-filter=arealtime',
++    '--enable-filter=asendcmd',
++    '--enable-filter=apad',
+ ]
+diff --git a/scripts/ffmpeg/build.sh b/scripts/ffmpeg/build.sh
+--- a/scripts/ffmpeg/build.sh
++++ b/scripts/ffmpeg/build.sh
+@@ -8,2 +8,3 @@
+ patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-vp9-hwaccel.patch
++patch -p1 <${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch
+ patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-hls-mp4-seek.patch
+diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
+--- a/scripts/mpv/build.sh
++++ b/scripts/mpv/build.sh
+@@ -8,2 +8,4 @@
+ patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch
++patch -p1 <${PROJECT_DIR}/patches/mpv-audio-reinit.patch
++patch -p1 <${PROJECT_DIR}/patches/mpv-audio-controls.patch
+ if [ "${VARIANT}" == "audio" ]; then
+     patch -p1 <${PROJECT_DIR}/patches/mpv-remove-libass.patch
+ fi
+diff --git a/scripts/pkg-config/build.sh b/scripts/pkg-config/build.sh
+--- a/scripts/pkg-config/build.sh
++++ b/scripts/pkg-config/build.sh
+@@ -8,2 +8,3 @@
+ cp ${PROJECT_DIR}/scripts/pkg-config/meson.build ./meson.build
++patch -p1 <${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch
+ meson setup build \
+diff --git a/scripts/freetype/build.sh b/scripts/freetype/build.sh
+--- a/scripts/freetype/build.sh
++++ b/scripts/freetype/build.sh
+@@ -6,2 +6,4 @@
+ cd ${SRC_DIR}
++meson subprojects download libpng
++patch -p1 -d subprojects/libpng-1.6.40 <${PROJECT_DIR}/patches/libpng-macos-fp-header.patch
+ meson setup build \

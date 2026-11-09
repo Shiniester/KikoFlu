@@ -1,0 +1,9 @@
+diff --git a/libavfilter/f_sendcmd.c b/libavfilter/f_sendcmd.c
+--- a/libavfilter/f_sendcmd.c
++++ b/libavfilter/f_sendcmd.c
+@@ -550,4 +550,4 @@
+-                        cmd_arg = av_asprintf("%g", res);
++                        cmd_arg = av_asprintf("%.17g", res);
+                         if (!cmd_arg) {
+                             av_frame_free(&ref);
+                             return AVERROR(ENOMEM);

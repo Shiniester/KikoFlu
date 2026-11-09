@@ -1,0 +1,1737 @@
+{
+  "gate_status": "incomplete",
+  "platform_scope": "Windows reference DLL, not packaged Windows/Android or production migration",
+  "versions": {
+    "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+    "ffmpeg-version": "N-128607-g1ddef7d76"
+  },
+  "commands": [
+    "python tool/audio_effects/adaptive_fs.py --libmpv <reference.dll> --output build/adaptive-fs/final-pts.json",
+    "python tool/audio_effects/adaptive_fs_stream.py --libmpv <reference.dll> --ffmpeg <ffmpeg.exe> --output build/adaptive-fs/hls-pts/result.json"
+  ],
+  "main_checks": [
+    {
+      "name": "auto_ap_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 7.450580596923828e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.267059199999494,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_0_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2716391000067233,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_1_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 1.4896908817618737e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22230609999678563,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_0_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.26485849999880884,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_50_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 9.913214499279732e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.30199150000407826,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ]
+    },
+    {
+      "name": "auto_bathroom_100_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 9.975388376437522e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.40674319999379804,
+        "process_cpu_seconds": 0.1875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_0_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.26558429999568034,
+        "process_cpu_seconds": 0.125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_50_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 1.0382476767212268e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.25115519999963,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_100_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 4.493227206969763e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.36222799999814015,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_0_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2716553999998723,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_50_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 1.655054415738988e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.24157060000288766,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_100_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "max_error": 2.166508528134159e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.27252389999921434,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_feedback_44100",
+      "passed": true,
+      "frames": 30887,
+      "expected_frames": 30887,
+      "max_error": 4.014779675376445e-08,
+      "oracle_feedback_write_clips": 21416,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.32273119999445044,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_clip_44100",
+      "passed": true,
+      "frames": 2222,
+      "expected_frames": 2222,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2255187000046135,
+        "process_cpu_seconds": 0.15625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_rc_clip_44100",
+      "passed": true,
+      "frames": 2222,
+      "expected_frames": 2222,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22283880000031786,
+        "process_cpu_seconds": 0.109375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_bathroom_44100",
+      "passed": true,
+      "frames": 57347,
+      "expected_frames": 57347,
+      "max_error": 5.433108096752903e-08,
+      "maximum_amount_step": 0.0011337995529174805,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5432055999990553,
+        "process_cpu_seconds": 0.21875
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ]
+    },
+    {
+      "name": "auto_dynamic_through_wall_44100",
+      "passed": true,
+      "frames": 57347,
+      "expected_frames": 57347,
+      "max_error": 5.107129480430572e-08,
+      "maximum_amount_step": 0.0011337995529174805,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.581981099996483,
+        "process_cpu_seconds": 0.359375
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_telephone_44100",
+      "passed": true,
+      "frames": 57347,
+      "expected_frames": 57347,
+      "max_error": 1.0293171481823293e-07,
+      "maximum_amount_step": 0.0011337995529174805,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5379490999985137,
+        "process_cpu_seconds": 0.28125
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_ap_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 7.450580596923828e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2221611999993911,
+        "process_cpu_seconds": 0.078125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_0_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22465240000019548,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_1_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 1.4882262755477882e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22907789999590022,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_0_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2196537999989232,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_50_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 1.0750438428352993e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2531438999940292,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ]
+    },
+    {
+      "name": "auto_bathroom_100_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 1.0138501094214547e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.252846800001862,
+        "process_cpu_seconds": 0.125
+      },
+      "updates": [],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ]
+    },
+    {
+      "name": "auto_through_wall_0_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.21737869999924442,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_50_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 1.0465683292215644e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.23318750000180444,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_100_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 4.65859131826285e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2321169999995618,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_0_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.21845069999835687,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_50_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 1.6635413102594754e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2725145000003977,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_100_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "max_error": 2.1499479530007193e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22111069999664323,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_feedback_48000",
+      "passed": true,
+      "frames": 33617,
+      "expected_frames": 33617,
+      "max_error": 4.061949943068299e-08,
+      "oracle_feedback_write_clips": 23290,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2715823999969871,
+        "process_cpu_seconds": 0.078125
+      },
+      "updates": [],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ]
+    },
+    {
+      "name": "auto_mono_clip_48000",
+      "passed": true,
+      "frames": 2418,
+      "expected_frames": 2418,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22389189999375958,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_rc_clip_48000",
+      "passed": true,
+      "frames": 2418,
+      "expected_frames": 2418,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2235971999980393,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_bathroom_48000",
+      "passed": true,
+      "frames": 62417,
+      "expected_frames": 62417,
+      "max_error": 5.887445697627669e-08,
+      "maximum_amount_step": 0.001041710376739502,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5591606000016327,
+        "process_cpu_seconds": 0.1875
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_through_wall_48000",
+      "passed": true,
+      "frames": 62417,
+      "expected_frames": 62417,
+      "max_error": 5.650028733761303e-08,
+      "maximum_amount_step": 0.001041710376739502,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5614187000028323,
+        "process_cpu_seconds": 0.328125
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_telephone_48000",
+      "passed": true,
+      "frames": 62417,
+      "expected_frames": 62417,
+      "max_error": 1.0274757206163443e-07,
+      "maximum_amount_step": 0.001041710376739502,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5183656999943196,
+        "process_cpu_seconds": 0.203125
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_ap_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 7.450580596923828e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.21849150000343798,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_0_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.22788619999482762,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_1_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 1.4881886001294475e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2265345999985584,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_0_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.21684490000188816,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_50_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 1.4255309543909078e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.28133789999992587,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_100_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 1.2266624438428408e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2735086999964551,
+        "process_cpu_seconds": 0.0625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_0_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.26410509999550413,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_50_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 6.6764335587832235e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2956432999999379,
+        "process_cpu_seconds": 0.078125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_through_wall_100_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 2.3803767290608846e-09,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2962262000000919,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_0_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 0.0,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.266533599999093,
+        "process_cpu_seconds": 0.015625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_50_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 1.0250524679067397e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.28157350000401493,
+        "process_cpu_seconds": 0.03125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_telephone_100_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "max_error": 1.1007987937849961e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.36665630000061356,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_bathroom_feedback_96000",
+      "passed": true,
+      "frames": 67217,
+      "expected_frames": 67217,
+      "max_error": 4.052521684894117e-08,
+      "oracle_feedback_write_clips": 47332,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.35375489999569254,
+        "process_cpu_seconds": 0.140625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_mono_clip_96000",
+      "passed": true,
+      "frames": 4818,
+      "expected_frames": 4818,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.28283769999688957,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_rc_clip_96000",
+      "passed": true,
+      "frames": 4818,
+      "expected_frames": 4818,
+      "max_error": 0.0,
+      "oracle_scope": "same native start/preroll as accepted baseline; full-input cases use independent recurrence",
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 0.2791259000005084,
+        "process_cpu_seconds": 0.046875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_bathroom_96000",
+      "passed": true,
+      "frames": 124817,
+      "expected_frames": 124817,
+      "max_error": 5.8804715874494207e-08,
+      "maximum_amount_step": 0.0005208849906921387,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5396428000021842,
+        "process_cpu_seconds": 0.40625
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_through_wall_96000",
+      "passed": true,
+      "frames": 124817,
+      "expected_frames": 124817,
+      "max_error": 5.6780299351189e-08,
+      "maximum_amount_step": 0.0005208849906921387,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5266602000046987,
+        "process_cpu_seconds": 0.3125
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_dynamic_telephone_96000",
+      "passed": true,
+      "frames": 124817,
+      "expected_frames": 124817,
+      "max_error": 9.817801205347365e-08,
+      "maximum_amount_step": 0.0005208849906921387,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.5802956000043196,
+        "process_cpu_seconds": 0.390625
+      },
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.5,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        },
+        {
+          "value": 0.75,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": []
+    },
+    {
+      "name": "auto_same_player_fs_mono",
+      "passed": true,
+      "frames": 18861,
+      "expected_frames": 18861,
+      "max_error": 1.4900994771416265e-08,
+      "observed_native_sample_rates": [
+        44100.0,
+        48000.0,
+        96000.0
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.0346153999998933,
+        "process_cpu_seconds": 0.109375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_same_player_fs_rc",
+      "passed": true,
+      "frames": 18861,
+      "expected_frames": 18861,
+      "max_error": 3.828057759669434e-08,
+      "observed_native_sample_rates": [
+        44100.0,
+        48000.0,
+        96000.0
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.050696300000709,
+        "process_cpu_seconds": 0.09375
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "auto_96k_cost",
+      "passed": true,
+      "frames": 384017,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 2.1494949999978417,
+        "process_cpu_seconds": 1.96875
+      },
+      "scope": "one reference offline CPU sample; EQ+15, mono1, limiter, all scenes resident, telephone1/others0; no sustained/device performance claim",
+      "updates": [],
+      "logs": []
+    }
+  ],
+  "hls_checks": [
+    {
+      "name": "hls_bypass",
+      "passed": true,
+      "frames": 72704,
+      "ranges": [
+        [
+          0,
+          44100.0
+        ],
+        [
+          23552,
+          96000.0
+        ]
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.8237206999983755,
+        "process_cpu_seconds": 0.15625
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "hls_ap",
+      "passed": true,
+      "frames": 72704,
+      "max_error": 2.7483865738808788e-08,
+      "ranges": [
+        [
+          0,
+          44100.0
+        ],
+        [
+          23552,
+          96000.0
+        ]
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.827169900003355,
+        "process_cpu_seconds": 0.125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "hls_mono",
+      "passed": true,
+      "frames": 72704,
+      "max_error": 2.9389885414232708e-08,
+      "ranges": [
+        [
+          0,
+          44100.0
+        ],
+        [
+          23552,
+          96000.0
+        ]
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.852738200002932,
+        "process_cpu_seconds": 0.171875
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "hls_telephone",
+      "passed": true,
+      "frames": 72704,
+      "max_error": 3.8310887351400424e-08,
+      "ranges": [
+        [
+          0,
+          44100.0
+        ],
+        [
+          23552,
+          96000.0
+        ]
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.833313500006625,
+        "process_cpu_seconds": 0.3125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "hls_bathroom",
+      "passed": true,
+      "frames": 72704,
+      "max_error": 2.1176856879190353e-08,
+      "ranges": [
+        [
+          0,
+          44100.0
+        ],
+        [
+          23552,
+          96000.0
+        ]
+      ],
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.8738997999971616,
+        "process_cpu_seconds": 0.28125
+      },
+      "updates": [],
+      "logs": []
+    },
+    {
+      "name": "hls_runtime_parameter_retention",
+      "passed": false,
+      "max_error": 2.0255963850690506e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.8431283999962034,
+        "process_cpu_seconds": 0.390625
+      },
+      "amount_by_native_fs": {
+        "44100.0": {
+          "min": 0.0,
+          "max": 1.0,
+          "last": 1.0
+        },
+        "96000.0": {
+          "min": 0.0,
+          "max": 0.0,
+          "last": 0.0
+        }
+      },
+      "reason": "An amount set by af-command must survive native input-format reinitialization",
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": [],
+      "frames": 72704
+    },
+    {
+      "name": "hls_audio_reconfig_resend",
+      "passed": true,
+      "max_error": 2.9533451351149154e-08,
+      "versions": {
+        "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+        "ffmpeg-version": "N-128607-g1ddef7d76"
+      },
+      "timing": {
+        "wall_seconds": 1.8396269000004395,
+        "process_cpu_seconds": 0.265625
+      },
+      "scope": "native event resend candidate; initial zero samples and the subsequent 20ms ramp are recorded, not hidden",
+      "boundary": [
+        {
+          "event": "audio-reconfig",
+          "params": {},
+          "pcm_bytes": 0
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {
+            "samplerate": 44100,
+            "channel-count": 2,
+            "channels": "stereo",
+            "hr-channels": "stereo",
+            "format": "floatp"
+          },
+          "pcm_bytes": 0
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {
+            "samplerate": 44100,
+            "channel-count": 2,
+            "channels": "stereo",
+            "hr-channels": "stereo",
+            "format": "floatp"
+          },
+          "pcm_bytes": 0
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {
+            "samplerate": 96000,
+            "channel-count": 2,
+            "channels": "stereo",
+            "hr-channels": "stereo",
+            "format": "floatp"
+          },
+          "pcm_bytes": 573440,
+          "enqueue_code": 0
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {
+            "samplerate": 96000,
+            "channel-count": 2,
+            "channels": "stereo",
+            "hr-channels": "stereo",
+            "format": "floatp"
+          },
+          "pcm_bytes": 860160
+        },
+        {
+          "reply": 0,
+          "pcm_bytes": 860160
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {},
+          "pcm_bytes": 1454080
+        },
+        {
+          "event": "audio-reconfig",
+          "params": {},
+          "pcm_bytes": 1454080
+        },
+        {
+          "total_frames": 72704,
+          "new_fs_frames": 49152,
+          "initial_zero_amount_frames": 1152,
+          "first_full_amount_frame": 3071,
+          "last_amount": 1.0
+        }
+      ],
+      "updates": [
+        {
+          "value": 1,
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@scene_amount",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ]
+        }
+      ],
+      "logs": [],
+      "frames": 72704
+    }
+  ],
+  "resend_timing_scope": "All HLS captures use arealtime. Counts describe processed samples in this test; they do not bound realtime device command latency.",
+  "other_observed_resend": {
+    "initial_zero_amount_frames": 19456,
+    "first_full_amount_frame": 21375,
+    "rate": 96000,
+    "total_frames": 72704,
+    "last_amount": 1
+  },
+  "seed_pts_regression": {
+    "without_local_pts_before_atrim_max_error": 0.2821462648372839,
+    "with_local_pts_before_atrim_max_error": 2.1176856879190353e-08
+  },
+  "remaining": [
+    "fixed FFmpeg n6.0/native Android replay",
+    "packaged Windows replay",
+    "sustained/device performance and listening",
+    "production reconciliation of current amount after native format changes"
+  ]
+}
