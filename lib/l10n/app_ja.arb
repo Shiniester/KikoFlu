@@ -641,6 +641,13 @@
 
   "playerButtonSettingsSubtitle": "プレーヤーボタンの順序",
   "playerLyricStyleSubtitle": "ミニ・全画面の歌詞スタイル",
+  "subtitleSpringPreset": "字幕のスプリングプリセット",
+  "subtitleSpringPresetDefault": "標準",
+  "subtitleSpringPresetSmooth": "なめらか",
+  "subtitleSpringPresetResponsive": "追従重視",
+  "subtitleSpringPresetJello": "ジェリー",
+  "subtitleSpringPresetHeavy": "重厚",
+  "subtitleSpringPresetNoBounce": "弾まない",
   "workDetailDisplaySubtitle": "詳細ページの表示内容",
   "workCardDisplaySubtitle": "作品カードの表示内容",
   "myTabsDisplaySubtitle": "音声ページに表示するタブ",

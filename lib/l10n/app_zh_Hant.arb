@@ -641,6 +641,13 @@
 
   "playerButtonSettingsSubtitle": "調整播放器按鈕順序",
   "playerLyricStyleSubtitle": "調整迷你與全螢幕歌詞樣式",
+  "subtitleSpringPreset": "字幕彈簧預設",
+  "subtitleSpringPresetDefault": "預設",
+  "subtitleSpringPresetSmooth": "更平滑",
+  "subtitleSpringPresetResponsive": "快速跟隨",
+  "subtitleSpringPresetJello": "果凍感",
+  "subtitleSpringPresetHeavy": "厚重緩慢",
+  "subtitleSpringPresetNoBounce": "無彈跳",
   "workDetailDisplaySubtitle": "選擇詳情頁顯示內容",
   "workCardDisplaySubtitle": "選擇作品卡片顯示內容",
   "myTabsDisplaySubtitle": "選擇「音聲」頁面標籤",

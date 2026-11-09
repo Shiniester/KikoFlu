@@ -862,6 +862,13 @@
 
   "playerButtonSettingsSubtitle": "Player button order",
   "playerLyricStyleSubtitle": "Mini and fullscreen lyric styles",
+  "subtitleSpringPreset": "Subtitle Spring Preset",
+  "subtitleSpringPresetDefault": "Default",
+  "subtitleSpringPresetSmooth": "Smooth",
+  "subtitleSpringPresetResponsive": "Responsive",
+  "subtitleSpringPresetJello": "Jello",
+  "subtitleSpringPresetHeavy": "Heavy",
+  "subtitleSpringPresetNoBounce": "No Bounce",
   "workDetailDisplaySubtitle": "Detail page content",
   "workCardDisplaySubtitle": "Work card content",
   "myTabsDisplaySubtitle": "Tabs shown on Audio",

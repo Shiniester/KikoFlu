@@ -49,9 +49,9 @@ $profileDefines = @(
 Push-Location android
 try {
   .\gradlew.bat --init-script $profileInit `
-    -Ptarget=../integration_test/player_profile_test.dart `
-    -Ptarget-platform=android-arm64 "-Pdart-defines=$($profileDefines -join ',')" `
-    -Ptrack-widget-creation=false -Ptree-shake-icons=false assembleProfile
+    '-Ptarget=integration_test/player_profile_test.dart' `
+    '-Ptarget-platform=android-arm64' "-Pdart-defines=$($profileDefines -join ',')" `
+    '-Ptrack-widget-creation=false' '-Ptree-shake-icons=false' assembleProfile
 } finally { Pop-Location }
 adb -s <device> install -r build/app/outputs/flutter-apk/app-profile.apk
 python tool/performance/run_player_profile.py baseline `
@@ -136,6 +136,46 @@ A/B/C，校验最终曲目、发布事件、错误和完整缓存是否保留。
 随后一秒的位置推进。该耗时包含手势与推进等待，不与直接调用 seek 的返回时间
 混用。位置由 just_audio 外推，状态与进度通过仍需原生音频输出检查及实听确认。
 跳转失败会令脚本退出；该场景与切歌、连续播放分别验收。
+
+## 字幕弹簧对比
+
+字幕专用模式使用固定的 500 行字幕，无需音频素材。
+该模式使用默认字幕样式、默认弹簧预设和 1.0 倍文字缩放，并启用动画。
+两组使用同一设备和测量入口，分别构建变更前后的生产代码。
+
+先安装基线独立 Profile 包，再在基线工作树中采样。
+`--output` 使用两组共用的绝对路径：
+
+```powershell
+python tool/performance/run_player_profile.py baseline_lyrics `
+  --device <device> --package com.meteor.kikoeruflutter.profile `
+  --no-audio --lyrics-only --rounds 5 --output <共同报告根目录>
+```
+
+安装候选独立 Profile 包后，在候选工作树中采样并汇总：
+
+```powershell
+python tool/performance/run_player_profile.py candidate_lyrics `
+  --device <device> --package com.meteor.kikoeruflutter.profile `
+  --no-audio --lyrics-only --rounds 5 --output <共同报告根目录>
+python tool/performance/summarize_player_profile.py baseline_lyrics candidate_lyrics `
+  --lyrics-only --reports <共同报告根目录>/reports `
+  --output <共同报告根目录>/lyrics_summary.json
+```
+
+每轮覆盖连续换行、滚动、跳转和 4 次运动中关闭字幕页。
+4 次开合分别保留为独立场景，按各窗口的实测帧预算统计卡顿。
+每次关闭后统计 1 秒内的实际绘制回调，另检查页面隐藏后的空闲帧。
+原始 FrameTiming 数量作为诊断数据保留。
+隐藏场景使用静态音频详情页，并保持播放状态和进度更新。
+测量绑定保留应用和 `pump` 的帧请求，并关闭测试驱动的自行续帧。
+字幕跟随动画持续超过目标设备的帧预算时，必须先修复再验收。
+汇总器逐轮核对两组的字幕设置，并保留各窗口的实测帧预算。
+自适应刷新率可在相同显示设置下变化；卡顿数按各自预算计算。
+对比使用原始 UI 和 Raster 耗时。实际刷新率不同时，耗时差异不能全部归因于代码。
+缺失指标或空闲计数口径不符时，汇总失败。
+候选字幕页隐藏后仍产生帧时，汇总失败。
+两组报告记录构建源代码提交，不能将同一提交的结果作为前后对比。
 
 ## 计时口径
 

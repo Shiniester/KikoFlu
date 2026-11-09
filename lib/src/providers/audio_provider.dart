@@ -60,6 +60,13 @@ final positionProvider = StreamProvider<Duration>((ref) {
   return _withInitialValue(service.position, service.positionStream);
 });
 
+final positionDiscontinuityProvider = StreamProvider<PositionDiscontinuity>((
+  ref,
+) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return service.positionDiscontinuityStream;
+});
+
 // Duration Provider
 final durationProvider = StreamProvider<Duration?>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);

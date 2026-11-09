@@ -1854,6 +1854,27 @@ class SEn extends S {
   String get playerLyricStyleSubtitle => 'Mini and fullscreen lyric styles';
 
   @override
+  String get subtitleSpringPreset => 'Subtitle Spring Preset';
+
+  @override
+  String get subtitleSpringPresetDefault => 'Default';
+
+  @override
+  String get subtitleSpringPresetSmooth => 'Smooth';
+
+  @override
+  String get subtitleSpringPresetResponsive => 'Responsive';
+
+  @override
+  String get subtitleSpringPresetJello => 'Jello';
+
+  @override
+  String get subtitleSpringPresetHeavy => 'Heavy';
+
+  @override
+  String get subtitleSpringPresetNoBounce => 'No Bounce';
+
+  @override
   String get workDetailDisplaySubtitle => 'Detail page content';
 
   @override

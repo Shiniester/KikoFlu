@@ -28,6 +28,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
@@ -871,6 +872,15 @@ void main() {
     final active = find.descendant(
       of: display,
       matching: find.text('full page lyric 5'),
+    );
+    expect(
+      tester.getCenter(active).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+            .dy,
+        2.1,
+      ),
     );
     final phoneSize = tester.widget<Text>(active).style!.fontSize!;
 
@@ -1910,6 +1920,175 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'wide lyric handoff moves the outgoing row after older text leaves the viewport',
+    (tester) async {
+      final lyrics = List.generate(
+        500,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: '字幕 $index · ${List.filled(6, '同じ景色を見ながら、ゆっくり歩いていく。').join()}',
+        ),
+      );
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      await _pumpPlayer(
+        tester,
+        const Size(1120, 800),
+        lyrics: lyrics,
+        positionStream: positions.stream,
+        playing: true,
+        settleEntry: false,
+        miniPlayerEntry: true,
+      );
+      for (var frame = 0; frame < 40; frame++) {
+        if (frame == 35) positions.add(const Duration(seconds: 10));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.tap(
+        find.byKey(const ValueKey('mini-player-upward-launcher')),
+      );
+      for (var frame = 0; frame < 40; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final pages = find.byKey(const ValueKey('wide-right-pages'));
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(-tester.getSize(pages).width * 0.75, 0),
+        1200,
+      );
+      for (var frame = 0; frame < 32; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final list = find.byKey(const ValueKey('full-lyric-list'));
+      final anchor = tester
+          .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+          .dy;
+      final current = find.descendant(
+        of: list,
+        matching: find.text(lyrics[10].text),
+      );
+      expect(tester.getCenter(current).dy, closeTo(anchor, 2.1));
+      expect(
+        find.descendant(of: list, matching: find.text(lyrics[9].text)),
+        findsOneWidget,
+      );
+      positions.add(const Duration(seconds: 11));
+      await tester.pump();
+      await tester.pump();
+      final before = tester.getCenter(current).dy;
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(
+        find.descendant(of: list, matching: find.text(lyrics[9].text)),
+        findsNothing,
+      );
+      expect(tester.getCenter(current).dy, isNot(closeTo(before, 0.1)));
+      final target = find.descendant(
+        of: list,
+        matching: find.text(lyrics[11].text),
+      );
+      expect(tester.getCenter(target).dy, isNot(closeTo(anchor, 2.1)));
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(target).dy, closeTo(anchor, 2.1));
+    },
+  );
+
+  testWidgets(
+    'visible controls animate progress updates while the details page stays idle',
+    (tester) async {
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 10));
+      await _pumpPlayer(
+        tester,
+        const Size(1120, 800),
+        lyrics: List.generate(
+          500,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'idle lyric $index',
+          ),
+        ),
+        positionStream: positions.stream,
+        playing: true,
+      );
+      final pages = find.byKey(const ValueKey('wide-right-pages'));
+      final width = tester.getSize(pages).width;
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(-width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      positions.add(const Duration(seconds: 11));
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.fling(pages, Offset(width * 0.75, 0), 1200);
+      await tester.pumpAndSettle();
+      final preview = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const ValueKey('compact-lyric-scroll-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      positions.add(const Duration(seconds: 150));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final before = preview.position.pixels;
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(preview.position.pixels, isNot(closeTo(before, 0.1)));
+      expect(tester.binding.hasScheduledFrame, isTrue);
+      final full = find.byType(FullLyricDisplay, skipOffstage: false);
+      expect(TickerMode.valuesOf(tester.element(full)).enabled, isFalse);
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<PageView>(pages).controller!.page, closeTo(0, 0.01));
+      expect(
+        find.byKey(const ValueKey('wide-audio-details-pane')),
+        findsOneWidget,
+      );
+      positions.add(const Duration(seconds: 180));
+      for (var frame = 0; frame < 7; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final container = ProviderScope.containerOf(
+        tester.element(pages),
+        listen: false,
+      );
+      expect(container.read(isPlayingProvider), isTrue);
+      expect(container.read(currentLyricIndexProvider), 180);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.fling(pages, Offset(-width * 0.75, 0), 1200);
+      await tester.pumpAndSettle();
+      await tester.fling(
+        find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+        Offset(-width * 0.75, 0),
+        1200,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<PageView>(pages).controller!.page, closeTo(2, 0.01));
+      final target = find.descendant(
+        of: find.byKey(const ValueKey('full-lyric-list')),
+        matching: find.text('idle lyric 180'),
+      );
+      final anchor = tester.getCenter(
+        find.byKey(const ValueKey('playback-line-indicator')),
+      );
+      expect(tester.getCenter(target).dy, closeTo(anchor.dy, 2.1));
+    },
+  );
 
   testWidgets('wide player has a dark-theme no-artwork fallback', (
     tester,
@@ -5904,6 +6083,8 @@ Future<void> _pumpPlayer(
   KikoeruApiService? apiService,
   VoidCallback? onWorkDetailsLoad,
   bool settleEntry = true,
+  bool playing = false,
+  bool miniPlayerEntry = false,
   bool disableThemeArtwork = false,
   void Function(int oldIndex, int newIndex)? onQueueReorder,
   void Function(Duration position)? onSeek,
@@ -5963,7 +6144,7 @@ Future<void> _pumpPlayer(
           (ref) => Stream.value(const Duration(minutes: 4)),
         ),
         playerStateProvider.overrideWith(
-          (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+          (ref) => Stream.value(PlayerState(playing, ProcessingState.ready)),
         ),
         queueProvider.overrideWith(
           (ref) => queueStream ?? Stream.value([track]),
@@ -6005,12 +6186,15 @@ Future<void> _pumpPlayer(
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: pushedRoute
+        home: pushedRoute || miniPlayerEntry
             ? Scaffold(
                 body: TextButton(
                   onPressed: onHostTap,
                   child: const Text('mini-player-host'),
                 ),
+                bottomNavigationBar: miniPlayerEntry
+                    ? const MiniPlayer()
+                    : null,
               )
             : AudioPlayerScreen(initialSurface: initialSurface),
       ),

@@ -1,6 +1,32 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum PlayerLyricSpringPreset {
+  defaultPreset('default', 0.9, 15, 90),
+  smooth('smooth', 1.2, 22, 80),
+  responsive('responsive', 0.5, 18, 150),
+  jello('jello', 0.6, 8, 120),
+  heavy('heavy', 2, 25, 60),
+  noBounce('noBounce', 1, 30, 100);
+
+  const PlayerLyricSpringPreset(
+    this.id,
+    this.mass,
+    this.damping,
+    this.stiffness,
+  );
+
+  final String id;
+  final double mass;
+  final double damping;
+  final double stiffness;
+
+  static PlayerLyricSpringPreset fromId(String? id) => values.firstWhere(
+    (preset) => preset.id == id,
+    orElse: () => PlayerLyricSpringPreset.defaultPreset,
+  );
+}
+
 class PlayerLyricSettings {
   // Mini Player
   final double miniFontSize;
@@ -15,6 +41,7 @@ class PlayerLyricSettings {
   final double fullInactiveFontSize;
   final double fullLineHeight;
   final int fullFontWeight;
+  final PlayerLyricSpringPreset springPreset;
 
   const PlayerLyricSettings({
     this.miniFontSize = 11.0,
@@ -25,6 +52,7 @@ class PlayerLyricSettings {
     this.fullInactiveFontSize = 16.0,
     this.fullLineHeight = 1.5,
     this.fullFontWeight = 700,
+    this.springPreset = PlayerLyricSpringPreset.defaultPreset,
   });
 
   PlayerLyricSettings copyWith({
@@ -36,6 +64,7 @@ class PlayerLyricSettings {
     double? fullInactiveFontSize,
     double? fullLineHeight,
     int? fullFontWeight,
+    PlayerLyricSpringPreset? springPreset,
   }) {
     return PlayerLyricSettings(
       miniFontSize: miniFontSize ?? this.miniFontSize,
@@ -46,12 +75,15 @@ class PlayerLyricSettings {
       fullInactiveFontSize: fullInactiveFontSize ?? this.fullInactiveFontSize,
       fullLineHeight: fullLineHeight ?? this.fullLineHeight,
       fullFontWeight: fullFontWeight ?? this.fullFontWeight,
+      springPreset: springPreset ?? this.springPreset,
     );
   }
 }
 
 class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
   static const _keyPrefix = 'player_lyric_';
+  static const _springPresetKey = 'player_lyric_spring_preset';
+  bool _springPresetChangedLocally = false;
 
   PlayerLyricSettingsNotifier() : super(const PlayerLyricSettings()) {
     _load();
@@ -71,6 +103,9 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
           prefs.getDouble('${_keyPrefix}fullInactiveFontSize') ?? 16.0,
       fullLineHeight: prefs.getDouble('${_keyPrefix}fullLineHeight') ?? 1.5,
       fullFontWeight: prefs.getInt('${_keyPrefix}fullFontWeight') ?? 700,
+      springPreset: _springPresetChangedLocally
+          ? state.springPreset
+          : PlayerLyricSpringPreset.fromId(prefs.getString(_springPresetKey)),
     );
   }
 
@@ -93,6 +128,7 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
     );
     await prefs.setDouble('${_keyPrefix}fullLineHeight', state.fullLineHeight);
     await prefs.setInt('${_keyPrefix}fullFontWeight', state.fullFontWeight);
+    await prefs.setString(_springPresetKey, state.springPreset.id);
   }
 
   Future<void> updateMiniFontSize(double value) async {
@@ -144,7 +180,14 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
     await _save();
   }
 
+  Future<void> updateSpringPreset(PlayerLyricSpringPreset value) async {
+    _springPresetChangedLocally = true;
+    state = state.copyWith(springPreset: value);
+    await _save();
+  }
+
   Future<void> reset() async {
+    _springPresetChangedLocally = true;
     state = const PlayerLyricSettings();
     await _save();
   }

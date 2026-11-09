@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart'
     show RenderParagraph, RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
@@ -334,6 +335,125 @@ void main() {
       tester.getCenter(find.text('lyric 3')).dy,
       closeTo(upperSettledCenter, 0.1),
     );
+  });
+
+  testWidgets('continuous playback staggers lyric springs and scale', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final motionLyrics = List.generate(
+      32,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'spring lyric $index',
+      ),
+    );
+    final positions = StreamController<Duration>();
+    final playerStates = StreamController<PlayerState>();
+    addTearDown(positions.close);
+    addTearDown(playerStates.close);
+    positions.add(Duration.zero);
+    playerStates.add(PlayerState(true, ProcessingState.ready));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          positionDiscontinuityProvider.overrideWith(
+            (ref) => const Stream.empty(),
+          ),
+          currentTrackProvider.overrideWith((ref) => const Stream.empty()),
+          playerStateProvider.overrideWith((ref) => playerStates.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: motionLyrics),
+            ),
+          ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: PlayerLyricsSurface(
+              isWide: false,
+              onFullscreen: () {},
+              translateButton: const IconButton(
+                onPressed: null,
+                icon: Icon(Icons.translate),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final nextLine = find.text('spring lyric 1');
+    final followingLine = find.text('spring lyric 2');
+    final laterLine = find.text('spring lyric 3');
+    double lyricFontSize(String text) {
+      final richText = tester.widget<RichText>(
+        find.byWidgetPredicate(
+          (widget) => widget is RichText && widget.text.toPlainText() == text,
+        ),
+      );
+      return richText.text.style!.fontSize!;
+    }
+
+    double visualScale(Finder line) =>
+        tester.getRect(line).width / tester.getSize(line).width;
+    final initialScale = visualScale(nextLine);
+    final followingStart = tester.getCenter(followingLine).dy;
+    final laterStart = tester.getCenter(laterLine).dy;
+    expect(initialScale, closeTo(0.97, 0.005));
+
+    positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump();
+    var followingDelta = 0.0;
+    var laterDelta = 0.0;
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      followingDelta = tester.getCenter(followingLine).dy - followingStart;
+      laterDelta = tester.getCenter(laterLine).dy - laterStart;
+      if ((followingDelta - laterDelta).abs() > 0.5) break;
+    }
+    expect((followingDelta - laterDelta).abs(), greaterThan(0.5));
+    expect(visualScale(nextLine), greaterThan(initialScale));
+
+    final movingRow = find
+        .ancestor(of: nextLine, matching: find.byType(InkWell))
+        .first;
+    final movingCenter = tester.getCenter(movingRow);
+    positions.add(const Duration(seconds: 2));
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump();
+      if (lyricFontSize('spring lyric 2') > lyricFontSize('spring lyric 1') &&
+          (tester.getCenter(movingRow).dy - movingCenter.dy).abs() < 0.5) {
+        break;
+      }
+    }
+    expect(
+      lyricFontSize('spring lyric 2'),
+      greaterThan(lyricFontSize('spring lyric 1')),
+    );
+    expect(tester.getCenter(movingRow).dy, closeTo(movingCenter.dy, 0.5));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      tester.getCenter(movingRow).dy,
+      isNot(closeTo(movingCenter.dy, 0.1)),
+    );
+
+    await tester.pumpAndSettle();
+    _expectSurfaceLineAtPlaybackAnchor(tester, find.text('spring lyric 2'));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('full lyric fonts follow available width and user settings', (
@@ -706,13 +826,14 @@ void main() {
 
       positions.add(const Duration(seconds: 8));
       await tester.pumpAndSettle();
-      final upperLine = find.text('lyric 3');
+      _expectLineAtPlaybackAnchor(tester, find.text('matching lyric 8'));
+      final upperLine = find.text('lyric 7');
       await tester.tap(upperLine);
       await tester.pump(const Duration(milliseconds: 320));
       await _expectFeedbackTravelTracksLine(
         tester,
         line: upperLine,
-        feedback: const ValueKey('full-lyric-tap-feedback-3'),
+        feedback: const ValueKey('full-lyric-tap-feedback-7'),
         movesUp: false,
       );
     },
@@ -1546,7 +1667,7 @@ void main() {
   });
 
   testWidgets(
-    'inactive lyric page follows before activation and stays stable',
+    'inactive lyric page stays still and follows latest on activation',
     (tester) async {
       final longLyrics = List.generate(
         48,
@@ -1601,21 +1722,24 @@ void main() {
 
       positions.add(const Duration(seconds: 30));
       await tester.pumpAndSettle();
-      expect(scrollable.position.pixels, greaterThan(initialOffset));
+      expect(scrollable.position.pixels, initialOffset);
+
+      updateActive(() => active = true);
+      await tester.pump();
+      await tester.pump();
       _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
+      final activeOffset = scrollable.position.pixels;
+      expect(activeOffset, greaterThan(initialOffset));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(scrollable.position.pixels, closeTo(activeOffset, 0.1));
 
       await tester.binding.setSurfaceSize(const Size(360, 600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpAndSettle();
       _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
-      final hiddenOffset = scrollable.position.pixels;
-
-      updateActive(() => active = true);
-      await tester.pump();
-      await tester.pump();
-      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
+      final resizedOffset = scrollable.position.pixels;
       await tester.pump(const Duration(milliseconds: 500));
-      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
+      expect(scrollable.position.pixels, closeTo(resizedOffset, 0.1));
     },
   );
 
@@ -2482,6 +2606,13 @@ void _expectLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
     (tester.getCenter(line).dy - playbackAnchor).abs(),
     lessThanOrEqualTo(2.1),
   );
+}
+
+void _expectSurfaceLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
+  final anchor = tester.getCenter(
+    find.byKey(const ValueKey('playback-line-indicator')),
+  );
+  expect((tester.getCenter(line).dy - anchor.dy).abs(), lessThanOrEqualTo(2.1));
 }
 
 double _tapFeedbackAlpha(WidgetTester tester, String keyValue) {

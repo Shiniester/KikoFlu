@@ -81,6 +81,32 @@ class PlayerLyricStyleScreen extends ConsumerWidget {
             context,
             title: S.of(context).fullscreenSubtitleMode,
             children: [
+              InputDecorator(
+                decoration: InputDecoration(
+                  labelText: S.of(context).subtitleSpringPreset,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<PlayerLyricSpringPreset>(
+                    key: const ValueKey('player-lyric-spring-preset'),
+                    value: settings.springPreset,
+                    isExpanded: true,
+                    items: PlayerLyricSpringPreset.values
+                        .map(
+                          (preset) => DropdownMenuItem(
+                            value: preset,
+                            child: Text(
+                              _springPresetLabel(S.of(context), preset),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (preset) {
+                      if (preset != null) notifier.updateSpringPreset(preset);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               _buildSlider(
                 context,
                 label: S.of(context).activeSubtitleFontSize,
@@ -112,6 +138,21 @@ class PlayerLyricStyleScreen extends ConsumerWidget {
       ),
     );
   }
+
+  String _springPresetLabel(
+    S localizations,
+    PlayerLyricSpringPreset preset,
+  ) => switch (preset) {
+    PlayerLyricSpringPreset.defaultPreset =>
+      localizations.subtitleSpringPresetDefault,
+    PlayerLyricSpringPreset.smooth => localizations.subtitleSpringPresetSmooth,
+    PlayerLyricSpringPreset.responsive =>
+      localizations.subtitleSpringPresetResponsive,
+    PlayerLyricSpringPreset.jello => localizations.subtitleSpringPresetJello,
+    PlayerLyricSpringPreset.heavy => localizations.subtitleSpringPresetHeavy,
+    PlayerLyricSpringPreset.noBounce =>
+      localizations.subtitleSpringPresetNoBounce,
+  };
 
   Widget _buildSection(BuildContext context,
       {required String title, required List<Widget> children}) {
