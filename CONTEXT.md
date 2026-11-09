@@ -455,10 +455,18 @@ The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
 
+**Current Playback Subtitle (当前播放字幕)**:
+The subtitle corresponding to the audio's actual playback position. It can
+differ from the subtitle at the Playback Line while browsing or searching.
+
 **Subtitle Spring Motion (字幕弹簧动画)**:
-The elastic movement and scaling of subtitle lines as the Player Lyrics Page
-follows playback. It is distinct from word-by-word highlighting.
+The elastic movement of subtitle lines as the Player Lyrics Page follows
+playback. It is distinct from word-by-word highlighting.
 _Avoid_: Karaoke animation, word highlighting
+
+**Subtitle Emphasis (字幕强调)**:
+The brightness and apparent size that distinguish the active subtitle line on
+the Player Lyrics Page from inactive lines.
 
 **Subtitle Spring Preset (字幕弹簧预设)**:
 A named motion style for Subtitle Spring Motion, describing its response and

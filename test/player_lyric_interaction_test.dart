@@ -337,7 +337,7 @@ void main() {
     );
   });
 
-  testWidgets('continuous playback staggers lyric springs and scale', (
+  testWidgets('continuous playback staggers motion and updates emphasis', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -407,9 +407,14 @@ void main() {
       return richText.text.style!.fontSize!;
     }
 
+    double lyricAlpha(String text) =>
+        tester.widget<Text>(find.text(text)).style!.color!.a;
+
     double visualScale(Finder line) =>
         tester.getRect(line).width / tester.getSize(line).width;
     final initialScale = visualScale(nextLine);
+    final initialActiveSize = lyricFontSize('spring lyric 0');
+    final initialInactiveSize = lyricFontSize('spring lyric 1');
     final followingStart = tester.getCenter(followingLine).dy;
     final laterStart = tester.getCenter(laterLine).dy;
     expect(initialScale, closeTo(0.97, 0.005));
@@ -417,6 +422,23 @@ void main() {
     positions.add(const Duration(seconds: 1));
     await tester.pump();
     await tester.pump();
+    expect(lyricFontSize('spring lyric 1'), closeTo(initialActiveSize, 0.01));
+    expect(lyricAlpha('spring lyric 1'), 1);
+    expect(visualScale(nextLine), closeTo(1, 0.005));
+    expect(lyricFontSize('spring lyric 0'), closeTo(initialInactiveSize, 0.01));
+    expect(lyricAlpha('spring lyric 0'), closeTo(0.24, 0.001));
+    expect(visualScale(find.text('spring lyric 0')), closeTo(0.97, 0.005));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      (tester.getCenter(nextLine).dy -
+              tester
+                  .getCenter(
+                    find.byKey(const ValueKey('playback-line-indicator')),
+                  )
+                  .dy)
+          .abs(),
+      greaterThan(0.5),
+    );
     var followingDelta = 0.0;
     var laterDelta = 0.0;
     for (var frame = 0; frame < 20; frame++) {
@@ -1041,13 +1063,27 @@ void main() {
       await tester.drag(list, const Offset(0, -180));
       await tester.pump();
       final browsedOffset = scrollable.position.pixels;
+      final browsedLine = find.text('browse lyric 20');
 
       positions.add(const Duration(seconds: 21));
+      await tester.pump();
+      final browsedCenter = tester.getCenter(browsedLine).dy;
       await tester.pump(const Duration(milliseconds: 2900));
       expect(scrollable.position.pixels, closeTo(browsedOffset, 0.1));
+      expect(tester.getCenter(browsedLine).dy, closeTo(browsedCenter, 0.1));
 
       await tester.pump(const Duration(milliseconds: 120));
-      await tester.pump(const Duration(milliseconds: 320));
+      await tester.pump(const Duration(milliseconds: 80));
+      final firstReturnFrame = tester.getCenter(browsedLine).dy;
+      expect((firstReturnFrame - browsedCenter).abs(), greaterThan(0.5));
+      final viewport = tester.getRect(find.byType(FullLyricDisplay));
+      final playbackAnchor = viewport.top + viewport.height * 0.4;
+      expect(
+        (tester.getCenter(find.text('browse lyric 21')).dy - playbackAnchor)
+            .abs(),
+        greaterThan(0.5),
+      );
+      await tester.pumpAndSettle();
       _expectLineAtPlaybackAnchor(tester, find.text('browse lyric 21'));
     },
   );
