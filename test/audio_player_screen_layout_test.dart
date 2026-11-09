@@ -4535,14 +4535,59 @@ void main() {
     final line = tester.getRect(
       find.byKey(const ValueKey('playback-line-indicator')),
     );
-    expect(line.left, closeTo(actionsRect.left, 0.01));
-    expect(line.right, closeTo(actionsRect.right, 0.01));
-    expect(
-      tester
-          .getRect(find.byKey(const ValueKey('playback-line-time-column')))
-          .right,
-      closeTo(actionsRect.right, 0.01),
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('full-lyric-list')),
     );
+    final cut = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('playback-line-controls')),
+        matching: find.byKey(const ValueKey('player-slice-cut-button')),
+      ),
+    );
+    final time = tester.getRect(
+      find.byKey(const ValueKey('playback-line-time-column')),
+    );
+    expect(cut.left, closeTo(viewport.left, 0.01));
+    expect(time.right, closeTo(viewport.right, 0.01));
+    expect(line.left, closeTo(cut.right, 0.01));
+    expect(line.right, closeTo(time.left, 0.01));
+  });
+
+  testWidgets('lyric playback controls stay within the safe area', (
+    tester,
+  ) async {
+    const padding = FakeViewPadding(left: 24, right: 24);
+    tester.view.padding = padding;
+    tester.view.viewPadding = padding;
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'safe lyric',
+        ),
+      ],
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('full-lyric-list')),
+    );
+    final controls = tester.getRect(
+      find.byKey(const ValueKey('playback-line-controls')),
+    );
+    expect(viewport.left, greaterThanOrEqualTo(padding.left));
+    expect(viewport.right, lessThanOrEqualTo(390 - padding.right));
+    expect(controls.left, closeTo(viewport.left, 0.01));
+    expect(controls.right, closeTo(viewport.right, 0.01));
   });
 
   testWidgets('wide lyric search shares the action row center and width', (

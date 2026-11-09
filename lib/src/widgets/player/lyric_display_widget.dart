@@ -3267,9 +3267,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
   Widget _buildPlaybackLineControls({
     required List<LyricLine> lyrics,
-    required double textWidth,
     required double sideColumnWidth,
-    required double maxWidth,
     required double maxHeight,
     required double visibleHeight,
   }) {
@@ -3295,21 +3293,21 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         final top = (anchorY - rowHeight / 2)
             .clamp(0.0, math.max(0.0, maxHeight - rowHeight))
             .toDouble();
-        final rowWidth = textWidth;
         final time = formatDuration(line.startTime, padHours: false);
 
         return Positioned(
           key: const ValueKey('playback-line-controls'),
-          left: (maxWidth - rowWidth) / 2,
+          left: 0,
+          right: 0,
           top: top,
-          width: rowWidth,
           height: rowHeight,
           child: _buildPlaybackLineControlsVisibility(
             Row(
               children: [
                 SizedBox(
                   width: sideColumnWidth,
-                  child: Center(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
                     child: SizedBox(
                       width: 48,
                       height: 48,
@@ -3333,7 +3331,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 SizedBox(
                   key: const ValueKey('playback-line-time-column'),
                   width: sideColumnWidth,
-                  child: Center(
+                  child: Align(
+                    alignment: Alignment.centerRight,
                     child: IgnorePointer(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -3849,7 +3848,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             final timePainter = TextPainter(
               text: TextSpan(
                 text: formatDuration(lyrics.last.startTime, padHours: false),
-                style: (theme.textTheme.labelMedium ?? const TextStyle())
+                style: (theme.textTheme.labelSmall ?? const TextStyle())
                     .copyWith(
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -3862,7 +3861,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             timePainter.dispose();
           }
           final minLyricWidth = math.min(64.0, math.max(1.0, layoutWidth - 96));
-          final availableSideColumnWidth = math.min(
+          final sideColumnWidth = math.min(
             timeColumnWidth,
             math.max(0.0, (layoutWidth - minLyricWidth) / 2),
           );
@@ -3887,23 +3886,14 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             fontSize: settings.fullInactiveFontSize * widthScale,
             height: settings.fullLineHeight,
           );
-          final textWidth = widget.showPlaybackLineControls
-              ? math.min(
-                  displayWidth,
-                  layoutWidth /
-                      math.max(
-                        1.0,
-                        _lyricActiveTextScale(
-                          activeStyle,
-                          inactiveStyle,
-                          textScaler,
-                        ),
-                      ),
-                )
-              : displayWidth;
-          final sideColumnWidth = widget.showPlaybackLineControls
-              ? math.min(availableSideColumnWidth, displayWidth / 2)
-              : availableSideColumnWidth;
+          final textWidth = math.min(
+            displayWidth,
+            layoutWidth /
+                math.max(
+                  1.0,
+                  _lyricActiveTextScale(activeStyle, inactiveStyle, textScaler),
+                ),
+          );
           final normalizedQuery = widget.searchQuery.trim();
           final normalizedLayoutQuery =
               (widget.layoutSearchQuery ?? widget.searchQuery).trim();
@@ -4171,9 +4161,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                                 ? (active ? target.scale : 1.0)
                                 : emphasis.scale;
                             return Transform.scale(
-                              scale: widget.showPlaybackLineControls
-                                  ? math.min(scale, layoutWidth / textWidth)
-                                  : scale,
+                              scale: math.min(scale, layoutWidth / textWidth),
                               filterQuality: _autoScroll
                                   ? FilterQuality.low
                                   : null,
@@ -4264,9 +4252,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 if (widget.showPlaybackLineControls)
                   Positioned(
                     key: const ValueKey('playback-line-indicator'),
-                    left: (constraints.maxWidth - displayWidth) / 2,
+                    left: math.min(48.0, sideColumnWidth),
+                    right: sideColumnWidth,
                     top: anchorY - 0.5,
-                    width: displayWidth,
                     height: 1,
                     child: _buildPlaybackLineControlsVisibility(
                       IgnorePointer(
@@ -4315,9 +4303,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 if (widget.showPlaybackLineControls)
                   _buildPlaybackLineControls(
                     lyrics: lyrics,
-                    textWidth: displayWidth,
                     sideColumnWidth: sideColumnWidth,
-                    maxWidth: constraints.maxWidth,
                     maxHeight: constraints.maxHeight,
                     visibleHeight: visibleHeight,
                   ),

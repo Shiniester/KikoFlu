@@ -167,6 +167,79 @@ void main() {
     expect(next.center.dy - current.center.dy, closeTo(spacing, 0.5));
   });
 
+  for (final locked in [false, true]) {
+    for (final reducedMotion in [false, true]) {
+      testWidgets(
+        'full-screen subtitles fit with locked=$locked and reducedMotion=$reducedMotion',
+        (tester) async {
+          const subtitle = 'MMMMMMMMMMMMMMMMMMMMMMMM';
+          final playback = await _mount(
+            tester,
+            lyrics: [
+              LyricLine(
+                startTime: Duration.zero,
+                endTime: const Duration(seconds: 1),
+                text: 'first',
+              ),
+              LyricLine(
+                startTime: const Duration(seconds: 1),
+                endTime: const Duration(seconds: 2),
+                text: subtitle,
+              ),
+            ],
+            display: (_) =>
+                FullLyricDisplay(isPortrait: true, isLocked: locked),
+          );
+          final settings = playback.container.read(
+            playerLyricSettingsProvider.notifier,
+          );
+          await settings.updateFullActiveFontSize(32);
+          await settings.updateFullInactiveFontSize(12);
+          playback.reducedMotion.value = reducedMotion;
+          await tester.pumpAndSettle();
+          playback.positions.add(const Duration(seconds: 1));
+
+          final viewport = tester.getRect(
+            find.byKey(const ValueKey('full-lyric-list')),
+          );
+          final finder = find.byWidgetPredicate(
+            (widget) =>
+                widget is RichText && widget.text.toPlainText() == subtitle,
+          );
+          for (var frame = 0; frame < 60; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            final paragraph = tester.renderObject<RenderParagraph>(finder);
+            for (var index = 0; index < subtitle.length; index++) {
+              final boxes = paragraph.getBoxesForSelection(
+                TextSelection(baseOffset: index, extentOffset: index + 1),
+              );
+              for (final box in boxes) {
+                final left = paragraph.localToGlobal(Offset(box.left, box.top));
+                final right = paragraph.localToGlobal(
+                  Offset(box.right, box.bottom),
+                );
+                expect(left.dx, greaterThanOrEqualTo(viewport.left - 0.01));
+                expect(right.dx, lessThanOrEqualTo(viewport.right + 0.01));
+              }
+            }
+          }
+          final paragraph = tester.renderObject<RenderParagraph>(finder);
+          final firstBox = paragraph
+              .getBoxesForSelection(
+                const TextSelection(baseOffset: 0, extentOffset: 1),
+              )
+              .single;
+          final lastBox = paragraph
+              .getBoxesForSelection(
+                const TextSelection(baseOffset: 23, extentOffset: 24),
+              )
+              .single;
+          expect(lastBox.top, greaterThan(firstBox.top));
+        },
+      );
+    }
+  }
+
   testWidgets('subtitle overflow inside the lyric list remains tappable', (
     tester,
   ) async {

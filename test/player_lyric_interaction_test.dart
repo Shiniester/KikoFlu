@@ -2641,8 +2641,8 @@ void main() {
         final controls = tester.getRect(
           find.byKey(const ValueKey('playback-line-controls')),
         );
-        expect(controls.left, greaterThanOrEqualTo(0));
-        expect(controls.right, lessThanOrEqualTo(size.width));
+        expect(controls.left, closeTo(0, 0.01));
+        expect(controls.right, closeTo(size.width, 0.01));
         expect(
           tester
               .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
@@ -2652,7 +2652,9 @@ void main() {
         final timeColumn = tester.getRect(
           find.byKey(const ValueKey('playback-line-time-column')),
         );
+        expect(timeColumn.right, closeTo(size.width, 0.01));
         final timeFinder = find.byKey(const ValueKey('playback-line-time'));
+        expect(tester.getRect(timeFinder).right, closeTo(size.width - 1, 0.01));
         final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
         final timeBoxes = timeParagraph.getBoxesForSelection(
           TextSelection(
@@ -2708,6 +2710,7 @@ void main() {
         );
         expect(button.width, 48);
         expect(button.height, 48);
+        expect(button.left, closeTo(0, 0.01));
         if (size.width == 320) {
           expect(button.right, greaterThan(lyricRect.left));
           expect(timeColumn.left, lessThan(lyricRect.right));
@@ -2722,7 +2725,8 @@ void main() {
         );
         final lineRect = tester.getRect(lineFinder);
         expect(lineRect.height, 1);
-        expect(lineRect.width, closeTo(actionWidth, 0.01));
+        expect(lineRect.left, closeTo(button.right, 0.01));
+        expect(lineRect.right, closeTo(timeColumn.left, 0.01));
         expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
         expect(lineRect.overlaps(lyricRect), isTrue);
         final lineColor = tester
