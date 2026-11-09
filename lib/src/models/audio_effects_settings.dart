@@ -129,9 +129,6 @@ class AudioEffectsSettings {
     'equalizerCustom': equalizerCustom,
     'gains': gains,
     'channelMode': channelMode.name,
-    'binauralMode': binauralMode.name,
-    'stereoAmount': stereoAmount,
-    'monoAmount': monoAmount,
     'sceneEnabled': sceneEnabled,
     'scene': scene.name,
     'sceneAmount': sceneAmount,
@@ -150,17 +147,6 @@ class AudioEffectsSettings {
               .where((v) => v.name == json['channelMode'])
               .firstOrNull ??
           AudioChannelMode.normal,
-      binauralMode:
-          BinauralMode.values
-              .where((v) => v.name == json['binauralMode'])
-              .firstOrNull ??
-          BinauralMode.off,
-      stereoAmount: json['stereoAmount'] is num
-          ? (json['stereoAmount'] as num).toDouble()
-          : 50,
-      monoAmount: json['monoAmount'] is num
-          ? (json['monoAmount'] as num).toDouble()
-          : 50,
       sceneEnabled: json['sceneEnabled'] == true,
       scene:
           AudioScene.values.where((v) => v.name == json['scene']).firstOrNull ??

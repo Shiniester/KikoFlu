@@ -8,10 +8,11 @@ import '../../providers/settings_provider.dart';
 import '../../services/native_audio_effects.dart';
 import '../responsive_dialog.dart';
 
-Future<void> showPlaybackAudioEffects(BuildContext context) => showDialog<void>(
-  context: context,
-  builder: (_) => const PlaybackAudioEffectsDialog(),
-);
+Future<void> showPlaybackAudioEffects(BuildContext context) =>
+    showResponsiveBottomSheet<void>(
+      context: context,
+      builder: (_) => const PlaybackAudioEffectsDialog(),
+    );
 
 class PlaybackAudioEffectsDialog extends ConsumerWidget {
   const PlaybackAudioEffectsDialog({super.key});
@@ -46,206 +47,296 @@ class PlaybackAudioEffectsDialog extends ConsumerWidget {
       s.audioEffectsTelephone,
     ];
 
-    Widget header(String title, VoidCallback reset) => Wrap(
-      alignment: WrapAlignment.spaceBetween,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 12,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        Semantics(
-          label: s.audioEffectsResetNamed(title),
-          button: true,
-          onTap: reset,
-          excludeSemantics: true,
-          child: TextButton(
-            onPressed: reset,
-            child: Text(s.audioEffectsResetModule),
-          ),
-        ),
-      ],
-    );
-
-    return ResponsiveDialog(
-      maxWidth: 760,
-      title: Text(s.playbackAudioEffects),
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Semantics(
-            liveRegion: true,
-            child: Text(switch (status) {
-              AudioEffectsStatus.waiting => s.audioEffectsWaiting,
-              AudioEffectsStatus.ready => s.audioEffectsReady,
-              AudioEffectsStatus.passthrough => s.audioEffectsPassthrough,
-              AudioEffectsStatus.unavailable => s.audioEffectsUnavailable,
-            }),
-          ),
-          const SizedBox(height: 16),
-          header(s.audioEffectsEqualizer, notifier.resetEqualizer),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: Text(s.audioEffectsEqualizer),
-            value: settings.equalizerEnabled,
-            onChanged: notifier.setEqualizerEnabled,
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final preset in EqualizerPreset.values)
-                ChoiceChip(
-                  label: Text(presets[preset.index]),
-                  selected: settings.preset == preset,
-                  onSelected: (_) => notifier.setPreset(preset),
+        BottomSheetHeader(title: s.playbackAudioEffects, showCloseButton: true),
+        const Divider(height: 1),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Semantics(
+                  liveRegion: true,
+                  child: Text(switch (status) {
+                    AudioEffectsStatus.waiting => s.audioEffectsWaiting,
+                    AudioEffectsStatus.ready => s.audioEffectsReady,
+                    AudioEffectsStatus.passthrough => s.audioEffectsPassthrough,
+                    AudioEffectsStatus.unavailable => s.audioEffectsUnavailable,
+                  }),
                 ),
-              if (settings.preset == null)
-                Chip(label: Text(s.audioEffectsCustom)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 560 ? 2 : 1;
-              return Wrap(
-                spacing: 16,
-                children: [
-                  for (var i = 0; i < 10; i++)
-                    SizedBox(
-                      width:
-                          (constraints.maxWidth - 16 * (columns - 1)) / columns,
-                      child: _EffectSlider(
-                        sliderKey: ValueKey('audio-effects-band-$i'),
-                        label: AudioEffectsSettings.frequencies[i] < 1000
-                            ? '${AudioEffectsSettings.frequencies[i]} Hz'
-                            : '${AudioEffectsSettings.frequencies[i] ~/ 1000} kHz',
-                        value: settings.gains[i],
-                        min: -15,
-                        max: 15,
-                        divisions: 60,
-                        formatted: '${settings.gains[i].toStringAsFixed(1)} dB',
-                        onChanged: (value) => notifier.setBand(i, value),
+                const SizedBox(height: 12),
+                _AudioEffectsSection(
+                  storageKey: 'audio-effects-equalizer',
+                  title: s.audioEffectsEqualizer,
+                  resetSemanticLabel: s.audioEffectsResetNamed(
+                    s.audioEffectsEqualizer,
+                  ),
+                  resetLabel: s.audioEffectsResetModule,
+                  onReset: notifier.resetEqualizer,
+                  enabled: settings.equalizerEnabled,
+                  onEnabledChanged: notifier.setEqualizerEnabled,
+                  initiallyExpanded: true,
+                  children: [
+                    DropdownButtonFormField<EqualizerPreset>(
+                      key: ValueKey(settings.preset),
+                      initialValue: settings.preset,
+                      isExpanded: true,
+                      isDense: false,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: s.audioEffectsCustom,
+                      ),
+                      items: [
+                        for (final preset in EqualizerPreset.values)
+                          DropdownMenuItem(
+                            value: preset,
+                            child: Text(presets[preset.index]),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) notifier.setPreset(value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (var i = 0; i < 10; i++)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 4),
+                              child: SizedBox(
+                                width: 44,
+                                child: _VerticalEffectSlider(
+                                  sliderKey: ValueKey('audio-effects-band-$i'),
+                                  label:
+                                      AudioEffectsSettings.frequencies[i] < 1000
+                                      ? '${AudioEffectsSettings.frequencies[i]} Hz'
+                                      : '${AudioEffectsSettings.frequencies[i] ~/ 1000} kHz',
+                                  value: settings.gains[i],
+                                  formatted:
+                                      '${settings.gains[i].toStringAsFixed(1)} dB',
+                                  onChanged: (value) =>
+                                      notifier.setBand(i, value),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                ],
-              );
-            },
-          ),
-          const Divider(),
-          header(s.audioEffectsChannel, notifier.resetChannel),
-          DropdownButtonFormField<AudioChannelMode>(
-            key: ValueKey(settings.channelMode),
-            initialValue: settings.channelMode,
-            isExpanded: true,
-            decoration: InputDecoration(labelText: s.audioEffectsChannel),
-            items: [
-              for (final mode in AudioChannelMode.values)
-                DropdownMenuItem(value: mode, child: Text(modes[mode.index])),
-            ],
-            onChanged: (value) {
-              if (value != null) notifier.setChannelMode(value);
-            },
-          ),
-          const SizedBox(height: 16),
-          const Divider(),
-          header(s.audioEffectsBinaural, notifier.resetBinaural),
-          DropdownButtonFormField<BinauralMode>(
-            key: ValueKey(settings.binauralMode),
-            initialValue: settings.binauralMode,
-            isExpanded: true,
-            decoration: InputDecoration(labelText: s.audioEffectsBinaural),
-            items: [
-              DropdownMenuItem(
-                value: BinauralMode.off,
-                child: Text(s.audioEffectsBinauralOff),
-              ),
-              DropdownMenuItem(
-                value: BinauralMode.stereo,
-                child: Text(s.audioEffectsBinauralStereo),
-              ),
-              DropdownMenuItem(
-                value: BinauralMode.mono,
-                child: Text(s.audioEffectsBinauralMono),
-              ),
-            ],
-            onChanged: (value) {
-              if (value != null) notifier.setBinauralMode(value);
-            },
-          ),
-          const SizedBox(height: 12),
-          Text(s.audioEffectsStereoHint),
-          _EffectSlider(
-            sliderKey: const ValueKey('audio-effects-stereo-amount'),
-            label: s.audioEffectsStereoIntensity,
-            value: settings.stereoAmount,
-            min: 0,
-            max: 100,
-            divisions: 100,
-            formatted: '${settings.stereoAmount.round()}%',
-            unit: '%',
-            onChanged: notifier.setStereoAmount,
-          ),
-          Text(s.audioEffectsMonoHint),
-          _EffectSlider(
-            sliderKey: const ValueKey('audio-effects-mono-amount'),
-            label: s.audioEffectsMonoIntensity,
-            value: settings.monoAmount,
-            min: 0,
-            max: 100,
-            divisions: 100,
-            formatted: '${settings.monoAmount.round()}%',
-            unit: '%',
-            onChanged: notifier.setMonoAmount,
-          ),
-          const Divider(),
-          header(s.audioEffectsScene, notifier.resetScene),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: Text(s.audioEffectsScene),
-            value: settings.sceneEnabled,
-            onChanged: notifier.setSceneEnabled,
-          ),
-          DropdownButtonFormField<AudioScene>(
-            key: ValueKey(settings.scene),
-            initialValue: settings.scene,
-            isExpanded: true,
-            decoration: InputDecoration(labelText: s.audioEffectsScene),
-            items: [
-              for (final scene in AudioScene.values)
-                DropdownMenuItem(
-                  value: scene,
-                  child: Text(scenes[scene.index]),
+                  ],
                 ),
-            ],
-            onChanged: (value) {
-              if (value != null) notifier.setScene(value);
-            },
+                const SizedBox(height: 8),
+                _AudioEffectsSection(
+                  storageKey: 'audio-effects-channel',
+                  title: s.audioEffectsChannel,
+                  resetSemanticLabel: s.audioEffectsResetNamed(
+                    s.audioEffectsChannel,
+                  ),
+                  resetLabel: s.audioEffectsResetModule,
+                  onReset: notifier.resetChannel,
+                  children: [
+                    DropdownButtonFormField<AudioChannelMode>(
+                      key: ValueKey(settings.channelMode),
+                      initialValue: settings.channelMode,
+                      isExpanded: true,
+                      isDense: false,
+                      decoration: InputDecoration(
+                        labelText: s.audioEffectsChannel,
+                      ),
+                      items: [
+                        for (final mode in AudioChannelMode.values)
+                          DropdownMenuItem(
+                            value: mode,
+                            child: Text(modes[mode.index]),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) notifier.setChannelMode(value);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _AudioEffectsSection(
+                  storageKey: 'audio-effects-scene',
+                  title: s.audioEffectsScene,
+                  resetSemanticLabel: s.audioEffectsResetNamed(
+                    s.audioEffectsScene,
+                  ),
+                  resetLabel: s.audioEffectsResetModule,
+                  onReset: notifier.resetScene,
+                  enabled: settings.sceneEnabled,
+                  onEnabledChanged: notifier.setSceneEnabled,
+                  children: [
+                    DropdownButtonFormField<AudioScene>(
+                      key: ValueKey(settings.scene),
+                      initialValue: settings.scene,
+                      isExpanded: true,
+                      isDense: false,
+                      decoration: InputDecoration(
+                        labelText: s.audioEffectsScene,
+                      ),
+                      items: [
+                        for (final scene in AudioScene.values)
+                          DropdownMenuItem(
+                            value: scene,
+                            child: Text(scenes[scene.index]),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) notifier.setScene(value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _EffectSlider(
+                      sliderKey: const ValueKey('audio-effects-scene-amount'),
+                      label: s.audioEffectsIntensity,
+                      value: settings.sceneAmount,
+                      min: 0,
+                      max: 100,
+                      divisions: 100,
+                      formatted: '${settings.sceneAmount.round()}%',
+                      unit: '%',
+                      onChanged: notifier.setSceneAmount,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          _EffectSlider(
-            sliderKey: const ValueKey('audio-effects-scene-amount'),
-            label: s.audioEffectsIntensity,
-            value: settings.sceneAmount,
-            min: 0,
-            max: 100,
-            divisions: 100,
-            formatted: '${settings.sceneAmount.round()}%',
-            unit: '%',
-            onChanged: notifier.setSceneAmount,
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: notifier.resetAll,
-          child: Text(s.audioEffectsResetAll),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(s.close),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(
+              onPressed: notifier.resetAll,
+              child: Text(s.audioEffectsResetAll),
+            ),
+          ),
         ),
       ],
     );
   }
+}
+
+class _AudioEffectsSection extends StatelessWidget {
+  const _AudioEffectsSection({
+    required this.storageKey,
+    required this.title,
+    required this.resetSemanticLabel,
+    required this.resetLabel,
+    required this.onReset,
+    required this.children,
+    this.enabled,
+    this.onEnabledChanged,
+    this.initiallyExpanded = false,
+  });
+
+  final String storageKey;
+  final String title;
+  final String resetSemanticLabel;
+  final String resetLabel;
+  final VoidCallback onReset;
+  final List<Widget> children;
+  final bool? enabled;
+  final ValueChanged<bool>? onEnabledChanged;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
+    child: ExpansionTile(
+      key: PageStorageKey(storageKey),
+      initiallyExpanded: initiallyExpanded,
+      controlAffinity: ListTileControlAffinity.leading,
+      title: Text(title),
+      trailing: enabled == null
+          ? null
+          : Semantics(
+              label: title,
+              child: Switch.adaptive(
+                value: enabled!,
+                onChanged: onEnabledChanged,
+              ),
+            ),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      children: [
+        ...children,
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: Semantics(
+            label: resetSemanticLabel,
+            button: true,
+            onTap: onReset,
+            excludeSemantics: true,
+            child: TextButton(onPressed: onReset, child: Text(resetLabel)),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _VerticalEffectSlider extends StatelessWidget {
+  const _VerticalEffectSlider({
+    required this.sliderKey,
+    required this.label,
+    required this.value,
+    required this.formatted,
+    required this.onChanged,
+  });
+
+  final Key sliderKey;
+  final String label;
+  final double value;
+  final String formatted;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        formatted,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      RotatedBox(
+        quarterTurns: 3,
+        child: SizedBox(
+          width: 128,
+          height: 44,
+          child: Semantics(
+            label: label,
+            child: Slider(
+              key: sliderKey,
+              value: value,
+              min: -15,
+              max: 15,
+              divisions: 60,
+              label: formatted,
+              onChanged: onChanged,
+              semanticFormatterCallback: (value) =>
+                  '${value.toStringAsFixed(1)} dB',
+            ),
+          ),
+        ),
+      ),
+      Text(
+        label,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    ],
+  );
 }
 
 class _EffectSlider extends StatelessWidget {

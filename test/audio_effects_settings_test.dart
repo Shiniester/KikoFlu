@@ -89,53 +89,53 @@ void main() {
     expect(notifier.state.gains[0], 1.5);
   });
   test(
-    'binaural modes retain independent strengths and reset only their module',
+    'ignores saved binaural effects while retaining other settings',
     () async {
+      expect(
+        AudioEffectsSettings.fromJson(const {
+          'binauralMode': 'stereo',
+        }).isActive,
+        false,
+      );
+      SharedPreferences.setMockInitialValues({
+        AudioEffectsSettingsNotifier.preferenceKey: jsonEncode({
+          'equalizerEnabled': true,
+          'gains': [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          'channelMode': 'swap',
+          'sceneEnabled': true,
+          'scene': 'telephone',
+          'sceneAmount': 72,
+          'binauralMode': 'mono',
+          'stereoAmount': 80,
+          'monoAmount': 90,
+        }),
+      });
       final notifier = AudioEffectsSettingsNotifier();
       addTearDown(notifier.dispose);
+      await notifier.loaded;
       expect(notifier.state.binauralMode, BinauralMode.off);
-      expect(notifier.state.stereoAmount, 50);
-      expect(notifier.state.monoAmount, 50);
-      await notifier.setPreset(EqualizerPreset.vocal);
-      await notifier.setStereoAmount(80);
-      await notifier.setMonoAmount(25);
-      await notifier.setBinauralMode(BinauralMode.stereo);
-      expect(notifier.state.effectiveStereoAmount, .8);
-      expect(notifier.state.needsGuard, true);
-      await notifier.setBinauralMode(BinauralMode.mono);
       expect(notifier.state.effectiveStereoAmount, 0);
-      expect(notifier.state.effectiveMonoAmount, .25);
-      await notifier.setBinauralMode(BinauralMode.off);
-      expect(notifier.state.stereoAmount, 80);
-      expect(notifier.state.monoAmount, 25);
-      expect(notifier.state.needsGuard, false);
-      await notifier.resetBinaural();
-      expect(notifier.state.stereoAmount, 50);
-      expect(notifier.state.monoAmount, 50);
-      expect(notifier.state.gains[6], 9);
-      await notifier.setBinauralMode(BinauralMode.mono);
-      await notifier.setMonoAmount(90);
+      expect(notifier.state.effectiveMonoAmount, 0);
+      expect(notifier.state.gains.first, 2);
+      expect(notifier.state.channelMode, AudioChannelMode.swap);
+      expect(notifier.state.scene, AudioScene.telephone);
+      expect(notifier.state.sceneAmount, 72);
+      await notifier.setSceneAmount(73);
+      final prefs = await SharedPreferences.getInstance();
+      final saved =
+          jsonDecode(
+                prefs.getString(AudioEffectsSettingsNotifier.preferenceKey)!,
+              )
+              as Map<String, dynamic>;
+      expect(saved.containsKey('binauralMode'), false);
+      expect(saved.containsKey('stereoAmount'), false);
+      expect(saved.containsKey('monoAmount'), false);
       final restored = AudioEffectsSettingsNotifier();
       addTearDown(restored.dispose);
       await restored.loaded;
-      expect(restored.state.binauralMode, BinauralMode.mono);
-      expect(restored.state.monoAmount, 90);
-      await notifier.resetAll();
-      expect(notifier.state.binauralMode, BinauralMode.off);
+      expect(restored.state.binauralMode, BinauralMode.off);
+      expect(restored.state.gains.first, 2);
+      expect(restored.state.sceneAmount, 73);
     },
   );
-  test('binaural persistence normalizes legacy and invalid settings', () {
-    final legacy = AudioEffectsSettings.fromJson(const {});
-    expect(legacy.binauralMode, BinauralMode.off);
-    expect(legacy.stereoAmount, 50);
-    final invalid = AudioEffectsSettings.fromJson(const {
-      'binauralMode': 'future',
-      'stereoAmount': 200,
-      'monoAmount': -10,
-    });
-    expect(invalid.binauralMode, BinauralMode.off);
-    expect(invalid.stereoAmount, 100);
-    expect(invalid.monoAmount, 0);
-    expect(invalid.copyWith(binauralMode: BinauralMode.mono).needsGuard, false);
-  });
 }

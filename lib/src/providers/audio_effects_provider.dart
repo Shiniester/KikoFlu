@@ -82,18 +82,5 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
       sceneAmount: 50,
     ),
   );
-  Future<void> setBinauralMode(BinauralMode value) =>
-      _set(state.copyWith(binauralMode: value));
-  Future<void> setStereoAmount(double value) =>
-      _set(state.copyWith(stereoAmount: value));
-  Future<void> setMonoAmount(double value) =>
-      _set(state.copyWith(monoAmount: value));
-  Future<void> resetBinaural() => _set(
-    state.copyWith(
-      binauralMode: BinauralMode.off,
-      stereoAmount: 50,
-      monoAmount: 50,
-    ),
-  );
   Future<void> resetAll() => _set(AudioEffectsSettings());
 }
