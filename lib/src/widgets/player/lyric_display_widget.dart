@@ -1386,6 +1386,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   late final Animation<double> _tapFeedbackOpacity;
   late final Ticker _lyricMotionTicker;
   final ValueNotifier<int> _lyricMotionFrame = ValueNotifier(0);
+  final ValueNotifier<bool> _playbackLineControlsVisible = ValueNotifier(false);
   final Map<int, _LyricSpringMotion> _lyricMotion = {};
   final Map<int, _LyricEmphasisMotion> _lyricEmphasisMotion = {};
   final Map<int, _LyricSpringSample> _frozenLyricMotion = {};
@@ -1551,6 +1552,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _resumeAutoScrollTimer = null;
       _userScrollInProgress = false;
       _autoScroll = true;
+      _setPlaybackLineControlsVisible(false);
       _pendingTappedIndex = null;
       _pendingTapOriginIndex = null;
       _pendingTapAcknowledged = false;
@@ -1562,6 +1564,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       }
     }
     if (!oldWidget.isActive && widget.isActive) _scheduleLyricResync();
+    if (oldWidget.showPlaybackLineControls &&
+        !widget.showPlaybackLineControls) {
+      _setPlaybackLineControlsVisible(false);
+    }
     if (!oldWidget.isLocked && widget.isLocked) {
       _clearTapFeedbackState(notify: false);
     }
@@ -1682,6 +1688,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _clearTapFeedbackState(notify: false);
     _lyricMotionTicker.dispose();
     _lyricMotionFrame.dispose();
+    _playbackLineControlsVisible.dispose();
     _retainedScrollSpringRowsFrame.dispose();
     _tapFeedbackController.dispose();
     if (widget.scrollController == null) _ownedScrollController.dispose();
@@ -3288,7 +3295,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         final top = (anchorY - rowHeight / 2)
             .clamp(0.0, math.max(0.0, maxHeight - rowHeight))
             .toDouble();
-        final rowWidth = textWidth + sideColumnWidth * 2;
+        final rowWidth = textWidth;
         final time = formatDuration(line.startTime, padHours: false);
 
         return Positioned(
@@ -3297,59 +3304,100 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           top: top,
           width: rowWidth,
           height: rowHeight,
-          child: Row(
-            children: [
-              SizedBox(
-                width: sideColumnWidth,
-                child: Center(
-                  child: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: IconTheme.merge(
-                      data: const IconThemeData(size: 18),
-                      child: PlayerSliceCutButton(
-                        position: line.startTime,
-                        trackKey: trackKey,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: textWidth),
-              SizedBox(
-                key: const ValueKey('playback-line-time-column'),
-                width: sideColumnWidth,
-                child: Center(
-                  child: IgnorePointer(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 1),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          key: const ValueKey('playback-line-time'),
-                          time,
-                          maxLines: 1,
-                          softWrap: false,
-                          textAlign: TextAlign.center,
-                          style:
-                              (Theme.of(context).textTheme.labelMedium ??
-                                      const TextStyle())
-                                  .copyWith(
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
+          child: _buildPlaybackLineControlsVisibility(
+            Row(
+              children: [
+                SizedBox(
+                  width: sideColumnWidth,
+                  child: Center(
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: IconTheme.merge(
+                        data: IconThemeData(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          size: 16,
+                        ),
+                        child: Opacity(
+                          opacity: 0.75,
+                          child: PlayerSliceCutButton(
+                            position: line.startTime,
+                            trackKey: trackKey,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+                const Spacer(),
+                SizedBox(
+                  key: const ValueKey('playback-line-time-column'),
+                  width: sideColumnWidth,
+                  child: Center(
+                    child: IgnorePointer(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            key: const ValueKey('playback-line-time'),
+                            time,
+                            maxLines: 1,
+                            softWrap: false,
+                            textAlign: TextAlign.center,
+                            style:
+                                (Theme.of(context).textTheme.labelSmall ??
+                                        const TextStyle())
+                                    .copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant
+                                          .withValues(alpha: 0.75),
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  Widget _buildPlaybackLineControlsVisibility(Widget child) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _playbackLineControlsVisible,
+      child: child,
+      builder: (context, visible, child) => IgnorePointer(
+        ignoring: !visible,
+        child: ExcludeFocus(
+          excluding: !visible,
+          child: ExcludeSemantics(
+            excluding: !visible,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 120),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setPlaybackLineControlsVisible(bool visible) {
+    if (_playbackLineControlsVisible.value != visible) {
+      _playbackLineControlsVisible.value = visible;
+    }
   }
 
   Future<void> _positionAtPlaybackAnchor(
@@ -3405,6 +3453,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = null;
     _userScrollInProgress = false;
+    _setPlaybackLineControlsVisible(false);
     final request = ++_scrollRequestGeneration;
     _pendingLyricEmphasisFromIndex =
         _reducedMotion || MediaQuery.disableAnimationsOf(context)
@@ -3463,10 +3512,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
   }
 
-  void _beginUserBrowse() {
+  void _beginUserBrowse({bool showControls = true}) {
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = null;
     _userScrollInProgress = true;
+    if (showControls) _setPlaybackLineControlsVisible(true);
     final wasFollowing = _autoScroll;
     _autoScroll = false;
     _scrollRequestGeneration++;
@@ -3498,6 +3548,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _resumeAutoScrollTimer = Timer(const Duration(seconds: 3), () {
       _resumeAutoScrollTimer = null;
       if (!mounted) return;
+      _setPlaybackLineControlsVisible(false);
       setState(() => _autoScroll = true);
       final playbackIndex = ref.read(currentLyricIndexProvider);
       final index = playbackIndex >= 0
@@ -3531,6 +3582,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
+    if (!widget.isActive) return false;
     if ((notification is ScrollUpdateNotification &&
             notification.dragDetails != null) ||
         (notification is UserScrollNotification &&
@@ -3625,6 +3677,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _resumeAutoScrollTimer = null;
       _autoScroll = true;
       _userScrollInProgress = false;
+      _setPlaybackLineControlsVisible(false);
       _lastDisplayLyrics = lyrics;
       _lastTrackKey = lyricContent.trackKey;
       _scrollRequestGeneration++;
@@ -3809,22 +3862,19 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             timePainter.dispose();
           }
           final minLyricWidth = math.min(64.0, math.max(1.0, layoutWidth - 96));
-          final sideColumnWidth = math.min(
+          final availableSideColumnWidth = math.min(
             timeColumnWidth,
             math.max(0.0, (layoutWidth - minLyricWidth) / 2),
           );
           final availableTextWidth = math.max(1.0, layoutWidth - 56);
-          final requestedTextWidth = math.min(
-            widget.contentWidth ?? availableTextWidth,
-            availableTextWidth,
+          final lyricWidthLimit = widget.showPlaybackLineControls
+              ? layoutWidth
+              : availableTextWidth;
+          final displayWidth = math.min(
+            widget.contentWidth ?? lyricWidthLimit,
+            lyricWidthLimit,
           );
-          final maxTextWidth = widget.showPlaybackLineControls
-              ? math.max(1.0, layoutWidth - sideColumnWidth * 2)
-              : requestedTextWidth;
-          final textWidth = widget.showPlaybackLineControls
-              ? math.min(requestedTextWidth, maxTextWidth)
-              : requestedTextWidth;
-          final widthScale = _lyricWidthScale(textWidth);
+          final widthScale = _lyricWidthScale(displayWidth);
           final activeStyle = baseStyle.copyWith(
             color: colors.onSurface,
             fontWeight: weight,
@@ -3837,6 +3887,23 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             fontSize: settings.fullInactiveFontSize * widthScale,
             height: settings.fullLineHeight,
           );
+          final textWidth = widget.showPlaybackLineControls
+              ? math.min(
+                  displayWidth,
+                  layoutWidth /
+                      math.max(
+                        1.0,
+                        _lyricActiveTextScale(
+                          activeStyle,
+                          inactiveStyle,
+                          textScaler,
+                        ),
+                      ),
+                )
+              : displayWidth;
+          final sideColumnWidth = widget.showPlaybackLineControls
+              ? math.min(availableSideColumnWidth, displayWidth / 2)
+              : availableSideColumnWidth;
           final normalizedQuery = widget.searchQuery.trim();
           final normalizedLayoutQuery =
               (widget.layoutSearchQuery ?? widget.searchQuery).trim();
@@ -4015,7 +4082,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   ? (event) {
                       if (_lyricScrollMotion != null) {
                         _lyricScrollHoldPointer = event.pointer;
-                        _beginUserBrowse();
+                        _beginUserBrowse(showControls: false);
                       }
                       if (widget.enableLineTapFeedback) {
                         _pointerTracker.handlePointerDown(event, index);
@@ -4079,9 +4146,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                           widget.onLongPress!.call();
                         },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                       vertical: 10,
-                      horizontal: 16,
+                      horizontal: widget.showPlaybackLineControls ? 0 : 16,
                     ),
                     child: Align(
                       alignment: Alignment.center,
@@ -4100,10 +4167,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                             final opacity = reducedMotion
                                 ? target.opacity
                                 : emphasis.opacity;
+                            final scale = reducedMotion
+                                ? (active ? target.scale : 1.0)
+                                : emphasis.scale;
                             return Transform.scale(
-                              scale: reducedMotion
-                                  ? (active ? target.scale : 1.0)
-                                  : emphasis.scale,
+                              scale: widget.showPlaybackLineControls
+                                  ? math.min(scale, layoutWidth / textWidth)
+                                  : scale,
                               filterQuality: _autoScroll
                                   ? FilterQuality.low
                                   : null,
@@ -4194,13 +4264,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 if (widget.showPlaybackLineControls)
                   Positioned(
                     key: const ValueKey('playback-line-indicator'),
-                    left: (constraints.maxWidth - textWidth) / 2,
+                    left: (constraints.maxWidth - displayWidth) / 2,
                     top: anchorY - 0.5,
-                    width: textWidth,
+                    width: displayWidth,
                     height: 1,
-                    child: IgnorePointer(
-                      child: ColoredBox(
-                        color: colors.onSurface.withValues(alpha: 0.15),
+                    child: _buildPlaybackLineControlsVisibility(
+                      IgnorePointer(
+                        child: ColoredBox(
+                          color: colors.onSurface.withValues(alpha: 0.15),
+                        ),
                       ),
                     ),
                   ),
@@ -4243,7 +4315,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 if (widget.showPlaybackLineControls)
                   _buildPlaybackLineControls(
                     lyrics: lyrics,
-                    textWidth: textWidth,
+                    textWidth: displayWidth,
                     sideColumnWidth: sideColumnWidth,
                     maxWidth: constraints.maxWidth,
                     maxHeight: constraints.maxHeight,

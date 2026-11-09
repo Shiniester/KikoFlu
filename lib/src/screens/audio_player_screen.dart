@@ -2194,7 +2194,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               scrollController: isWide
                   ? _wideLyricsScrollController
                   : _compactLyricsScrollController,
-              lyricContentWidth: isWide ? null : _compactSharedWidth,
               actionWidth: actionWidth,
               searchWidth: isWide ? null : _compactSharedWidth,
               translateButton: _buildLyricTranslateAppBarButton(context),

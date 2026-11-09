@@ -205,6 +205,11 @@ void main() {
       lyrics.clearTranslation();
       lyrics.adjustTimelineOffset(const Duration(seconds: 2));
       await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('full-lyric-list')),
+        const Offset(0, -60),
+      );
+      await tester.pumpAndSettle();
       expect(tester.widget<IconButton>(cut).onPressed, isNotNull);
       await tester.runAsync(() => tester.tap(cut));
       await tester.pumpAndSettle();

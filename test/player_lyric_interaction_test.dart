@@ -6,10 +6,12 @@ import 'package:flutter/gestures.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
     show RenderParagraph, RenderRepaintBoundary;
+import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
@@ -2367,6 +2369,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('2/2'), findsOneWidget);
+      expect(_playbackControlsOpacity(tester), 0);
       expect(
         tester
             .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
@@ -2445,8 +2448,122 @@ void main() {
     },
   );
 
+  testWidgets('playback line controls appear only during user browsing', (
+    tester,
+  ) async {
+    final browseLyrics = List.generate(
+      48,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'browse controls lyric $index',
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 20)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(
+                lyrics: browseLyrics,
+                trackKey: 'browse-track',
+              ),
+            ),
+          ),
+          audioSliceStateProvider.overrideWith(
+            (ref) => Stream.value(
+              AudioSliceState.withValues(trackKey: 'browse-track'),
+            ),
+          ),
+          durationProvider.overrideWith(
+            (ref) => Stream.value(const Duration(minutes: 2)),
+          ),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+        ],
+        child: MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: PlayerLyricsSurface(
+              isWide: false,
+              onFullscreen: () {},
+              translateButton: const IconButton(
+                onPressed: null,
+                icon: Icon(Icons.translate),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final cut = find.byKey(const ValueKey('player-slice-cut-button'));
+
+    expect(_playbackControlsOpacity(tester), 0);
+    expect(cut.hitTestable(), findsNothing);
+    expect(_semanticsHasTooltip(tester, 'Mark slice start'), isFalse);
+
+    final gesture = await tester.startGesture(tester.getCenter(list));
+    await gesture.moveBy(const Offset(0, -40));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -120));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(_playbackControlsOpacity(tester), 1);
+    expect(cut.hitTestable(), findsOneWidget);
+    expect(_semanticsHasTooltip(tester, 'Mark slice start'), isTrue);
+    final icon = find.byIcon(Icons.content_cut);
+    final iconAlpha = tester
+        .widgetList<Opacity>(
+          find.ancestor(of: icon, matching: find.byType(Opacity)),
+        )
+        .fold(IconTheme.of(tester.element(icon)).color!.a, (alpha, layer) {
+          return alpha * layer.opacity;
+        });
+    expect(iconAlpha, lessThan(1));
+    expect(
+      tester
+          .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
+          .position,
+      isNot(const Duration(seconds: 20)),
+    );
+    await tester.pump(const Duration(seconds: 4));
+    expect(_playbackControlsOpacity(tester), 1);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    expect(_playbackControlsOpacity(tester), 1);
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(list),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    expect(_playbackControlsOpacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(_playbackControlsOpacity(tester), 0);
+    expect(cut.hitTestable(), findsNothing);
+    expect(_semanticsHasTooltip(tester, 'Mark slice start'), isFalse);
+    semantics.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
-    'playback controls use side margins and a faint line crosses wide lyrics',
+    'subtitle width matches the actions while playback controls overlay it',
     (tester) async {
       const playbackTime = Duration(hours: 12, minutes: 34, seconds: 56);
       const longLyric =
@@ -2457,12 +2574,26 @@ void main() {
           endTime: const Duration(hours: 12, minutes: 34, seconds: 57),
           text: longLyric,
         ),
+        for (var index = 1; index <= 8; index++)
+          LyricLine(
+            startTime: playbackTime + Duration(seconds: index),
+            endTime: playbackTime + Duration(seconds: index + 1),
+            text: 'following lyric $index',
+          ),
       ];
 
-      for (final size in const [Size(320, 720), Size(1000, 720)]) {
+      for (final layout in const [
+        (size: Size(320, 720), actionWidth: 288.0),
+        (size: Size(320, 720), actionWidth: null),
+        (size: Size(1000, 720), actionWidth: 600.0),
+        (size: Size(1000, 720), actionWidth: null),
+      ]) {
+        final size = layout.size;
+        final actionWidth = layout.actionWidth ?? size.width;
         await tester.binding.setSurfaceSize(size);
         await tester.pumpWidget(
           ProviderScope(
+            key: ValueKey(layout),
             overrides: [
               positionProvider.overrideWith(
                 (ref) => Stream.value(playbackTime),
@@ -2494,7 +2625,7 @@ void main() {
               home: Scaffold(
                 body: PlayerLyricsSurface(
                   isWide: size.width >= 600,
-                  lyricContentWidth: size.width >= 600 ? 600 : null,
+                  actionWidth: layout.actionWidth,
                   onFullscreen: () {},
                   translateButton: const IconButton(
                     onPressed: null,
@@ -2553,22 +2684,37 @@ void main() {
         );
         final lyricRect = tester.getRect(lyricFinder);
         final lyricLayoutWidth = tester.getSize(lyricFinder).width;
-        final lyricLayoutRect = Rect.fromCenter(
-          center: lyricRect.center,
-          width: lyricLayoutWidth,
-          height: lyricRect.height,
-        );
-        expect(lyricLayoutWidth, closeTo(size.width == 320 ? 64 : 600, 0.01));
+        expect(lyricRect.width, greaterThanOrEqualTo(actionWidth - 0.01));
+        expect(lyricRect.width, lessThanOrEqualTo(size.width + 0.01));
+        final paragraph = tester.renderObject<RenderParagraph>(lyricFinder);
+        for (var index = 0; index < longLyric.length; index++) {
+          if (longLyric[index] == ' ') continue;
+          final boxes = paragraph.getBoxesForSelection(
+            TextSelection(baseOffset: index, extentOffset: index + 1),
+          );
+          for (final box in boxes) {
+            expect(
+              paragraph.localToGlobal(Offset(box.left, box.top)).dx,
+              greaterThanOrEqualTo(0),
+            );
+            expect(
+              paragraph.localToGlobal(Offset(box.right, box.bottom)).dx,
+              lessThanOrEqualTo(size.width),
+            );
+          }
+        }
         final button = tester.getRect(
           find.byKey(const ValueKey('player-slice-cut-button')),
         );
         expect(button.width, 48);
         expect(button.height, 48);
-        expect(button.right, lessThanOrEqualTo(lyricLayoutRect.left));
-        expect(timeColumn.left, greaterThanOrEqualTo(lyricLayoutRect.right));
+        if (size.width == 320) {
+          expect(button.right, greaterThan(lyricRect.left));
+          expect(timeColumn.left, lessThan(lyricRect.right));
+        }
         expect(
-          tester.getSize(find.byIcon(Icons.content_cut)),
-          const Size(18, 18),
+          tester.getSize(find.byIcon(Icons.content_cut)).width,
+          lessThan(18),
         );
 
         final lineFinder = find.byKey(
@@ -2576,8 +2722,7 @@ void main() {
         );
         final lineRect = tester.getRect(lineFinder);
         expect(lineRect.height, 1);
-        expect(lineRect.left, closeTo(lyricLayoutRect.left, 0.01));
-        expect(lineRect.right, closeTo(lyricLayoutRect.right, 0.01));
+        expect(lineRect.width, closeTo(actionWidth, 0.01));
         expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
         expect(lineRect.overlaps(lyricRect), isTrue);
         final lineColor = tester
@@ -2599,6 +2744,16 @@ void main() {
         if (size.width == 320) {
           expect(lyricRect.height, greaterThan(48));
         }
+        await tester.drag(
+          find.byKey(const ValueKey('full-lyric-list')),
+          const Offset(0, -60),
+        );
+        await tester.pumpAndSettle();
+        expect(_playbackControlsOpacity(tester), 1);
+        expect(
+          tester.getSize(lyricFinder).width,
+          closeTo(lyricLayoutWidth, 0.01),
+        );
         expect(tester.takeException(), isNull);
       }
       await tester.binding.setSurfaceSize(null);
@@ -2649,6 +2804,38 @@ void _expectSurfaceLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
     find.byKey(const ValueKey('playback-line-indicator')),
   );
   expect((tester.getCenter(line).dy - anchor.dy).abs(), lessThanOrEqualTo(2.1));
+}
+
+double _playbackControlsOpacity(WidgetTester tester) => tester
+    .widget<AnimatedOpacity>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('playback-line-time')),
+            matching: find.byType(AnimatedOpacity),
+          )
+          .first,
+    )
+    .opacity;
+
+bool _semanticsHasTooltip(WidgetTester tester, String tooltip) {
+  final root = tester
+      .binding
+      .renderViews
+      .first
+      .owner!
+      .semanticsOwner!
+      .rootSemanticsNode!;
+  var found = false;
+  void visit(SemanticsNode node) {
+    if (node.getSemanticsData().tooltip == tooltip) found = true;
+    node.visitChildren((child) {
+      visit(child);
+      return !found;
+    });
+  }
+
+  visit(root);
+  return found;
 }
 
 double _visibleLyricAlpha(WidgetTester tester, Finder lyric) {
