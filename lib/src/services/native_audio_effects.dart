@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ffi';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:ffi/ffi.dart';
 import 'package:media_kit/media_kit.dart';
@@ -12,7 +13,7 @@ enum AudioEffectsStatus { waiting, ready, passthrough, unavailable }
 class AudioEffectsGraph {
   static const sceneNames = ['bathroom', 'through_wall', 'telephone'];
 
-  static bool supportsSystemLibrary(String? choices, String? version) {
+  static bool supportsFilterGraph(String? choices, String? version) {
     final parts = RegExp(r'(\d+)\.(\d+)').firstMatch(version ?? '');
     if (parts != null) {
       final major = int.parse(parts[1]!);
@@ -154,6 +155,9 @@ class NativeAudioEffects {
   bool _failed = false;
   bool _pendingControls = false;
   final bool _systemLibrary = defaultTargetPlatform == TargetPlatform.linux;
+  // Android and Apple libmpv builds do not enumerate libavfilter choices.
+  final bool _checkFilterSupport =
+      defaultTargetPlatform == TargetPlatform.linux || Platform.isWindows;
   StreamSubscription<PlayerLog>? _logs;
   StreamSubscription<Duration>? _position;
   StreamSubscription<AudioParams>? _params;
@@ -208,10 +212,10 @@ class NativeAudioEffects {
   void _install() {
     final player = _player;
     if (player == null || player.disposed) return;
-    // Bundled runtimes have a build-verified allowlist; system libraries may not.
-    if (_systemLibrary &&
+    // Reject incomplete filter lists before loading the first track.
+    if (_checkFilterSupport &&
         !_passthrough &&
-        !AudioEffectsGraph.supportsSystemLibrary(
+        !AudioEffectsGraph.supportsFilterGraph(
           _property(player, 'option-info/af/choices'),
           _property(player, 'ffmpeg-version'),
         )) {

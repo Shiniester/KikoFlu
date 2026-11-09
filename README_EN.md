@@ -104,6 +104,9 @@ iOS users can add the Iroru source to AltStore or SideStore to install and updat
 - Flutter SDK 3.0+
 - Dart SDK 3.0+
 
+Linux builds require the libmpv development library and packaging tools. On
+Ubuntu, run `sudo apt-get install libmpv-dev pax-utils patchelf binutils`.
+
 ```bash
 git clone https://github.com/pa-jesusf/KikoFlu.git
 cd KikoFlu

@@ -397,11 +397,23 @@ void registerNativeCacheLifecycleCases(List<int> wav,
             final server =
                 await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
             server.listen((request) async {
-              request.response.headers.contentType =
-                  ContentType('audio', 'wav');
-              request.response.contentLength = wav.length;
-              request.response.add(wav);
-              await request.response.close();
+              final response = request.response;
+              final range = request.headers.value(HttpHeaders.rangeHeader);
+              final bounds = range?.substring('bytes='.length).split('-');
+              final start = bounds == null ? 0 : int.parse(bounds.first);
+              final end = bounds == null || bounds.last.isEmpty
+                  ? wav.length - 1
+                  : int.parse(bounds.last);
+              response.headers.contentType = ContentType('audio', 'wav');
+              response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+              if (range != null) {
+                response.statusCode = HttpStatus.partialContent;
+                response.headers.set(HttpHeaders.contentRangeHeader,
+                    'bytes $start-$end/${wav.length}');
+              }
+              response.contentLength = end - start + 1;
+              response.add(wav.sublist(start, end + 1));
+              await response.close();
             });
             final player = MediaKitPlayer('boundary-cache',
                 nativePropertyReader: (native, name) async {

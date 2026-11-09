@@ -22,8 +22,9 @@ trap 'rm -rf "$work_dir"' EXIT
 
 actual_developer_dir=$(xcode-select -p)
 export DEVELOPER_DIR="$actual_developer_dir"
-actual_xcode=$(xcodebuild -version | awk '$1 == "Xcode" { print $2; exit }')
-actual_xcode_build=$(xcodebuild -version | awk '$1 == "Build" { print $3; exit }')
+xcode_version_output=$(xcodebuild -version)
+actual_xcode=$(awk '$1 == "Xcode" { print $2 }' <<<"$xcode_version_output")
+actual_xcode_build=$(awk '$1 == "Build" { print $3 }' <<<"$xcode_version_output")
 [[ "$actual_xcode" == "$DARWIN_XCODE_VERSION" ]] ||
     fail "Xcode is $actual_xcode, expected $DARWIN_XCODE_VERSION"
 [[ "$actual_xcode_build" == "$DARWIN_XCODE_BUILD" ]] ||
@@ -44,7 +45,8 @@ actual_cmake=$(cmake --version | awk 'NR == 1 { print $3 }')
 actual_meson=$(meson --version)
 actual_ninja=$(ninja --version)
 actual_make=$(make --version | awk 'NR == 1 { print $3 }')
-actual_clang=$(xcrun clang --version | head -n 1)
+actual_clang_output=$(xcrun clang --version)
+actual_clang=${actual_clang_output%%$'\n'*}
 [[ "$actual_python" == "Python $DARWIN_PYTHON_VERSION" ]] ||
     fail 'Python version differs from darwin.lock'
 [[ "$actual_go_version" == "$DARWIN_GO_VERSION" ]] ||

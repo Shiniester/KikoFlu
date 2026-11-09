@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import plistlib
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -14,6 +16,19 @@ from rewrite_darwin_sdk_paths import DarwinSdkPathError, rewrite_sdk_paths
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
+
+
+def _bash_executable() -> str | None:
+    bash = shutil.which("bash")
+    if bash is not None:
+        return bash
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git is not None:
+            candidate = Path(git).resolve().parent.parent / "bin" / "bash.exe"
+            if candidate.is_file():
+                return str(candidate)
+    return None
 
 
 def _write_xcframework(root: Path, name: str, platform: str) -> None:
@@ -519,6 +534,106 @@ class LibpngMacOSPatchTests(unittest.TestCase):
             self.assertIn(" * Apple Inc.\n   - Zixu Wang", (root / "AUTHORS").read_text())
 
 
+class DarwinBuilderCommandTests(unittest.TestCase):
+    def _builder_commands(self, start: str, end: str | None = None) -> str:
+        lines = (SCRIPT_DIR / "build_darwin.sh").read_text().splitlines()
+        start_index = next(i for i, line in enumerate(lines) if line.startswith(start))
+        if end is None:
+            return "\n".join(line for line in lines if line.startswith(start))
+        end_index = next(
+            i for i, line in enumerate(lines[start_index:], start_index)
+            if line.startswith(end)
+        )
+        return "\n".join(lines[start_index:end_index])
+
+    def _run_builder_commands(
+        self, commands: str, *, xcodebuild_fails: bool = False
+    ) -> subprocess.CompletedProcess[str]:
+        bash = _bash_executable()
+        if bash is None:
+            self.skipTest("Bash is required to exercise the Darwin build script")
+
+        lock = (SCRIPT_DIR / "darwin.lock").read_text().splitlines()
+        xcode_version = next(
+            line.split("=", 1)[1] for line in lock
+            if line.startswith("DARWIN_XCODE_VERSION=")
+        )
+        xcode_build = next(
+            line.split("=", 1)[1] for line in lock
+            if line.startswith("DARWIN_XCODE_BUILD=")
+        )
+        script = "\n".join(
+            [
+                "set -euo pipefail",
+                "xcode-select() { printf '/fixture/Developer\\n'; }",
+                "xcodebuild() {",
+                '  if [[ "${XCODEBUILD_FAIL:-0}" == "1" ]]; then return 23; fi',
+                '  printf "Xcode %s\\n" "$TEST_XCODE_VERSION"',
+                "  sleep 0.05",
+                '  printf "Build version %s\\n" "$TEST_XCODE_BUILD"',
+                "}",
+                "xcrun() {",
+                '  [[ "${1:-}" == "clang" ]] || return 97',
+                '  printf "Apple clang version fixture\\n"',
+                "  sleep 0.05",
+                '  printf "Target: arm64-apple-darwin\\n"',
+                "}",
+                "fail() { printf 'Darwin native audio build: %s\\n' \"$1\" >&2; exit 1; }",
+                commands,
+            ]
+        )
+        environment = os.environ.copy()
+        environment["DARWIN_XCODE_VERSION"] = xcode_version
+        environment["DARWIN_XCODE_BUILD"] = xcode_build
+        environment["TEST_XCODE_VERSION"] = xcode_version
+        environment["TEST_XCODE_BUILD"] = xcode_build
+        environment["XCODEBUILD_FAIL"] = "1" if xcodebuild_fails else "0"
+        if os.name == "nt":
+            git_root = Path(bash).resolve().parent.parent
+            runtime_paths = [git_root / "usr" / "bin", git_root / "bin"]
+            environment["PATH"] = os.pathsep.join(
+                [str(path) for path in runtime_paths if path.is_dir()]
+                + [environment.get("PATH", "")]
+            )
+        return subprocess.run(
+            [bash, "-c", script],
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=10,
+        )
+
+    def test_xcode_version_probe_consumes_both_lines(self) -> None:
+        commands = self._builder_commands(
+            "actual_developer_dir=", "actual_ios_sdk="
+        )
+        result = self._run_builder_commands(
+            commands + '\nprintf "%s\\n%s\\n" "$actual_xcode" "$actual_xcode_build"'
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        lock = (SCRIPT_DIR / "darwin.lock").read_text().splitlines()
+        expected = [
+            next(line.split("=", 1)[1] for line in lock if line.startswith(key))
+            for key in ("DARWIN_XCODE_VERSION=", "DARWIN_XCODE_BUILD=")
+        ]
+        self.assertEqual("\n".join(expected) + "\n", result.stdout)
+
+    def test_xcodebuild_failure_propagates(self) -> None:
+        commands = self._builder_commands(
+            "actual_developer_dir=", "actual_ios_sdk="
+        )
+        result = self._run_builder_commands(commands, xcodebuild_fails=True)
+        self.assertEqual(23, result.returncode, result.stderr)
+
+    def test_clang_version_probe_consumes_all_output(self) -> None:
+        commands = self._builder_commands("actual_clang")
+        result = self._run_builder_commands(
+            commands + '\nprintf "%s\\n" "$actual_clang"'
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("Apple clang version fixture\n", result.stdout)
+
+
 class DarwinProviderTests(unittest.TestCase):
     def test_workflow_runs_the_builder_through_bash(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
@@ -564,7 +679,7 @@ class DarwinProviderTests(unittest.TestCase):
             "ios_minimum=%s",
             "macos_minimum=%s",
             "filters=%s,overlay,equalizer",
-            "patches=darwin-recipe.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-reinit.patch,pkg-config-glib-atomics.patch",
+            "patches=darwin-recipe.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
             "pkg-config-glib-atomics.patch",
             "upstream_downloads.lock:",
         ):
@@ -576,6 +691,10 @@ class DarwinProviderTests(unittest.TestCase):
         self.assertIn("--ios-simulator-sdk \"$actual_ios_simulator_sdk_path\"", builder)
         self.assertIn(
             'cp "$script_dir/libpng-macos-fp-header.patch" "$recipe_dir/patches/libpng-macos-fp-header.patch"',
+            builder,
+        )
+        self.assertIn(
+            'cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"',
             builder,
         )
         self.assertIn(

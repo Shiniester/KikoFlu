@@ -28,19 +28,19 @@ void main() {
     },
   );
   test(
-    'system preflight accepts git builds and rejects old or missing filters',
+    'filter preflight accepts git builds and rejects old or missing filters',
     () {
       const filters =
           'aeval,aformat,alimiter,asendcmd,equalizer,biquad,volume,asetpts';
       expect(
-        AudioEffectsGraph.supportsSystemLibrary(filters, 'N-128607-g1ddef7d76'),
+        AudioEffectsGraph.supportsFilterGraph(filters, 'N-128607-g1ddef7d76'),
         true,
       );
-      expect(AudioEffectsGraph.supportsSystemLibrary(filters, 'n6.0'), true);
-      expect(AudioEffectsGraph.supportsSystemLibrary(filters, '4.2.7'), false);
-      expect(AudioEffectsGraph.supportsSystemLibrary(null, '6.0'), false);
+      expect(AudioEffectsGraph.supportsFilterGraph(filters, 'n6.0'), true);
+      expect(AudioEffectsGraph.supportsFilterGraph(filters, '4.2.7'), false);
+      expect(AudioEffectsGraph.supportsFilterGraph(null, '6.0'), false);
       expect(
-        AudioEffectsGraph.supportsSystemLibrary('lavfi,format', 'n6.0'),
+        AudioEffectsGraph.supportsFilterGraph('lavfi,format', 'n6.0'),
         false,
       );
     },

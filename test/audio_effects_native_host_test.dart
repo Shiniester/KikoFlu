@@ -263,23 +263,45 @@ void main() {
         await player.open(Media(source.path));
         await started.timeout(const Duration(seconds: 10));
         final graph = await native.getProperty('af');
+        Future<void> waitForOutput(bool duplicated, int previousLength) async {
+          final deadline = DateTime.now().add(const Duration(seconds: 10));
+          while (DateTime.now().isBefore(deadline)) {
+            if (await output.length() > previousLength) {
+              final emitted = audioEffectsPcm(await output.readAsBytes());
+              if ((emitted.last.$1 == emitted.last.$2) == duplicated) return;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+          throw TimeoutException('Hot controls did not reach expected PCM');
+        }
+
+        final path = await native.getProperty('path');
+        final position = double.parse(await native.getProperty('time-pos'));
+        final onStart = await output.length();
         await controller.configure(
           native,
           AudioEffectsSettings(channelMode: AudioChannelMode.cloneRight),
           false,
         );
         expect(await native.getProperty('af'), graph);
-        final hotDeadline = DateTime.now().add(const Duration(seconds: 10));
-        while (true) {
-          if (await output.exists() && await output.length() >= 1024) {
-            final emitted = audioEffectsPcm(await output.readAsBytes());
-            if (emitted.last.$1 == emitted.last.$2) break;
-          }
-          if (DateTime.now().isAfter(hotDeadline)) {
-            throw TimeoutException('Hot controls did not reach PCM');
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+        await waitForOutput(true, onStart);
+
+        final offStart = await output.length();
+        await controller.configure(native, AudioEffectsSettings(), false);
+        await waitForOutput(false, offStart);
+        final reenableStart = await output.length();
+        await controller.configure(
+          native,
+          AudioEffectsSettings(channelMode: AudioChannelMode.cloneRight),
+          false,
+        );
+        await waitForOutput(true, reenableStart);
+        expect(await native.getProperty('path'), path);
+        expect(
+          double.parse(await native.getProperty('time-pos')),
+          greaterThan(position),
+        );
+        expect(loads, 1);
         expect(await native.getProperty('eof-reached'), 'no');
         controller.resetHistory();
         final resetGraph = AudioEffectsGraph.render(

@@ -105,6 +105,9 @@ iOS 用户可通过 AltStore 或 SideStore 添加 Iroru 软件源，以安装和
 - Flutter SDK 3.44.1+
 - Dart SDK 3.12.1+
 
+Linux 构建需要 libmpv 开发库和打包工具。Ubuntu 用户可运行
+`sudo apt-get install libmpv-dev pax-utils patchelf binutils`。
+
 Windows 上进行 Android 开发时，请按
 [Windows Android 开发环境](docs/development/windows-android.md)配置项目锁定的
 Flutter 3.44.7、Android SDK、JDK、模拟器与真机调试。
