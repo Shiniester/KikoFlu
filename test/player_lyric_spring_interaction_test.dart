@@ -1120,6 +1120,24 @@ void main() {
     );
   }
 
+  for (final reverse in [false, true]) {
+    testWidgets(
+      'a fling waits three seconds after stopping, reverse=$reverse',
+      (tester) async {
+        await _mount(tester, position: const Duration(seconds: 40));
+        final list = find.byKey(const ValueKey('full-lyric-list'));
+        final scrollable = find.descendant(
+          of: list,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester.state<ScrollableState>(scrollable).position;
+
+        await tester.fling(list, Offset(0, reverse ? 360 : -360), 1600);
+        await _expectFlingReturnAfterStop(tester, position, 'spring 40');
+      },
+    );
+  }
+
   testWidgets('a jello return follows a fling from its edge row', (
     tester,
   ) async {
@@ -1209,6 +1227,7 @@ void main() {
       previousBallisticCenter = center;
     }
     expect(followedBallisticScroll, isTrue);
+    await _expectFlingReturnAfterStop(tester, position, 'spring 0');
   });
 
   for (final cancel in [false, true]) {
@@ -2488,6 +2507,34 @@ Future<void> _frames(WidgetTester tester, int count) async {
   for (var frame = 0; frame < count; frame++) {
     await tester.pump(const Duration(milliseconds: 16));
   }
+}
+
+Future<void> _expectFlingReturnAfterStop(
+  WidgetTester tester,
+  ScrollPosition position,
+  String target,
+) async {
+  expect(position.isScrollingNotifier.value, isTrue);
+  final releasedOffset = position.pixels;
+  for (
+    var frame = 0;
+    frame < 400 && position.isScrollingNotifier.value;
+    frame++
+  ) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(position.isScrollingNotifier.value, isFalse);
+  final stoppedOffset = position.pixels;
+  expect((stoppedOffset - releasedOffset).abs(), greaterThan(1));
+  for (var frame = 0; frame < 187; frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(position.pixels, closeTo(stoppedOffset, 0.1));
+  }
+  await tester.pump(const Duration(milliseconds: 8));
+  await _frames(tester, 4);
+  expect((position.pixels - stoppedOffset).abs(), greaterThan(0.1));
+  await tester.pumpAndSettle();
+  _expectAnchor(tester, target);
 }
 
 void _expectAnchor(WidgetTester tester, String text) {
