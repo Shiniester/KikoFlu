@@ -176,7 +176,10 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       selectedSearchMatch: _searchHighlightsVisible
                           ? selectedMatch
                           : null,
-                      contentWidth: actionWidth,
+                      contentWidth: (actionWidth - 24).clamp(
+                        1.0,
+                        double.infinity,
+                      ),
                       visibleBottomInset: displayVisibleBottomInset,
                       snapOnAutoScrollResume: !_skipNextAutoScrollResume,
                       snapToCurrentOnFirstLayout: true,

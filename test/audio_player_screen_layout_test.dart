@@ -2091,6 +2091,183 @@ void main() {
     },
   );
 
+  for (final scenario in [
+    (playing: false, advance: false, reopen: false, wide: false),
+    (playing: true, advance: false, reopen: false, wide: false),
+    (playing: true, advance: true, reopen: false, wide: false),
+    (playing: true, advance: false, reopen: true, wide: false),
+    (playing: true, advance: true, reopen: false, wide: true),
+  ]) {
+    testWidgets('opening lyrics follows playback without jumping, $scenario', (
+      tester,
+    ) async {
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 20));
+      await _pumpPlayer(
+        tester,
+        scenario.wide ? const Size(1000, 720) : const Size(390, 844),
+        lyrics: List.generate(
+          60,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'entry lyric $index',
+          ),
+        ),
+        positionStream: positions.stream,
+        playing: scenario.playing,
+      );
+
+      final pages = find.byKey(
+        ValueKey(scenario.wide ? 'wide-right-pages' : 'compact-player-pages'),
+      );
+      if (scenario.reopen) {
+        await tester.drag(pages, const Offset(-320, 0));
+        await tester.pumpAndSettle();
+        await tester.drag(pages, const Offset(320, 0));
+        await tester.pumpAndSettle();
+        positions.add(const Duration(seconds: 21));
+        await tester.pump();
+      }
+      final initialIndex = scenario.reopen ? 21 : 20;
+      final gesture = await tester.startGesture(tester.getCenter(pages));
+      await gesture.moveBy(const Offset(-50, 0));
+      await tester.pump();
+      await gesture.moveBy(const Offset(-50, 0));
+      await tester.pump();
+      await tester.pump();
+      final list = find.byKey(const ValueKey('full-lyric-list'));
+      final anchor = find.byKey(const ValueKey('playback-line-indicator'));
+      final previousLine = find.descendant(
+        of: list,
+        matching: find.text('entry lyric $initialIndex'),
+      );
+      expect(
+        tester.getCenter(previousLine).dy,
+        closeTo(tester.getCenter(anchor).dy, 2.1),
+      );
+      var previousY = tester.getCenter(previousLine).dy;
+      if (scenario.advance) {
+        positions.add(Duration(seconds: initialIndex + 1));
+        await tester.pump();
+        final nextY = tester.getCenter(previousLine).dy;
+        expect((nextY - previousY).abs(), lessThan(24));
+        previousY = nextY;
+      }
+      for (var step = 0; step < 4; step++) {
+        await gesture.moveBy(const Offset(-50, 0));
+        await tester.pump(const Duration(milliseconds: 16));
+        final nextY = tester.getCenter(previousLine).dy;
+        expect((nextY - previousY).abs(), lessThan(scenario.advance ? 24 : 1));
+        previousY = nextY;
+      }
+      await gesture.up();
+      for (var frame = 0; frame < 100; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final nextY = tester.getCenter(previousLine).dy;
+        expect((nextY - previousY).abs(), lessThan(scenario.advance ? 24 : 1));
+        previousY = nextY;
+      }
+      final line = find.descendant(
+        of: list,
+        matching: find.text(
+          'entry lyric ${initialIndex + (scenario.advance ? 1 : 0)}',
+        ),
+      );
+      expect(
+        tester.getCenter(line).dy,
+        closeTo(tester.getCenter(anchor).dy, 2.1),
+      );
+    });
+  }
+
+  for (final startMotion in [false, true]) {
+    testWidgets(
+      'reversing a page swipe follows playback, motion: $startMotion',
+      (tester) async {
+        final positions = StreamController<Duration>();
+        addTearDown(positions.close);
+        positions.add(Duration(seconds: startMotion ? 19 : 20));
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          lyrics: List.generate(
+            60,
+            (index) => LyricLine(
+              startTime: Duration(seconds: index),
+              endTime: Duration(seconds: index + 1),
+              text: 'reverse lyric $index',
+            ),
+          ),
+          positionStream: positions.stream,
+          playing: true,
+        );
+        final pages = find.byKey(const ValueKey('compact-player-pages'));
+        await tester.drag(pages, const Offset(-320, 0));
+        await tester.pumpAndSettle();
+
+        final list = find.byKey(const ValueKey('full-lyric-list'));
+        final previousLine = find.descendant(
+          of: list,
+          matching: find.text('reverse lyric 20'),
+        );
+        if (startMotion) {
+          positions.add(const Duration(seconds: 20));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        final gesture = await tester.startGesture(tester.getCenter(pages));
+        await gesture.moveBy(const Offset(50, 0));
+        await tester.pump();
+        final beforeCrossing = tester.getCenter(previousLine).dy;
+        await gesture.moveBy(const Offset(210, 0));
+        await tester.pump();
+        expect(tester.widget<PageView>(pages).controller!.page, lessThan(1.5));
+        expect(
+          tester
+              .widget<FullLyricDisplay>(find.byType(FullLyricDisplay))
+              .isActive,
+          isFalse,
+        );
+        final before = tester.getCenter(previousLine).dy;
+        expect((before - beforeCrossing).abs(), lessThan(24));
+        positions.add(const Duration(seconds: 21));
+        await tester.pump();
+        await gesture.moveBy(const Offset(-210, 0));
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(
+          tester.widget<PageView>(pages).controller!.page,
+          greaterThan(1.5),
+        );
+        expect(
+          tester
+              .widget<FullLyricDisplay>(find.byType(FullLyricDisplay))
+              .isActive,
+          isTrue,
+        );
+        var previousY = tester.getCenter(previousLine).dy;
+        expect((previousY - before).abs(), lessThan(24));
+        await gesture.up();
+        for (var frame = 0; frame < 100; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final nextY = tester.getCenter(previousLine).dy;
+          expect((nextY - previousY).abs(), lessThan(24));
+          previousY = nextY;
+        }
+        final currentLine = find.descendant(
+          of: list,
+          matching: find.text('reverse lyric 21'),
+        );
+        final anchor = find.byKey(const ValueKey('playback-line-indicator'));
+        expect(
+          tester.getCenter(currentLine).dy,
+          closeTo(tester.getCenter(anchor).dy, 2.1),
+        );
+      },
+    );
+  }
+
   testWidgets('wide player has a dark-theme no-artwork fallback', (
     tester,
   ) async {

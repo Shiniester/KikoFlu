@@ -65,7 +65,7 @@ void main() {
       ],
       display: (_) => const FullLyricDisplay(
         isPortrait: true,
-        contentWidth: 160,
+        contentWidth: 192,
         showPlaybackLineControls: true,
       ),
     );
@@ -145,7 +145,7 @@ void main() {
       ],
       display: (_) => const FullLyricDisplay(
         isPortrait: true,
-        contentWidth: 160,
+        contentWidth: 320,
         showPlaybackLineControls: true,
       ),
     );

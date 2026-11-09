@@ -2589,7 +2589,6 @@ void main() {
         (size: Size(1000, 720), actionWidth: null),
       ]) {
         final size = layout.size;
-        final actionWidth = layout.actionWidth ?? size.width;
         await tester.binding.setSurfaceSize(size);
         await tester.pumpWidget(
           ProviderScope(
@@ -2686,8 +2685,20 @@ void main() {
         );
         final lyricRect = tester.getRect(lyricFinder);
         final lyricLayoutWidth = tester.getSize(lyricFinder).width;
-        expect(lyricRect.width, greaterThanOrEqualTo(actionWidth - 0.01));
-        expect(lyricRect.width, lessThanOrEqualTo(size.width + 0.01));
+        final subtitleIcon = tester.getRect(
+          find.descendant(
+            of: find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+            matching: find.byIcon(Icons.subtitles_outlined),
+          ),
+        );
+        final searchIcon = tester.getRect(
+          find.descendant(
+            of: find.byKey(const ValueKey('lyric-search-button')),
+            matching: find.byIcon(Icons.search),
+          ),
+        );
+        expect(lyricRect.left, closeTo(subtitleIcon.left, 0.01));
+        expect(lyricRect.right, closeTo(searchIcon.right, 0.01));
         final paragraph = tester.renderObject<RenderParagraph>(lyricFinder);
         for (var index = 0; index < longLyric.length; index++) {
           if (longLyric[index] == ' ') continue;
@@ -2745,6 +2756,21 @@ void main() {
           lyricStack.children.first.key,
           const ValueKey('playback-line-indicator'),
         );
+        if (layout.actionWidth == 288) {
+          final settings = ProviderScope.containerOf(
+            tester.element(find.byType(PlayerLyricsSurface)),
+            listen: false,
+          ).read(playerLyricSettingsProvider.notifier);
+          await settings.updateFullActiveFontSize(32);
+          await settings.updateFullInactiveFontSize(12);
+          await tester.pumpAndSettle();
+          final enlarged = tester.getRect(lyricFinder);
+          expect(enlarged.left, closeTo(subtitleIcon.left, 0.01));
+          expect(enlarged.right, closeTo(searchIcon.right, 0.01));
+          await settings.updateFullActiveFontSize(18);
+          await settings.updateFullInactiveFontSize(16);
+          await tester.pumpAndSettle();
+        }
         if (size.width == 320) {
           expect(lyricRect.height, greaterThan(48));
         }

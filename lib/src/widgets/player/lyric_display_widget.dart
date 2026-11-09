@@ -1402,6 +1402,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   final Set<int> _retainedScrollSpringRows = {};
   final ValueNotifier<int> _retainedScrollSpringRowsFrame = ValueNotifier(0);
   bool _tickerModeEnabled = true;
+  bool _preparingVisiblePage = false;
   bool _appLifecycleVisible = true;
   bool _reducedMotion = false;
   int? _currentLyricIndex;
@@ -1468,8 +1469,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if (_tickerModeEnabled != tickerModeEnabled) {
       _tickerModeEnabled = tickerModeEnabled;
       if (tickerModeEnabled) {
+        _preparingVisiblePage = !widget.isActive;
         _scheduleLyricResync();
       } else {
+        _preparingVisiblePage = false;
         _scrollRequestGeneration++;
         _clearLyricMotion(notify: false);
         _pendingTappedIndex = null;
@@ -1548,6 +1551,21 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _clearTapFeedbackState(notify: false);
     }
     if (oldWidget.isActive && !widget.isActive) {
+      final position = Scrollable.maybeOf(
+        context,
+        axis: Axis.horizontal,
+      )?.position;
+      final page =
+          position?.hasContentDimensions == true && position is PageMetrics
+          ? (position as PageMetrics).page
+          : null;
+      // Keep following while an interrupted page swipe can return to lyrics.
+      _preparingVisiblePage =
+          _autoScroll &&
+          _tickerModeEnabled &&
+          position?.isScrollingNotifier.value == true &&
+          page != null &&
+          page != page.roundToDouble();
       _resumeAutoScrollTimer?.cancel();
       _resumeAutoScrollTimer = null;
       _userScrollInProgress = false;
@@ -1556,14 +1574,24 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _pendingTappedIndex = null;
       _pendingTapOriginIndex = null;
       _pendingTapAcknowledged = false;
-      _scrollRequestGeneration++;
-      _clearLyricMotion(notify: false);
       _clearTapFeedbackState(notify: false);
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.pixels);
+      if (!_preparingVisiblePage) {
+        _scrollRequestGeneration++;
+        _clearLyricMotion(notify: false);
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.pixels);
+        }
       }
     }
-    if (!oldWidget.isActive && widget.isActive) _scheduleLyricResync();
+    if (!oldWidget.isActive && widget.isActive) {
+      final needsResync =
+          !_preparingVisiblePage ||
+          widget.suspendAutoScroll ||
+          widget.searchMode ||
+          widget.selectedSearchMatch != null;
+      _preparingVisiblePage = false;
+      if (needsResync) _scheduleLyricResync();
+    }
     if (oldWidget.showPlaybackLineControls &&
         !widget.showPlaybackLineControls) {
       _setPlaybackLineControlsVisible(false);
@@ -2477,7 +2505,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   bool get _shouldAnimateLyrics =>
-      widget.isActive &&
+      (widget.isActive || _preparingVisiblePage) &&
       !widget.suspendAutoScroll &&
       !widget.searchMode &&
       widget.selectedSearchMatch == null &&
@@ -3723,6 +3751,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
     if ((currentIndex != _currentLyricIndex || previewChanged) &&
         currentIndex >= 0) {
+      final followWhenVisible = widget.isActive || _preparingVisiblePage;
       final previous = _currentLyricIndex;
       final previousCenters = _captureLyricCenters();
       final previousTextCenters = _captureLyricTextCenters();
@@ -3735,7 +3764,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           previous != null &&
           !isDiscontinuity &&
           !previewChanged &&
-          widget.isActive &&
+          followWhenVisible &&
           _tickerModeEnabled &&
           _appLifecycleVisible &&
           !MediaQuery.disableAnimationsOf(context);
@@ -3759,7 +3788,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             currentIndex > previous &&
             isPlaying &&
             seekingPosition == null &&
-            widget.isActive &&
+            followWhenVisible &&
             !widget.suspendAutoScroll &&
             !widget.searchMode &&
             widget.selectedSearchMatch == null &&
@@ -3778,7 +3807,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted ||
               motionRequest != _scrollRequestGeneration ||
-              !widget.isActive ||
+              !(widget.isActive || _preparingVisiblePage) ||
               !_tickerModeEnabled ||
               !_appLifecycleVisible) {
             return;
@@ -3816,7 +3845,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               animate:
                   !isDiscontinuity &&
                   !previewChanged &&
-                  widget.isActive &&
+                  followWhenVisible &&
                   seekingPosition == null &&
                   !restoreFollowing &&
                   !(widget.snapToCurrentOnFirstLayout && previous == null),
@@ -3886,9 +3915,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             fontSize: settings.fullInactiveFontSize * widthScale,
             height: settings.fullLineHeight,
           );
+          final maxTextPaintWidth = widget.showPlaybackLineControls
+              ? displayWidth
+              : layoutWidth;
           final textWidth = math.min(
             displayWidth,
-            layoutWidth /
+            maxTextPaintWidth /
                 math.max(
                   1.0,
                   _lyricActiveTextScale(activeStyle, inactiveStyle, textScaler),
@@ -4161,7 +4193,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                                 ? (active ? target.scale : 1.0)
                                 : emphasis.scale;
                             return Transform.scale(
-                              scale: math.min(scale, layoutWidth / textWidth),
+                              scale: math.min(
+                                scale,
+                                maxTextPaintWidth / textWidth,
+                              ),
                               filterQuality: _autoScroll
                                   ? FilterQuality.low
                                   : null,
