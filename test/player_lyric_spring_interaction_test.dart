@@ -1000,16 +1000,13 @@ void main() {
       maxScrolls: 40,
     );
     await tester.pumpAndSettle();
-    final trackedIndex = _lyricIndexAtPlaybackAnchor(tester) - 2;
-    final line = find.text('spring $trackedIndex');
-    final original = tester.getCenter(line);
-
     await tester.pump(const Duration(seconds: 3));
     await _frames(tester, 5);
-    expect(tester.getCenter(line).dy, closeTo(original.dy, 0.5));
     playback.positions.add(const Duration(seconds: 2));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
+    final trackedIndex = _lyricIndexAtPlaybackAnchor(tester);
+    final line = find.text('spring $trackedIndex');
     await tester.sendEventToBinding(
       PointerScrollEvent(
         position: tester.getCenter(list),
@@ -1031,7 +1028,7 @@ void main() {
 
   for (final gesture in ['none', 'single', 'double', 'drag']) {
     testWidgets(
-      'bouncy far return keeps delayed rows visible, gesture=$gesture',
+      'bouncy far return supports gestures on moving rows, gesture=$gesture',
       (tester) async {
         final semantics = tester.ensureSemantics();
         final requested = <Duration>[];
@@ -1071,31 +1068,28 @@ void main() {
           maxScrolls: 40,
         );
         await tester.pumpAndSettle();
-        final delayedIndex = _lyricIndexAtPlaybackAnchor(tester) - 2;
-        final delayedLine = find.text('spring $delayedIndex');
-        final initialY = tester.getCenter(delayedLine).dy;
-
         await tester.pump(const Duration(seconds: 3));
         for (var frame = 0; frame < 5; frame++) {
           await tester.pump(const Duration(milliseconds: 16));
-          expect(delayedLine, findsOneWidget);
-          expect(tester.getCenter(delayedLine).dy, closeTo(initialY, 0.5));
         }
+        final visibleIndex = _lyricIndexAtPlaybackAnchor(tester);
+        final visibleLine = find.text('spring $visibleIndex');
+        final initialY = tester.getCenter(visibleLine).dy;
         if (gesture == 'drag') {
           final pointer = await tester.startGesture(
-            tester.getCenter(delayedLine),
+            tester.getCenter(visibleLine),
           );
           await pointer.moveBy(const Offset(0, -30));
           await tester.pump();
           await pointer.moveBy(const Offset(0, -50));
           await tester.pump();
-          expect(tester.getCenter(delayedLine).dy, closeTo(initialY - 50, 25));
+          expect(tester.getCenter(visibleLine).dy, closeTo(initialY - 50, 25));
           await pointer.up();
           await tester.pump(const Duration(milliseconds: 50));
           expect(requested, isEmpty);
           expect(toggleCount, 0);
         } else if (gesture != 'none') {
-          final center = tester.getCenter(delayedLine);
+          final center = tester.getCenter(visibleLine);
           await tester.tapAt(center);
           if (gesture == 'double') {
             await tester.pump(const Duration(milliseconds: 50));
@@ -1104,9 +1098,14 @@ void main() {
           await tester.pump(kDoubleTapTimeout);
           expect(
             requested,
-            gesture == 'single' ? [Duration(seconds: delayedIndex)] : isEmpty,
+            gesture == 'single' ? [Duration(seconds: visibleIndex)] : isEmpty,
           );
           expect(toggleCount, gesture == 'double' ? 1 : 0);
+          if (gesture == 'double') {
+            await tester.pump(const Duration(seconds: 3));
+            await tester.pumpAndSettle();
+            _expectAnchor(tester, 'spring 1');
+          }
         } else {
           for (var frame = 0; frame < 30; frame++) {
             await tester.pump(const Duration(milliseconds: 16));
@@ -1211,6 +1210,133 @@ void main() {
     }
     expect(followedBallisticScroll, isTrue);
   });
+
+  for (final cancel in [false, true]) {
+    testWidgets(
+      'holding a moving lyric delays the return until release, cancel=$cancel',
+      (tester) async {
+        await _mount(
+          tester,
+          position: const Duration(seconds: 20),
+          display: (_) => FullLyricDisplay(
+            isPortrait: true,
+            showPlaybackLineControls: true,
+            enableLineTapFeedback: true,
+            onLongPress: () {},
+          ),
+        );
+        final list = find.byKey(const ValueKey('full-lyric-list'));
+        final scrollable = find.descendant(
+          of: list,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester.state<ScrollableState>(scrollable).position;
+        await tester.drag(list, const Offset(0, -180));
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(seconds: 3));
+        await _frames(tester, 8);
+
+        final visibleLine = find.text(
+          'spring ${_lyricIndexAtPlaybackAnchor(tester)}',
+        );
+        final gesture = await tester.startGesture(
+          tester.getCenter(visibleLine),
+        );
+        await tester.pump();
+        final heldOffset = position.pixels;
+        await tester.pump(const Duration(seconds: 4));
+        await _frames(tester, 3);
+        expect(position.pixels, closeTo(heldOffset, 0.1));
+
+        if (cancel) {
+          await gesture.cancel();
+        } else {
+          await gesture.up();
+        }
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pumpAndSettle();
+        _expectAnchor(tester, 'spring 20');
+      },
+    );
+  }
+
+  for (final preset in [
+    PlayerLyricSpringPreset.defaultPreset,
+    PlayerLyricSpringPreset.jello,
+  ]) {
+    for (final reverse in [false, true]) {
+      testWidgets(
+        'a distant browse return shows one continuous lyric list, preset=${preset.id}, reverse=$reverse',
+        (tester) async {
+          final targetIndex = reverse ? 60 : 10;
+          final browseIndex = reverse ? 40 : 30;
+          final playback = await _mount(
+            tester,
+            position: Duration(seconds: targetIndex),
+          );
+          await playback.container
+              .read(playerLyricSettingsProvider.notifier)
+              .updateSpringPreset(preset);
+          await tester.pumpAndSettle();
+          final list = find.byKey(const ValueKey('full-lyric-list'));
+          final scrollable = find.descendant(
+            of: list,
+            matching: find.byType(Scrollable),
+          );
+          await tester.scrollUntilVisible(
+            find.text('spring $browseIndex'),
+            reverse ? -600 : 600,
+            scrollable: scrollable,
+          );
+          await tester.pumpAndSettle();
+          final position = tester.state<ScrollableState>(scrollable).position;
+          final browsedOffset = position.pixels;
+          await tester.pump(const Duration(seconds: 3));
+
+          for (var frame = 0; frame < 160; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            final viewport = tester.getRect(find.byType(FullLyricDisplay));
+            final rows =
+                find
+                    .descendant(of: list, matching: find.byType(RichText))
+                    .evaluate()
+                    .map((element) {
+                      final paragraph =
+                          element.renderObject! as RenderParagraph;
+                      final match = RegExp(
+                        r'^spring (\d+)$',
+                      ).firstMatch(paragraph.text.toPlainText());
+                      return (
+                        index: match == null ? null : int.parse(match[1]!),
+                        y: paragraph
+                            .localToGlobal(paragraph.size.center(Offset.zero))
+                            .dy,
+                      );
+                    })
+                    .where(
+                      (row) =>
+                          row.index != null &&
+                          row.y > viewport.top &&
+                          row.y < viewport.bottom,
+                    )
+                    .toList()
+                  ..sort((a, b) => a.y.compareTo(b.y));
+            expect(rows, isNotEmpty);
+            for (var i = 1; i < rows.length; i++) {
+              expect(
+                rows[i].index,
+                rows[i - 1].index! + 1,
+                reason: 'frame $frame: $rows',
+              );
+            }
+          }
+          expect(position.pixels, isNot(closeTo(browsedOffset, 1)));
+          await tester.pumpAndSettle();
+          _expectAnchor(tester, 'spring $targetIndex');
+        },
+      );
+    }
+  }
 
   for (final reverse in [false, true]) {
     testWidgets(

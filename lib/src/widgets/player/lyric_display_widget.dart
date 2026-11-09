@@ -1410,6 +1410,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   bool _pendingTapAcknowledged = false;
   bool _autoScroll = true;
   bool _userScrollInProgress = false;
+  int? _lyricScrollHoldPointer;
   bool _checkedStoredScrollOffset = false;
   bool _hasStoredScrollOffset = false;
   bool _restoreFollowing = false;
@@ -3483,6 +3484,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _scheduleAutoScrollResume();
   }
 
+  void _endLyricScrollHold(int pointer) {
+    if (_lyricScrollHoldPointer != pointer) return;
+    _lyricScrollHoldPointer = null;
+    if (!_scrollController.hasClients ||
+        !_scrollController.position.isScrollingNotifier.value) {
+      _endUserBrowse();
+    }
+  }
+
   void _scheduleAutoScrollResume() {
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = Timer(const Duration(seconds: 3), () {
@@ -3506,7 +3516,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       if (_shouldAnimateLyrics) {
         _startLyricScrollSpring(
           index,
-          stagger: true,
+          stagger: false,
           previousIndex: _currentLyricIndex,
         );
       } else {
@@ -4001,11 +4011,16 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                       !widget.isLocked
                   ? HitTestBehavior.opaque
                   : HitTestBehavior.deferToChild,
-              onPointerDown:
-                  widget.enableLineTapFeedback &&
-                      widget.isActive &&
-                      !widget.isLocked
-                  ? (event) => _pointerTracker.handlePointerDown(event, index)
+              onPointerDown: widget.isActive && !widget.isLocked
+                  ? (event) {
+                      if (_lyricScrollMotion != null) {
+                        _lyricScrollHoldPointer = event.pointer;
+                        _beginUserBrowse();
+                      }
+                      if (widget.enableLineTapFeedback) {
+                        _pointerTracker.handlePointerDown(event, index);
+                      }
+                    }
                   : null,
               onPointerMove:
                   widget.enableLineTapFeedback &&
@@ -4013,18 +4028,22 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                       !widget.isLocked
                   ? _pointerTracker.handlePointerMove
                   : null,
-              onPointerUp:
-                  widget.enableLineTapFeedback &&
-                      widget.isActive &&
-                      !widget.isLocked
-                  ? _pointerTracker.handlePointerUp
-                  : null,
-              onPointerCancel:
-                  widget.enableLineTapFeedback &&
-                      widget.isActive &&
-                      !widget.isLocked
-                  ? _pointerTracker.handlePointerCancel
-                  : null,
+              onPointerUp: (event) {
+                _endLyricScrollHold(event.pointer);
+                if (widget.enableLineTapFeedback &&
+                    widget.isActive &&
+                    !widget.isLocked) {
+                  _pointerTracker.handlePointerUp(event);
+                }
+              },
+              onPointerCancel: (event) {
+                _endLyricScrollHold(event.pointer);
+                if (widget.enableLineTapFeedback &&
+                    widget.isActive &&
+                    !widget.isLocked) {
+                  _pointerTracker.handlePointerCancel(event);
+                }
+              },
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
