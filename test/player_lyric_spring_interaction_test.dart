@@ -41,6 +41,559 @@ void main() {
     },
   );
 
+  testWidgets('growing lyrics keep their original line breaks', (tester) async {
+    const singleLine = 'MMMMMMMMM';
+    const multipleLines = 'MMMMMMMMM MMMMMMMMM MMMMMMMMM';
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'first',
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: singleLine,
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 2),
+          endTime: const Duration(seconds: 3),
+          text: multipleLines,
+        ),
+      ],
+      display: (_) => const FullLyricDisplay(
+        isPortrait: true,
+        contentWidth: 160,
+        showPlaybackLineControls: true,
+      ),
+    );
+
+    List<int> lineBreaks(String text) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byWidgetPredicate(
+          (widget) => widget is RichText && widget.text.toPlainText() == text,
+        ),
+      );
+      final lineTops = <double>[];
+      return List.generate(text.length, (index) {
+        final boxes = paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: index, extentOffset: index + 1),
+        );
+        if (boxes.isEmpty) return -1;
+        final top = boxes.first.top;
+        final line = lineTops.indexWhere((value) => (value - top).abs() < 0.5);
+        if (line >= 0) return line;
+        lineTops.add(top);
+        return lineTops.length - 1;
+      });
+    }
+
+    final singleWidth = tester.getRect(find.text(singleLine)).width;
+    final multipleWidth = tester.getRect(find.text(multipleLines)).width;
+    final singleBreaks = lineBreaks(singleLine);
+    final multipleBreaks = lineBreaks(multipleLines);
+    expect(singleBreaks.toSet(), {0});
+    expect(multipleBreaks.toSet().length, greaterThan(1));
+
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(lineBreaks(singleLine), singleBreaks);
+    final activeWidth = tester.getRect(find.text(singleLine)).width;
+    final settings = playback.container.read(playerLyricSettingsProvider);
+    expect(
+      activeWidth / singleWidth,
+      closeTo(
+        settings.fullActiveFontSize / (settings.fullInactiveFontSize * 0.97),
+        0.02,
+      ),
+    );
+    expect(activeWidth, greaterThan(160));
+
+    playback.positions.add(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(lineBreaks(multipleLines), multipleBreaks);
+    expect(
+      tester.getRect(find.text(multipleLines)).width,
+      greaterThan(multipleWidth),
+    );
+  });
+
+  testWidgets('a large multiline subtitle does not cover its neighbor', (
+    tester,
+  ) async {
+    final multiline = List.filled(5, 'MMMMMMMMM').join(' ');
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'first',
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: multiline,
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 2),
+          endTime: const Duration(seconds: 3),
+          text: 'next',
+        ),
+      ],
+      display: (_) => const FullLyricDisplay(
+        isPortrait: true,
+        contentWidth: 160,
+        showPlaybackLineControls: true,
+      ),
+    );
+    final settings = playback.container.read(
+      playerLyricSettingsProvider.notifier,
+    );
+    await settings.updateFullActiveFontSize(32);
+    await settings.updateFullInactiveFontSize(12);
+    await tester.pumpAndSettle();
+    final spacing =
+        tester.getCenter(find.text('next')).dy -
+        tester.getCenter(find.text(multiline)).dy;
+
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    final current = tester.getRect(find.text(multiline));
+    final next = tester.getRect(find.text('next'));
+    expect(current.bottom, lessThanOrEqualTo(next.top + 0.5));
+    expect(next.center.dy - current.center.dy, closeTo(spacing, 0.5));
+  });
+
+  testWidgets('subtitle overflow inside the lyric list remains tappable', (
+    tester,
+  ) async {
+    const subtitle = 'MMMMMMMMMMMMM';
+    Duration? requested;
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'first',
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: subtitle,
+        ),
+      ],
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        contentWidth: 160,
+        onSeekRequested: (target) => requested = target,
+      ),
+    );
+    final settings = playback.container.read(
+      playerLyricSettingsProvider.notifier,
+    );
+    await settings.updateFullActiveFontSize(32);
+    await settings.updateFullInactiveFontSize(12);
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    final line = find.text(subtitle);
+    final textRect = tester.getRect(line);
+    expect(textRect.left, lessThan(5));
+    await tester.tapAt(Offset(5, textRect.center.dy));
+    await tester.pumpAndSettle();
+    expect(requested, const Duration(seconds: 1));
+  });
+
+  testWidgets('playback emphasis changes while the subtitle moves', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final next = find.text('spring 1');
+    final previous = find.text('spring 0');
+    final initialWidth = tester.getRect(next).width;
+    final initialAlpha = _visibleLyricAlpha(tester, next);
+    final previousAlpha = _visibleLyricAlpha(tester, previous);
+    final initialY = tester.getCenter(next).dy;
+    final anchor = tester.getCenter(
+      find.byKey(const ValueKey('playback-line-indicator')),
+    );
+    final samples =
+        <({double width, double alpha, double previous, double y})>[];
+
+    playback.positions.add(const Duration(seconds: 1));
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add((
+        width: tester.getRect(next).width,
+        alpha: _visibleLyricAlpha(tester, next),
+        previous: _visibleLyricAlpha(tester, previous),
+        y: tester.getCenter(next).dy,
+      ));
+    }
+    await tester.pumpAndSettle();
+    final finalWidth = tester.getRect(next).width;
+    final finalAlpha = _visibleLyricAlpha(tester, next);
+    final finalPrevious = _visibleLyricAlpha(tester, previous);
+    final finalY = tester.getCenter(next).dy;
+
+    expect(finalWidth, greaterThan(initialWidth));
+    expect(finalAlpha, greaterThan(initialAlpha));
+    expect(finalPrevious, lessThan(previousAlpha));
+    expect(samples.first.width, lessThan((initialWidth + finalWidth) / 2));
+    expect(samples.first.alpha, lessThan((initialAlpha + finalAlpha) / 2));
+    expect(
+      samples.any(
+        (sample) =>
+            sample.width > initialWidth + 0.1 &&
+            sample.width < finalWidth - 0.1 &&
+            sample.alpha > initialAlpha + 0.01 &&
+            sample.alpha < finalAlpha - 0.01 &&
+            (sample.y - initialY).abs() > 0.5 &&
+            (sample.y - anchor.dy).abs() > 0.5,
+      ),
+      isTrue,
+    );
+    var comparedFrames = 0;
+    for (final sample in samples) {
+      final movement = (sample.y - initialY) / (finalY - initialY);
+      if (movement <= 0.15 || movement >= 0.85) continue;
+      final brightness =
+          (sample.alpha - initialAlpha) / (finalAlpha - initialAlpha);
+      final size = (sample.width - initialWidth) / (finalWidth - initialWidth);
+      expect(brightness, closeTo(movement, 0.15));
+      expect(size, closeTo(movement, 0.15));
+      comparedFrames++;
+    }
+    expect(comparedFrames, greaterThan(1));
+    expect(
+      samples.any(
+        (sample) =>
+            sample.previous < previousAlpha - 0.01 &&
+            sample.previous > finalPrevious + 0.01,
+      ),
+      isTrue,
+    );
+    _expectAnchor(tester, 'spring 1');
+  });
+
+  testWidgets('a newer subtitle continues from the current emphasis', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final first = find.text('spring 1');
+    final initialAlpha = _visibleLyricAlpha(tester, first);
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 8);
+    final beforeAlpha = _visibleLyricAlpha(tester, first);
+    final beforeWidth = tester.getRect(first).width;
+    expect(beforeAlpha, greaterThan(initialAlpha));
+    expect(beforeAlpha, lessThan(1));
+
+    playback.positions.add(const Duration(seconds: 2));
+    await tester.pump();
+    await tester.pump();
+    expect(_visibleLyricAlpha(tester, first), closeTo(beforeAlpha, 0.02));
+    expect(tester.getRect(first).width, closeTo(beforeWidth, 0.5));
+    await tester.pumpAndSettle();
+    expect(_visibleLyricAlpha(tester, find.text('spring 2')), closeTo(1, 0.01));
+    _expectAnchor(tester, 'spring 2');
+  });
+
+  testWidgets('changing the active size retargets a running emphasis', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final target = find.text('spring 1');
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 8);
+    final before = tester.getRect(target).width;
+    await playback.container
+        .read(playerLyricSettingsProvider.notifier)
+        .updateFullActiveFontSize(32);
+    final widths = <double>[];
+    for (var frame = 0; frame < 100; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      widths.add(tester.getRect(target).width);
+    }
+    await tester.pumpAndSettle();
+    final targetWidth = tester.getRect(target).width;
+    expect(targetWidth, greaterThan(before));
+    final maximumStep = (targetWidth - before) * 0.35 + 0.5;
+    var previous = before;
+    for (final width in widths) {
+      expect((width - previous).abs(), lessThan(maximumStep));
+      previous = width;
+    }
+  });
+
+  testWidgets('a paused tap gradually emphasizes its target', (tester) async {
+    Duration? requested;
+    final playback = await _mount(
+      tester,
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        showPlaybackLineControls: true,
+        onSeekRequested: (target) => requested = target,
+      ),
+    );
+    playback.states.add(PlayerState(false, ProcessingState.ready));
+    await tester.pumpAndSettle();
+    final target = find.text('spring 3');
+    final initialWidth = tester.getRect(target).width;
+    final initialAlpha = _visibleLyricAlpha(tester, target);
+    final initialY = tester.getCenter(target).dy;
+    final previous = find.text('spring 0');
+    final previousAlpha = _visibleLyricAlpha(tester, previous);
+    final samples =
+        <({double width, double alpha, double previous, double y})>[];
+
+    await tester.tap(target);
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add((
+        width: tester.getRect(target).width,
+        alpha: _visibleLyricAlpha(tester, target),
+        previous: _visibleLyricAlpha(tester, previous),
+        y: tester.getCenter(target).dy,
+      ));
+    }
+    await tester.pumpAndSettle();
+    final finalWidth = tester.getRect(target).width;
+    final finalAlpha = _visibleLyricAlpha(tester, target);
+    final finalPrevious = _visibleLyricAlpha(tester, previous);
+
+    expect(requested, const Duration(seconds: 3));
+    expect(playback.container.read(isPlayingProvider), isFalse);
+    expect(
+      samples.any(
+        (sample) =>
+            sample.width > initialWidth + 0.1 &&
+            sample.width < finalWidth - 0.1 &&
+            sample.alpha > initialAlpha + 0.01 &&
+            sample.alpha < finalAlpha - 0.01 &&
+            (sample.y - initialY).abs() > 0.5,
+      ),
+      isTrue,
+    );
+    expect(
+      samples.any(
+        (sample) =>
+            sample.previous < previousAlpha - 0.01 &&
+            sample.previous > finalPrevious + 0.01,
+      ),
+      isTrue,
+    );
+    _expectAnchor(tester, 'spring 3');
+  });
+
+  testWidgets('pausing during emphasis lets it finish without a jump', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final target = find.text('spring 1');
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 8);
+    final before = _visibleLyricAlpha(tester, target);
+    expect(before, lessThan(1));
+
+    playback.states.add(PlayerState(false, ProcessingState.ready));
+    await tester.pump();
+    expect(_visibleLyricAlpha(tester, target), closeTo(before, 0.02));
+    await tester.pumpAndSettle();
+    expect(_visibleLyricAlpha(tester, target), closeTo(1, 0.001));
+    expect(playback.container.read(isPlayingProvider), isFalse);
+  });
+
+  testWidgets('a search result gradually emphasizes its tapped subtitle', (
+    tester,
+  ) async {
+    Duration? requested;
+    await _mount(
+      tester,
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        showPlaybackLineControls: true,
+        searchMode: true,
+        suspendAutoScroll: true,
+        onSeekRequested: (target) => requested = target,
+      ),
+    );
+    final target = find.text('spring 3');
+    final initialAlpha = _visibleLyricAlpha(tester, target);
+    final samples = <double>[];
+
+    await tester.tap(target);
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add(_visibleLyricAlpha(tester, target));
+    }
+    await tester.pumpAndSettle();
+    final finalAlpha = _visibleLyricAlpha(tester, target);
+    expect(requested, const Duration(seconds: 3));
+    expect(finalAlpha, closeTo(1, 0.001));
+    expect(
+      samples.any(
+        (alpha) => alpha > initialAlpha + 0.01 && alpha < finalAlpha - 0.01,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('playback emphasis changes while browsing without scrolling', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    await tester.drag(list, const Offset(0, -25));
+    await tester.pumpAndSettle();
+    final scrollable = find.descendant(
+      of: list,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final offset = position.pixels;
+    final next = find.text('spring 1');
+    final initialWidth = tester.getRect(next).width;
+    final initialAlpha = _visibleLyricAlpha(tester, next);
+    final initialY = tester.getCenter(next).dy;
+    final samples = <({double width, double alpha})>[];
+
+    playback.positions.add(const Duration(seconds: 1));
+    for (var frame = 0; frame < 80; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add((
+        width: tester.getRect(next).width,
+        alpha: _visibleLyricAlpha(tester, next),
+      ));
+      expect(position.pixels, closeTo(offset, 0.01));
+      expect(tester.getCenter(next).dy, closeTo(initialY, 0.5));
+    }
+    final finalWidth = tester.getRect(next).width;
+    final finalAlpha = _visibleLyricAlpha(tester, next);
+    expect(finalWidth, greaterThan(initialWidth));
+    expect(finalAlpha, greaterThan(initialAlpha));
+    expect(
+      samples.any(
+        (sample) =>
+            sample.width > initialWidth + 0.1 &&
+            sample.width < finalWidth - 0.1 &&
+            sample.alpha > initialAlpha + 0.01 &&
+            sample.alpha < finalAlpha - 0.01,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('seek preview clears running emphasis while browsing', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    await tester.drag(list, const Offset(0, -25));
+    await tester.pumpAndSettle();
+
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 8);
+    final previous = find.text('spring 1');
+    expect(_visibleLyricAlpha(tester, previous), greaterThan(0.34));
+    expect(_visibleLyricAlpha(tester, previous), lessThan(1));
+
+    playback.preview.value = (
+      isSeekingManually: true,
+      seekValue: 3.0,
+      position: const Duration(seconds: 3),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(_visibleLyricAlpha(tester, find.text('spring 3')), closeTo(1, 0.01));
+    expect(_visibleLyricAlpha(tester, previous), closeTo(0.24, 0.01));
+  });
+
+  testWidgets('an initially unbuilt subtitle gradually becomes emphasized', (
+    tester,
+  ) async {
+    final tall = List.filled(100, 'wrapped subtitle words').join(' ');
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: tall,
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: 'next subtitle',
+        ),
+      ],
+    );
+    final next = find.text('next subtitle');
+    expect(next, findsNothing);
+    final samples = <double>[];
+
+    playback.positions.add(const Duration(seconds: 1));
+    for (var frame = 0; frame < 80; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (next.evaluate().isNotEmpty) {
+        samples.add(_visibleLyricAlpha(tester, next));
+      }
+    }
+    await tester.pumpAndSettle();
+    expect(next, findsOneWidget);
+    expect(samples.any((alpha) => alpha > 0.35 && alpha < 0.99), isTrue);
+    expect(_visibleLyricAlpha(tester, next), closeTo(1, 0.001));
+  });
+
+  testWidgets('emphasis stays at its target after a spring overshoots', (
+    tester,
+  ) async {
+    final playback = await _mount(tester);
+    await playback.container
+        .read(playerLyricSettingsProvider.notifier)
+        .updateSpringPreset(PlayerLyricSpringPreset.jello);
+    await tester.pumpAndSettle();
+    final next = find.text('spring 1');
+    final anchor = tester.getCenter(
+      find.byKey(const ValueKey('playback-line-indicator')),
+    );
+    final samples = <({double width, double alpha, double distance})>[];
+
+    playback.positions.add(const Duration(seconds: 1));
+    for (var frame = 0; frame < 100; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      samples.add((
+        width: tester.getRect(next).width,
+        alpha: _visibleLyricAlpha(tester, next),
+        distance: tester.getCenter(next).dy - anchor.dy,
+      ));
+    }
+    await tester.pumpAndSettle();
+    final finalWidth = tester.getRect(next).width;
+    final finalAlpha = _visibleLyricAlpha(tester, next);
+    final firstTarget = samples.indexWhere(
+      (sample) =>
+          (sample.width - finalWidth).abs() < 0.1 &&
+          (sample.alpha - finalAlpha).abs() < 0.005,
+    );
+    final firstOvershoot = samples.indexWhere(
+      (sample) => sample.distance < -0.5,
+    );
+
+    expect(samples.any((sample) => sample.distance > 0.5), isTrue);
+    expect(samples.any((sample) => sample.distance < -0.5), isTrue);
+    expect(firstTarget, greaterThanOrEqualTo(0));
+    expect(firstTarget, lessThanOrEqualTo(firstOvershoot + 1));
+    for (final sample in samples.skip(firstTarget)) {
+      expect(sample.width, closeTo(finalWidth, 0.1));
+      expect(sample.alpha, closeTo(finalAlpha, 0.005));
+    }
+  });
+
   for (final interrupted in [false, true]) {
     testWidgets(
       'every retarget frame preserves adjacent text with interrupted=$interrupted',
@@ -408,6 +961,72 @@ void main() {
     await tester.pump();
 
     _expectAnchor(tester, 'spring 20');
+  });
+
+  testWidgets('browsing keeps retained rows after emphasis completes', (
+    tester,
+  ) async {
+    final playback = await _mount(
+      tester,
+      position: const Duration(seconds: 1),
+      lyrics: List.generate(
+        500,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'spring $index',
+        ),
+      ),
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        showPlaybackLineControls: true,
+        enableLineTapFeedback: true,
+        onSeekRequested: (_) {},
+      ),
+    );
+    await playback.container
+        .read(playerLyricSettingsProvider.notifier)
+        .updateSpringPreset(PlayerLyricSpringPreset.jello);
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final scrollable = find.descendant(
+      of: list,
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text('spring 490'),
+      900,
+      scrollable: scrollable,
+      maxScrolls: 40,
+    );
+    await tester.pumpAndSettle();
+    final trackedIndex = _lyricIndexAtPlaybackAnchor(tester) - 2;
+    final line = find.text('spring $trackedIndex');
+    final original = tester.getCenter(line);
+
+    await tester.pump(const Duration(seconds: 3));
+    await _frames(tester, 5);
+    expect(tester.getCenter(line).dy, closeTo(original.dy, 0.5));
+    playback.positions.add(const Duration(seconds: 2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(list),
+        scrollDelta: const Offset(0, 30),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(line, findsOneWidget);
+    final center = tester.getCenter(line);
+
+    await _frames(tester, 100);
+    expect(line, findsOneWidget);
+    expect(tester.getCenter(line).dy, closeTo(center.dy, 0.5));
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 2');
   });
 
   for (final gesture in ['none', 'single', 'double', 'drag']) {
@@ -935,21 +1554,16 @@ void main() {
       ),
     );
     final clickedLine = find.text('spring 1');
-    final activeSize = tester
-        .widget<Text>(find.text('spring 0'))
-        .style!
-        .fontSize!;
     await tester.tap(clickedLine);
     await tester.idle();
     await tester.pump();
 
     expect(requested, const Duration(seconds: 1));
     final afterConfirmation = tester.getCenter(clickedLine).dy;
-    expect(tester.widget<Text>(clickedLine).style!.fontSize, activeSize);
-    expect(tester.widget<Text>(clickedLine).style!.color!.a, 1);
+    expect(_visibleLyricAlpha(tester, clickedLine), lessThan(1));
     expect(
       tester.getRect(clickedLine).width / tester.getSize(clickedLine).width,
-      closeTo(1, 0.005),
+      closeTo(0.97, 0.005),
     );
     expect(
       (afterConfirmation -
@@ -970,6 +1584,7 @@ void main() {
 
     await tester.pumpAndSettle();
     _expectAnchor(tester, 'spring 1');
+    expect(_visibleLyricAlpha(tester, clickedLine), closeTo(1, 0.001));
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
@@ -995,12 +1610,16 @@ void main() {
 
     expect(requested, const Duration(seconds: 3));
     expect(playback.container.read(isPlayingProvider), isFalse);
-    expect(tester.widget<Text>(find.text('spring 3')).style!.color!.a, 1);
+    expect(_visibleLyricAlpha(tester, find.text('spring 3')), lessThan(1));
 
     await tester.pumpAndSettle();
 
     expect(playback.container.read(isPlayingProvider), isFalse);
     _expectAnchor(tester, 'spring 3');
+    expect(
+      _visibleLyricAlpha(tester, find.text('spring 3')),
+      closeTo(1, 0.001),
+    );
   });
 
   testWidgets('an external seek takes over a moving click target', (
@@ -1284,7 +1903,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requested, [const Duration(seconds: 2)]);
-    expect(tester.widget<Text>(clickedLine).style!.color!.a, 1);
+    expect(_visibleLyricAlpha(tester, clickedLine), closeTo(1, 0.001));
     playback.discontinuities.add(_jump(0, 2));
     playback.positions.add(const Duration(seconds: 2));
     await tester.pumpAndSettle();
@@ -1499,7 +2118,7 @@ void main() {
     _expectAnchor(tester, 'spring 21');
   });
 
-  testWidgets('pause settles and reduced motion removes scale and stagger', (
+  testWidgets('pause settles and reduced motion snaps emphasis and position', (
     tester,
   ) async {
     final playback = await _mount(tester);
@@ -1515,11 +2134,17 @@ void main() {
     playback.reducedMotion.value = true;
     await tester.pumpAndSettle();
     _expectAnchor(tester, 'spring 2');
+    final settings = playback.container.read(playerLyricSettingsProvider);
     for (final text in ['spring 1', 'spring 2', 'spring 3']) {
       final line = find.text(text);
       expect(
         tester.getRect(line).width / tester.getSize(line).width,
-        closeTo(1, 0.001),
+        closeTo(
+          text == 'spring 2'
+              ? settings.fullActiveFontSize / settings.fullInactiveFontSize
+              : 1,
+          0.001,
+        ),
       );
     }
     final center = tester.getCenter(find.text('spring 2'));
@@ -1543,11 +2168,17 @@ void main() {
     playback.reducedMotion.value = true;
     await tester.pump();
     _expectAnchor(tester, 'spring 20');
+    final settings = playback.container.read(playerLyricSettingsProvider);
     for (final index in [19, 20, 21]) {
       final line = find.text('spring $index');
       expect(
         tester.getRect(line).width / tester.getSize(line).width,
-        closeTo(1, 0.001),
+        closeTo(
+          index == 20
+              ? settings.fullActiveFontSize / settings.fullInactiveFontSize
+              : 1,
+          0.001,
+        ),
       );
     }
     await tester.pumpAndSettle();
@@ -1662,17 +2293,19 @@ void main() {
         expect(find.text('original 0'), findsNothing);
         final activeLine = find.text('translated 1');
         final initialCenter = tester.getCenter(activeLine).dy;
+        final initialScale =
+            tester.getRect(activeLine).width / tester.getSize(activeLine).width;
         playback.positions.add(const Duration(seconds: 6));
         await tester.pump();
         await tester.pump();
         expect(
           tester.getRect(activeLine).width / tester.getSize(activeLine).width,
-          closeTo(1, 0.001),
+          closeTo(initialScale, 0.001),
         );
         await _frames(tester, 12);
         expect(
           tester.getRect(activeLine).width / tester.getSize(activeLine).width,
-          closeTo(1, 0.001),
+          greaterThan(initialScale),
         );
         expect(
           (tester.getCenter(activeLine).dy - initialCenter).abs(),
@@ -1683,6 +2316,16 @@ void main() {
       },
     );
   }
+}
+
+double _visibleLyricAlpha(WidgetTester tester, Finder lyric) {
+  final color = tester.widget<Text>(lyric).style?.color;
+  final opacities = tester.widgetList<Opacity>(
+    find.ancestor(of: lyric, matching: find.byType(Opacity)),
+  );
+  return opacities.fold(color?.a ?? 1.0, (alpha, opacity) {
+    return alpha * opacity.opacity;
+  });
 }
 
 void _expectMatch(WidgetTester tester, String text, int start, int end) {

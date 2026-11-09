@@ -38,7 +38,6 @@ const _lyricAdaptiveBaseWidth = 334.0;
 const _lyricAdaptiveMaxScale = 1.45;
 const _lyricPreviewFadeExtent = 12.0;
 const _lyricSpringScaleRest = 0.97;
-const _lyricSpringScaleActive = 1.0;
 const _lyricSpringCascadeStep = Duration(milliseconds: 50);
 
 SpringDescription _lyricPositionSpring(PlayerLyricSpringPreset preset) {
@@ -59,8 +58,8 @@ SpringDescription _lyricPositionSpring(PlayerLyricSpringPreset preset) {
 class _LyricSpringMotion {
   _LyricSpringMotion({
     required double startY,
-    required double targetY,
-    required double velocityY,
+    required this.targetY,
+    required this.velocityY,
     required this.startAt,
     required this.delay,
     required SpringDescription positionSpring,
@@ -73,6 +72,8 @@ class _LyricSpringMotion {
        );
 
   final double startY;
+  final double targetY;
+  final double velocityY;
   final double startAt;
   final double delay;
   final SpringSimulation positionSimulation;
@@ -89,6 +90,53 @@ class _LyricSpringMotion {
       moving: !positionDone,
       done: positionDone,
     );
+  }
+}
+
+typedef _LyricEmphasisValue = ({double opacity, double scale});
+
+typedef _LyricEmphasisSample = ({double opacity, double scale, bool done});
+
+class _LyricEmphasisMotion {
+  _LyricEmphasisMotion({
+    required this.startOpacity,
+    required this.targetOpacity,
+    required this.startScale,
+    required this.targetScale,
+    required this.startAt,
+    required this.delay,
+    required double velocity,
+    required SpringDescription spring,
+  }) : progressSimulation = SpringSimulation(spring, 0, 1, velocity);
+
+  final double startOpacity;
+  final double targetOpacity;
+  final double startScale;
+  final double targetScale;
+  final double startAt;
+  final double delay;
+  final SpringSimulation progressSimulation;
+  double _progress = 0;
+
+  _LyricEmphasisSample sample(double now) {
+    final elapsed = now - startAt - delay;
+    if (elapsed > 0) {
+      final done = progressSimulation.isDone(elapsed);
+      final progress = done
+          ? 1.0
+          : progressSimulation.x(elapsed).clamp(0.0, 1.0).toDouble();
+      _progress = math.max(_progress, progress);
+    }
+    return (
+      opacity: startOpacity + (targetOpacity - startOpacity) * _progress,
+      scale: startScale + (targetScale - startScale) * _progress,
+      done: _progress >= 1,
+    );
+  }
+
+  double progressVelocity(double now) {
+    final elapsed = now - startAt - delay;
+    return elapsed <= 0 || _progress >= 1 ? 0 : progressSimulation.dx(elapsed);
   }
 }
 
@@ -200,6 +248,16 @@ double _lyricPreviewItemExtent(
     .ceilToDouble()
     .clamp(25.0, double.infinity)
     .toDouble();
+
+double _lyricActiveTextScale(
+  TextStyle activeStyle,
+  TextStyle inactiveStyle,
+  TextScaler textScaler,
+) {
+  final inactiveSize = textScaler.scale(inactiveStyle.fontSize ?? 14);
+  if (inactiveSize <= 0) return 1;
+  return textScaler.scale(activeStyle.fontSize ?? 14) / inactiveSize;
+}
 
 Animatable<double> _lyricTapFeedbackOpacity() {
   return TweenSequence<double>([
@@ -1124,6 +1182,9 @@ class _LyricLayoutIndex {
   final Locale? locale;
   final Map<int, _LyricLineLayoutEntry> _entries = {};
 
+  double get activeTextScale =>
+      _lyricActiveTextScale(activeStyle, inactiveStyle, textScaler);
+
   _LyricLineLayout layoutFor(
     int index, {
     required bool active,
@@ -1134,12 +1195,14 @@ class _LyricLayoutIndex {
       return cached.layout;
     }
     final text = lyrics[index].text;
+    final activeScale = activeTextScale;
+    final paintScale = active ? activeScale : _lyricSpringScaleRest;
     final painter = TextPainter(
       text: _highlightedLyricSpan(
         text: text,
         query: query,
         selectedMatch: selectedMatch,
-        style: active ? activeStyle : inactiveStyle,
+        style: inactiveStyle,
         colors: colors,
       ),
       textAlign: TextAlign.center,
@@ -1168,9 +1231,16 @@ class _LyricLayoutIndex {
         matchCenterY = (top + bottom) / 2;
       }
     }
+    final contentHeight = painter.height;
+    final maxPaintScale = math.max(
+      1.0,
+      math.max(activeScale, _lyricSpringScaleRest),
+    );
     final layout = _LyricLineLayout(
-      extent: painter.height + itemVerticalPadding,
-      matchCenterY: 10 + matchCenterY,
+      extent: contentHeight * maxPaintScale + itemVerticalPadding,
+      matchCenterY:
+          (contentHeight * maxPaintScale + itemVerticalPadding) / 2 +
+          (matchCenterY - contentHeight / 2) * paintScale,
     );
     _entries[index] = _LyricLineLayoutEntry(
       active: active,
@@ -1317,6 +1387,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   late final Ticker _lyricMotionTicker;
   final ValueNotifier<int> _lyricMotionFrame = ValueNotifier(0);
   final Map<int, _LyricSpringMotion> _lyricMotion = {};
+  final Map<int, _LyricEmphasisMotion> _lyricEmphasisMotion = {};
   final Map<int, _LyricSpringSample> _frozenLyricMotion = {};
   final Map<int, double> _lyricMotionBaseY = {};
   final Map<int, double> _pendingLyricY = {};
@@ -1349,6 +1420,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   Timer? _tapFeedbackDedupeTimer;
   final Map<int, Timer> _pointerFeedbackSuppressions = {};
   int _scrollRequestGeneration = 0;
+  int? _pendingLyricEmphasisFromIndex;
   ({int index, int originIndex})? _pendingDiscontinuity;
   List<LyricLine>? _lastDisplayLyrics;
   String? _lastTrackKey;
@@ -1625,6 +1697,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _lyricMotionElapsed += previous == null ? elapsed : elapsed - previous;
     _lastLyricMotionTick = elapsed;
     final now = _lyricMotionSeconds;
+    _lyricEmphasisMotion.removeWhere((index, motion) {
+      return motion.sample(now).done;
+    });
     _lyricMotion.removeWhere((index, motion) {
       if (!motion.sample(now).done) return false;
       if (!_retainedScrollSpringRows.contains(index)) {
@@ -1670,11 +1745,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       }
     }
     _lyricMotionFrame.value++;
-    if (_lyricMotion.isEmpty && _lyricScrollMotion == null) {
+    if (_lyricMotion.isEmpty &&
+        _lyricScrollMotion == null &&
+        _lyricEmphasisMotion.isEmpty) {
       _scrollSpringTargetIndex = null;
       _scrollSpringOriginIndex = null;
       _pendingScrollSpringRows.clear();
-      _setRetainedScrollSpringRows(const {});
+      if (_frozenLyricMotion.isEmpty) _setRetainedScrollSpringRows(const {});
       _lyricMotionTicker.stop();
       _lastLyricMotionTick = null;
     }
@@ -1701,7 +1778,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   }
 
   void _startLyricMotionTicker() {
-    if ((_lyricMotion.isEmpty && _lyricScrollMotion == null) ||
+    if ((_lyricMotion.isEmpty &&
+            _lyricScrollMotion == null &&
+            _lyricEmphasisMotion.isEmpty) ||
         _lyricMotionTicker.isActive) {
       return;
     }
@@ -1709,7 +1788,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _lyricMotionTicker.start();
   }
 
-  void _clearLyricMotion({bool notify = true}) {
+  void _clearLyricMotion({bool notify = true, bool preserveEmphasis = false}) {
     _lyricMotionTicker.stop();
     _lastLyricMotionTick = null;
     _lyricScrollMotion = null;
@@ -1717,17 +1796,21 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _scrollSpringOriginIndex = null;
     _pendingScrollSpringRows.clear();
     _lyricMotion.clear();
+    if (!preserveEmphasis) _lyricEmphasisMotion.clear();
     _frozenLyricMotion.clear();
     _lyricMotionBaseY.clear();
     _pendingLyricY.clear();
     _pendingLyricTextY.clear();
+    if (!preserveEmphasis) _pendingLyricEmphasisFromIndex = null;
     _setRetainedScrollSpringRows(const {});
+    if (preserveEmphasis) _startLyricMotionTicker();
     if (notify) _lyricMotionFrame.value++;
   }
 
   bool get _hasLyricMotion =>
       _lyricScrollMotion != null ||
       _lyricMotion.isNotEmpty ||
+      _lyricEmphasisMotion.isNotEmpty ||
       _frozenLyricMotion.isNotEmpty ||
       _pendingLyricY.isNotEmpty ||
       _pendingLyricTextY.isNotEmpty;
@@ -1760,8 +1843,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _lyricMotion.clear();
     _pendingLyricY.clear();
     _pendingLyricTextY.clear();
-    _lyricMotionTicker.stop();
-    _lastLyricMotionTick = null;
+    if (_lyricEmphasisMotion.isEmpty) {
+      _lyricMotionTicker.stop();
+      _lastLyricMotionTick = null;
+    } else {
+      _startLyricMotionTicker();
+    }
     _lyricMotionFrame.value++;
   }
 
@@ -1865,9 +1952,47 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     });
   }
 
+  void _retargetLyricEmphasisMotion(SpringDescription spring) {
+    final now = _lyricMotionSeconds;
+    for (final entry in _lyricEmphasisMotion.entries.toList()) {
+      final motion = entry.value;
+      final sample = motion.sample(now);
+      final target = _lyricEmphasisTarget(entry.key, _layoutCurrentIndex);
+      if (sample.done &&
+          (target.opacity - sample.opacity).abs() < 0.001 &&
+          (target.scale - sample.scale).abs() < 0.001) {
+        _lyricEmphasisMotion.remove(entry.key);
+        continue;
+      }
+      final progressVelocity = motion.progressVelocity(now);
+      final opacityVelocity =
+          (motion.targetOpacity - motion.startOpacity) * progressVelocity;
+      final scaleVelocity =
+          (motion.targetScale - motion.startScale) * progressVelocity;
+      final opacityDistance = target.opacity - sample.opacity;
+      final scaleDistance = target.scale - sample.scale;
+      final velocity = opacityDistance.abs() > 0.001
+          ? opacityVelocity / opacityDistance
+          : scaleDistance.abs() > 0.001
+          ? scaleVelocity / scaleDistance
+          : 0.0;
+      _lyricEmphasisMotion[entry.key] = _LyricEmphasisMotion(
+        startOpacity: sample.opacity,
+        targetOpacity: target.opacity,
+        startScale: sample.scale,
+        targetScale: target.scale,
+        startAt: now,
+        delay: 0,
+        velocity: velocity,
+        spring: spring,
+      );
+    }
+  }
+
   void _retargetLyricMotion(PlayerLyricSpringPreset preset) {
     final now = _lyricMotionSeconds;
     final spring = _lyricPositionSpring(preset);
+    _retargetLyricEmphasisMotion(spring);
     final scrollMotion = _lyricScrollMotion;
     if (scrollMotion != null && _scrollController.hasClients) {
       final sample = scrollMotion.sample(now);
@@ -1918,15 +2043,39 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         !_scrollController.hasClients) {
       return;
     }
+    final motionStartTime = _lyricMotionSeconds;
+    void startEmphasisOnly() {
+      _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
+      _startLyricEmphasisTransition(
+        targetIndex: index,
+        previousIndex: previousIndex,
+        indices: _itemKeys.keys,
+        spring: _lyricPositionSpring(_springPreset),
+        startAt: motionStartTime,
+      );
+    }
+
     final viewport = _viewportKey.currentContext?.findRenderObject();
     final layoutIndex = _layoutIndex;
     if (viewport is! RenderBox || layoutIndex == null) {
-      _scrollToLyric(index, animate: false, force: true);
+      startEmphasisOnly();
+      _scrollToLyric(
+        index,
+        animate: false,
+        force: true,
+        preserveEmphasis: true,
+      );
       return;
     }
     final targetBox = _getKeyForIndex(index).currentContext?.findRenderObject();
     if (targetBox is! RenderBox || !targetBox.attached) {
-      _scrollToLyric(index, animate: false, force: true);
+      startEmphasisOnly();
+      _scrollToLyric(
+        index,
+        animate: false,
+        force: true,
+        preserveEmphasis: true,
+      );
       return;
     }
     final visibleHeight = _visibleViewportHeight(widget.visibleBottomInset);
@@ -1934,7 +2083,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         .localToGlobal(Offset.zero, ancestor: viewport)
         .dy;
     if (targetTop + targetBox.size.height <= 0 || targetTop >= visibleHeight) {
-      _scrollToLyric(index, animate: false, force: true);
+      startEmphasisOnly();
+      _scrollToLyric(
+        index,
+        animate: false,
+        force: true,
+        preserveEmphasis: true,
+      );
       return;
     }
     final now = _lyricMotionSeconds;
@@ -1981,7 +2136,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       ));
     }
     if (!visibleRows.any((row) => row.index == index)) {
-      _scrollToLyric(index, animate: false, force: true);
+      startEmphasisOnly();
+      _scrollToLyric(
+        index,
+        animate: false,
+        force: true,
+        preserveEmphasis: true,
+      );
       return;
     }
 
@@ -2003,7 +2164,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       }
     }
 
-    final motionStartTime = _lyricMotionSeconds;
     // A selection can change between this frame's build and its callbacks.
     _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
     final spring = _lyricPositionSpring(_springPreset);
@@ -2035,6 +2195,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     }
     _pendingLyricY.clear();
     _pendingLyricTextY.clear();
+    _startLyricEmphasisTransition(
+      targetIndex: index,
+      previousIndex: previousIndex,
+      indices: visibleRows.map((row) => row.index),
+      spring: spring,
+      startAt: motionStartTime,
+    );
     _lyricMotionFrame.value++;
     if ((targetScroll - _scrollController.position.pixels).abs() > 0.01) {
       _scrollController.jumpTo(targetScroll);
@@ -2046,6 +2213,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     int index, {
     required bool stagger,
     int? previousIndex,
+    int? previousEmphasisIndex,
     int? request,
   }) {
     if (!mounted ||
@@ -2054,6 +2222,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       return;
     }
     if (_reducedMotion || MediaQuery.disableAnimationsOf(context)) {
+      _pendingLyricEmphasisFromIndex = null;
       _scrollToLyric(
         index,
         animate: false,
@@ -2063,10 +2232,26 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       return;
     }
     if (!_shouldAnimateLyrics) return;
+    final emphasisOrigin =
+        previousEmphasisIndex ??
+        _pendingLyricEmphasisFromIndex ??
+        _layoutCurrentIndex;
+    void startEmphasisOnly() {
+      _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
+      _startLyricEmphasisTransition(
+        targetIndex: index,
+        previousIndex: emphasisOrigin,
+        indices: _itemKeys.keys,
+        spring: _lyricPositionSpring(_springPreset),
+        startAt: _lyricMotionSeconds,
+      );
+    }
+
     final layoutIndex = _layoutIndex;
     if (layoutIndex == null ||
         index < 0 ||
         index >= layoutIndex.lyrics.length) {
+      startEmphasisOnly();
       return;
     }
 
@@ -2075,7 +2260,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       widget.visibleBottomInset,
       clampToBounds: false,
     );
-    if (target == null) return;
+    if (target == null) {
+      startEmphasisOnly();
+      return;
+    }
 
     final now = _lyricMotionSeconds;
     final oldScrollMotion = _lyricScrollMotion;
@@ -2187,8 +2375,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _pendingLyricTextY.clear();
     _pendingScrollSpringRows.clear();
     _setRetainedScrollSpringRows(_lyricMotion.keys);
+    _startLyricEmphasisTransition(
+      targetIndex: index,
+      previousIndex: emphasisOrigin,
+      indices: visibleRows.map((row) => row.index),
+      spring: spring,
+      startAt: now,
+    );
     _lyricMotionFrame.value++;
-    if (_lyricMotion.isNotEmpty || _lyricScrollMotion != null) {
+    if (_lyricMotion.isNotEmpty ||
+        _lyricScrollMotion != null ||
+        _lyricEmphasisMotion.isNotEmpty) {
       _startLyricMotionTicker();
     } else {
       _scrollSpringTargetIndex = null;
@@ -2281,9 +2478,100 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _appLifecycleVisible &&
       !_reducedMotion;
 
+  _LyricEmphasisValue _lyricEmphasisTarget(int index, int currentIndex) {
+    final active = index == currentIndex;
+    return (
+      opacity: active ? 1 : (index < currentIndex ? 0.24 : 0.34),
+      scale: active
+          ? (_layoutIndex?.activeTextScale ?? 1)
+          : _lyricSpringScaleRest,
+    );
+  }
+
+  _LyricEmphasisValue _lyricEmphasisValue(int index, {int? currentIndex}) {
+    final motion = _lyricEmphasisMotion[index];
+    if (motion != null) {
+      final sample = motion.sample(_lyricMotionSeconds);
+      return (opacity: sample.opacity, scale: sample.scale);
+    }
+    final fallbackIndex =
+        currentIndex ?? _pendingLyricEmphasisFromIndex ?? _layoutCurrentIndex;
+    return _lyricEmphasisTarget(index, fallbackIndex);
+  }
+
+  void _startLyricEmphasisTransition({
+    required int targetIndex,
+    required int previousIndex,
+    required Iterable<int> indices,
+    required SpringDescription spring,
+    required double startAt,
+  }) {
+    final allIndices = <int>{
+      if (targetIndex >= 0) targetIndex,
+      if (previousIndex >= 0) previousIndex,
+      ...indices,
+      ..._itemKeys.keys,
+      ..._lyricEmphasisMotion.keys,
+    };
+    final starts = <int, _LyricEmphasisValue>{};
+    final previousMotions = Map<int, _LyricEmphasisMotion>.of(
+      _lyricEmphasisMotion,
+    );
+    for (final index in allIndices) {
+      starts[index] = _lyricEmphasisValue(index, currentIndex: previousIndex);
+    }
+    _lyricEmphasisMotion.clear();
+    _pendingLyricEmphasisFromIndex = null;
+    for (final index in allIndices) {
+      final start = starts[index]!;
+      final target = _lyricEmphasisTarget(index, targetIndex);
+      if ((start.opacity - target.opacity).abs() < 0.001 &&
+          (start.scale - target.scale).abs() < 0.001) {
+        continue;
+      }
+      final rowMotion = _lyricMotion[index];
+      final rowDistance = rowMotion == null
+          ? 0.0
+          : rowMotion.targetY - rowMotion.startY;
+      final previousMotion = previousMotions[index];
+      var velocity = 0.0;
+      if (rowMotion != null && rowDistance.abs() > 0.01) {
+        velocity = rowMotion.velocityY / rowDistance;
+      } else if (previousMotion != null) {
+        final progressVelocity = previousMotion.progressVelocity(startAt);
+        final opacityVelocity =
+            (previousMotion.targetOpacity - previousMotion.startOpacity) *
+            progressVelocity;
+        final opacityDistance = target.opacity - start.opacity;
+        if (opacityDistance.abs() > 0.001) {
+          velocity = opacityVelocity / opacityDistance;
+        } else {
+          final scaleVelocity =
+              (previousMotion.targetScale - previousMotion.startScale) *
+              progressVelocity;
+          final scaleDistance = target.scale - start.scale;
+          if (scaleDistance.abs() > 0.001) {
+            velocity = scaleVelocity / scaleDistance;
+          }
+        }
+      }
+      _lyricEmphasisMotion[index] = _LyricEmphasisMotion(
+        startOpacity: start.opacity,
+        targetOpacity: target.opacity,
+        startScale: start.scale,
+        targetScale: target.scale,
+        startAt: startAt,
+        delay: rowMotion?.delay ?? 0,
+        velocity: velocity,
+        spring: spring,
+      );
+    }
+    _lyricMotionFrame.value++;
+    _startLyricMotionTicker();
+  }
+
   Widget _buildLyricMotion({
     required int index,
-    required double targetScale,
     bool translateWithMotion = true,
     required Widget child,
   }) {
@@ -2301,12 +2589,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         return Transform.translate(
           offset: Offset(0, offset),
           transformHitTests: true,
-          child: Transform.scale(
-            scale: targetScale,
-            filterQuality: _autoScroll ? FilterQuality.low : null,
-            transformHitTests: true,
-            child: child,
-          ),
+          child: child,
         );
       },
     );
@@ -2592,6 +2875,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     bool force = false,
     bool ignoreAutoScroll = false,
     bool preservePendingTap = false,
+    bool preserveEmphasis = false,
     double? visibleBottomInset,
     Duration? animationDuration,
     double lineFraction = 0.5,
@@ -2604,7 +2888,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _pendingTapAcknowledged = false;
     }
     final waitForMotionReset = _hasLyricMotion;
-    _clearLyricMotion();
+    _clearLyricMotion(preserveEmphasis: preserveEmphasis);
     final duration = MediaQuery.disableAnimationsOf(context) || !animate
         ? Duration.zero
         : animationDuration ?? const Duration(milliseconds: 460);
@@ -3114,12 +3398,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final target = lyrics[index].startTime;
     final playbackIndex = ref.read(currentLyricIndexProvider);
     final originIndex = playbackIndex >= 0 ? playbackIndex : _currentLyricIndex;
+    final emphasisOrigin = _currentLyricIndex ?? originIndex ?? -1;
     final centers = _captureLyricCenters();
     final textCenters = _captureLyricTextCenters();
     _resumeAutoScrollTimer?.cancel();
     _resumeAutoScrollTimer = null;
     _userScrollInProgress = false;
     final request = ++_scrollRequestGeneration;
+    _pendingLyricEmphasisFromIndex =
+        _reducedMotion || MediaQuery.disableAnimationsOf(context)
+        ? null
+        : emphasisOrigin;
     setState(() {
       _autoScroll = true;
       _pendingDiscontinuity = null;
@@ -3139,17 +3428,29 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       if (widget.suspendAutoScroll ||
           widget.searchMode ||
           widget.selectedSearchMatch != null) {
+        if (!_reducedMotion && !MediaQuery.disableAnimationsOf(context)) {
+          _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
+          _startLyricEmphasisTransition(
+            targetIndex: index,
+            previousIndex: emphasisOrigin,
+            indices: _itemKeys.keys,
+            spring: _lyricPositionSpring(_springPreset),
+            startAt: _lyricMotionSeconds,
+          );
+        }
         _scrollToLyric(
           index,
           force: true,
           ignoreAutoScroll: true,
           preservePendingTap: true,
+          preserveEmphasis: true,
         );
       } else {
         _startLyricScrollSpring(
           index,
           stagger: false,
           previousIndex: originIndex,
+          previousEmphasisIndex: emphasisOrigin,
           request: request,
         );
       }
@@ -3238,7 +3539,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       if (previous == true && !playing) {
         if (_scrollSpringTargetIndex != null) return;
         _scrollRequestGeneration++;
-        _clearLyricMotion();
+        _clearLyricMotion(preserveEmphasis: true);
       }
     });
     ref.listen<AsyncValue<PositionDiscontinuity>>(
@@ -3272,6 +3573,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   Widget _buildDisplay(BuildContext context, Duration? seekingPosition) {
     final previewChanged = seekingPosition != _lastSeekingPosition;
     _lastSeekingPosition = seekingPosition;
+    if (previewChanged) {
+      _lyricEmphasisMotion.clear();
+      _pendingLyricEmphasisFromIndex = null;
+    }
     final lyricContent = ref.watch(
       lyricControllerProvider.select(
         (state) => (lyrics: state.displayLyrics, trackKey: state.trackKey),
@@ -3364,6 +3669,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           _scrollSpringTargetIndex != null &&
           !isDiscontinuity &&
           !previewChanged;
+      final animateEmphasis =
+          previous != null &&
+          !isDiscontinuity &&
+          !previewChanged &&
+          widget.isActive &&
+          _tickerModeEnabled &&
+          _appLifecycleVisible &&
+          !MediaQuery.disableAnimationsOf(context);
+      _pendingLyricEmphasisFromIndex = animateEmphasis ? previous : null;
       _currentLyricIndex = currentIndex;
       final restoredFirstLayout = previous == null && _hasStoredScrollOffset;
       final restoreFollowing =
@@ -3412,6 +3726,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               currentIndex,
               stagger: false,
               previousIndex: previous,
+              previousEmphasisIndex: previous,
               request: motionRequest,
             );
             return;
@@ -3424,8 +3739,18 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               request: motionRequest,
             );
           } else {
+            if (_pendingLyricEmphasisFromIndex case final previousIndex?) {
+              _startLyricEmphasisTransition(
+                targetIndex: currentIndex,
+                previousIndex: previousIndex,
+                indices: _itemKeys.keys,
+                spring: _lyricPositionSpring(_springPreset),
+                startAt: _lyricMotionSeconds,
+              );
+            }
             _scrollToLyric(
               currentIndex,
+              preserveEmphasis: animateEmphasis,
               animate:
                   !isDiscontinuity &&
                   !previewChanged &&
@@ -3574,6 +3899,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           );
           _layoutCurrentIndex = currentIndex;
           _layoutSelectedMatch = widget.selectedSearchMatch;
+          if (previousLayout != null &&
+              previousLayout.activeTextScale != layoutIndex.activeTextScale &&
+              _lyricEmphasisMotion.isNotEmpty) {
+            _retargetLyricEmphasisMotion(_lyricPositionSpring(_springPreset));
+          }
           if (canRestore || browsedAnchor != null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted ||
@@ -3595,6 +3925,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   animate: false,
                   force: true,
                   ignoreAutoScroll: true,
+                  preserveEmphasis: _lyricEmphasisMotion.isNotEmpty,
                   lineFraction: browsedAnchor.fraction,
                 );
               } else if (_scrollSpringTargetIndex != null &&
@@ -3607,7 +3938,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   request: request,
                 );
               } else if (_autoScroll && !widget.suspendAutoScroll) {
-                _scrollToLyric(currentIndex, animate: false, force: true);
+                _scrollToLyric(
+                  currentIndex,
+                  animate: false,
+                  force: true,
+                  preserveEmphasis: _lyricEmphasisMotion.isNotEmpty,
+                );
               }
             });
           }
@@ -3650,19 +3986,14 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           );
           _effectiveTopPadding = effectiveTopPadding;
           final rowWidth = math.min(
-            math.max(1.0, constraints.maxWidth - 24),
-            textWidth + 32,
+            math.max(1.0, constraints.maxWidth),
+            textWidth * math.max(1.0, layoutIndex.activeTextScale) + 32,
           );
 
           Widget buildLyricRow(int index, {bool positionedOverlay = false}) {
             final lyric = lyrics[index];
             final active = index == currentIndex;
-            final past = index < currentIndex;
-            final style = (active ? activeStyle : inactiveStyle).copyWith(
-              color: colors.onSurface.withValues(
-                alpha: active ? 1 : (past ? 0.24 : 0.34),
-              ),
-            );
+            final style = inactiveStyle.copyWith(color: colors.onSurface);
             final lyricRow = Listener(
               behavior:
                   widget.enableLineTapFeedback &&
@@ -3733,15 +4064,50 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                       vertical: 10,
                       horizontal: 16,
                     ),
-                    child: _HighlightedLyricText(
-                      key: _getTextKeyForIndex(index),
-                      text: lyric.text,
-                      query: normalizedQuery,
-                      selectedMatch:
-                          widget.selectedSearchMatch?.lineIndex == index
-                          ? widget.selectedSearchMatch
-                          : null,
-                      style: style,
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: textWidth),
+                        child: AnimatedBuilder(
+                          animation: _lyricMotionFrame,
+                          builder: (context, _) {
+                            final target = _lyricEmphasisTarget(
+                              index,
+                              currentIndex,
+                            );
+                            final emphasis = _lyricEmphasisValue(index);
+                            final reducedMotion =
+                                MediaQuery.disableAnimationsOf(context);
+                            final opacity = reducedMotion
+                                ? target.opacity
+                                : emphasis.opacity;
+                            return Transform.scale(
+                              scale: reducedMotion
+                                  ? (active ? target.scale : 1.0)
+                                  : emphasis.scale,
+                              filterQuality: _autoScroll
+                                  ? FilterQuality.low
+                                  : null,
+                              transformHitTests: true,
+                              child: _HighlightedLyricText(
+                                key: _getTextKeyForIndex(index),
+                                text: lyric.text,
+                                query: normalizedQuery,
+                                selectedMatch:
+                                    widget.selectedSearchMatch?.lineIndex ==
+                                        index
+                                    ? widget.selectedSearchMatch
+                                    : null,
+                                style: style.copyWith(
+                                  color: colors.onSurface.withValues(
+                                    alpha: opacity,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -3759,9 +4125,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 : lyricRow;
             final motion = _buildLyricMotion(
               index: index,
-              targetScale: MediaQuery.disableAnimationsOf(context)
-                  ? 1.0
-                  : (active ? _lyricSpringScaleActive : _lyricSpringScaleRest),
               translateWithMotion: !positionedOverlay,
               child: IndexedSemantics(
                 index: index,
@@ -3770,6 +4133,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                     alignment: Alignment.center,
                     child: SizedBox(
                       width: rowWidth,
+                      height: layoutIndex.extentFor(
+                        index,
+                        currentIndex: currentIndex,
+                        selectedMatch: widget.selectedSearchMatch,
+                      ),
                       child: Semantics(
                         selected: active,
                         button: !widget.isLocked,
@@ -3791,8 +4159,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               _lyricContentCenter(index),
             );
             return Positioned(
-              left: 12,
-              right: 12,
+              left: 0,
+              right: 0,
               top: center - extent / 2,
               height: extent,
               child: motion,
@@ -3829,9 +4197,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                             parent: ClampingScrollPhysics(),
                           ),
                           padding: EdgeInsets.fromLTRB(
-                            12,
+                            0,
                             effectiveTopPadding,
-                            12,
+                            0,
                             effectiveBottomPadding,
                           ),
                           itemCount: lyrics.length,

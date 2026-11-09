@@ -298,13 +298,15 @@ void main() {
 
     final active = tester.widget<Text>(find.text('matching lyric 2'));
     expect(active.style?.fontWeight, FontWeight.w700);
-    expect(active.style?.color?.a, 1);
-    final inactive = tester.widget<Text>(find.text('lyric 3'));
-    expect(inactive.style?.color?.a, lessThan(0.4));
+    expect(_visibleLyricAlpha(tester, find.text('matching lyric 2')), 1);
+    expect(_visibleLyricAlpha(tester, find.text('lyric 3')), lessThan(0.4));
+    final inactiveSpacing =
+        tester.getCenter(find.text('matching lyric 4')).dy -
+        tester.getCenter(find.text('lyric 3')).dy;
     expect(
-      tester.getCenter(find.text('matching lyric 4')).dy -
-          tester.getCenter(find.text('lyric 3')).dy,
-      closeTo(44, 0.01),
+      tester.getCenter(find.text('lyric 5')).dy -
+          tester.getCenter(find.text('matching lyric 4')).dy,
+      closeTo(inactiveSpacing, 0.01),
     );
 
     await tester.tap(find.text('lyric 5'));
@@ -398,23 +400,13 @@ void main() {
     final nextLine = find.text('spring lyric 1');
     final followingLine = find.text('spring lyric 2');
     final laterLine = find.text('spring lyric 3');
-    double lyricFontSize(String text) {
-      final richText = tester.widget<RichText>(
-        find.byWidgetPredicate(
-          (widget) => widget is RichText && widget.text.toPlainText() == text,
-        ),
-      );
-      return richText.text.style!.fontSize!;
-    }
-
     double lyricAlpha(String text) =>
-        tester.widget<Text>(find.text(text)).style!.color!.a;
+        _visibleLyricAlpha(tester, find.text(text));
 
     double visualScale(Finder line) =>
         tester.getRect(line).width / tester.getSize(line).width;
     final initialScale = visualScale(nextLine);
-    final initialActiveSize = lyricFontSize('spring lyric 0');
-    final initialInactiveSize = lyricFontSize('spring lyric 1');
+    final initialAlpha = lyricAlpha('spring lyric 1');
     final followingStart = tester.getCenter(followingLine).dy;
     final laterStart = tester.getCenter(laterLine).dy;
     expect(initialScale, closeTo(0.97, 0.005));
@@ -422,12 +414,9 @@ void main() {
     positions.add(const Duration(seconds: 1));
     await tester.pump();
     await tester.pump();
-    expect(lyricFontSize('spring lyric 1'), closeTo(initialActiveSize, 0.01));
-    expect(lyricAlpha('spring lyric 1'), 1);
-    expect(visualScale(nextLine), closeTo(1, 0.005));
-    expect(lyricFontSize('spring lyric 0'), closeTo(initialInactiveSize, 0.01));
-    expect(lyricAlpha('spring lyric 0'), closeTo(0.24, 0.001));
-    expect(visualScale(find.text('spring lyric 0')), closeTo(0.97, 0.005));
+    expect(lyricAlpha('spring lyric 1'), closeTo(initialAlpha, 0.001));
+    expect(visualScale(nextLine), closeTo(initialScale, 0.005));
+    expect(lyricAlpha('spring lyric 0'), closeTo(1, 0.001));
     await tester.pump(const Duration(milliseconds: 16));
     expect(
       (tester.getCenter(nextLine).dy -
@@ -454,18 +443,16 @@ void main() {
         .ancestor(of: nextLine, matching: find.byType(InkWell))
         .first;
     final movingCenter = tester.getCenter(movingRow);
+    final container = ProviderScope.containerOf(tester.element(nextLine));
     positions.add(const Duration(seconds: 2));
     for (var frame = 0; frame < 10; frame++) {
       await tester.pump();
-      if (lyricFontSize('spring lyric 2') > lyricFontSize('spring lyric 1') &&
+      if (container.read(currentLyricIndexProvider) == 2 &&
           (tester.getCenter(movingRow).dy - movingCenter.dy).abs() < 0.5) {
         break;
       }
     }
-    expect(
-      lyricFontSize('spring lyric 2'),
-      greaterThan(lyricFontSize('spring lyric 1')),
-    );
+    expect(container.read(currentLyricIndexProvider), 2);
     expect(tester.getCenter(movingRow).dy, closeTo(movingCenter.dy, 0.5));
     await tester.pump(const Duration(milliseconds: 16));
     expect(
@@ -644,7 +631,7 @@ void main() {
       FontWeight.w700,
     );
     expect(
-      tester.widget<Text>(find.text('matching lyric 2')).style?.color?.a,
+      _visibleLyricAlpha(tester, find.text('matching lyric 2')),
       lessThan(0.4),
     );
 
@@ -1868,6 +1855,13 @@ void main() {
     final firstSelectedHit = hitsIn('远处还有我').single;
     expect(firstSelectedHit.style?.backgroundColor, colors.primary);
     expect(firstSelectedHit.style?.color, colors.onPrimary);
+    final selectedRichLine = find.byWidgetPredicate(
+      (widget) => widget is RichText && widget.text.toPlainText() == '远处还有我',
+    );
+    final selectedOpacities = tester.widgetList<Opacity>(
+      find.ancestor(of: selectedRichLine, matching: find.byType(Opacity)),
+    );
+    expect(selectedOpacities.every((opacity) => opacity.opacity == 1), isTrue);
 
     final lyricList = find.byKey(const ValueKey('full-lyric-list'));
     tester
@@ -2558,14 +2552,20 @@ void main() {
               widget is RichText && widget.text.toPlainText() == longLyric,
         );
         final lyricRect = tester.getRect(lyricFinder);
-        expect(lyricRect.width, closeTo(size.width == 320 ? 64 : 600, 0.01));
+        final lyricLayoutWidth = tester.getSize(lyricFinder).width;
+        final lyricLayoutRect = Rect.fromCenter(
+          center: lyricRect.center,
+          width: lyricLayoutWidth,
+          height: lyricRect.height,
+        );
+        expect(lyricLayoutWidth, closeTo(size.width == 320 ? 64 : 600, 0.01));
         final button = tester.getRect(
           find.byKey(const ValueKey('player-slice-cut-button')),
         );
         expect(button.width, 48);
         expect(button.height, 48);
-        expect(button.right, lessThanOrEqualTo(lyricRect.left));
-        expect(timeColumn.left, greaterThanOrEqualTo(lyricRect.right));
+        expect(button.right, lessThanOrEqualTo(lyricLayoutRect.left));
+        expect(timeColumn.left, greaterThanOrEqualTo(lyricLayoutRect.right));
         expect(
           tester.getSize(find.byIcon(Icons.content_cut)),
           const Size(18, 18),
@@ -2576,8 +2576,8 @@ void main() {
         );
         final lineRect = tester.getRect(lineFinder);
         expect(lineRect.height, 1);
-        expect(lineRect.left, closeTo(lyricRect.left, 0.01));
-        expect(lineRect.right, closeTo(lyricRect.right, 0.01));
+        expect(lineRect.left, closeTo(lyricLayoutRect.left, 0.01));
+        expect(lineRect.right, closeTo(lyricLayoutRect.right, 0.01));
         expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
         expect(lineRect.overlaps(lyricRect), isTrue);
         final lineColor = tester
@@ -2649,6 +2649,16 @@ void _expectSurfaceLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
     find.byKey(const ValueKey('playback-line-indicator')),
   );
   expect((tester.getCenter(line).dy - anchor.dy).abs(), lessThanOrEqualTo(2.1));
+}
+
+double _visibleLyricAlpha(WidgetTester tester, Finder lyric) {
+  final color = tester.widget<Text>(lyric).style?.color;
+  final opacities = tester.widgetList<Opacity>(
+    find.ancestor(of: lyric, matching: find.byType(Opacity)),
+  );
+  return opacities.fold(color?.a ?? 1.0, (alpha, opacity) {
+    return alpha * opacity.opacity;
+  });
 }
 
 double _tapFeedbackAlpha(WidgetTester tester, String keyValue) {
