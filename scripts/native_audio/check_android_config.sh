@@ -41,9 +41,13 @@ grep -Fq 'apply_mpv_audio_controls.sh' "$script_dir/build_android.sh" ||
 if grep -Eq 'git clone.*(--branch[[:space:]]+(main|master)|refs/heads/(main|master))' "$download_deps"; then
     fail "default flavor downloads an unpinned moving branch"
 fi
-if grep -Eq 'git clone.*(fftools-ffi|media-kit-android-helper|media_kit|x264\.git)' "$download_deps"; then
+if grep -Eq 'git clone.*(fftools-ffi|media_kit|x264\.git)' "$download_deps"; then
     fail "default flavor downloads an unused source repository"
 fi
+grep -Fq 'git clone https://github.com/media-kit/media-kit-android-helper.git' "$download_deps" ||
+    fail "media-kit Android helper source is not downloaded"
+grep -Fq 'git reset --hard "$ANDROID_HELPER_COMMIT"' "$download_deps" ||
+    fail "media-kit Android helper is not checked out at its locked commit"
 
 [[ "$(grep -Fc -- '--disable-filters' "$ffmpeg_config")" == 1 ]] ||
     fail "FFmpeg must keep its explicit filter allowlist"

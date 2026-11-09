@@ -452,6 +452,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     required AudioTapPlaylistMode playlistMode,
   }) async {
     final selectedTrack = tracks[startIndex];
+    final noCurrentTrack = _service.currentTrack == null;
+    final loadGeneration = _service.trackLoadGeneration;
     switch (playlistMode) {
       case AudioTapPlaylistMode.replaceQueue:
         await _service.updateQueue(
@@ -468,6 +470,14 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           await _service.appendTracks([selectedTrack]);
         }
         _log.captureOutput('[AudioController] 已安排下一首播放');
+    }
+    if (noCurrentTrack &&
+        _service.currentTrack == null &&
+        _service.trackLoadGeneration == loadGeneration) {
+      final index = _service.queue.indexWhere(
+        (track) => track.id == selectedTrack.id,
+      );
+      if (index >= 0) await _service.skipToIndex(index);
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
   }

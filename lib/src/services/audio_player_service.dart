@@ -3190,7 +3190,7 @@ class AudioPlayerService {
       AutomaticMarkingEventType.selected,
       track: _queue[index],
     );
-    if (index == currentIndex) {
+    if (index == currentIndex && _publishedTrack != null) {
       _markingStartedGeneration = null;
       return;
     }
@@ -3561,6 +3561,7 @@ class AudioPlayerService {
         await request.future;
       } catch (error) {
         if (!request.superseded && _isLatestTrackLoad(request)) {
+          _isRestoringSession = false;
           await _clearPlaybackSession();
         }
         _log.captureOutput('[AudioSession] Failed to restore session: $error');
@@ -3612,6 +3613,7 @@ class AudioPlayerService {
       _manualSkipAvailabilityController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
   bool get isTrackLoading => _isSwitchingTrack;
+  int get trackLoadGeneration => _trackLoadGeneration;
   Stream<AudioTrack?> get requestedTrackStream =>
       _requestedTrackController.stream;
   AudioTrack? get requestedTrack {

@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
+import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -47,6 +48,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ControlledPlayer player;
   late AudioPlayerService service;
+  late _GateSessionStore sessions;
   late ProviderContainer container;
   late AudioPlayerController controller;
   late _History history;
@@ -68,10 +70,8 @@ void main() {
           (call) async => cacheRoot.path,
         );
     player = ControlledPlayer();
-    service = AudioPlayerService.forTesting(
-      player,
-      sessionStore: MemorySessionStore(),
-    );
+    sessions = _GateSessionStore();
+    service = AudioPlayerService.forTesting(player, sessionStore: sessions);
     service.updatePreloadThreshold(null);
     api = _Api();
     container = ProviderContainer(
@@ -99,6 +99,116 @@ void main() {
   Future<void> select(bool multiple) => multiple
       ? controller.playTracks(_tracks, startIndex: 1, work: _work)
       : controller.playTrack(_tracks[1]);
+
+  Future<void> restoreWithHeldLoad() {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [_tracks[0]],
+      currentIndex: 0,
+      position: Duration.zero,
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    player.holdNextLoad = true;
+    return service.restorePlaybackSession();
+  }
+
+  for (final selectedIndex in [0, 1]) {
+    test(
+      'adding audio after a failed restore starts selection $selectedIndex',
+      () async {
+        final restore = restoreWithHeldLoad();
+        await until(() => player.pendingLoad != null);
+        player.pendingLoad!.completeError(StateError('restore failed'));
+        await restore;
+
+        await controller.playTracks([
+          _tracks[selectedIndex],
+        ], playlistMode: AudioTapPlaylistMode.addToQueue);
+        expect(service.currentTrack?.id, _tracks[selectedIndex].id);
+        expect(service.playing, isTrue);
+        expect(
+          service.queue.map((track) => track.id),
+          selectedIndex == 0 ? ['a'] : ['a', 'b'],
+        );
+        expect(container.read(miniPlayerVisibilityProvider), isTrue);
+      },
+    );
+  }
+
+  for (final mode in [
+    AudioTapPlaylistMode.addToQueue,
+    AudioTapPlaylistMode.playNext,
+  ]) {
+    test(
+      '$mode starts selected audio while a session restore is pending',
+      () async {
+        final restore = restoreWithHeldLoad();
+        await until(() => player.pendingLoad != null);
+        try {
+          await controller.playTracks([_tracks[1]], playlistMode: mode);
+          expect(service.currentTrack?.id, 'b');
+          expect(service.playing, isTrue);
+          expect(service.queue.map((track) => track.id), ['a', 'b']);
+          expect(container.read(miniPlayerVisibilityProvider), isTrue);
+        } finally {
+          if (player.pendingLoad != null) player.finishLoad();
+          await restore;
+        }
+      },
+    );
+  }
+
+  test('selection during failed restore cleanup is persisted', () async {
+    sessions.clearGate = Completer<void>();
+    sessions.clearStarted = Completer<void>();
+    final restore = restoreWithHeldLoad();
+    await until(() => player.pendingLoad != null);
+    player.pendingLoad!.completeError(StateError('restore failed'));
+    await sessions.clearStarted!.future;
+    try {
+      await controller.playTracks([
+        _tracks[0],
+      ], playlistMode: AudioTapPlaylistMode.addToQueue);
+      expect(service.currentTrack?.id, 'a');
+    } finally {
+      sessions.clearGate!.complete();
+      await restore;
+    }
+    await until(() => sessions.snapshot != null);
+    expect(sessions.snapshot!.queue.map((track) => track.id), ['a']);
+  });
+
+  test('a newer selection wins while an addition is saving', () async {
+    final restore = restoreWithHeldLoad();
+    await until(() => player.pendingLoad != null);
+    player.pendingLoad!.completeError(StateError('restore failed'));
+    await restore;
+
+    sessions.saveGate = Completer<void>();
+    sessions.saveStarted = Completer<void>();
+    final adding = controller.playTracks([
+      _tracks[1],
+    ], playlistMode: AudioTapPlaylistMode.addToQueue);
+    await sessions.saveStarted!.future;
+    player.holdNextLoad = true;
+    final newer = service.updateQueue(
+      [_tracks[1], _tracks[2]],
+      startIndex: 1,
+      autoplay: true,
+    );
+    await until(() => player.pendingLoad != null);
+    try {
+      sessions.saveGate!.complete();
+      await adding;
+      if (player.pendingLoad != null) player.finishLoad();
+      await newer;
+      expect(service.currentTrack?.id, 'c');
+      expect(service.playing, isTrue);
+    } finally {
+      if (!sessions.saveGate!.isCompleted) sessions.saveGate!.complete();
+      if (player.pendingLoad != null) player.finishLoad();
+      await Future.wait([adding, newer]);
+    }
+  });
 
   for (final multiple in [false, true]) {
     final entry = multiple ? 'playTracks' : 'playTrack';
@@ -229,6 +339,29 @@ void main() {
     await playing;
     expect(history.calls, isEmpty);
   });
+}
+
+class _GateSessionStore extends MemorySessionStore {
+  Completer<void>? clearGate;
+  Completer<void>? clearStarted;
+  Completer<void>? saveGate;
+  Completer<void>? saveStarted;
+
+  @override
+  Future<void> clear() async {
+    clearStarted?.complete();
+    await clearGate?.future;
+    await super.clear();
+  }
+
+  @override
+  Future<void> save(PlaybackSessionSnapshot snapshot) async {
+    if (saveGate != null && !saveGate!.isCompleted) {
+      if (saveStarted?.isCompleted == false) saveStarted!.complete();
+      await saveGate!.future;
+    }
+    await super.save(snapshot);
+  }
 }
 
 class _Api extends Fake implements KikoeruApiService {

@@ -51,7 +51,7 @@ index 11c1e40..d641b64 100644
 -# libx264
 -[ ! -d libx264 ] && git clone --depth 1 https://code.videolan.org/videolan/x264.git --branch master libx264
 -
-@@ -55,9 +42,0 @@ HEREDOC
+@@ -55,9 +42,2 @@ HEREDOC
 -# fftools_ffi
 -[ ! -d fftools_ffi ] && git clone --depth 1 --branch main https://github.com/moffatman/fftools-ffi.git fftools_ffi
 -
@@ -61,6 +61,8 @@ index 11c1e40..d641b64 100644
 -# media_kit
 -[ ! -d media_kit ] && git clone --depth 1 --single-branch --branch main https://github.com/alexmercerind/media_kit.git
 -
++# media-kit-android-helper
++[ ! -d media-kit-android-helper ] && git clone https://github.com/media-kit/media-kit-android-helper.git && cd media-kit-android-helper && git reset --hard "$ANDROID_HELPER_COMMIT" && cd ..
 diff --git a/buildscripts/include/download-sdk.sh b/buildscripts/include/download-sdk.sh
 index 45261eb..2178cc4 100644
 --- a/buildscripts/include/download-sdk.sh

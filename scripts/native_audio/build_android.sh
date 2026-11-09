@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 source "$script_dir/android.lock"
+export ANDROID_HELPER_COMMIT
 
 mode=${1:-arm64}
 work_dir="${RUNNER_TEMP:-$repo_root/build}/native-audio-work/android"
@@ -45,8 +46,10 @@ TRAVIS=1 ./download.sh
 ./patch.sh
 mpv_source_dir="$buildscripts_dir/deps/mpv"
 ffmpeg_source_dir="$buildscripts_dir/deps/ffmpeg"
+helper_source_dir="$buildscripts_dir/deps/media-kit-android-helper"
 assert_source_commit mpv "$ANDROID_MPV_COMMIT" "$mpv_source_dir"
 assert_source_commit FFmpeg "$ANDROID_FFMPEG_COMMIT" "$ffmpeg_source_dir"
+assert_source_commit media-kit-android-helper "$ANDROID_HELPER_COMMIT" "$helper_source_dir"
 bash "$script_dir/apply_mpv_audio_reinit.sh" --apply \
     "$mpv_source_dir" "$ANDROID_MPV_COMMIT" \
     "$script_dir/mpv-audio-reinit.patch" "$MPV_AUDIO_REINIT_PATCH_COMMIT"
@@ -78,6 +81,15 @@ else
     arches=(arm64)
 fi
 
+helper_cmake_source="$helper_source_dir/app/src/main/cpp"
+helper_cmake="$buildscripts_dir/sdk/android-sdk-linux/cmake/3.22.1/bin/cmake"
+helper_toolchain="$buildscripts_dir/sdk/android-sdk-linux/ndk/$ANDROID_NDK/build/cmake/android.toolchain.cmake"
+[[ -f "$helper_cmake_source/CMakeLists.txt" ]] || fail "media-kit Android helper CMake source is missing"
+[[ -x "$helper_cmake" ]] || fail "Android CMake 3.22.1 is missing: $helper_cmake"
+[[ -f "$helper_toolchain" ]] || fail "locked Android NDK toolchain is missing: $helper_toolchain"
+grep -Fq -- '-Wl,-z,max-page-size=16384' "$helper_cmake_source/CMakeLists.txt" ||
+    fail "media-kit Android helper CMake source does not enable 16 KiB page alignment"
+
 for arch in "${arches[@]}"; do
     case "$arch" in
         arm64) abi=arm64-v8a; expected_machine='AArch64' ;;
@@ -87,6 +99,25 @@ for arch in "${arches[@]}"; do
         *) fail "unsupported Android architecture: $arch" ;;
     esac
 
+    helper_build_dir="$work_dir/helper-build/$abi"
+    helper_output_dir="$work_dir/helper-output/$abi"
+    "$helper_cmake" -G Ninja -S "$helper_cmake_source" -B "$helper_build_dir" \
+        -DCMAKE_TOOLCHAIN_FILE="$helper_toolchain" \
+        -DANDROID_ABI="$abi" \
+        -DANDROID_PLATFORM="android-$ANDROID_API" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$helper_output_dir" ||
+        fail "media-kit Android helper CMake configuration failed for $abi"
+    "$helper_cmake" --build "$helper_build_dir" --config Release --parallel 2 ||
+        fail "media-kit Android helper build failed for $abi"
+    helper_library="$helper_output_dir/libmediakitandroidhelper.so"
+    [[ -s "$helper_library" ]] || fail "media-kit Android helper was not produced for $abi"
+    readelf -h "$helper_library" | grep -Eq "Machine:[[:space:]]+$expected_machine" ||
+        fail "media-kit Android helper has the wrong ELF machine for $abi"
+    readelf -W -l "$helper_library" |
+        awk '/^[[:space:]]*LOAD/ { found = 1; if ($NF != "0x4000") invalid = 1 } END { exit !(found && !invalid) }' ||
+        fail "media-kit Android helper is not aligned for 16 KiB pages for $abi"
+
     ./build.sh --arch "$arch"
     library="$buildscripts_dir/prefix/$abi/usr/local/lib/libmpv.so"
     [[ -s "$library" ]] || fail "libmpv.so was not produced for $abi"
@@ -95,18 +126,23 @@ for arch in "${arches[@]}"; do
 
     mkdir -p "$output_dir/$abi" "$work_dir/jar/$abi/lib/$abi"
     cp "$library" "$output_dir/$abi/libmpv.so"
+    cp "$helper_library" "$output_dir/$abi/libmediakitandroidhelper.so"
     cp "$library" "$work_dir/jar/$abi/lib/$abi/libmpv.so"
+    cp "$helper_library" "$work_dir/jar/$abi/lib/$abi/libmediakitandroidhelper.so"
     (
         cd "$work_dir/jar/$abi"
-        zip -q -r "$output_dir/default-$abi.jar" "lib/$abi/libmpv.so"
+        zip -q -r "$output_dir/default-$abi.jar" "lib/$abi/libmpv.so" "lib/$abi/libmediakitandroidhelper.so"
     )
     unzip -Z1 "$output_dir/default-$abi.jar" | grep -Fxq "lib/$abi/libmpv.so" ||
-        fail "default-$abi.jar has the wrong native library path"
+        fail "default-$abi.jar is missing lib/$abi/libmpv.so"
+    unzip -Z1 "$output_dir/default-$abi.jar" | grep -Fxq "lib/$abi/libmediakitandroidhelper.so" ||
+        fail "default-$abi.jar is missing lib/$abi/libmediakitandroidhelper.so"
 done
 
 {
     printf 'builder_url=%s\n' "$ANDROID_BUILDER_URL"
     printf 'builder_ref=%s\n' "$ANDROID_BUILDER_COMMIT"
+    printf 'android_helper_commit=%s\n' "$ANDROID_HELPER_COMMIT"
     printf 'ffmpeg_version=n%s\n' "$ANDROID_FFMPEG_VERSION"
     printf 'mpv_commit=%s\n' "$ANDROID_MPV_COMMIT"
     printf 'mpv_audio_reinit_patch_commit=%s\n' "$MPV_AUDIO_REINIT_PATCH_COMMIT"

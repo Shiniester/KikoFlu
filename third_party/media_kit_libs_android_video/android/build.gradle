@@ -62,6 +62,9 @@ task stageNativeAudioJars {
                 if (archive.getEntry("lib/${abi}/libmpv.so") == null) {
                     throw new GradleException("Custom libmpv JAR has no lib/${abi}/libmpv.so entry: ${nativeJar}")
                 }
+                if (archive.getEntry("lib/${abi}/libmediakitandroidhelper.so") == null) {
+                    throw new GradleException("Custom libmpv JAR has no lib/${abi}/libmediakitandroidhelper.so entry: ${nativeJar}")
+                }
             }
             nativeJar
         }
