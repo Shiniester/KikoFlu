@@ -18,6 +18,9 @@ jobs:
       - name: Test release upload recovery
         run: python3 scripts/test_release_uploads.py
 
+      - name: Test Gradle wrapper download recovery
+        run: python3 scripts/test_gradle_download_retry.py
+
       - name: Test Android signing certificate consistency
         run: python3 scripts/test_android_signing.py
 

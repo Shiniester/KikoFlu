@@ -26,7 +26,6 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     this.onDownload,
     this.onLongPress,
     this.scrollController,
-    this.lyricContentWidth,
     this.actionWidth,
     this.searchWidth,
     this.onTogglePlayback,
@@ -41,7 +40,6 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final VoidCallback? onDownload;
   final VoidCallback? onLongPress;
   final ScrollController? scrollController;
-  final double? lyricContentWidth;
   final double? actionWidth;
   final double? searchWidth;
   final VoidCallback? onTogglePlayback;
@@ -178,7 +176,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       selectedSearchMatch: _searchHighlightsVisible
                           ? selectedMatch
                           : null,
-                      contentWidth: widget.lyricContentWidth,
+                      contentWidth: actionWidth,
                       visibleBottomInset: displayVisibleBottomInset,
                       snapOnAutoScrollResume: !_skipNextAutoScrollResume,
                       snapToCurrentOnFirstLayout: true,

@@ -969,6 +969,7 @@ void main() {
     positions.add(const Duration(seconds: 5));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 70));
+    await tester.pump();
     final scrollable = tester.state<ScrollableState>(
       find.descendant(
         of: find.byKey(const ValueKey('full-lyric-list')),
@@ -4526,7 +4527,7 @@ void main() {
     expect(lyricLeftIcon.left, closeTo(coverRect.left, 0.01));
     expect(lyricRightIcon.right, closeTo(coverRect.right, 0.01));
     expect(lyricText.center.dx, closeTo(coverRect.center.dx, 0.01));
-    expect(lyricText.width, lessThan(coverRect.width));
+    expect(lyricText.width, lessThanOrEqualTo(actionsRect.width));
     final timeText = tester.renderObject<RenderBox>(
       find.byKey(const ValueKey('playback-line-time')),
     );
@@ -4534,13 +4535,13 @@ void main() {
     final line = tester.getRect(
       find.byKey(const ValueKey('playback-line-indicator')),
     );
-    expect(line.left, closeTo(lyricText.left, 0.01));
-    expect(line.right, closeTo(lyricText.right, 0.01));
+    expect(line.left, closeTo(actionsRect.left, 0.01));
+    expect(line.right, closeTo(actionsRect.right, 0.01));
     expect(
       tester
           .getRect(find.byKey(const ValueKey('playback-line-time-column')))
-          .left,
-      greaterThanOrEqualTo(lyricText.right),
+          .right,
+      closeTo(actionsRect.right, 0.01),
     );
   });
 
