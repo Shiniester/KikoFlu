@@ -14,6 +14,7 @@ import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
+import '../providers/player_buttons_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../providers/player_work_details_provider.dart';
 import '../services/audio_player_service.dart';
@@ -23,6 +24,7 @@ import '../utils/system_ui_style.dart';
 import '../widgets/player/player_cover_widget.dart';
 import '../widgets/player/player_track_layers.dart';
 import '../widgets/player/player_controls_widget.dart';
+import '../widgets/player/player_action_slot.dart';
 import '../widgets/player/lyric_display_widget.dart';
 import '../widgets/player/player_seek_preview.dart';
 import '../widgets/player/playlist_dialog.dart';
@@ -2024,8 +2026,24 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                 compact: true,
               );
               final preferredPreviewHeight = threeLinePreviewHeight + 20;
+              final isDesktop = !Platform.isAndroid && !Platform.isIOS;
+              final visibleButtons = ref
+                  .watch(
+                    isDesktop
+                        ? playerButtonsConfigDesktopProvider
+                        : playerButtonsConfigMobileProvider,
+                  )
+                  .getVisibleButtons(slotCount: 5);
+              final hasStatusButton =
+                  visibleButtons.contains(PlayerButtonType.speed) ||
+                  visibleButtons.contains(PlayerButtonType.sleepTimer);
+              final actionRowHeight =
+                  PlayerActionSlot.buttonHeight +
+                  (hasStatusButton
+                      ? lyricTextScaler.scale(PlayerActionSlot.labelFontSize)
+                      : 0);
               final fullControlsHeight =
-                  32 + timeLabelHeight + 18 + 62 + 16 + 48;
+                  32 + timeLabelHeight + 18 + 62 + 16 + actionRowHeight;
               final verticalPadding = shortStage ? 0.0 : 36.0;
               final compactSpacing =
                   constraints.maxHeight <

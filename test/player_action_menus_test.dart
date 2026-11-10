@@ -35,8 +35,11 @@ Future<void> _openMenu(
   bool fakeFloatingLyric = false,
   bool openMenu = true,
   int visibleActionCount = 0,
+  bool isLandscape = false,
+  Size viewSize = const Size(390, 844),
+  double textScale = 1,
 }) async {
-  tester.view.physicalSize = const Size(390, 844);
+  tester.view.physicalSize = viewSize;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -80,6 +83,12 @@ Future<void> _openMenu(
         locale: const Locale('en'),
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) => infoPanel
@@ -100,7 +109,7 @@ Future<void> _openMenu(
                     child: const Text('Open information menu'),
                   )
                 : PlayerControlsWidget(
-                    isLandscape: false,
+                    isLandscape: isLandscape,
                     isSeekingManually: false,
                     seekValue: 0,
                     onSeekChanged: (_) {},
@@ -217,6 +226,156 @@ void main() {
     expect(find.byType(ResponsiveAlertDialog), findsOneWidget);
     expect(find.text('Playback Speed'), findsOneWidget);
   });
+
+  for (final (viewSize, isLandscape) in [
+    (const Size(320, 844), false),
+    (const Size(390, 844), false),
+    (const Size(844, 390), true),
+  ]) {
+    testWidgets('audio effects aligns with other controls at $viewSize', (
+      tester,
+    ) async {
+      final prefs = await SharedPreferences.getInstance();
+      const order = 'playback_audio_effects,seek_backward';
+      await prefs.setString('player_buttons_config', order);
+      await prefs.setString('player_buttons_config_desktop', order);
+      await _openMenu(
+        tester,
+        infoPanel: false,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        visibleActionCount: 2,
+        openMenu: false,
+        isLandscape: isLandscape,
+        viewSize: viewSize,
+      );
+
+      final effectsCenter = tester.getCenter(find.byIcon(Icons.equalizer));
+      expect(
+        effectsCenter.dy,
+        tester.getCenter(find.byIcon(Icons.replay_10)).dy,
+      );
+      expect(
+        effectsCenter.dy,
+        tester.getCenter(find.byIcon(Icons.more_horiz)).dy,
+      );
+      await tester.tap(find.byIcon(Icons.equalizer));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const PageStorageKey('audio-effects-equalizer')),
+        findsOneWidget,
+      );
+    });
+  }
+
+  for (final (viewSize, isLandscape) in [
+    (const Size(390, 844), false),
+    (const Size(844, 390), true),
+  ]) {
+    for (final textScale in [1.0, 2.0]) {
+      testWidgets(
+        'action icons align at $viewSize with text scale $textScale',
+        (tester) async {
+          final prefs = await SharedPreferences.getInstance();
+          const order =
+              'playback_audio_effects,seek_backward,speed,sleep_timer';
+          await prefs.setString('player_buttons_config', order);
+          await prefs.setString('player_buttons_config_desktop', order);
+          await _openMenu(
+            tester,
+            infoPanel: false,
+            navigatorKey: GlobalKey<NavigatorState>(),
+            visibleActionCount: 4,
+            openMenu: false,
+            isLandscape: isLandscape,
+            viewSize: viewSize,
+            textScale: textScale,
+            onSpeedChanged: (_) {},
+          );
+
+          void expectIconsAligned(IconData timerIcon) {
+            final center = tester.getCenter(find.byIcon(Icons.equalizer)).dy;
+            for (final icon in [Icons.replay_10, Icons.speed, timerIcon]) {
+              expect(tester.getCenter(find.byIcon(icon)).dy, center);
+            }
+          }
+
+          expectIconsAligned(Icons.timer_outlined);
+          final container = ProviderScope.containerOf(
+            tester.element(find.byType(PlayerControlsWidget)),
+          );
+          await container
+              .read(audioPlayerControllerProvider.notifier)
+              .setSpeed(1.5);
+          final timer = container.read(sleepTimerProvider.notifier);
+          timer.setTimer(const Duration(minutes: 90));
+          await tester.pumpAndSettle();
+
+          expectIconsAligned(Icons.timer);
+          final timerText = find.text(
+            container.read(sleepTimerProvider).formattedTime,
+          );
+          expect(
+            tester.getTopLeft(find.text('1.5x')).dy,
+            greaterThanOrEqualTo(
+              tester.getBottomLeft(find.byIcon(Icons.speed)).dy,
+            ),
+          );
+          expect(
+            tester.getTopLeft(timerText).dy,
+            greaterThanOrEqualTo(
+              tester.getBottomLeft(find.byIcon(Icons.timer)).dy,
+            ),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final (order, icons) in [
+    (
+      'playback_audio_effects,seek_forward,repeat,queue,detail',
+      [Icons.forward_10, Icons.repeat, Icons.queue_music, Icons.info_outline],
+    ),
+    (
+      'playback_audio_effects,volume,mark,subtitle_adjustment,floating_lyric',
+      [
+        Icons.volume_up,
+        Icons.bookmark_border,
+        Icons.tune,
+        Icons.picture_in_picture_alt_outlined,
+      ],
+    ),
+  ]) {
+    for (final (viewSize, isLandscape) in [
+      (const Size(390, 844), false),
+      (const Size(844, 390), true),
+    ]) {
+      testWidgets('configured action icons align at $viewSize: $order', (
+        tester,
+      ) async {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('player_buttons_config', order);
+        await prefs.setString('player_buttons_config_desktop', order);
+        await _openMenu(
+          tester,
+          infoPanel: false,
+          navigatorKey: GlobalKey<NavigatorState>(),
+          visibleActionCount: 5,
+          openMenu: false,
+          isLandscape: isLandscape,
+          viewSize: viewSize,
+          fakeFloatingLyric: true,
+        );
+
+        final center = tester.getCenter(find.byIcon(Icons.equalizer)).dy;
+        for (final icon in icons) {
+          expect(tester.getCenter(find.byIcon(icon)).dy, center);
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   for (final infoPanel in [false, true]) {
     final location = infoPanel ? 'information' : 'controls';

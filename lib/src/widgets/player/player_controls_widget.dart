@@ -19,6 +19,7 @@ import 'sleep_timer_button.dart';
 import 'playlist_dialog.dart';
 import 'player_seek_preview.dart';
 import 'player_action_menu_item.dart';
+import 'player_action_slot.dart';
 import 'player_slice_controls.dart';
 import 'player_slice_progress.dart';
 import '../../../l10n/app_localizations.dart';
@@ -125,225 +126,165 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
     ({double volume, double speed, LoopMode repeatMode}) audioState,
   ) {
     final iconSize = isLandscape ? 24.0 : null;
+    Widget action(Widget child, {String? label}) =>
+        PlayerActionSlot(isLandscape: isLandscape, label: label, child: child);
 
     switch (buttonType) {
       case PlayerButtonType.playbackAudioEffects:
-        return IconButton(
-          tooltip: S.of(context).playbackAudioEffects,
-          icon: const Icon(Icons.equalizer),
-          iconSize: iconSize,
-          onPressed: () => showPlaybackAudioEffects(context),
+        return action(
+          IconButton(
+            tooltip: S.of(context).playbackAudioEffects,
+            icon: const Icon(Icons.equalizer),
+            iconSize: iconSize,
+            onPressed: () => showPlaybackAudioEffects(context),
+          ),
         );
       case PlayerButtonType.seekBackward:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: () {
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .seekBackward(const Duration(seconds: 10));
-              },
-              icon: const Icon(Icons.replay_10),
-              iconSize: iconSize,
-            ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+        return action(
+          IconButton(
+            onPressed: () {
+              ref
+                  .read(audioPlayerControllerProvider.notifier)
+                  .seekBackward(const Duration(seconds: 10));
+            },
+            icon: const Icon(Icons.replay_10),
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.seekForward:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: () {
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .seekForward(const Duration(seconds: 10));
-              },
-              icon: const Icon(Icons.forward_10),
-              iconSize: iconSize,
-            ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+        return action(
+          IconButton(
+            onPressed: () {
+              ref
+                  .read(audioPlayerControllerProvider.notifier)
+                  .seekForward(const Duration(seconds: 10));
+            },
+            icon: const Icon(Icons.forward_10),
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.sleepTimer:
         return SleepTimerButton(iconSize: iconSize);
       case PlayerButtonType.volume:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            VolumeControl(
-              volume: audioState.volume,
-              onVolumeChanged: (value) {
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .setVolume(value);
-              },
-              iconSize: iconSize,
-            ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
-        );
-      case PlayerButtonType.speed:
-        return SizedBox(
-          height: isLandscape ? 40 : 62, // 固定高度确保对齐
-          child: Align(
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  onPressed: () {
-                    showPlayerSpeedDialog(context, audioState.speed);
-                  },
-                  icon: Icon(
-                    Icons.speed,
-                    color: audioState.speed != 1.0
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                  ),
-                  iconSize: iconSize,
-                  padding: isLandscape ? EdgeInsets.zero : null,
-                  constraints: isLandscape
-                      ? const BoxConstraints(minWidth: 36, minHeight: 36)
-                      : null,
-                  visualDensity: isLandscape
-                      ? VisualDensity.compact
-                      : VisualDensity.standard,
-                ),
-                if (audioState.speed != 1.0)
-                  Text(
-                    '${audioState.speed.toStringAsFixed(1)}x',
-                    style: TextStyle(
-                      fontSize: 9,
-                      height: 1.0,
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                if (audioState.speed == 1.0)
-                  SizedBox(height: isLandscape ? 4 : 14),
-              ],
-            ),
+        return action(
+          VolumeControl(
+            volume: audioState.volume,
+            onVolumeChanged: (value) {
+              ref.read(audioPlayerControllerProvider.notifier).setVolume(value);
+            },
+            iconSize: iconSize,
           ),
         );
-      case PlayerButtonType.repeat:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: () {
-                final nextMode = switch (audioState.repeatMode) {
-                  LoopMode.off => LoopMode.one,
-                  LoopMode.one => LoopMode.all,
-                  LoopMode.all => LoopMode.off,
-                };
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .setRepeatMode(nextMode);
-              },
-              icon: Icon(
-                switch (audioState.repeatMode) {
-                  LoopMode.off => Icons.repeat,
-                  LoopMode.one => Icons.repeat_one,
-                  LoopMode.all => Icons.repeat_on,
-                },
-                color: audioState.repeatMode != LoopMode.off
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-              iconSize: iconSize,
+      case PlayerButtonType.speed:
+        return action(
+          IconButton(
+            onPressed: () {
+              showPlayerSpeedDialog(context, audioState.speed);
+            },
+            icon: Icon(
+              Icons.speed,
+              color: audioState.speed != 1.0
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
             ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+            iconSize: iconSize,
+          ),
+          label: audioState.speed != 1.0
+              ? '${audioState.speed.toStringAsFixed(1)}x'
+              : null,
+        );
+      case PlayerButtonType.repeat:
+        return action(
+          IconButton(
+            onPressed: () {
+              final nextMode = switch (audioState.repeatMode) {
+                LoopMode.off => LoopMode.one,
+                LoopMode.one => LoopMode.all,
+                LoopMode.all => LoopMode.off,
+              };
+              ref
+                  .read(audioPlayerControllerProvider.notifier)
+                  .setRepeatMode(nextMode);
+            },
+            icon: Icon(
+              switch (audioState.repeatMode) {
+                LoopMode.off => Icons.repeat,
+                LoopMode.one => Icons.repeat_one,
+                LoopMode.all => Icons.repeat_on,
+              },
+              color: audioState.repeatMode != LoopMode.off
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.queue:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              tooltip: S.of(context).playlistTitle,
-              onPressed:
-                  widget.onQueuePressed ?? () => PlaylistDialog.show(context),
-              icon: const Icon(Icons.queue_music),
-              iconSize: iconSize,
-            ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+        return action(
+          IconButton(
+            tooltip: S.of(context).playlistTitle,
+            onPressed:
+                widget.onQueuePressed ?? () => PlaylistDialog.show(context),
+            icon: const Icon(Icons.queue_music),
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.mark:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: widget.onMarkPressed,
-              icon: Icon(
-                widget.currentProgress != null
-                    ? Icons.bookmark
-                    : Icons.bookmark_border,
-                color: widget.currentProgress != null
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-              iconSize: iconSize,
+        return action(
+          IconButton(
+            onPressed: widget.onMarkPressed,
+            icon: Icon(
+              widget.currentProgress != null
+                  ? Icons.bookmark
+                  : Icons.bookmark_border,
+              color: widget.currentProgress != null
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
             ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.detail:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: widget.onDetailPressed,
-              icon: const Icon(Icons.info_outline),
-              iconSize: iconSize,
-            ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+        return action(
+          IconButton(
+            onPressed: widget.onDetailPressed,
+            icon: const Icon(Icons.info_outline),
+            iconSize: iconSize,
+          ),
         );
       case PlayerButtonType.subtitleAdjustment:
         final lyricState = ref.watch(lyricControllerProvider);
         final hasOffset = lyricState.timelineOffset != Duration.zero;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => const SubtitleAdjustmentDialog(),
-                );
-              },
-              icon: Badge(
-                isLabelVisible: hasOffset,
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: const Icon(Icons.tune),
-              ),
+        return action(
+          IconButton(
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => const SubtitleAdjustmentDialog(),
+              );
+            },
+            icon: Badge(
+              isLabelVisible: hasOffset,
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              child: const Icon(Icons.tune),
             ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+          ),
         );
       case PlayerButtonType.floatingLyric:
         final isEnabled = ref.watch(floatingLyricEnabledProvider);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: () {
-                ref.read(floatingLyricEnabledProvider.notifier).toggle();
-              },
-              icon: Icon(
-                isEnabled
-                    ? Icons.picture_in_picture_alt
-                    : Icons.picture_in_picture_alt_outlined,
-                color: isEnabled ? Theme.of(context).colorScheme.primary : null,
-              ),
-              iconSize: iconSize,
+        return action(
+          IconButton(
+            onPressed: () {
+              ref.read(floatingLyricEnabledProvider.notifier).toggle();
+            },
+            icon: Icon(
+              isEnabled
+                  ? Icons.picture_in_picture_alt
+                  : Icons.picture_in_picture_alt_outlined,
+              color: isEnabled ? Theme.of(context).colorScheme.primary : null,
             ),
-            if (!isLandscape) const SizedBox(height: 14),
-          ],
+            iconSize: iconSize,
+          ),
         );
     }
   }
@@ -476,72 +417,84 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                 ),
               ),
               if (widget.showMoreButton)
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        if (widget.onMorePressed != null) {
-                          widget.onMorePressed!();
-                        } else {
-                          _showMoreMenu(context, ref);
-                        }
+                PlayerActionSlot(
+                  isLandscape: widget.isLandscape,
+                  child: IconButton(
+                    onPressed: () {
+                      if (widget.onMorePressed != null) {
+                        widget.onMorePressed!();
+                      } else {
+                        _showMoreMenu(context, ref);
+                      }
+                    },
+                    icon: Builder(
+                      builder: (context) {
+                        final moreButtons = config.getMoreButtons(
+                          slotCount: widget.visibleActionCount,
+                        );
+                        final hasSpeedInMore = moreButtons.contains(
+                          PlayerButtonType.speed,
+                        );
+                        final hasRepeatInMore = moreButtons.contains(
+                          PlayerButtonType.repeat,
+                        );
+                        final hasSleepTimerInMore = moreButtons.contains(
+                          PlayerButtonType.sleepTimer,
+                        );
+                        final hasSubtitleAdjustmentInMore = moreButtons
+                            .contains(PlayerButtonType.subtitleAdjustment);
+                        final hasFloatingLyricInMore = moreButtons.contains(
+                          PlayerButtonType.floatingLyric,
+                        );
+                        final timerState = ref.watch(sleepTimerProvider);
+                        final lyricState = ref.watch(lyricControllerProvider);
+                        final isFloatingLyricEnabled = ref.watch(
+                          floatingLyricEnabledProvider,
+                        );
+
+                        final shouldShowBadge =
+                            (hasSpeedInMore && audioState.speed != 1.0) ||
+                            (hasRepeatInMore &&
+                                audioState.repeatMode != LoopMode.off) ||
+                            (hasSleepTimerInMore && timerState.isActive) ||
+                            (hasSubtitleAdjustmentInMore &&
+                                lyricState.timelineOffset != Duration.zero) ||
+                            (hasFloatingLyricInMore && isFloatingLyricEnabled);
+
+                        return Badge(
+                          isLabelVisible: shouldShowBadge,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
+                          child: const Icon(Icons.more_horiz),
+                        );
                       },
-                      icon: Builder(
-                        builder: (context) {
-                          final moreButtons = config.getMoreButtons(
-                            slotCount: widget.visibleActionCount,
-                          );
-                          final hasSpeedInMore = moreButtons.contains(
-                            PlayerButtonType.speed,
-                          );
-                          final hasRepeatInMore = moreButtons.contains(
-                            PlayerButtonType.repeat,
-                          );
-                          final hasSleepTimerInMore = moreButtons.contains(
-                            PlayerButtonType.sleepTimer,
-                          );
-                          final hasSubtitleAdjustmentInMore = moreButtons
-                              .contains(PlayerButtonType.subtitleAdjustment);
-                          final hasFloatingLyricInMore = moreButtons.contains(
-                            PlayerButtonType.floatingLyric,
-                          );
-                          final timerState = ref.watch(sleepTimerProvider);
-                          final lyricState = ref.watch(lyricControllerProvider);
-                          final isFloatingLyricEnabled = ref.watch(
-                            floatingLyricEnabledProvider,
-                          );
-
-                          final shouldShowBadge =
-                              (hasSpeedInMore && audioState.speed != 1.0) ||
-                              (hasRepeatInMore &&
-                                  audioState.repeatMode != LoopMode.off) ||
-                              (hasSleepTimerInMore && timerState.isActive) ||
-                              (hasSubtitleAdjustmentInMore &&
-                                  lyricState.timelineOffset != Duration.zero) ||
-                              (hasFloatingLyricInMore &&
-                                  isFloatingLyricEnabled);
-
-                          return Badge(
-                            isLabelVisible: shouldShowBadge,
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.primary,
-                            child: const Icon(Icons.more_horiz),
-                          );
-                        },
-                      ),
-                      iconSize: widget.isLandscape ? 24 : null,
                     ),
-                    if (!widget.isLandscape) const SizedBox(height: 14),
-                  ],
+                    iconSize: widget.isLandscape ? 24 : null,
+                  ),
                 ),
             ];
+            if (widget.isLandscape && widget.additionalActionWidth == null) {
+              return LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: actionChildren,
+                    ),
+                  ),
+                ),
+              );
+            }
             final actions = SizedBox(
               width: double.infinity,
               child: Wrap(
                 alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.start,
                 children: actionChildren,
               ),
             );
@@ -557,7 +510,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                   width: double.infinity,
                   child: Wrap(
                     alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.start,
                     children: [
                       for (
                         var index = 0;
