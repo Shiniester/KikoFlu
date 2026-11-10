@@ -32,7 +32,8 @@ diff --git a/packages/mpv.cmake b/packages/mpv.cmake
 @@ -44,6 +44,8 @@ ExternalProject_Add(mpv
          -Dvapoursynth=disabled
          ${mpv_gl}
-         -Dc_args='-Wno-error=int-conversion'
+-        -Dc_args='-Wno-error=int-conversion'
++        -Dc_args='-Wno-error=int-conversion -DEGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE=0x3207'
 +        -Dc_link_args='-static -Wl,--pdb='
 +        -Dcpp_link_args='-static -Wl,--pdb='
      BUILD_COMMAND ${EXEC} LTO_JOB=1 PDB=1 ninja -C <BINARY_DIR>

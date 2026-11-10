@@ -56,6 +56,8 @@ grep -Fqx '        -Dvulkan=enabled' "$libplacebo_config" ||
     fail "libplacebo must build with Vulkan support"
 grep -Fqx '        -Dpdf-build=disabled' "$mpv_config" ||
     fail "mpv-dev build must not require PDF generation"
+grep -Fq -- '-DEGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE=0x3207' "$mpv_config" ||
+    fail "mpv must define the ANGLE D3D9 enum missing from the pinned headers"
 if grep -Fq '<BINARY_DIR>/mpv.pdf' "$mpv_config"; then
     fail "mpv-dev build must not copy an unbuilt PDF"
 fi
