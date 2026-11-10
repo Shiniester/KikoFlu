@@ -518,16 +518,15 @@ class LibpngMacOSPatchTests(unittest.TestCase):
                     " * Google Inc.\n"
                 ).encode("utf-8")
             )
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "false"], check=True)
-            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             patch = _normalized_patch(SCRIPT_DIR / "libpng-macos-fp-header.patch", root)
 
             subprocess.run(
-                ["git", "-C", str(root), "apply", "--check", str(patch)],
+                ["patch", "-p1", "-i", str(patch)],
+                cwd=root,
+                input="",
+                text=True,
                 check=True,
             )
-            subprocess.run(["git", "-C", str(root), "apply", str(patch)], check=True)
 
             self.assertNotIn("<fp.h>", (root / "pngpriv.h").read_text())
             self.assertIn("#  include <math.h>", (root / "pngpriv.h").read_text())
