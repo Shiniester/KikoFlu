@@ -183,6 +183,12 @@ def validate_archive(
                     if apple_silicon_minimum > allowed_maximum:
                         allowed_maximum = apple_silicon_minimum
                         allowed_maximum_label = "macOS arm64 minimum 11.0"
+                elif platform == "ios" and variant == "simulator" and architecture == "arm64":
+                    # Apple silicon simulators first support iOS 14.0.
+                    simulator_minimum = _version_parts("14.0")
+                    if simulator_minimum > allowed_maximum:
+                        allowed_maximum = simulator_minimum
+                        allowed_maximum_label = "iOS simulator arm64 minimum 14.0"
                 if _version_parts(minimum) > allowed_maximum:
                     variant_name = variant or "device"
                     raise ArtifactError(

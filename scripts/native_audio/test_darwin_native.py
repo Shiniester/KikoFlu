@@ -396,6 +396,39 @@ class DarwinArtifactTests(unittest.TestCase):
             with self.assertRaises(ArtifactError):
                 validate_archive(archive, "ios", "13.0", vtool_runner=too_new)
 
+    def test_ios_simulator_minimum_accounts_for_arm64_platform_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = Path(temporary) / "ios.tar.gz"
+            _write_archive(archive, "ios")
+
+            def minimum_os(binary: Path, architecture: str) -> str:
+                simulator = "ios-arm64_x86_64-simulator" in binary.parts
+                minimum = "14.0" if simulator and architecture == "arm64" else "13.0"
+                return f"Mach build version\n    minos {minimum}\n"
+
+            validate_archive(archive, "ios", "13.0", vtool_runner=minimum_os)
+
+            for variant, architecture, too_new in (
+                ("simulator", "arm64", "14.1"),
+                ("simulator", "x86_64", "13.1"),
+                ("device", "arm64", "13.1"),
+            ):
+                def too_new_minimum(binary: Path, target_architecture: str) -> str:
+                    simulator = "ios-arm64_x86_64-simulator" in binary.parts
+                    target_variant = "simulator" if simulator else "device"
+                    if (target_variant, target_architecture) == (variant, architecture):
+                        return f"Mach build version\n    minos {too_new}\n"
+                    return minimum_os(binary, target_architecture)
+
+                with self.subTest(variant=variant, architecture=architecture):
+                    with self.assertRaisesRegex(
+                        ArtifactError,
+                        rf"ios {variant} {architecture} minos {too_new} exceeds",
+                    ):
+                        validate_archive(
+                            archive, "ios", "13.0", vtool_runner=too_new_minimum
+                        )
+
     def test_macos_minimum_accounts_for_arm64_platform_floor_per_architecture(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive = Path(temporary) / "macos.tar.gz"
