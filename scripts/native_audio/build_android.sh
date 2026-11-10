@@ -40,6 +40,13 @@ git clone --depth 1 --branch "$ANDROID_BUILDER_REF" --single-branch "$ANDROID_BU
     fail "builder tag $ANDROID_BUILDER_REF moved from $ANDROID_BUILDER_COMMIT"
 git -C "$source_dir" apply --unidiff-zero --check "$script_dir/android-effects.patch"
 git -C "$source_dir" apply --unidiff-zero "$script_dir/android-effects.patch"
+cp "$script_dir/android-mpv-java-vm.patch" \
+    "$source_dir/buildscripts/patches/mpv/mpv_lavc_set_java_vm.patch"
+rm \
+    "$source_dir/buildscripts/patches/ffmpeg/dash_base_url_escape.patch" \
+    "$source_dir/buildscripts/patches/ffmpeg/hls_mp4_seek.patch" \
+    "$source_dir/buildscripts/patches-encoders-gpl/ffmpeg"
+rmdir "$source_dir/buildscripts/patches/ffmpeg"
 bash "$script_dir/check_android_config.sh" "$source_dir"
 
 cd "$buildscripts_dir"

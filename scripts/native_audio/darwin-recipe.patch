@@ -49,7 +49,7 @@ index b96190c..ff1a6b6 100644
 @@ -656,0 +697 @@ ${INTERMEDIATE_DIR}/mpv_%: \
 +	${INTERMEDIATE_DIR}/libplacebo_$$(word 1,$$(subst -, ,$$*))-$$(word 2,$$(subst -, ,$$*)) \
 diff --git a/downloads.lock b/downloads.lock
-index 3e3bd1e..e9ce09c 100644
+index 3e3bd1e..9cae392 100644
 --- a/downloads.lock
 +++ b/downloads.lock
 @@ -6,3 +6,3 @@ ffmpeg:
@@ -86,7 +86,7 @@ index 3e3bd1e..e9ce09c 100644
 -  sha256: 29abc44f8ebee013bb2f9fe14d80b30db19b534c679056e4851ceadf5a5e8bf6
 +  version: 0.42.0
 +  url: https://github.com/mpv-player/mpv/archive/b0841e8c4d156b8403dc1876c4cbd9011eb583f3.tar.gz
-+  sha256: a4a79fa6ca728762f7b198b0f93dbcbba250c3bb3bf97b77a342042be802e4
++  sha256: a4a79fa6ca728762ac407734b0f93dbcbba250c3bb3bf97b77a342042be802e4
 diff --git a/scripts/ffmpeg/build.sh b/scripts/ffmpeg/build.sh
 index cb14b05..785cc37 100644
 --- a/scripts/ffmpeg/build.sh

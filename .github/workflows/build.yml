@@ -569,9 +569,9 @@ jobs:
         run: |
           set -euo pipefail
           bundle="$GITHUB_WORKSPACE/build/linux/x64/release/bundle"
-          export LD_LIBRARY_PATH="$bundle/lib"
-          xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
           flutter test --no-pub test/audio_effects_graph_test.dart
+          export LD_LIBRARY_PATH="$bundle/lib"
           python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
           python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
           python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json
@@ -663,9 +663,9 @@ jobs:
         run: |
           set -euo pipefail
           bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
-          export LD_LIBRARY_PATH="$bundle/lib"
-          xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
           flutter test --no-pub test/audio_effects_graph_test.dart
+          export LD_LIBRARY_PATH="$bundle/lib"
           python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
           python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
           python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json

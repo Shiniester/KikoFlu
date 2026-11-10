@@ -22,6 +22,23 @@ grep -Fqx 'v_mpv=$MPV_COMMIT' "$depinfo" || fail "mpv source commit changed"
 grep -Fqx 'v_libplacebo=$LIBPLACEBO_COMMIT' "$depinfo" || fail "libplacebo source commit changed"
 grep -Eq "^[[:space:]]*local apilvl=$ANDROID_API$" "$source_dir/buildscripts/build.sh" ||
     fail "Android native API level changed"
+if [[ -e "$source_dir/buildscripts/patches/ffmpeg" ]]; then
+    fail "FFmpeg 9.0.2 already includes the Android FFmpeg patch behaviors"
+fi
+if [[ -e "$source_dir/buildscripts/patches-encoders-gpl/ffmpeg" || -L "$source_dir/buildscripts/patches-encoders-gpl/ffmpeg" ]]; then
+    fail "Android GPL patch tree must not retain the obsolete FFmpeg patch link"
+fi
+[[ -s "$source_dir/buildscripts/patches/mpv/mpv_lavc_set_java_vm.patch" ]] ||
+    fail "Android mpv Java VM patch is missing"
+cmp -s "$script_dir/android-mpv-java-vm.patch" \
+    "$source_dir/buildscripts/patches/mpv/mpv_lavc_set_java_vm.patch" ||
+    fail "Android mpv Java VM patch differs from the checked patch"
+grep -Fq 'include/mpv/client.h' "$script_dir/android-mpv-java-vm.patch" ||
+    fail "Android mpv Java VM patch must use the mpv 0.42 public header path"
+grep -Fq 'MPV_EXPORT int mpv_lavc_set_java_vm(void *vm);' "$script_dir/android-mpv-java-vm.patch" ||
+    fail "Android mpv Java VM patch must preserve the exported MediaKit symbol"
+grep -Fq 'av_jni_set_java_vm(vm, NULL)' "$script_dir/android-mpv-java-vm.patch" ||
+    fail "Android mpv Java VM patch must forward the JavaVM to FFmpeg"
 grep -Fq "$GAS_PREPROCESSOR_COMMIT/gas-preprocessor.pl" "$download_sdk" ||
     fail "gas-preprocessor is not pinned to $GAS_PREPROCESSOR_COMMIT"
 (

@@ -61,6 +61,13 @@ grep -Fq -- '-DEGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE=0x3207' "$mpv_config" ||
 if grep -Fq '<BINARY_DIR>/mpv.pdf' "$mpv_config"; then
     fail "mpv-dev build must not copy an unbuilt PDF"
 fi
+for header in client.h stream_cb.h render.h render_gl.h; do
+    grep -Fq "<SOURCE_DIR>/include/mpv/$header" "$mpv_config" ||
+        fail "mpv-dev build must copy $header from the mpv 0.42 public header directory"
+    if grep -Fq "<SOURCE_DIR>/libmpv/$header" "$mpv_config"; then
+        fail "mpv-dev build must not use the removed libmpv header directory"
+    fi
+done
 cmp -s "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libarchive-openssl-static.patch" ||
     fail "libarchive OpenSSL patch differs from the checked patch"
 grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch' "$libarchive_config" ||

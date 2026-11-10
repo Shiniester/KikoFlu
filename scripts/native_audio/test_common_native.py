@@ -94,6 +94,30 @@ class CommonNativeSourceTests(unittest.TestCase):
         )
         self.assertIn('assert_source_commit FFmpeg "$FFMPEG_COMMIT"', builder)
         self.assertIn(
+            'cp "$script_dir/android-mpv-java-vm.patch"',
+            builder,
+        )
+        self.assertLess(
+            builder.index('cp "$script_dir/android-mpv-java-vm.patch"'),
+            builder.index("./patch.sh"),
+        )
+        java_vm_patch = (SCRIPT_DIR / "android-mpv-java-vm.patch").read_text()
+        self.assertIn("diff --git a/include/mpv/client.h b/include/mpv/client.h", java_vm_patch)
+        self.assertNotIn("libmpv/client.h", java_vm_patch)
+        self.assertIn("MPV_EXPORT int mpv_lavc_set_java_vm(void *vm);", java_vm_patch)
+        self.assertIn("av_jni_set_java_vm(vm, NULL)", java_vm_patch)
+        for obsolete_patch in (
+            "patches/ffmpeg/dash_base_url_escape.patch",
+            "patches/ffmpeg/hls_mp4_seek.patch",
+            "patches-encoders-gpl/ffmpeg",
+        ):
+            with self.subTest(obsolete_android_patch=obsolete_patch):
+                self.assertIn(obsolete_patch, builder)
+                self.assertLess(builder.index(obsolete_patch), builder.index("./patch.sh"))
+        self.assertIn("patches/ffmpeg", config)
+        self.assertIn("patches-encoders-gpl/ffmpeg", config)
+        self.assertIn("mpv_lavc_set_java_vm.patch", config)
+        self.assertIn(
             'git -C "$libplacebo_source_dir" submodule update --init --recursive --depth 1',
             builder,
         )
@@ -118,6 +142,17 @@ class CommonNativeSourceTests(unittest.TestCase):
         self.assertIn('rm "$source_dir/packages/ffmpeg-dash-base-url-escape.patch"', builder)
         self.assertIn("ffmpeg-dash-base-url-escape.patch", config)
         self.assertIn('export MPV_COMMIT FFMPEG_COMMIT LIBPLACEBO_COMMIT', builder)
+        added_effects = [
+            line[1:]
+            for line in effects.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        for header in ("client.h", "stream_cb.h", "render.h", "render_gl.h"):
+            with self.subTest(mpv_header=header):
+                self.assertIn(f"<SOURCE_DIR>/include/mpv/{header}", effects)
+                self.assertIn('"<SOURCE_DIR>/include/mpv/$header"', config)
+                self.assertTrue(any(f"<SOURCE_DIR>/include/mpv/{header}" in line for line in added_effects))
+                self.assertFalse(any(f"<SOURCE_DIR>/libmpv/{header}" in line for line in added_effects))
 
     def test_ffmpeg_v9_removed_options_are_not_configured(self) -> None:
         android_patch = (SCRIPT_DIR / "android-effects.patch").read_text().splitlines()
