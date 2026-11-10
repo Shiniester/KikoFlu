@@ -53,6 +53,16 @@ grep -Fq 'apply_mpv_audio_controls.sh' "$script_dir/build_android.sh" ||
     fail "mpv audio controls patch is not applied to the pinned source"
 grep -Fq 'apply_ffmpeg_sendcmd_precision.sh' "$script_dir/build_android.sh" ||
     fail "FFmpeg sendcmd precision patch is not applied to the pinned source"
+[[ -s "$script_dir/android-mbedtls-aesce.patch" ]] ||
+    fail "MbedTLS AESCE target patch is missing"
+mbedtls_pin_line=$(grep -Fn 'assert_source_commit MbedTLS "$ANDROID_MBEDTLS_COMMIT"' "$script_dir/build_android.sh" | cut -d: -f1)
+mbedtls_patch_check_line=$(grep -Fn 'git -C "$mbedtls_source_dir" apply --check "$script_dir/android-mbedtls-aesce.patch"' "$script_dir/build_android.sh" | cut -d: -f1)
+mbedtls_patch_apply_line=$(grep -Fn 'git -C "$mbedtls_source_dir" apply "$script_dir/android-mbedtls-aesce.patch"' "$script_dir/build_android.sh" | cut -d: -f1)
+mbedtls_build_line=$(grep -Fn './build.sh --arch "$arch"' "$script_dir/build_android.sh" | cut -d: -f1)
+[[ -n "$mbedtls_pin_line" && -n "$mbedtls_patch_check_line" && -n "$mbedtls_patch_apply_line" && -n "$mbedtls_build_line" ]] ||
+    fail "MbedTLS AESCE patch must be checked and applied to the pinned source"
+[[ "$mbedtls_pin_line" -lt "$mbedtls_patch_check_line" && "$mbedtls_patch_check_line" -lt "$mbedtls_patch_apply_line" && "$mbedtls_patch_apply_line" -lt "$mbedtls_build_line" ]] ||
+    fail "MbedTLS AESCE patch must apply after source pin verification and before build"
 if grep -Fq 'apply_mpv_audio_reinit.sh' "$script_dir/build_android.sh"; then
     fail "mpv 0.42.0 already includes the audio reinitialization fix"
 fi

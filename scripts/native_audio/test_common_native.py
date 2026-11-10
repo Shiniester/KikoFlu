@@ -132,6 +132,15 @@ class CommonNativeSourceTests(unittest.TestCase):
         self.assertIn("ANDROID_NDK=26.3.11579264", (SCRIPT_DIR / "android.lock").read_text())
         self.assertIn("v_ndk=26.3.11579264", (SCRIPT_DIR / "android-effects.patch").read_text())
 
+    def test_android_mbedtls_aesce_patch_scopes_crypto_feature_to_functions(self) -> None:
+        builder = (SCRIPT_DIR / "build_android.sh").read_text()
+        checker = (SCRIPT_DIR / "check_android_config.sh").read_text()
+        patch = (SCRIPT_DIR / "android-mbedtls-aesce.patch").read_text()
+        self.assertIn('target("crypto")', patch)
+        self.assertIn('target("aes")', patch)
+        self.assertIn('git -C "$mbedtls_source_dir" apply "$script_dir/android-mbedtls-aesce.patch"', builder)
+        self.assertIn('android-mbedtls-aesce.patch', checker)
+
     def test_windows_pins_core_repositories_through_shared_environment(self) -> None:
         effects = (SCRIPT_DIR / "windows-effects.patch").read_text()
         closure = (SCRIPT_DIR / "windows-git-closure.patch").read_text()

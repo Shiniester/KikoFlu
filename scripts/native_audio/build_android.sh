@@ -87,6 +87,9 @@ assert_source_commit HarfBuzz "$ANDROID_HARFBUZZ_COMMIT" "$buildscripts_dir/deps
 assert_source_commit libass "$ANDROID_LIBASS_COMMIT" "$buildscripts_dir/deps/libass"
 assert_source_commit libxml2 "$ANDROID_LIBXML2_COMMIT" "$buildscripts_dir/deps/libxml2"
 assert_source_commit MbedTLS "$ANDROID_MBEDTLS_COMMIT" "$buildscripts_dir/deps/mbedtls"
+mbedtls_source_dir="$buildscripts_dir/deps/mbedtls"
+git -C "$mbedtls_source_dir" apply --check "$script_dir/android-mbedtls-aesce.patch"
+git -C "$mbedtls_source_dir" apply "$script_dir/android-mbedtls-aesce.patch"
 [[ "$(git -C deps/ffmpeg describe --tags --exact-match HEAD)" == "n$FFMPEG_VERSION" ]] ||
     fail "FFmpeg source does not match n$FFMPEG_VERSION"
 
