@@ -1,27 +1,36 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
-import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
+import 'package:kikoeru_flutter/src/services/audio_track_queue_builder.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
-import 'package:kikoeru_flutter/src/services/proxy_config.dart';
-import 'package:kikoeru_flutter/src/utils/tag_localizer.dart';
 
-const _verificationChannel = MethodChannel(
-  'com.meteor.kikoeruflutter/japanese_asmr',
-);
+class _Reply {
+  const _Reply(
+    this.body, {
+    this.statusCode = 200,
+    this.contentType = 'application/json',
+    this.headers = const {},
+  });
+
+  final Object body;
+  final int statusCode;
+  final String contentType;
+  final Map<String, List<String>> headers;
+}
 
 class _Adapter implements HttpClientAdapter {
-  final FutureOr<ResponseBody> Function(RequestOptions) respond;
-  final requests = <RequestOptions>[];
   _Adapter(this.respond);
+
+  final FutureOr<_Reply> Function(RequestOptions) respond;
+  final requests = <RequestOptions>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -30,1337 +39,616 @@ class _Adapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
-    return respond(options);
+    final reply = await respond(options);
+    return ResponseBody.fromString(
+      reply.body is String ? reply.body as String : jsonEncode(reply.body),
+      reply.statusCode,
+      headers: {
+        'content-type': [reply.contentType],
+        ...reply.headers,
+      },
+    );
   }
 
   @override
   void close({bool force = false}) {}
 }
 
-ResponseBody _page(
-  String body, {
-  int statusCode = 200,
-  Map<String, List<String>>? headers,
-}) => ResponseBody.fromString(
-  body,
-  statusCode,
-  headers: {
-    'content-type': ['text/html; charset=utf-8'],
-    ...?headers,
-  },
-);
+Map<String, dynamic> _item({
+  int workId = 150867,
+  String rj = 'RJ01707048',
+  String title = 'Eara work',
+  List<dynamic>? tagDetails,
+}) => {
+  'workId': workId,
+  'rj': rj,
+  'title': title,
+  'circle': 'Circle',
+  'cvs': ['Voice'],
+  'tags': ['Ear cleaning'],
+  'tagDetails':
+      tagDetails ??
+      [
+        {'name': 'Ear cleaning'},
+      ],
+  'releaseDate': '2026-01-02',
+  'publishedAt': '2026-01-03',
+  'mainCoverUrl': 'https://images.example/cover.jpg',
+  'pageUrl': 'https://japaneseasmr.com/150867/',
+  'allAges': false,
+  'source': 'jp-asmr',
+};
 
-Map<String, Object> _browserPage(
-  String url,
-  String body, {
-  int statusCode = 200,
-  Map<String, String> headers = const {},
-}) => {'url': url, 'data': body, 'statusCode': statusCode, 'headers': headers};
+Map<String, dynamic> _searchResponse(List<Map<String, dynamic>> items) => {
+  'items': items,
+  'total': items.length,
+  'limit': 20,
+  'offset': 0,
+  'sort': 'release',
+};
 
-String _card(int id) =>
-    '''
-<li class="site-archive-post">
-<p class="entry-tagline"><time datetime="2026-10-08"></time>
-<a rel="category tag" href="/category/rating/sfw/">SFW</a>
-<a rel="category tag" href="/category/studio/">Studio</a></p>
-<h2 class="entry-title"><a href="https://japaneseasmr.com/$id/">Work $id</a></h2>
-<div class="op-square"><img src="data:image/svg+xml,placeholder"
-data-src="https://images.example/$id.jpg"></div>
-<p>[RJ00000001]</p><p>CV: Voice</p></li>''';
-
-const _detail = '''
-<main class="site-main"><h1 class="page-title">A &amp; B</h1>
-<p id="work_title_jp">[RJ00000001] A &amp; B</p>
-<p id="voice_actors">CV: Voice One, Voice Two</p>
-<div class="fotorama"><a id="img_cover" href="https://images.example/cover.jpg"></a>
-<a href="https://images.example/art.jpg"></a></div>
-<div id="jp-desc">Work description</div>
-<div id="cleanp_audio"><video><source src="https://media.example/work.m3u8"></video></div>
-<p id="downloadlink"><a href="https://japaneseasmr.com/dlc.php?f=RJ00000001">Download</a></p>
-<video><source src="https://ads.example/ad.mp4"></video>
-</main>''';
-
-String _chapterTable(String id, List<MapEntry<String, String>> chapters) =>
-    '<table id="$id">'
-    '<tr><td class="chapter_list start_time"> </td>'
-    '<td class="chapter_list chapter_title">トラックリスト</td></tr>'
-    '${chapters.indexed.map((entry) {
-      final (index, chapter) = entry;
-      return '<tr><td class="chapter_list start_time">'
-          '<a href="#" data-index="$index" data-value="${chapter.key}">'
-          '</a></td><td class="chapter_list chapter_title">'
-          '<a href="#" data-track-title="${chapter.value}" '
-          'data-index="$index" data-value="${chapter.key}">'
-          '${chapter.value}</a></td></tr>';
-    }).join()}'
-    '</table>';
-
-String _relatedItem(String href, String title, {String? imageUrl}) =>
-    '''<li><a href="$href"><span class="crp_title">$title</span>
-<img class="crp_thumb lazy" src="data:image/svg+xml,placeholder"${imageUrl == null ? '' : ' data-src="$imageUrl"'}></a>
-<span class="crp_date">September 11, 2026</span></li>''';
-
-String _relatedDetail(String items) =>
-    '''<main class="site-main"><h1 class="page-title">Target</h1>
-<div class="yarpp-related"><ul>$items</ul></div>
-<ul class="site-archive-post">${_relatedItem('/999999/', 'Unrelated')}</ul></main>''';
+Dio _dio(_Adapter adapter, {Map<String, dynamic>? headers}) =>
+    Dio(BaseOptions(headers: headers ?? const {}))..httpClientAdapter = adapter;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  tearDown(
-    () => messenger.setMockMethodCallHandler(_verificationChannel, null),
-  );
 
   test(
-    'repaginates native catalog pages without missing or repeating works',
+    'search maps Eara records and preserves legacy negative work IDs',
     () async {
-      final adapter = _Adapter((request) {
-        final page = request.uri.path == '/' ? 1 : 2;
-        final start = page == 1 ? 1 : 15;
-        final end = page == 1 ? 14 : 23;
-        return _page(
-          '<main class="site-main">'
-          '${[for (var i = start; i <= end; i++) _card(i)].join()}'
-          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
-          '</main>',
-        );
-      });
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
+      final adapter = _Adapter(
+        (_) => _Reply(_searchResponse([_item(tagDetails: [])])),
       );
-      final first = await service.getWorks(page: 1, pageSize: 20);
-      final second = await service.getWorks(page: 2, pageSize: 20);
-      expect((first['works'] as List).map((w) => w['id']), [
-        for (var i = 1; i <= 20; i++) -i,
-      ]);
-      expect((second['works'] as List).map((w) => w['id']), [-21, -22, -23]);
-      expect(first['pagination']['totalCount'], 23);
-      final work = Work.fromJson(first['works'][0]);
-      expect(work.displayId, 'RJ00000001');
-      expect(work.circleTitle, 'Studio');
-      expect(work.vas!.single.name, 'Voice');
-    },
-  );
-
-  test('keeps age rating routes and sorting on tail pages', () async {
-    final cases = [
-      (AgeRating.general, '/category/rating/sfw/'),
-      (AgeRating.r15, '/category/rating/r-15/'),
-      (AgeRating.adult, '/category/rating/maniax/'),
-    ];
-    for (final (ageRating, archivePath) in cases) {
-      final adapter = _Adapter((request) {
-        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
-        final start = page == 1 ? 1 : 15;
-        final end = page == 1 ? 14 : 20;
-        return _page(
-          '<main class="site-main">'
-          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
-          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
-          '</main>',
-        );
-      });
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-
-      final response = await service.getWorks(
-        page: 1,
-        pageSize: 20,
-        ageRating: ageRating,
-        sort: JapaneseAsmrSortOption.date,
-        direction: SortDirection.asc,
-      );
-
-      expect(response['pagination']['totalCount'], 20);
-      expect(adapter.requests.map((request) => request.uri.path), [
-        archivePath,
-        '${archivePath}page/2/',
-      ]);
-      expect(adapter.requests.map((request) => request.uri.queryParameters), [
-        {'order': 'asc', 'orderby': 'date'},
-        {'order': 'asc', 'orderby': 'date'},
-      ]);
-    }
-  });
-
-  test(
-    'maps Japanese ASMR browse sort and periods to native query params',
-    () async {
-      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      final cases = [
-        (
-          JapaneseAsmrSortOption.date,
-          SortDirection.asc,
-          JapaneseAsmrPeriod.week,
-          {'order': 'asc', 'orderby': 'date'},
-        ),
-        (
-          JapaneseAsmrSortOption.title,
-          SortDirection.desc,
-          JapaneseAsmrPeriod.week,
-          {'order': 'desc', 'orderby': 'title'},
-        ),
-        (
-          JapaneseAsmrSortOption.popular,
-          SortDirection.asc,
-          JapaneseAsmrPeriod.recent,
-          {'order': 'desc', 'orderby': 'post_views', 'date': 'recent'},
-        ),
-        (
-          JapaneseAsmrSortOption.popular,
-          SortDirection.asc,
-          JapaneseAsmrPeriod.allTime,
-          {'order': 'desc', 'orderby': 'post_views'},
-        ),
-        (
-          JapaneseAsmrSortOption.comments,
-          SortDirection.desc,
-          JapaneseAsmrPeriod.twoWeeks,
-          {'order': 'desc', 'orderby': 'comment_count', 'date': '2_weeks'},
-        ),
-        (
-          JapaneseAsmrSortOption.comments,
-          SortDirection.desc,
-          JapaneseAsmrPeriod.allTime,
-          {'order': 'desc', 'orderby': 'comment_count'},
-        ),
-      ];
-
-      for (final (sort, direction, period, expected) in cases) {
-        await service.getWorks(
-          page: 1,
-          pageSize: 20,
-          sort: sort,
-          direction: direction,
-          period: period,
-        );
-        expect(adapter.requests.last.uri.queryParameters, expected);
-      }
-    },
-  );
-
-  test(
-    'keeps archive sorting and zero-padded month on internal tail pages',
-    () async {
-      final adapter = _Adapter((request) {
-        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
-        final start = page == 1 ? 1 : 15;
-        final end = page == 1 ? 14 : 20;
-        return _page(
-          '<main class="site-main">'
-          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
-          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
-          '</main>',
-        );
-      });
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-
-      final response = await service.getWorks(
-        page: 1,
-        pageSize: 20,
-        sort: JapaneseAsmrSortOption.popular,
-        period: JapaneseAsmrPeriod.archiveMonth,
-        archiveYear: 2026,
-        archiveMonth: 1,
-      );
-
-      expect(response['pagination']['totalCount'], 20);
-      expect(adapter.requests.map((request) => request.uri.path), [
-        '/date/2026/01/',
-        '/date/2026/01/page/2/',
-      ]);
-      expect(adapter.requests.map((request) => request.uri.queryParameters), [
-        {'order': 'desc', 'orderby': 'post_views'},
-        {'order': 'desc', 'orderby': 'post_views'},
-      ]);
-    },
-  );
-
-  for (final keyword in [null, '耳かき & voice']) {
-    test(
-      'counts the partial final native page for ${keyword == null ? 'browse' : 'search'}',
-      () async {
-        final adapter = _Adapter((request) {
-          if (request.uri.queryParameters.containsKey('s')) {
-            return ResponseBody.fromString('Just a moment', 403);
-          }
-          final pageMarker = request.uri.pathSegments.indexOf('page');
-          final page = pageMarker == -1
-              ? 1
-              : int.parse(request.uri.pathSegments[pageMarker + 1]);
-          final start = (page - 1) * 14 + 1;
-          final end = page == 3 ? 29 : page * 14;
-          return _page(
-            '<main class="site-main">'
-            '${[for (var i = start; i <= end; i++) _card(i)].join()}'
-            '${page < 3 ? '<a class="next page-numbers">Next</a><a class="page-numbers">3</a>' : ''}'
-            '</main>',
-          );
-        });
-        final service = JapaneseAsmrService(
-          dio: Dio()..httpClientAdapter = adapter,
-        );
-        Future<Map<String, dynamic>> load(int page) => keyword == null
-            ? service.getWorks(page: page, pageSize: 20)
-            : service.searchWorks(keyword: keyword, page: page, pageSize: 20);
-        final first = await load(1);
-        expect(first['pagination']['totalCount'], 29);
-        expect((first['pagination']['totalCount'] / 20).ceil(), 2);
-        expect((first['works'] as List).map((w) => w['id']), [
-          for (var i = 1; i <= 20; i++) -i,
-        ]);
-        final expectedPaths = keyword == null
-            ? [
-                [],
-                ['page', '2'],
-                ['page', '3'],
-              ]
-            : [
-                ['search', keyword],
-                ['search', keyword, 'page', '2'],
-                ['search', keyword, 'page', '3'],
-              ];
-        expect(
-          adapter.requests.map(
-            (r) => r.uri.pathSegments.where((s) => s.isNotEmpty).toList(),
-          ),
-          expectedPaths,
-        );
-        final second = await load(2);
-        expect(second['pagination']['totalCount'], 29);
-        expect((second['works'] as List).map((w) => w['id']), [
-          for (var i = 21; i <= 29; i++) -i,
-        ]);
-        expect(adapter.requests, hasLength(5));
-        expect(
-          adapter.requests.every((r) => r.uri.queryParameters.isEmpty),
-          isTrue,
-        );
-      },
-    );
-  }
-
-  test('rejects a challenge when reading the final native page', () async {
-    final adapter = _Adapter(
-      (request) => _page(
-        request.uri.path == '/page/3/'
-            ? '<h1>Just a moment...</h1>'
-            : '<main class="site-main">${_card(1)}'
-                  '<a class="next page-numbers">Next</a>'
-                  '<a class="page-numbers">3</a></main>',
-      ),
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    await expectLater(
-      service.getWorks(page: 1, pageSize: 20),
-      throwsFormatException,
-    );
-  });
-
-  test('identifies a Cloudflare challenge returned with HTTP 403', () async {
-    final adapter = _Adapter(
-      (_) => _page(
-        '<html><title>Just a moment</title></html>',
-        statusCode: 403,
+      final dio = _dio(
+        adapter,
         headers: {
-          'cf-mitigated': ['challenge'],
+          'Authorization': 'Bearer private',
+          'Cookie': 'session=private',
         },
-      ),
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    await expectLater(
-      service.getWorks(page: 1, pageSize: 20),
-      throwsA(
-        isA<Object>().having(
-          (error) => error.toString(),
-          'error string',
-          contains('[jp-asmr-verification-required]'),
-        ),
-      ),
-    );
-  });
+      );
+      final service = JapaneseAsmrService(dio: dio);
 
-  test(
-    'does not treat the normal Cloudflare telemetry script as a challenge',
-    () async {
-      final adapter = _Adapter(
-        (_) => _page(
-          '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'
-          '<main class="site-main"></main>',
-        ),
+      final response = await service.searchWorks(
+        keyword: 'ear & voice',
+        page: 2,
+        pageSize: 1,
       );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
+
+      final request = adapter.requests.single;
+      expect(request.uri.host, 'earaasmr.com');
+      expect(request.uri.path, '/api/jp-asmr/search');
+      expect(request.uri.queryParameters, {
+        'q': 'ear & voice',
+        'limit': '1',
+        'offset': '1',
+        'sort': 'release',
+      });
+      expect(request.headers['Accept'], 'application/json');
+      expect(
+        request.headers.keys.map((key) => key.toLowerCase()),
+        isNot(contains(anyOf('authorization', 'cookie'))),
       );
-      await expectLater(service.getWorks(page: 1, pageSize: 20), completes);
+
+      final works = response['works'] as List<Map<String, dynamic>>;
+      expect(works.single['id'], -150867);
+      expect(works.single['source_id'], 'RJ01707048');
+      expect(works.single['name'], 'Circle');
+      expect(works.single['cover_url'], 'https://images.example/cover.jpg');
+      expect(works.single['release'], '2026-01-02');
+      expect(works.single.containsKey('age'), isFalse);
+      expect((works.single['tags'] as List).single['name'], 'Ear cleaning');
+      expect(Work.fromJson(works.single).displayId, 'RJ01707048');
+      expect(response['pagination'], {
+        'currentPage': 2,
+        'pageSize': 1,
+        'totalCount': 1,
+        'hasMore': false,
+      });
+      expect(service.hasRegisteredWork(150867), isTrue);
     },
   );
 
-  test('identifies an HTTP 200 Cloudflare interstitial body', () async {
-    final adapter = _Adapter(
-      (_) => _page(
-        '<script>window._cf_chl_opt = {}</script>'
-        '<main class="site-main"></main>',
-      ),
+  test('home supports release order and the Eara all-ages filter', () async {
+    final adapter = _Adapter((_) => _Reply(_searchResponse([_item()])));
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    await service.getWorks(
+      page: 1,
+      pageSize: 10,
+      ageRating: AgeRating.general,
+      sort: JapaneseAsmrSortOption.date,
+      direction: SortDirection.desc,
     );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    await expectLater(
-      service.getWorks(page: 1, pageSize: 20),
-      throwsA(
-        isA<Object>().having(
-          (error) => error.toString(),
-          'error string',
-          contains('[jp-asmr-verification-required]'),
-        ),
-      ),
-    );
+
+    expect(adapter.requests.single.uri.queryParameters, {
+      'q': '',
+      'limit': '10',
+      'offset': '0',
+      'sort': 'release',
+      'allAges': 'true',
+    });
   });
 
-  test('preserves an unrelated HTTP 403 as a DioException', () async {
-    final adapter = _Adapter(
-      (_) => _page('<h1>Forbidden</h1>', statusCode: 403),
+  test('search uses the tag list before localized tag details', () async {
+    final item = _item(
+      tagDetails: [
+        {
+          'key': 'asmr-one:tag:68',
+          'originalName': 'Ear cleaning',
+          'names': {'en': 'Ear cleaning', 'ja': '耳かき'},
+        },
+        {'key': 'dlsite:genre:068', 'originalName': 'Ear cleaning'},
+      ],
     );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
+    final fallback = _item(workId: 150868, rj: 'RJ01707049')
+      ..['tags'] = <String>[]
+      ..['tagDetails'] = [
+        {'originalName': 'Relaxation'},
+      ];
+    final adapter = _Adapter((_) => _Reply(_searchResponse([item, fallback])));
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    final response = await service.searchWorks(
+      keyword: '',
+      page: 1,
+      pageSize: 20,
     );
-    await expectLater(
-      service.getWorks(page: 1, pageSize: 20),
-      throwsA(
-        isA<DioException>().having(
-          (error) => error.response?.statusCode,
-          'statusCode',
-          403,
-        ),
-      ),
-    );
+    final works = response['works'] as List<Map<String, dynamic>>;
+
+    expect(Work.fromJson(works[0]).tags!.map((tag) => tag.name), [
+      'Ear cleaning',
+    ]);
+    expect(Work.fromJson(works[1]).tags!.map((tag) => tag.name), [
+      'Relaxation',
+    ]);
   });
 
   test(
-    'loads catalog and pagination in the verified browser when HTTP stays challenged',
+    'home rejects unsupported rating and ordering without a request',
     () async {
-      final adapter = _Adapter(
-        (_) => _page(
-          '<script>window._cf_chl_opt = {}</script>',
-          statusCode: 403,
-          headers: {
-            'cf-mitigated': ['challenge'],
-          },
-        ),
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
+      final adapter = _Adapter((_) => _Reply(_searchResponse([])));
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+
+      await expectLater(
+        service.getWorks(page: 1, pageSize: 10, ageRating: AgeRating.adult),
+        throwsUnsupportedError,
       );
       await expectLater(
         service.getWorks(
           page: 1,
-          pageSize: 20,
-          sort: JapaneseAsmrSortOption.date,
+          pageSize: 10,
+          sort: JapaneseAsmrSortOption.popular,
         ),
-        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
+        throwsUnsupportedError,
       );
-      final browserCalls = <MethodCall>[];
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        browserCalls.add(call);
-        final url = call.arguments['url'] as String;
-        if (call.method == 'verify') {
-          return {
-            'cookie': 'cf_clearance=verified',
-            'userAgent': 'Browser UA',
-            ..._browserPage(
-              url,
-              '<main class="site-main">'
-              '${List.generate(14, (index) => _card(index + 1)).join()}'
-              '<a class="next page-numbers">Next</a>'
-              '<a class="page-numbers">2</a></main>',
-            ),
-          };
-        }
-        expect(call.method, 'read');
-        expect(Uri.parse(url).path, '/page/2/');
-        expect(Uri.parse(url).queryParameters, {
-          'order': 'desc',
-          'orderby': 'date',
-        });
-        return _browserPage(
-          url,
-          '<main class="site-main">'
-          '${List.generate(6, (index) => _card(index + 15)).join()}</main>',
-        );
-      });
-
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-      expect(
-        browserCalls.single.arguments['url'],
-        adapter.requests.single.uri.toString(),
-      );
-      final result = await service.getWorks(
-        page: 1,
-        pageSize: 20,
-        sort: JapaneseAsmrSortOption.date,
-      );
-      expect(
-        (result['works'] as List).map((work) => work['id']),
-        List.generate(20, (index) => -(index + 1)),
-      );
-      expect(result['pagination']['totalCount'], 20);
-      expect(adapter.requests, hasLength(1));
-      expect(browserCalls.map((call) => call.method), ['verify', 'read']);
-    },
-  );
-
-  test(
-    'verifies the challenged tail page instead of the catalog root',
-    () async {
-      final adapter = _Adapter(
-        (request) => request.uri.path == '/page/3/'
-            ? _page('<script>window._cf_chl_opt = {}</script>')
-            : _page(
-                '<main class="site-main">${_card(1)}'
-                '<a class="next page-numbers">Next</a>'
-                '<a class="page-numbers">3</a></main>',
-              ),
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      await expectLater(
-        service.getWorks(
-          page: 1,
-          pageSize: 1,
-          sort: JapaneseAsmrSortOption.title,
-        ),
-        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
-      );
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        expect(
-          call.arguments['url'],
-          'https://japaneseasmr.com/page/3/?order=desc&orderby=title',
-        );
-        return null;
-      });
-
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isFalse,
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isFalse,
-      );
-    },
-  );
-
-  group('verified browser requests', () {
-    late JapaneseAsmrService service;
-    late Future<Object?> Function(MethodCall) respond;
-    late List<MethodCall> calls;
-
-    setUp(() async {
-      calls = [];
-      respond = (call) async =>
-          _browserPage(call.arguments['url'] as String, _detail);
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        if (call.method == 'verify') {
-          return {
-            'cookie': 'cf_clearance=verified',
-            'userAgent': 'Browser UA',
-            ..._browserPage(call.arguments['url'] as String, _detail),
-          };
-        }
-        calls.add(call);
-        return respond(call);
-      });
-      service = JapaneseAsmrService(
-        dio: Dio()
-          ..httpClientAdapter = _Adapter(
-            (_) => fail('Verified site pages must use the browser session.'),
-          ),
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-    });
-
-    test(
-      'preserves HTTP errors and recovers the queue after timeout',
-      () async {
-        respond = (_) async => throw PlatformException(code: 'timeout');
-        await expectLater(
-          service.getWork(1),
-          throwsA(
-            isA<DioException>().having(
-              (error) => error.type,
-              'type',
-              DioExceptionType.receiveTimeout,
-            ),
-          ),
-        );
-        respond = (call) async =>
-            _browserPage(call.arguments['url'] as String, _detail);
-        expect((await service.getWork(2))['id'], -2);
-
-        respond = (call) async => _browserPage(
-          call.arguments['url'] as String,
-          '<h1>Forbidden</h1>',
-          statusCode: 403,
-        );
-        await expectLater(
-          service.getWork(3),
-          throwsA(
-            isA<DioException>().having(
-              (error) => error.response?.statusCode,
-              'statusCode',
-              403,
-            ),
-          ),
-        );
-      },
-    );
-
-    test('verifies again only when the browser itself is challenged', () async {
-      respond = (call) async => _browserPage(
-        call.arguments['url'] as String,
-        '<h1>Just a moment</h1>',
-        statusCode: 403,
-        headers: {'cf-mitigated': 'challenge'},
-      );
-      await expectLater(
-        service.getWork(1),
-        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-      expect((await service.getWork(1))['id'], -1);
-      expect(calls, hasLength(1));
-      expect(calls.single.arguments['url'], 'https://japaneseasmr.com/1/');
-    });
-
-    test(
-      'skips cancelled queued requests without interrupting an active read',
-      () async {
-        final started = Completer<void>();
-        final pending = Completer<Object?>();
-        respond = (call) {
-          started.complete();
-          return pending.future;
-        };
-        final first = service.getWork(1);
-        await started.future;
-        final token = CancelToken();
-        final cancelled = expectLater(
-          service.getWork(2, cancelToken: token),
-          throwsA(
-            isA<DioException>().having(
-              (error) => error.type,
-              'type',
-              DioExceptionType.cancel,
-            ),
-          ),
-        );
-        token.cancel();
-        await cancelled;
-        pending.complete(_browserPage('https://japaneseasmr.com/1/', _detail));
-
-        await first;
-        expect(calls, hasLength(1));
-        expect(calls.single.method, 'read');
-        expect(calls.single.arguments['url'], 'https://japaneseasmr.com/1/');
-      },
-    );
-
-    test(
-      'cancels the active read before starting the next queued request',
-      () async {
-        final started = Completer<void>();
-        final pending = Completer<Object?>();
-        int? activeId;
-        respond = (call) async {
-          if (call.method == 'cancel') {
-            expect(call.arguments['id'], activeId);
-            pending.completeError(PlatformException(code: 'cancelled'));
-            return null;
-          }
-          if (Uri.parse(call.arguments['url'] as String).path == '/1/') {
-            activeId = call.arguments['id'] as int;
-            started.complete();
-            return pending.future;
-          }
-          return _browserPage(call.arguments['url'] as String, _detail);
-        };
-        final token = CancelToken();
-        final cancelled = expectLater(
-          service.getWork(1, cancelToken: token),
-          throwsA(
-            isA<DioException>().having(
-              (error) => error.type,
-              'type',
-              DioExceptionType.cancel,
-            ),
-          ),
-        );
-        await started.future;
-        final next = service.getWork(2);
-        token.cancel();
-
-        await cancelled;
-        expect((await next)['id'], -2);
-        expect(calls.map((call) => call.method), ['read', 'cancel', 'read']);
-      },
-    );
-
-    test(
-      'uses current proxy settings instead of an old verification page',
-      () async {
-        final previousMode = ProxyConfig.mode;
-        final previousAddress = ProxyConfig.address;
-        addTearDown(() {
-          ProxyConfig.mode = previousMode;
-          ProxyConfig.address = previousAddress;
-        });
-        ProxyConfig.mode = previousMode == ProxyMode.direct
-            ? ProxyMode.manual
-            : ProxyMode.direct;
-        ProxyConfig.address = '127.0.0.1:7890';
-        respond = (call) async => _browserPage(
-          call.arguments['url'] as String,
-          '<main class="site-main">${_card(1)}</main>',
-        );
-
-        final result = await service.getWorks(page: 1, pageSize: 1);
-        expect((result['works'] as List).single['id'], -1);
-        expect(calls.single.arguments['proxyMode'], ProxyConfig.mode.name);
-        expect(
-          calls.single.arguments['proxyAddress'],
-          ProxyConfig.httpsProxyUrl,
-        );
-      },
-    );
-
-    test('uses the browser for encoded search URLs', () async {
-      respond = (call) async => _browserPage(
-        call.arguments['url'] as String,
-        '<main class="site-main"></main>',
-      );
-      await service.searchWorks(keyword: '耳かき & voice', page: 1, pageSize: 20);
-      final uri = Uri.parse(calls.single.arguments['url'] as String);
-      expect(uri.pathSegments, ['search', '耳かき & voice', '']);
-      expect(uri.query, isEmpty);
-    });
-  });
-
-  test(
-    'does not cache a navigated verification page as the original URL',
-    () async {
-      final calls = <MethodCall>[];
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        calls.add(call);
-        if (call.method == 'verify') {
-          return {
-            'cookie': 'cf_clearance=verified',
-            'userAgent': 'Browser UA',
-            ..._browserPage('https://japaneseasmr.com/42/', _detail),
-          };
-        }
-        expect(call.method, 'read');
-        expect(call.arguments['url'], 'https://japaneseasmr.com/');
-        return _browserPage(
-          'https://japaneseasmr.com/',
-          '<main class="site-main">${_card(1)}</main>',
-        );
-      });
-      final service = JapaneseAsmrService(
-        dio: Dio()
-          ..httpClientAdapter = _Adapter(
-            (_) => fail('Verified pages must stay in the browser.'),
-          ),
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-
-      final result = await service.getWorks(page: 1, pageSize: 1);
-      expect((result['works'] as List).single['id'], -1);
-      expect(calls.map((call) => call.method), ['verify', 'read']);
-    },
-  );
-
-  test('empty clearance does not replace a verified session', () async {
-    var calls = 0;
-    messenger.setMockMethodCallHandler(
-      _verificationChannel,
-      (call) async => {
-        'cookie': calls++ == 0 ? 'cf_clearance=kept' : '',
-        'userAgent': 'Browser UA',
-        ..._browserPage(
-          'https://japaneseasmr.com/',
-          '<main class="site-main">${_card(1)}</main>',
-        ),
-      },
-    );
-    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    expect(
-      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-      isTrue,
-    );
-    expect(
-      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-      isFalse,
-    );
-
-    final result = await service.getWorks(page: 1, pageSize: 20);
-    expect((result['works'] as List).single['id'], -1);
-    expect(adapter.requests, isEmpty);
-  });
-
-  test(
-    'uses the verified browser only for Japanese ASMR HTTPS pages',
-    () async {
-      final previousMode = ProxyConfig.mode;
-      final previousAddress = ProxyConfig.address;
-      addTearDown(() {
-        ProxyConfig.mode = previousMode;
-        ProxyConfig.address = previousAddress;
-      });
-      ProxyConfig.mode = ProxyMode.manual;
-      ProxyConfig.address = '127.0.0.1:7890';
-      final verificationCalls = <MethodCall>[];
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        verificationCalls.add(call);
-        final url = call.arguments['url'] as String;
-        if (call.method == 'verify') {
-          return {
-            'cookie': 'cf_clearance=verified',
-            'userAgent': 'Browser UA',
-            ..._browserPage(url, '<main class="site-main"></main>'),
-          };
-        }
-        expect(call.method, 'read');
-        expect(
-          call.arguments.keys,
-          isNot(contains(anyOf('headers', 'cookie', 'authorization'))),
-        );
-        expect(call.arguments['proxyMode'], 'manual');
-        expect(call.arguments['proxyAddress'], ProxyConfig.httpsProxyUrl);
-        return _browserPage(
-          url,
-          Uri.parse(url).path == '/dlc.php'
-              ? '<a href="https://buzzheavier.com/full">RJ00000001.m4a</a>'
-              : _detail,
-        );
-      });
-      final adapter = _Adapter((request) {
-        if (request.uri.host == 'japaneseasmr.com') {
-          return _page('<main class="site-main"></main>');
-        }
-        if (request.uri.path == '/full') {
-          return _page(
-            '<a class="download-btn" hx-get="/full/download">Download</a>',
-          );
-        }
-        return _page(
-          '',
-          headers: {
-            'hx-redirect': ['https://media.example/full.m4a'],
-          },
-        );
-      });
-      final service = JapaneseAsmrService(
-        dio: Dio(
-          BaseOptions(
-            headers: {
-              'Authorization': 'Bearer private',
-              'Cookie': 'session=private',
-            },
-          ),
-        )..httpClientAdapter = adapter,
-      );
-
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-      expect(verificationCalls.single.method, 'verify');
-      expect(verificationCalls.single.arguments, {
-        'url': 'https://japaneseasmr.com/',
-        'proxyMode': 'manual',
-        'proxyAddress': ProxyConfig.httpsProxyUrl,
-        'title': 'Verify',
-        'closeLabel': 'Close',
-      });
-
-      await service.getWorks(page: 1, pageSize: 20);
-      await service.getWork(1);
-      await expectLater(
-        service.resolveDownloadUrl(
-          'http://japaneseasmr.com/dlc.php?f=RJ00000001',
-        ),
-        throwsFormatException,
-      );
-      expect(
-        await service.resolveDownloadUrl(
-          'https://japaneseasmr.com/dlc.php?f=RJ00000001',
-        ),
-        'https://media.example/full.m4a',
-      );
-
-      expect(verificationCalls.map((call) => call.method), [
-        'verify',
-        'read',
-        'read',
-      ]);
-      expect(
-        verificationCalls[1].arguments['url'],
-        'https://japaneseasmr.com/1/',
-      );
-      final insecureJapaneseRequest = adapter.requests.first;
-      expect(insecureJapaneseRequest.uri.scheme, 'http');
-      expect(
-        insecureJapaneseRequest.headers.keys.map((key) => key.toLowerCase()),
-        isNot(contains(anyOf('cookie', 'user-agent'))),
-      );
-      for (final request in adapter.requests.skip(1)) {
-        expect(request.uri.host, isNot('japaneseasmr.com'));
-        expect(
-          request.headers.keys.map((key) => key.toLowerCase()),
-          isNot(contains(anyOf('authorization', 'cookie'))),
-        );
-        expect(request.headers['User-Agent'], isNot('Browser UA'));
-      }
-    },
-  );
-
-  test(
-    'keeps the previous verified session when verification is cancelled',
-    () async {
-      var callCount = 0;
-      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        callCount++;
-        return callCount == 1
-            ? {
-                'cookie': 'cf_clearance=kept',
-                'userAgent': 'Browser UA',
-                ..._browserPage(
-                  'https://japaneseasmr.com/',
-                  '<main class="site-main">${_card(1)}</main>',
-                ),
-              }
-            : null;
-      });
-      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isTrue,
-      );
-      expect(
-        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-        isFalse,
-      );
-      final result = await service.getWorks(page: 1, pageSize: 20);
-      expect((result['works'] as List).single['id'], -1);
       expect(adapter.requests, isEmpty);
     },
   );
 
-  test('rejects verification responses containing other cookies', () async {
-    messenger.setMockMethodCallHandler(
-      _verificationChannel,
-      (call) async => {
-        'cookie': 'session=private; cf_clearance=unexpected',
-        'userAgent': 'Browser UA',
-      },
-    );
-    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    expect(
-      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
-      isFalse,
-    );
-    await service.getWorks(page: 1, pageSize: 20);
-    expect(
-      adapter.requests.single.headers.keys.map((key) => key.toLowerCase()),
-      isNot(contains(anyOf('cookie', 'user-agent'))),
-    );
-  });
-
-  test('uses the browse route for an empty search keyword', () async {
-    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-    await service.searchWorks(keyword: '', page: 1, pageSize: 20);
-    expect(adapter.requests.single.uri.path, '/');
-    expect(adapter.requests.single.uri.queryParameters, isEmpty);
-  });
-
   test(
-    'keeps Japanese ASMR tag names outside the ASMR.ONE translation IDs',
+    'keyword search rejects source-site filters instead of faking them',
     () async {
-      final adapter = _Adapter(
-        (_) => _page(
-          _detail.replaceFirst(
-            '</main>',
-            '<a rel="tag">2026</a><a rel="tag">ASMR</a></main>',
-          ),
-        ),
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      final work = Work.fromJson(await service.getWork(31));
-      for (final locale in [
-        const Locale('zh'),
-        const Locale('en'),
-        const Locale('ja'),
-      ]) {
-        expect(
-          work.tags!.map(
-            (tag) => TagLocalizer.localize(tag.id, tag.name, locale),
-          ),
-          ['2026', 'ASMR'],
-        );
-      }
-    },
-  );
+      final adapter = _Adapter((_) => _Reply(_searchResponse([])));
+      final service = JapaneseAsmrService(dio: _dio(adapter));
 
-  test(
-    'encodes search path segments and never forwards audio account credentials',
-    () async {
-      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-      final dio = Dio(
-        BaseOptions(
-          headers: {
-            'Authorization': 'Bearer private',
-            'Cookie': 'session=private',
-          },
-        ),
-      )..httpClientAdapter = adapter;
-      const keyword = '耳かき & voice #?/%+';
-      await JapaneseAsmrService(
-        dio: dio,
-      ).searchWorks(keyword: keyword, page: 1, pageSize: 20);
-      final request = adapter.requests.single;
-      expect(request.uri.pathSegments.where((s) => s.isNotEmpty), [
-        'search',
-        keyword,
-      ]);
-      expect(request.uri.path, contains('%23%3F%2F%25'));
-      expect(request.uri.path.endsWith('/'), isTrue);
-      expect(request.uri.queryParameters, isEmpty);
-      expect(request.uri.fragment, isEmpty);
-      expect(
-        request.headers.keys.map((k) => k.toLowerCase()),
-        isNot(contains(anyOf('authorization', 'cookie'))),
-      );
-    },
-  );
-
-  test(
-    'uses the primary chapter table once and maps independent HLS tracks',
-    () async {
-      const chapters = [
-        MapEntry('0', 'sa05_01_Opening'),
-        MapEntry('425', 'sa05_02_Right ear'),
-        MapEntry('1313', 'sa05_03_Left ear'),
-        MapEntry('2222', 'sa05_04_Breath'),
-        MapEntry('3080', 'sa05_05_Sleep'),
-        MapEntry('3662', 'sa05_06_After story'),
-        MapEntry('3956', 'sa05_07_Talk'),
-      ];
-      final page = _detail.replaceFirst(
-        '</main>',
-        '${_chapterTable('plyr-chapter-playlist', chapters)}'
-            '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
-      );
-      final adapter = _Adapter((_) => _page(page));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-
-      final tracks = (await service.getWorkTracks(
-        31,
-      )).where((track) => track['type'] == 'audio').toList();
-
-      expect(tracks, hasLength(7));
-      expect(tracks.map((track) => track['title']), [
-        for (var i = 0; i < chapters.length; i++)
-          '${i + 1}_${chapters[i].value}.aac',
-      ]);
-      expect(tracks.map((track) => track['hash']), [
-        'jp-31-chapter-0',
-        'jp-31-chapter-425000',
-        'jp-31-chapter-1313000',
-        'jp-31-chapter-2222000',
-        'jp-31-chapter-3080000',
-        'jp-31-chapter-3662000',
-        'jp-31-chapter-3956000',
-      ]);
-      expect(tracks.map((track) => track['startTimeMs']), [
-        0,
-        425000,
-        1313000,
-        2222000,
-        3080000,
-        3662000,
-        3956000,
-      ]);
-      expect(tracks.map((track) => track['endTimeMs']), [
-        425000,
-        1313000,
-        2222000,
-        3080000,
-        3662000,
-        3956000,
-        null,
-      ]);
-      expect(tracks.first['duration'], 425);
-      expect(tracks.last.containsKey('duration'), isFalse);
-      expect(
-        tracks.map((track) => track['mediaStreamUrl']),
-        everyElement('https://media.example/work.m3u8'),
-      );
-      expect(
-        tracks.map((track) => track['mediaDownloadUrl']),
-        everyElement('https://media.example/work.m3u8'),
-      );
-    },
-  );
-
-  test(
-    'keeps chapter download paths unique after filename normalization',
-    () async {
-      final longTitle = List.filled(100, 'a').join();
-      final titles = [
-        'Repeat',
-        'Repeat',
-        'Ending.mp3',
-        'Ending.wav',
-        'Right?ear',
-        'Right*ear',
-        '${longTitle}A',
-        '${longTitle}B',
-      ];
-      final chapters = [
-        for (var i = 0; i < titles.length; i++)
-          MapEntry('${i * 10}', titles[i]),
-      ];
-      final page = _detail.replaceFirst(
-        '</main>',
-        '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
-      );
-      final tracks = (await service.getWorkTracks(
-        31,
-      )).where((track) => track['type'] == 'audio').toList();
-      final relativePaths = DownloadedFileStateScanner.collectFilePaths(tracks);
-      final safeRelativePaths = {
-        for (final entry in relativePaths.entries)
-          entry.key: DownloadFilePathService.safeRelativePath(entry.value),
-      };
-      final localPaths = [
-        for (final path in safeRelativePaths.values)
-          DownloadFilePathService.localPathForWorkRelativePath(
-            rootPath: r'C:\downloads',
-            workId: -31,
-            relativePath: path,
-          ),
-      ];
-
-      expect(tracks, hasLength(titles.length));
-      expect(relativePaths, hasLength(titles.length));
-      expect(localPaths.toSet(), hasLength(titles.length));
-
-      final scanner = DownloadedFileStateScanner(
-        resolveDownloadedPath: (_, _) async => null,
-        downloadRootPath: () async => r'C:\downloads',
-        fileExists: (path) async => path == localPaths.first,
-      );
-      final state = await scanner.scan(
-        workId: -31,
-        fileTree: tracks,
-        fileRelativePaths: safeRelativePaths,
-      );
-      expect(state.downloadedFiles, {
-        for (var i = 0; i < tracks.length; i++) tracks[i]['hash']: i == 0,
-      });
-    },
-  );
-
-  test(
-    'uses the basic chapter table when the primary table is absent',
-    () async {
-      const chapters = [MapEntry('1.25', 'fallback chapter.m4a')];
-      final page = _detail.replaceFirst(
-        '</main>',
-        '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
-      );
-
-      final track = (await service.getWorkTracks(31)).first;
-
-      expect(track['title'], '1_fallback chapter.aac');
-      expect(track['startTimeMs'], 1250);
-      expect(track['endTimeMs'], isNull);
-    },
-  );
-
-  test('rejects invalid and non-increasing chapter times', () async {
-    const chapters = [
-      MapEntry('0', 'first'),
-      MapEntry('425', 'second'),
-      MapEntry('invalid', 'invalid'),
-      MapEntry('400', 'out of order'),
-      MapEntry('1313', 'third'),
-    ];
-    final page = _detail.replaceFirst(
-      '</main>',
-      '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
-    );
-
-    final audioFiles = await service.getWorkTracks(31);
-    final tracks = audioFiles
-        .where((track) => track['type'] == 'audio')
-        .toList();
-
-    expect(tracks.map((track) => track['title']), [
-      '1_first.aac',
-      '2_second.aac',
-      '3_third.aac',
-    ]);
-    expect(tracks.map((track) => track['startTimeMs']), [0, 425000, 1313000]);
-  });
-
-  test(
-    'normalizes detail identity and uses only the work player media',
-    () async {
-      final adapter = _Adapter((_) => _page(_detail));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      final work = Work.fromJson(await service.getWork(31));
-      final tracks = await service.getWorkTracks(31);
-      expect(work.id, -31);
-      expect(work.title, 'A & B');
-      expect(work.sourceUrl, 'https://japaneseasmr.com/31/');
-      expect(work.vas!.map((va) => va.name), ['Voice One', 'Voice Two']);
-      expect(tracks.first['mediaStreamUrl'], 'https://media.example/work.m3u8');
-      expect(
-        tracks.first['mediaDownloadUrl'],
-        contains('/dlc.php?f=RJ00000001'),
-      );
-      expect(tracks.first['hash'], 'jp-31-main');
-      expect(tracks.where((t) => t['type'] == 'image'), hasLength(2));
-      expect(adapter.requests, hasLength(1));
-      await service.getWork(31, forceRefresh: true);
-      expect(adapter.requests, hasLength(2));
-    },
-  );
-
-  test(
-    'rejects a challenge page instead of returning an empty catalog',
-    () async {
-      final adapter = _Adapter((_) => _page('<h1>Just a moment...</h1>'));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
       await expectLater(
-        service.getWorks(page: 1, pageSize: 20),
-        throwsFormatException,
+        service.searchWorks(
+          keyword: '',
+          page: 1,
+          pageSize: 20,
+          conditions: const [
+            SearchCondition(
+              id: 'tag',
+              type: SearchType.tag,
+              value: 'Ear cleaning',
+            ),
+          ],
+        ),
+        throwsUnsupportedError,
       );
-      await expectLater(service.getWork(31), throwsFormatException);
+      expect(adapter.requests, isEmpty);
     },
   );
 
   test(
-    'resolves full-work download through the host public download button',
+    'getWork looks up the registered source ID and returns the exact work',
     () async {
       final adapter = _Adapter((request) {
-        if (request.uri.path == '/dlc.php') {
-          return _page(
-            '<a href="https://buzzheavier.com/chapter">RJ00000001 - 01.m4a</a>'
-            '<a href="https://buzzheavier.com/full">RJ00000001.m4a</a>'
-            '<a href="https://ads.example/tool.exe">tool.exe</a>',
-          );
-        }
-        if (request.uri.path == '/full') {
-          return _page(
-            '<a class="download-btn" hx-get="/full/download?t=fresh">Download File</a>',
-          );
-        }
-        expect(request.uri.path, '/full/download');
-        expect(request.headers['HX-Request'], 'true');
-        expect(request.headers['Referer'], 'https://buzzheavier.com/full');
-        return _page(
-          '',
-          headers: {
-            'hx-redirect': ['https://media.example/full.m4a?token=fresh'],
-          },
+        expect(request.uri.path, '/api/jp-asmr/search');
+        return _Reply(
+          _searchResponse([_item(workId: 42, rj: 'RJ01707048'), _item()]),
         );
       });
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+      service.registerWork(
+        const Work(id: -150867, title: 'Eara work', sourceId: 'rj01707048'),
       );
-      expect(
-        await service.resolveDownloadUrl(
-          'https://japaneseasmr.com/dlc.php?f=RJ00000001',
-        ),
-        'https://media.example/full.m4a?token=fresh',
-      );
+
+      final work = Work.fromJson(await service.getWork(150867));
+
+      expect(adapter.requests.single.uri.queryParameters, {
+        'q': 'RJ01707048',
+        'limit': '20',
+        'offset': '0',
+        'sort': 'release',
+      });
+      expect(work.id, -150867);
+      expect(work.sourceId, 'RJ01707048');
     },
   );
 
   test(
-    'cancels an in-flight download resolution without following more links',
+    'registerWork exposes title-only legacy mapping and recovers exact source ID',
+    () async {
+      final target = _item(title: 'Exact legacy title');
+      final unrelated = _item(
+        workId: 42,
+        rj: 'RJ00000042',
+        title: 'Exact legacy title',
+      );
+      final adapter = _Adapter(
+        (_) => _Reply(_searchResponse([unrelated, target])),
+      );
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+      service.registerWork(
+        const Work(
+          id: -150867,
+          title: 'Exact legacy title',
+          sourceId: 'JP-150867',
+        ),
+      );
+
+      expect(service.hasRegisteredWork(150867), isTrue);
+      expect(service.hasRegisteredWork(-150867), isFalse);
+      final work = Work.fromJson(await service.getWork(150867));
+
+      expect(adapter.requests.single.uri.queryParameters, {
+        'q': 'Exact legacy title',
+        'limit': '20',
+        'offset': '0',
+        'sort': 'release',
+      });
+      expect(work.id, -150867);
+      expect(work.sourceId, 'RJ01707048');
+    },
+  );
+
+  test('title recovery fails when Eara returns no exact page ID', () async {
+    final adapter = _Adapter(
+      (_) => _Reply(
+        _searchResponse([
+          _item(workId: 42, rj: 'RJ00000042', title: 'Similar legacy title'),
+        ]),
+      ),
+    );
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+    service.registerWork(
+      const Work(id: -150867, title: 'Legacy title', sourceId: 'JP-150867'),
+    );
+
+    await expectLater(service.getWork(150867), throwsFormatException);
+    expect(adapter.requests, hasLength(1));
+  });
+
+  test(
+    'tracks map Eara chapter ranges to the existing playback and download shape',
+    () async {
+      final adapter = _Adapter((request) {
+        if (request.uri.path.endsWith('/search')) {
+          return _Reply(_searchResponse([_item()]));
+        }
+        return const _Reply({
+          'rj': 'RJ01707048',
+          'workId': 150867,
+          'pageUrl': 'https://japaneseasmr.com/150867/',
+          'fetchedAt': '2026-01-04T00:00:00Z',
+          'trackTree': [
+            {
+              'type': 'folder',
+              'title': 'Main',
+              'children': [
+                {
+                  'type': 'audio',
+                  'title': 'RJ01707048_001.m4a',
+                  'duration': 106,
+                  'streamUrl':
+                      'https://v.weeab0o.xyz/RJ01707048.m3u8#eara-chapter=0,106000&file=RJ01707048_001.m4a',
+                  'mediaDownloadUrl': 'https://ts.buzzheavier.com/d/full-file',
+                },
+                {
+                  'type': 'audio',
+                  'title': 'RJ01707048_002.mp3',
+                  'duration': 90,
+                  'streamUrl':
+                      'https://v.weeab0o.xyz/RJ01707048.m3u8#eara-chapter=106000,&file=RJ01707048_002.mp3',
+                  'mediaDownloadUrl':
+                      'https://ts.buzzheavier.com/d/second-file',
+                },
+                {
+                  'type': 'audio',
+                  'title': 'd_353674.mp3',
+                  'duration': 55,
+                  'streamUrl':
+                      'https://v.weeab0o.xyz/d_353674.mp3#eara-chapter=0,',
+                },
+                {
+                  'type': 'audio',
+                  'title': 'direct-only.mp3',
+                  'mediaDownloadUrl': 'https://files.example/direct-only.mp3',
+                },
+              ],
+            },
+          ],
+        });
+      });
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+      service.registerWork(
+        const Work(id: -150867, title: 'Eara work', sourceId: 'RJ01707048'),
+      );
+
+      final tree = await service.getWorkTracks(150867);
+      final folder = tree.single as Map<String, dynamic>;
+      final tracks = folder['children'] as List<Map<String, dynamic>>;
+
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/api/jp-asmr/search',
+        '/api/jp-asmr/tracks',
+      ]);
+      expect(adapter.requests.last.uri.queryParameters, {'rj': 'RJ01707048'});
+      expect(tracks.map((track) => track['title']), [
+        '1_RJ01707048_001.aac',
+        '2_RJ01707048_002.aac',
+        'd_353674.mp3',
+        'direct-only.mp3',
+      ]);
+      expect(tracks.map((track) => track['hash']), [
+        'jp-150867-chapter-0',
+        'jp-150867-chapter-106000',
+        'jp-150867-file-3',
+        'jp-150867-file-4',
+      ]);
+      expect(tracks.take(2).map((track) => track['startTimeMs']), [0, 106000]);
+      expect(tracks.take(2).map((track) => track['endTimeMs']), [106000, null]);
+      expect(tracks.last.containsKey('startTimeMs'), isFalse);
+      expect(tracks.last.containsKey('endTimeMs'), isFalse);
+      expect(tracks.map((track) => track['mediaStreamUrl']), [
+        'https://v.weeab0o.xyz/RJ01707048.m3u8',
+        'https://v.weeab0o.xyz/RJ01707048.m3u8',
+        'https://v.weeab0o.xyz/d_353674.mp3',
+        'https://files.example/direct-only.mp3',
+      ]);
+      expect(tracks.map((track) => track['mediaDownloadUrl']), [
+        'https://v.weeab0o.xyz/RJ01707048.m3u8',
+        'https://v.weeab0o.xyz/RJ01707048.m3u8',
+        'https://v.weeab0o.xyz/d_353674.mp3',
+        'https://files.example/direct-only.mp3',
+      ]);
+
+      final queue = await const AudioTrackQueueBuilder().build(
+        audioFiles: tracks,
+        selectedFile: tracks.first,
+        resolveUrl: (file) async => (file as Map)['mediaStreamUrl'] as String,
+        workId: -150867,
+        albumTitle: 'Eara work',
+        unknownTitle: 'Unknown',
+      );
+      expect(queue.tracks.first.url, 'https://v.weeab0o.xyz/RJ01707048.m3u8');
+      expect(queue.tracks.first.startTimeMs, 0);
+      expect(queue.tracks.first.endTimeMs, 106000);
+      expect(queue.tracks[1].endTimeMs, isNull);
+      expect(queue.tracks.last.startTimeMs, isNull);
+    },
+  );
+
+  test('rejects malformed non-empty Eara chapter ends', () async {
+    final adapter = _Adapter((request) {
+      if (request.uri.path.endsWith('/search')) {
+        return _Reply(_searchResponse([_item()]));
+      }
+      return const _Reply({
+        'rj': 'RJ01707048',
+        'workId': 150867,
+        'trackTree': [
+          {
+            'type': 'audio',
+            'title': 'bad.m4a',
+            'streamUrl':
+                'https://v.weeab0o.xyz/RJ01707048.m3u8#eara-chapter=0,nope',
+          },
+        ],
+      });
+    });
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+    service.registerWork(
+      const Work(id: -150867, title: 'Eara work', sourceId: 'RJ01707048'),
+    );
+
+    await expectLater(service.getWorkTracks(150867), throwsFormatException);
+  });
+
+  test('rejects ranged metadata on a non-HLS Eara audio URL', () async {
+    final adapter = _Adapter((request) {
+      if (request.uri.path.endsWith('/search')) {
+        return _Reply(_searchResponse([_item()]));
+      }
+      return const _Reply({
+        'rj': 'RJ01707048',
+        'workId': 150867,
+        'trackTree': [
+          {
+            'type': 'audio',
+            'title': 'partial.mp3',
+            'streamUrl':
+                'https://v.weeab0o.xyz/partial.mp3#eara-chapter=106000,',
+          },
+        ],
+      });
+    });
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+    service.registerWork(
+      const Work(id: -150867, title: 'Eara work', sourceId: 'RJ01707048'),
+    );
+
+    await expectLater(service.getWorkTracks(150867), throwsFormatException);
+  });
+
+  test('registers UN and UND source IDs for Eara lookups', () async {
+    for (final sourceId in ['UN00000001', 'UND00000002']) {
+      final adapter = _Adapter((request) {
+        if (request.uri.path.endsWith('/search')) {
+          return _Reply(_searchResponse([_item(rj: sourceId)]));
+        }
+        return _Reply({
+          'rj': sourceId,
+          'workId': 150867,
+          'trackTree': <dynamic>[],
+        });
+      });
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+      service.registerWork(
+        Work(id: -150867, title: 'Eara work', sourceId: sourceId),
+      );
+
+      await service.getWorkTracks(150867);
+
+      expect(adapter.requests.last.uri.queryParameters['rj'], sourceId);
+    }
+  });
+
+  test('rejects an unmapped page ID before making an Eara request', () async {
+    final adapter = _Adapter((_) => _Reply(_searchResponse([])));
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    await expectLater(service.getWork(150867), throwsFormatException);
+    await expectLater(service.getWorkTracks(150867), throwsFormatException);
+    expect(adapter.requests, isEmpty);
+  });
+
+  test(
+    'resolves queued source-site download links through Eara and Buzzheavier',
+    () async {
+      final adapter = _Adapter((request) {
+        if (request.uri.path == '/api/jp-asmr/tracks') {
+          return const _Reply({
+            'rj': 'RJ01707048',
+            'workId': 150867,
+            'trackTree': [
+              {
+                'type': 'audio',
+                'title': 'RJ01707048.m4a',
+                'mediaDownloadUrl': 'https://buzzheavier.com/file',
+              },
+            ],
+          });
+        }
+        if (request.uri.path == '/file') {
+          return const _Reply(
+            '<a class="download-btn" hx-get="/file/download">Download</a>',
+            contentType: 'text/html',
+          );
+        }
+        return const _Reply(
+          '',
+          contentType: 'text/plain',
+          headers: {
+            'hx-redirect': ['https://cdn.example/audio.m4a?token=fresh'],
+          },
+        );
+      });
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+
+      expect(
+        await service.resolveDownloadUrl(
+          'https://japaneseasmr.com/dlc.php?f=RJ01707048',
+        ),
+        'https://cdn.example/audio.m4a?token=fresh',
+      );
+      expect(adapter.requests.map((request) => request.uri.host), [
+        'earaasmr.com',
+        'buzzheavier.com',
+        'buzzheavier.com',
+      ]);
+      await expectLater(
+        service.resolveDownloadUrl('https://japaneseasmr.com/150867/'),
+        throwsFormatException,
+      );
+      expect(adapter.requests, hasLength(3));
+      expect(adapter.requests.last.headers['HX-Request'], 'true');
+      expect(
+        adapter.requests.last.headers['Referer'],
+        'https://buzzheavier.com/file',
+      );
+    },
+  );
+
+  test('does not treat Eara chapters as a queued full-work download', () async {
+    final adapter = _Adapter(
+      (_) => const _Reply({
+        'rj': 'RJ01707048',
+        'trackTree': [
+          {
+            'type': 'audio',
+            'title': 'RJ01707048_001.m4a',
+            'mediaDownloadUrl': 'https://files.example/one.m4a',
+          },
+          {
+            'type': 'audio',
+            'title': 'RJ01707048_002.m4a',
+            'mediaDownloadUrl': 'https://files.example/two.m4a',
+          },
+        ],
+      }),
+    );
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    await expectLater(
+      service.resolveDownloadUrl(
+        'https://japaneseasmr.com/dlc.php?f=RJ01707048',
+      ),
+      throwsFormatException,
+    );
+    expect(adapter.requests, hasLength(1));
+    expect(adapter.requests.single.uri.host, 'earaasmr.com');
+  });
+
+  test('does not treat a bounded chapter as a full-work download', () async {
+    final adapter = _Adapter(
+      (_) => const _Reply({
+        'rj': 'RJ01707048',
+        'trackTree': [
+          {
+            'type': 'audio',
+            'title': 'RJ01707048.m4a',
+            'streamUrl':
+                'https://media.example/work.m3u8#eara-chapter=0,106000',
+            'mediaDownloadUrl': 'https://files.example/chapter.m4a',
+          },
+        ],
+      }),
+    );
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    await expectLater(
+      service.resolveDownloadUrl(
+        'https://japaneseasmr.com/dlc.php?f=RJ01707048',
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test(
+    'propagates cancel and rejects unavailable media-host downloads',
     () async {
       final started = Completer<void>();
       final adapter = _Adapter((request) async {
         started.complete();
         await request.cancelToken!.whenCancel;
-        return _page(
-          '<a href="https://buzzheavier.com/full">RJ00000001.m4a</a>',
-        );
+        return const _Reply('<a href="#">none</a>', contentType: 'text/html');
       });
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
+      final service = JapaneseAsmrService(dio: _dio(adapter));
       final cancelToken = CancelToken();
       final result = service.resolveDownloadUrl(
-        'https://japaneseasmr.com/dlc.php?f=RJ00000001',
+        'https://buzzheavier.com/file',
         cancelToken: cancelToken,
       );
       final check = expectLater(
@@ -1376,21 +664,6 @@ void main() {
       await started.future;
       cancelToken.cancel();
       await check;
-      expect(adapter.requests, hasLength(1));
-    },
-  );
-
-  test(
-    'rejects unavailable downloads and HLS manifests as offline files',
-    () async {
-      final adapter = _Adapter((_) => _page('<h1>No download</h1>'));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-      await expectLater(
-        service.resolveDownloadUrl('https://buzzheavier.com/full'),
-        throwsFormatException,
-      );
       await expectLater(
         service.resolveDownloadUrl('https://media.example/work.m3u8'),
         throwsFormatException,
@@ -1398,125 +671,34 @@ void main() {
     },
   );
 
-  test(
-    'parses native related works in order with decoded titles and lazy covers',
-    () async {
-      final adapter = _Adapter(
-        (_) => _page(
-          _relatedDetail(
-            [
-              _relatedItem(
-                'https://japaneseasmr.com/150507/',
-                'First &amp; related',
-                imageUrl: 'https://pic.example/RJ01687815_img_main.jpg',
-              ),
-              _relatedItem(
-                '/147177/',
-                'Second work',
-                imageUrl: 'https://pic.example/RJ01619571_img_main.jpg',
-              ),
-              _relatedItem('/150859/', 'Third work'),
-              _relatedItem('/150864/', 'Fourth work'),
-            ].join(),
-          ),
-        ),
-      );
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
-
-      final works = await service.getRelatedWorks(42);
-
-      expect(works.map((work) => work['id']), [
-        -150507,
-        -147177,
-        -150859,
-        -150864,
-      ]);
-      expect(works.first, {
-        'id': -150507,
-        'title': 'First & related',
-        'source_id': 'RJ01687815',
-        'source_url': 'https://japaneseasmr.com/150507/',
-        'cover_url': 'https://pic.example/RJ01687815_img_main.jpg',
-      });
-      expect(Work.fromJson(works.first).sourceId, 'RJ01687815');
-      expect(works[1]['source_id'], 'RJ01619571');
-      expect(
-        works[1]['cover_url'],
-        'https://pic.example/RJ01619571_img_main.jpg',
-      );
-      expect(works[2]['source_id'], 'JP-150859');
-      expect(works[2]['cover_url'], isNull);
-      expect(works.last['source_id'], 'JP-150864');
-    },
-  );
-
-  test('skips self, duplicate, external, and invalid related links', () async {
+  test('preserves HTTP status failures as DioException', () async {
     final adapter = _Adapter(
-      (_) => _page(
-        _relatedDetail(
-          [
-            _relatedItem('/42/', 'Self'),
-            _relatedItem('https://example.com/150507/', 'External'),
-            _relatedItem('/not-a-post/', 'Invalid'),
-            _relatedItem('/150507/reviews/', 'Nested path'),
-            _relatedItem('/150507/', 'First'),
-            _relatedItem('/150507/', 'Duplicate'),
-          ].join(),
+      (_) => const _Reply({'error': 'server down'}, statusCode: 503),
+    );
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+    await expectLater(
+      service.searchWorks(keyword: 'test', page: 1, pageSize: 10),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.response?.statusCode,
+          'statusCode',
+          503,
         ),
       ),
     );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-
-    expect(await service.getRelatedWorks(42), [
-      {
-        'id': -150507,
-        'title': 'First',
-        'source_id': 'JP-150507',
-        'source_url': 'https://japaneseasmr.com/150507/',
-        'cover_url': null,
-      },
-    ]);
-  });
-
-  test('returns no related works when the page has no native list', () async {
-    final adapter = _Adapter(
-      (_) => _page('<h1 class="page-title">Target</h1>'),
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-
-    expect(await service.getRelatedWorks(42), isEmpty);
-  });
-
-  test('reuses the cached detail page for related works', () async {
-    final adapter = _Adapter(
-      (_) => _page(_relatedDetail(_relatedItem('/150507/', 'Related'))),
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = adapter,
-    );
-
-    await service.getWork(42);
-    final works = await service.getRelatedWorks(42);
-
-    expect(works.single['id'], -150507);
-    expect(adapter.requests, hasLength(1));
   });
 
   test(
-    'propagates unavailable detail failures when loading related works',
+    'does not claim a related-work endpoint that Eara does not provide',
     () async {
-      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-      final service = JapaneseAsmrService(
-        dio: Dio()..httpClientAdapter = adapter,
-      );
+      final adapter = _Adapter((_) => _Reply(_searchResponse([])));
+      final service = JapaneseAsmrService(dio: _dio(adapter));
 
-      await expectLater(service.getRelatedWorks(42), throwsFormatException);
+      await expectLater(
+        service.getRelatedWorks(150867),
+        throwsUnsupportedError,
+      );
+      expect(adapter.requests, isEmpty);
     },
   );
 }

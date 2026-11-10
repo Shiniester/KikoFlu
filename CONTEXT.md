@@ -180,11 +180,6 @@ _Avoid_: Playback fallback, mirror server
 根据收听和安排播放的行为，自动更新音声作品在音声源账号中的在线标记。
 作品自动标记仅适用于支持在线标记的音声源。
 
-**Audio Source Verification (音声源验证)**:
-The website check required before an Audio Source permits access from the current
-network. It is separate from signing in to an audio account.
-_Avoid_: Audio account login, source account
-
 **Works Home Page (作品主页)**:
 The online works feed opened by selecting an Audio Source in the drawer,
 including the currently selected source. The drawer also has a fixed Home entry.
@@ -230,9 +225,9 @@ collection remains the search scope until the search closes.
 _Avoid_: global works search
 
 **Audio Search Catalog (音声搜索目录)**:
-The selected Audio Source's lists of tags, voice actors, and circles used to
-choose work search conditions. Catalog entries identify a tag, voice actor, or
-circle; they are distinct from the matching works.
+An Audio Source's lists of tags, voice actors, and circles used to choose work
+search conditions. Catalog entries identify a tag, voice actor, or circle; they
+are distinct from the matching works. An Audio Source may not provide a catalog.
 
 **Audio Tag (音声标签)**:
 A classification attached to an audio work. Its source-provided name and
@@ -277,10 +272,7 @@ personal preferences, voice actors, circles, and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
 traditional Chinese and other languages in recommendations.
-Japanese ASMR works instead use the source detail page's native “More Like This”
-list in its published order. The existing blocked-item filter applies only to
-metadata present in the source cards; native cards omit tags, voice actors and
-circles. Empty or failed source recommendations never fall back to ASMR.ONE.
+Japanese ASMR does not currently provide Related Recommendations.
 _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:
@@ -297,8 +289,8 @@ _Avoid_: Random recommendation, refresh result
 **Work Resource Tabs (作品资源标签)**:
 The Resources, Audio, Images, Videos, and Related Recommendations views within a
 Work Details Screen. Related Recommendations is the rightmost tab of online
-details when enabled; Images and Videos are present only when the work has
-resource images or videos, respectively. Videos follows Images and precedes
+details when available and enabled; Images and Videos are present only when the
+work has resource images or videos, respectively. Videos follows Images and precedes
 Related Recommendations. Audio
 contains preferred audio files and their best matching work subtitles; Images
 contains the work's resource images, separate from its cover. Videos contains the

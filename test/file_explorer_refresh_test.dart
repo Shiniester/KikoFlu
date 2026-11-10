@@ -282,6 +282,57 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Japanese ASMR hides unavailable related recommendations', (
+    tester,
+  ) async {
+    final downloads = _Downloads();
+    addTearDown(downloads.changes.close);
+    final loaded = Completer<void>();
+    final scanner = DownloadedFileStateScanner(
+      downloadRootPath: () async => '/downloads',
+      resolveDownloadedPath: (_, __) async => null,
+      fileExists: (_) async => false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          kikoeruApiServiceProvider.overrideWithValue(_TreeApi()),
+          downloadServiceProvider.overrideWithValue(downloads),
+          downloadedFileStateScannerProvider.overrideWithValue(scanner),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                FileExplorerWidget(
+                  work: const Work(
+                    id: -39,
+                    title: 'Work',
+                    sourceId: 'RJ00000039',
+                  ),
+                  onLoadCompleted: () {
+                    if (!loaded.isCompleted) loaded.complete();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => loaded.future);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'preferred audio folders update without overriding manual state',
     (tester) async {

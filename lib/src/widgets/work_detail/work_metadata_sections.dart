@@ -15,11 +15,7 @@ const _chipFontSize = 12.0;
 const _chipFontWeight = FontWeight.w500;
 
 class WorkCreatorChipsSection extends StatelessWidget {
-  const WorkCreatorChipsSection({
-    super.key,
-    required this.work,
-    this.onCopy,
-  });
+  const WorkCreatorChipsSection({super.key, required this.work, this.onCopy});
 
   final Work work;
   final MetadataCopyCallback? onCopy;
@@ -28,6 +24,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasCircle = work.name != null && work.name!.isNotEmpty;
     final hasVas = work.vas != null && work.vas!.isNotEmpty;
+    final searchEnabled = !work.isJapaneseAsmr;
     if (!hasCircle && !hasVas) return const SizedBox.shrink();
 
     final l10n = S.of(context);
@@ -43,7 +40,9 @@ class WorkCreatorChipsSection extends StatelessWidget {
           children: [
             if (hasCircle)
               MouseRegion(
-                cursor: SystemMouseCursors.click,
+                cursor: searchEnabled
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
                 child: CircleChip(
                   circleId: work.circleId ?? 0,
                   circleName: work.name!,
@@ -51,6 +50,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
                   padding: _chipPadding,
                   borderRadius: _chipBorderRadius,
                   fontWeight: _chipFontWeight,
+                  searchEnabled: searchEnabled,
                   onLongPress: onCopy == null
                       ? null
                       : () => onCopy!(work.name!, l10n.circleLabel),
@@ -59,13 +59,16 @@ class WorkCreatorChipsSection extends StatelessWidget {
             if (hasVas)
               ...work.vas!.map(
                 (va) => MouseRegion(
-                  cursor: SystemMouseCursors.click,
+                  cursor: searchEnabled
+                      ? SystemMouseCursors.click
+                      : SystemMouseCursors.basic,
                   child: VaChip(
                     va: va,
                     fontSize: _chipFontSize,
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,
                     fontWeight: _chipFontWeight,
+                    searchEnabled: searchEnabled,
                     onLongPress: onCopy == null
                         ? null
                         : () => onCopy!(va.name, l10n.vaLabel),
@@ -87,12 +90,14 @@ class WorkTagChipsSection extends StatelessWidget {
     this.onTagLongPress,
     this.onTagSecondaryTap,
     this.onAddTag,
+    this.searchEnabled = true,
   });
 
   final List<Tag>? tags;
   final ValueChanged<Tag>? onTagLongPress;
   final ValueChanged<Tag>? onTagSecondaryTap;
   final VoidCallback? onAddTag;
+  final bool searchEnabled;
 
   bool get _hasTags => tags != null && tags!.isNotEmpty;
 
@@ -126,7 +131,9 @@ class WorkTagChipsSection extends StatelessWidget {
           children: [
             ...tags!.map(
               (tag) => MouseRegion(
-                cursor: SystemMouseCursors.click,
+                cursor: searchEnabled
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
                 child: GestureDetector(
                   onSecondaryTapDown: onTagSecondaryTap == null
                       ? null
@@ -137,6 +144,7 @@ class WorkTagChipsSection extends StatelessWidget {
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,
                     fontWeight: _chipFontWeight,
+                    searchEnabled: searchEnabled,
                     onLongPress: onTagLongPress == null
                         ? null
                         : () => onTagLongPress!(tag),
@@ -144,10 +152,7 @@ class WorkTagChipsSection extends StatelessWidget {
                 ),
               ),
             ),
-            if (onAddTag != null)
-              _AddTagChip(
-                onTap: onAddTag!,
-              ),
+            if (onAddTag != null) _AddTagChip(onTap: onAddTag!),
           ],
         ),
         const SizedBox(height: 16),
@@ -157,11 +162,7 @@ class WorkTagChipsSection extends StatelessWidget {
 }
 
 class _AddTagChip extends StatelessWidget {
-  const _AddTagChip({
-    required this.onTap,
-    this.label,
-    this.showLabel = false,
-  });
+  const _AddTagChip({required this.onTap, this.label, this.showLabel = false});
 
   final VoidCallback onTap;
   final String? label;
@@ -173,11 +174,7 @@ class _AddTagChip extends StatelessWidget {
     final child = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          Icons.add,
-          size: 16,
-          color: colorScheme.primary,
-        ),
+        Icon(Icons.add, size: 16, color: colorScheme.primary),
         if (showLabel && label != null) ...[
           const SizedBox(width: 4),
           Text(

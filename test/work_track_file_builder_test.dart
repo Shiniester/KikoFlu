@@ -5,6 +5,26 @@ import 'package:kikoeru_flutter/src/services/work_track_file_builder.dart';
 import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 
 void main() {
+  test('keeps the Japanese ASMR download URL for bulk downloads', () {
+    const builder = WorkTrackFileBuilder(host: '', token: '');
+    final work = builder.withTracks(
+      work: const Work(id: -42, title: 'Work'),
+      files: [
+        {
+          'type': 'audio',
+          'title': 'track.mp3',
+          'mediaStreamUrl': 'https://media.example/work.m3u8',
+          'mediaDownloadUrl': 'https://media.example/track.mp3',
+        },
+      ],
+    );
+
+    expect(
+      work.children!.single.mediaDownloadUrl,
+      'https://media.example/track.mp3',
+    );
+  });
+
   test('keeps chapter bounds through bulk-download and offline metadata', () {
     const builder = WorkTrackFileBuilder(host: '', token: '');
     final chapter = builder.toAudioFiles([
@@ -87,11 +107,7 @@ void main() {
     );
 
     final audioFiles = absoluteHostBuilder.toAudioFiles([
-      {
-        'type': 'audio',
-        'title': 'track.wav',
-        'hash': 'hash-3',
-      },
+      {'type': 'audio', 'title': 'track.wav', 'hash': 'hash-3'},
     ]);
 
     expect(
@@ -101,11 +117,7 @@ void main() {
 
     const emptyHostBuilder = WorkTrackFileBuilder(host: '', token: 'token-3');
     final offlineFiles = emptyHostBuilder.toAudioFiles([
-      {
-        'type': 'audio',
-        'title': 'track.wav',
-        'hash': 'hash-4',
-      },
+      {'type': 'audio', 'title': 'track.wav', 'hash': 'hash-4'},
     ]);
 
     expect(offlineFiles.single.mediaDownloadUrl, isNull);
@@ -136,11 +148,7 @@ void main() {
     final result = builder.withTracks(
       work: work,
       files: [
-        {
-          'type': 'audio',
-          'title': 'track.flac',
-          'hash': 'hash-5',
-        },
+        {'type': 'audio', 'title': 'track.flac', 'hash': 'hash-5'},
       ],
     );
 

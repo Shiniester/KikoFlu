@@ -34,7 +34,6 @@ import '../widgets/search_history_section.dart';
 import '../widgets/search_input_decoration.dart';
 import '../widgets/search_options_button.dart';
 import '../widgets/sort_dialog.dart';
-import '../widgets/japanese_asmr_access_prompt.dart';
 import 'search_result_screen.dart';
 import 'scoped_search_result_screen.dart';
 
@@ -96,7 +95,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   List<Map<String, dynamic>> _allTags = [];
   List<Map<String, dynamic>> _allVas = [];
   List<Map<String, dynamic>> _allCircles = [];
-  final Map<SearchType, List<Map<String, dynamic>>> _japaneseCatalogs = {};
   bool _isLoadingSuggestions = false;
   String? _suggestionError;
   CancelToken? _suggestionCancelToken;
@@ -197,10 +195,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     _suggestionCancelToken = null;
     final searchType = _currentSearchType;
     final isJapanese = _isJapaneseGlobalSearch;
-    if (searchType == SearchType.keyword || searchType == SearchType.rjNumber) {
+    if (searchType == SearchType.keyword ||
+        searchType == SearchType.rjNumber ||
+        isJapanese) {
       _isLoadingSuggestions = false;
       _suggestionError = null;
-      return; // 关键词和RJ号不需要建议列表
+      return;
     }
 
     if (!mounted) return;
@@ -213,73 +213,58 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
     try {
       final api = ref.read(kikoeruApiServiceProvider);
-      if (isJapanese) {
-        if (!_japaneseCatalogs.containsKey(searchType)) {
-          final data = await api.getSearchCatalog(
-            searchType,
-            cancelToken: cancelToken,
-          );
-          if (!mounted ||
-              requestId != _suggestionRequestId ||
-              _currentSearchType != searchType ||
-              _isJapaneseGlobalSearch != isJapanese) {
-            return;
+      switch (searchType) {
+        case SearchType.tag:
+          if (_allTags.isEmpty) {
+            final data = await api.getAllTags(cancelToken: cancelToken);
+            if (!_isCurrentSuggestionRequest(
+              requestId,
+              searchType,
+              isJapanese,
+            )) {
+              return;
+            }
+            _allTags = List<Map<String, dynamic>>.from(data);
+            _allTags.sort(
+              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+            );
           }
-          _japaneseCatalogs[searchType] = data;
-        }
-      } else {
-        switch (searchType) {
-          case SearchType.tag:
-            if (_allTags.isEmpty) {
-              final data = await api.getAllTags(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(
-                requestId,
-                searchType,
-                isJapanese,
-              )) {
-                return;
-              }
-              _allTags = List<Map<String, dynamic>>.from(data);
-              _allTags.sort(
-                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-              );
+          break;
+        case SearchType.va:
+          if (_allVas.isEmpty) {
+            final data = await api.getAllVas(cancelToken: cancelToken);
+            if (!_isCurrentSuggestionRequest(
+              requestId,
+              searchType,
+              isJapanese,
+            )) {
+              return;
             }
-            break;
-          case SearchType.va:
-            if (_allVas.isEmpty) {
-              final data = await api.getAllVas(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(
-                requestId,
-                searchType,
-                isJapanese,
-              )) {
-                return;
-              }
-              _allVas = List<Map<String, dynamic>>.from(data);
-              _allVas.sort(
-                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-              );
+            _allVas = List<Map<String, dynamic>>.from(data);
+            _allVas.sort(
+              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+            );
+          }
+          break;
+        case SearchType.circle:
+          if (_allCircles.isEmpty) {
+            final data = await api.getAllCircles(cancelToken: cancelToken);
+            if (!_isCurrentSuggestionRequest(
+              requestId,
+              searchType,
+              isJapanese,
+            )) {
+              return;
             }
-            break;
-          case SearchType.circle:
-            if (_allCircles.isEmpty) {
-              final data = await api.getAllCircles(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(
-                requestId,
-                searchType,
-                isJapanese,
-              )) {
-                return;
-              }
-              _allCircles = List<Map<String, dynamic>>.from(data);
-              _allCircles.sort(
-                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-              );
-            }
-            break;
-          default:
-            break;
-        }
+            _allCircles = List<Map<String, dynamic>>.from(data);
+            _allCircles.sort(
+              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+            );
+          }
+          break;
+        case SearchType.keyword:
+        case SearchType.rjNumber:
+          break;
       }
 
       // 数据加载完成后刷新 Autocomplete
@@ -322,18 +307,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final type = _currentSearchType;
     if (_isLoadingSuggestions ||
         type == SearchType.keyword ||
-        type == SearchType.rjNumber) {
+        type == SearchType.rjNumber ||
+        _isJapaneseGlobalSearch) {
       return;
     }
-    final isJapanese = _isJapaneseGlobalSearch;
-    final hasSuggestions = isJapanese
-        ? _japaneseCatalogs.containsKey(type)
-        : switch (type) {
-            SearchType.tag => _allTags.isNotEmpty,
-            SearchType.va => _allVas.isNotEmpty,
-            SearchType.circle => _allCircles.isNotEmpty,
-            SearchType.keyword || SearchType.rjNumber => true,
-          };
+    final hasSuggestions = switch (type) {
+      SearchType.tag => _allTags.isNotEmpty,
+      SearchType.va => _allVas.isNotEmpty,
+      SearchType.circle => _allCircles.isNotEmpty,
+      SearchType.keyword || SearchType.rjNumber => true,
+    };
     if (!hasSuggestions) {
       unawaited(_loadSuggestions());
     } else if (_searchController.text.isEmpty) {
@@ -356,48 +339,40 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
   List<_SearchSuggestion> _searchSuggestions(String query) {
-    final isJapanese = _isJapaneseGlobalSearch;
-    final source = isJapanese
-        ? _japaneseCatalogs[_currentSearchType] ?? const []
-        : switch (_currentSearchType) {
-            SearchType.tag => _allTags,
-            SearchType.va => _allVas,
-            SearchType.circle => _allCircles,
-            _ => const <Map<String, dynamic>>[],
-          };
+    if (_isJapaneseGlobalSearch) return const [];
+    final source = switch (_currentSearchType) {
+      SearchType.tag => _allTags,
+      SearchType.va => _allVas,
+      SearchType.circle => _allCircles,
+      _ => const <Map<String, dynamic>>[],
+    };
     final normalizedQuery = query.trim().toLowerCase();
     return [
       for (final item in source)
         if (item['name'] != null || item['title'] != null)
-          _suggestionFromItem(item, isJapanese),
+          _suggestionFromItem(item),
     ].where((suggestion) {
       if (normalizedQuery.isEmpty ||
           suggestion.name.toLowerCase().contains(normalizedQuery)) {
         return true;
       }
-      return !isJapanese &&
-          _currentSearchType == SearchType.tag &&
+      return _currentSearchType == SearchType.tag &&
           suggestion.localizedName.toLowerCase().contains(normalizedQuery);
     }).toList();
   }
 
-  _SearchSuggestion _suggestionFromItem(
-    Map<String, dynamic> item,
-    bool isJapanese,
-  ) {
+  _SearchSuggestion _suggestionFromItem(Map<String, dynamic> item) {
     final name = (item['name'] ?? item['title']).toString();
     final id = item['id'];
-    final localizedName =
-        !isJapanese && _currentSearchType == SearchType.tag && id is int
+    final localizedName = _currentSearchType == SearchType.tag && id is int
         ? TagLocalizer.localize(id, name, Localizations.localeOf(context))
         : name;
     final count = item['count'];
     return _SearchSuggestion(
       name: name,
-      value: isJapanese ? name : localizedName,
+      value: localizedName,
       localizedName: localizedName,
       count: count is num ? count.toInt() : 0,
-      sourcePath: isJapanese ? item['sourcePath'] as String? : null,
     );
   }
 
@@ -424,7 +399,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       type: _currentSearchType,
       value: value,
       isExclude: _isExcludeMode,
-      sourcePath: suggestion?.sourcePath,
     );
     final conditions = [..._searchConditions, condition];
     setState(() {
@@ -809,30 +783,43 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     _searchConditions
       ..clear()
       ..addAll(conditions);
-    _currentSearchType = conditions.isEmpty
+    final restoredType = conditions.isEmpty
         ? SearchType.keyword
         : conditions.last.type;
+    _currentSearchType =
+        _isJapaneseGlobalSearch &&
+            (restoredType == SearchType.tag ||
+                restoredType == SearchType.va ||
+                restoredType == SearchType.circle)
+        ? SearchType.keyword
+        : restoredType;
     _isExcludeMode = false;
-    _minRate = (searchParams?['minRate'] as num?)?.toDouble() ?? 0;
+    _minRate = _isJapaneseGlobalSearch
+        ? 0
+        : (searchParams?['minRate'] as num?)?.toDouble() ?? 0;
     _ageRating = AgeRating.values.firstWhere(
       (rating) =>
-          rating.value == ageValue ||
-          rating.localizedLabel(context) == ageValue ||
-          rating.label == ageValue,
+          !_isJapaneseGlobalSearch &&
+          (rating.value == ageValue ||
+              rating.localizedLabel(context) == ageValue ||
+              rating.label == ageValue),
       orElse: () => AgeRating.all,
     );
     _salesRange = SalesRange.values.firstWhere(
       (range) =>
-          range.value.toString() == salesValue?.toString() ||
-          range.localizedLabel(context) == salesValue ||
-          range.label == salesValue,
+          !_isJapaneseGlobalSearch &&
+          (range.value.toString() == salesValue?.toString() ||
+              range.localizedLabel(context) == salesValue ||
+              range.label == salesValue),
       orElse: () => SalesRange.all,
     );
-    _activeSortOption =
-        sortOption ?? widget.initialSortOption ?? SortOrder.release;
-    _activeSortDirection =
-        sortDirection ?? widget.initialSortDirection ?? SortDirection.desc;
-    _activeSubtitleFilter = subtitleFilter;
+    _activeSortOption = _isJapaneseGlobalSearch
+        ? SortOrder.release
+        : sortOption ?? widget.initialSortOption ?? SortOrder.release;
+    _activeSortDirection = _isJapaneseGlobalSearch
+        ? SortDirection.desc
+        : sortDirection ?? widget.initialSortDirection ?? SortDirection.desc;
+    _activeSubtitleFilter = _isJapaneseGlobalSearch ? 0 : subtitleFilter;
     _autocompleteKey = UniqueKey();
   }
 
@@ -952,11 +939,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           _ageRating = AgeRating.all;
           _salesRange = SalesRange.all;
           _isExcludeMode = false;
+          _activeSortOption = SortOrder.release;
+          _activeSortDirection = SortDirection.desc;
+          _activeSubtitleFilter = 0;
         });
       } else if (previous == AudioSource.jpAsmr) {
         setState(() {
           _searchConditions.removeWhere(
-            (condition) => condition.sourcePath != null,
+            (condition) =>
+                condition.type != SearchType.keyword &&
+                condition.type != SearchType.rjNumber,
           );
           if (_currentSearchType == SearchType.tag ||
               _currentSearchType == SearchType.va ||
@@ -964,6 +956,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             _currentSearchType = SearchType.keyword;
           }
           _isExcludeMode = false;
+          _minRate = 0;
+          _ageRating = AgeRating.all;
+          _salesRange = SalesRange.all;
+          _activeSortOption = SortOrder.release;
+          _activeSortDirection = SortDirection.desc;
+          _activeSubtitleFilter = 0;
         });
       } else {
         if (shouldRerun) _performSearch();
@@ -1280,9 +1278,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                             return Semantics(
                               button: true,
                               child: InkWell(
-                                key: ValueKey(
-                                  option.sourcePath ?? option.value,
-                                ),
+                                key: ValueKey(option.value),
                                 onTap: () => onSelected(option),
                                 child: Container(
                                   color: highlightedIndex == index
@@ -1457,17 +1453,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     (type) =>
                         !isJapaneseGlobalSearch ||
                         type == SearchType.keyword ||
-                        type == SearchType.rjNumber ||
-                        type == SearchType.tag ||
-                        type == SearchType.va ||
-                        type == SearchType.circle,
+                        type == SearchType.rjNumber,
                   )
                   .map((type) => _buildSearchTypeButton(type, theme))
                   .toList(),
             ),
           ),
         ),
-        if (isDirectoryType)
+        if (!isJapaneseGlobalSearch && isDirectoryType)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(
@@ -1505,33 +1498,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             ),
           ),
         if (_suggestionError != null)
-          if (_suggestionError!.contains('[jp-asmr-verification-required]'))
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: JapaneseAsmrAccessPrompt(
-                onRetry: _loadSuggestions,
-                onVerified: _loadSuggestions,
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      S.of(context).loadFailed,
-                      style: TextStyle(color: theme.colorScheme.error),
-                    ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    S.of(context).loadFailed,
+                    style: TextStyle(color: theme.colorScheme.error),
                   ),
-                  IconButton(
-                    tooltip: S.of(context).retry,
-                    onPressed: _loadSuggestions,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              ),
+                ),
+                IconButton(
+                  tooltip: S.of(context).retry,
+                  onPressed: _loadSuggestions,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
             ),
+          ),
       ],
     );
   }
@@ -1905,14 +1889,12 @@ class _SearchSuggestion {
     required this.value,
     required this.localizedName,
     required this.count,
-    this.sourcePath,
   });
 
   final String name;
   final String value;
   final String localizedName;
   final int count;
-  final String? sourcePath;
 
   String get display => '$localizedName ($count)';
 }

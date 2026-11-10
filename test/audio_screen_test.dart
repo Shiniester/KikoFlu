@@ -39,7 +39,6 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show AuthNotifier, AuthState, authProvider, kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
-import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/screens/blocked_items_screen.dart';
@@ -79,7 +78,6 @@ import 'package:kikoeru_flutter/src/utils/l10n_extensions.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
-import 'package:kikoeru_flutter/src/widgets/japanese_asmr_access_prompt.dart';
 import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 
 class _Reviews extends MyReviewsNotifier {
@@ -148,11 +146,13 @@ class _Works extends WorksNotifier {
     );
   }
 
-  void requireVerification() {
+  void requireVerification({bool clearWorks = false}) {
     state = state.copyWith(
       modeStates: {
         ...state.modeStates,
         state.displayMode: state.modeStates[state.displayMode]!.copyWith(
+          works: clearWorks ? const [] : null,
+          rawWorks: clearWorks ? const [] : null,
           error: '[jp-asmr-verification-required]',
         ),
       },
@@ -576,30 +576,34 @@ void main() {
     expect(account.onTap, isNotNull);
   });
 
-  testWidgets(
-    'JP verification remains available when the home already has works',
-    (tester) async {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        AudioSourceNotifier.preferenceKey,
-        audio_source.AudioSource.jpAsmr.name,
-      );
-      final reduced = ValueNotifier(true);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced);
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(AudioScreen)),
-      );
-      expect(container.read(worksProvider).works, isNotEmpty);
+  testWidgets('JP errors use the common retry view', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.jpAsmr.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final screen = find.byType(AudioScreen);
+    final container = ProviderScope.containerOf(tester.element(screen));
+    final s = S.of(tester.element(screen));
+    expect(container.read(worksProvider).works, isNotEmpty);
 
-      (container.read(worksProvider.notifier) as _Works).requireVerification();
-      await tester.pumpAndSettle();
+    (container.read(worksProvider.notifier) as _Works).requireVerification(
+      clearWorks: true,
+    );
+    await tester.pumpAndSettle();
 
-      expect(container.read(worksProvider).works, isNotEmpty);
-      expect(find.byType(JapaneseAsmrAccessPrompt), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(container.read(worksProvider).works, isEmpty);
+    expect(
+      find.textContaining('[jp-asmr-verification-required]'),
+      findsOneWidget,
+    );
+    expect(find.text(s.loadFailed), findsOneWidget);
+    expect(find.text(s.retry), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('audio home remains visible after rotating the main screen', (
     tester,
@@ -660,12 +664,7 @@ void main() {
       final s = S.of(tester.element(find.byType(AudioScreen)));
       List<String> pageTitles() =>
           _audioPageTiles(tester).map((tile) => tile.title).toList();
-      expect(pageTitles(), [
-        s.navHome,
-        s.displayModePopular,
-        s.libraryHistory,
-        s.libraryDownloads,
-      ]);
+      expect(pageTitles(), [s.navHome, s.libraryHistory, s.libraryDownloads]);
       expect(
         _library(tester).drawerChildren.whereType<LibraryDrawerSection>().any(
           (section) => section.title == s.libraryAccount,
@@ -694,7 +693,7 @@ void main() {
     },
   );
 
-  testWidgets('JP sidebar sorts home and selects independent popular periods', (
+  testWidgets('JP sidebar exposes only the supported age restriction', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 640);
@@ -713,238 +712,194 @@ void main() {
       tester.element(find.byType(AudioScreen)),
     );
     final works = container.read(worksProvider.notifier) as _Works;
-    final initialState = container.read(worksProvider);
+    final pageTitles = _audioPageTiles(
+      tester,
+    ).map((tile) => tile.title).toList();
+    expect(pageTitles, isNot(contains(s.displayModePopular)));
+    expect(pageTitles, isNot(contains(s.displayModeRecommended)));
+    final homeOptions = _audioPageTile(
+      tester,
+      'home',
+    ).children.whereType<LibraryDrawerTile>();
+    expect(homeOptions.where((tile) => tile.title == s.sort), isEmpty);
+    expect(
+      homeOptions.where((tile) => tile.title == s.subtitleFilter),
+      isEmpty,
+    );
     final initialLoadCalls = works.loadWorksCalls;
 
-    _browseTile(tester, s.sort).onTap!();
+    _browseTile(tester, s.ageRatingLabel).onTap!();
     await tester.pumpAndSettle();
-    expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
-    expect(
-      find.byKey(const ValueKey('sort-age-rating-section')),
-      findsOneWidget,
-    );
-    await tester.ensureVisible(find.text(s.jpAsmrSortTitle));
-    await tester.tap(find.text(s.jpAsmrSortTitle));
+    expect(find.text(s.ageRatingAll), findsOneWidget);
+    expect(find.text(s.ageRatingGeneral), findsOneWidget);
+    expect(find.text(s.ageRatingR15), findsNothing);
+    expect(find.text(s.ageRatingAdult), findsNothing);
+    await tester.tap(find.text(s.ageRatingGeneral));
     await tester.pumpAndSettle();
-    expect(find.text('R15').last, findsOneWidget);
-    expect(find.text('R18').last, findsOneWidget);
-    await tester.ensureVisible(find.text(s.sortAsc));
-    await tester.tap(find.text(s.sortAsc));
-    await tester.pump();
-    await tester.ensureVisible(find.text(s.ageRatingGeneral));
-    await tester.tap(find.text(s.ageRatingGeneral).last);
-    await tester.pump();
-    expect(
-      container.read(worksProvider).japaneseAsmrSortOption,
-      initialState.japaneseAsmrSortOption,
-    );
-    expect(
-      container.read(worksProvider).japaneseAsmrDirection,
-      initialState.japaneseAsmrDirection,
-    );
-    expect(
-      container.read(worksProvider).japaneseAsmrAgeRating,
-      initialState.japaneseAsmrAgeRating,
-    );
-    expect(works.loadWorksCalls, initialLoadCalls);
-    await tester.tap(find.text(s.cancel));
-    await tester.pumpAndSettle();
-
-    _browseTile(tester, s.sort).onTap!();
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text(s.jpAsmrSortTitle));
-    await tester.tap(find.text(s.jpAsmrSortTitle));
-    await tester.pump();
-    await tester.ensureVisible(find.text(s.sortAsc));
-    await tester.tap(find.text(s.sortAsc));
-    await tester.pump();
-    await tester.ensureVisible(find.text(s.ageRatingGeneral));
-    await tester.tap(find.text(s.ageRatingGeneral).last);
-    await tester.pump();
-    await tester.tap(find.text(s.confirm));
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrSortOption,
-      JapaneseAsmrSortOption.title,
-    );
-    expect(
-      container.read(worksProvider).japaneseAsmrDirection,
-      SortDirection.asc,
-    );
     expect(
       container.read(worksProvider).japaneseAsmrAgeRating,
       AgeRating.general,
     );
     expect(works.loadWorksCalls, initialLoadCalls + 1);
 
-    _browseTile(tester, s.sort).onTap!();
+    _browseTile(tester, s.ageRatingLabel).onTap!();
     await tester.pumpAndSettle();
-    await tester.tap(find.text(s.sortReviewCount));
-    await tester.tap(find.text(s.confirm));
+    await tester.tap(find.text(s.ageRatingAll));
     await tester.pumpAndSettle();
-    _browseTile(tester, s.jpAsmrCommentsPeriod).onTap!();
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(s.jpAsmrPeriodTwoWeeks));
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.twoWeeks,
-    );
-
-    _requestAudioPage(tester, 'popular');
-    await tester.pumpAndSettle();
-    expect(_library(tester).title, s.displayModePopular);
-    expect(
-      _section(tester, s.libraryBrowseOptions).children
-          .whereType<LibraryDrawerTile>()
-          .where((tile) => tile.title == s.sort),
-      isEmpty,
-    );
-    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
-    await tester.pumpAndSettle();
-    for (final label in [
-      s.jpAsmrPeriodRecent,
-      s.jpAsmrPeriodWeek,
-      s.jpAsmrPeriodMonth,
-      s.jpAsmrPeriodSixMonths,
-      s.jpAsmrPeriodYear,
-      s.jpAsmrPeriodAllTime,
-      s.jpAsmrPeriodSelectYear,
-      s.jpAsmrPeriodSelectMonth,
-    ]) {
-      expect(find.text(label), findsOneWidget);
-    }
-    await tester.tap(find.text(s.jpAsmrPeriodRecent));
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.recent,
-    );
-    _requestAudioPage(tester, 'home');
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.twoWeeks,
-    );
+    expect(container.read(worksProvider).japaneseAsmrAgeRating, AgeRating.all);
+    expect(works.loadWorksCalls, initialLoadCalls + 2);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'ASMR sorting stages changes and source tiles share field text size',
-    (tester) async {
-      tester.view.physicalSize = const Size(320, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        AudioSourceNotifier.preferenceKey,
-        audio_source.AudioSource.asmrOne.name,
-      );
-      final reduced = ValueNotifier(true);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced);
-      final s = S.of(tester.element(find.byType(AudioScreen)));
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(AudioScreen)),
-      );
-      final works = container.read(worksProvider.notifier) as _Works;
-      final initialState = container.read(worksProvider);
-      final initialLoadCalls = works.loadWorksCalls;
+  testWidgets('ASMR sorting and JP age filtering share field text size', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.asmrOne.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    final works = container.read(worksProvider.notifier) as _Works;
+    final initialState = container.read(worksProvider);
+    final initialLoadCalls = works.loadWorksCalls;
 
-      Future<void> openSortOptions() async {
-        _browseTile(tester, s.sort).onTap!();
-        await tester.pumpAndSettle();
-      }
-
-      Future<void> selectNewSortValues() async {
-        await tester.ensureVisible(find.text(s.sortDlCount));
-        await tester.tap(find.text(s.sortDlCount));
-        await tester.pump();
-        await tester.ensureVisible(find.text(s.sortAsc));
-        await tester.tap(find.text(s.sortAsc));
-        await tester.pump();
-        await tester.ensureVisible(find.text(s.ageRatingGeneral));
-        await tester.tap(find.text(s.ageRatingGeneral));
-        await tester.pump();
-      }
-
-      await openSortOptions();
-      final fields = find.byKey(const ValueKey('sort-field-section'));
-      expect(
-        find.descendant(of: fields, matching: find.text(s.sortNsfw)),
-        findsNothing,
-      );
-      expect(find.text('R15'), findsOneWidget);
-      expect(find.text('R18'), findsOneWidget);
-      expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
-      await selectNewSortValues();
-      expect(container.read(worksProvider).sortOption, initialState.sortOption);
-      expect(
-        container.read(worksProvider).sortDirection,
-        initialState.sortDirection,
-      );
-      expect(
-        container.read(worksProvider).asmrOneAgeRating,
-        initialState.asmrOneAgeRating,
-      );
-      expect(works.loadWorksCalls, initialLoadCalls);
-      await tester.tap(find.text(s.cancel));
+    Future<void> openSortOptions() async {
+      _browseTile(tester, s.sort).onTap!();
       await tester.pumpAndSettle();
+    }
 
-      await openSortOptions();
-      await selectNewSortValues();
-      await tester.tap(find.text(s.confirm));
+    Future<void> selectNewSortValues() async {
+      await tester.ensureVisible(find.text(s.sortDlCount));
+      await tester.tap(find.text(s.sortDlCount));
+      await tester.pump();
+      await tester.ensureVisible(find.text(s.sortAsc));
+      await tester.tap(find.text(s.sortAsc));
+      await tester.pump();
+      await tester.ensureVisible(find.text(s.ageRatingGeneral));
+      await tester.tap(find.text(s.ageRatingGeneral));
+      await tester.pump();
+    }
+
+    await openSortOptions();
+    final fields = find.byKey(const ValueKey('sort-field-section'));
+    expect(
+      find.descendant(of: fields, matching: find.text(s.sortNsfw)),
+      findsNothing,
+    );
+    expect(find.text('R15'), findsOneWidget);
+    expect(find.text('R18'), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
+    await selectNewSortValues();
+    expect(container.read(worksProvider).sortOption, initialState.sortOption);
+    expect(
+      container.read(worksProvider).sortDirection,
+      initialState.sortDirection,
+    );
+    expect(
+      container.read(worksProvider).asmrOneAgeRating,
+      initialState.asmrOneAgeRating,
+    );
+    expect(works.loadWorksCalls, initialLoadCalls);
+    await tester.tap(find.text(s.cancel));
+    await tester.pumpAndSettle();
+
+    await openSortOptions();
+    await selectNewSortValues();
+    await tester.tap(find.text(s.confirm));
+    await tester.pumpAndSettle();
+    expect(container.read(worksProvider).sortOption, SortOrder.dlCount);
+    expect(container.read(worksProvider).sortDirection, SortDirection.asc);
+    expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
+    expect(works.loadWorksCalls, initialLoadCalls + 1);
+
+    Future<double> currentFieldTextSize({
+      required String title,
+      required String value,
+    }) async {
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
-      expect(container.read(worksProvider).sortOption, SortOrder.dlCount);
-      expect(container.read(worksProvider).sortDirection, SortDirection.asc);
-      expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
-      expect(works.loadWorksCalls, initialLoadCalls + 1);
-
-      Future<double> currentSortTextSize() async {
-        await tester.tap(find.byKey(const ValueKey('library-menu-button')));
-        await tester.pumpAndSettle();
-        final drawer = find.byKey(const ValueKey('library-drawer'));
-        final sortTitle = find
-            .descendant(of: drawer, matching: find.text(s.sort))
-            .first;
-        await tester.scrollUntilVisible(
-          sortTitle,
-          160,
-          scrollable: find
-              .descendant(of: drawer, matching: find.byType(Scrollable))
-              .first,
-        );
-        final sortTile = find
-            .ancestor(of: sortTitle, matching: find.byType(ListTile))
-            .first;
-        final fieldLabel =
-            container.read(audioSourceProvider) ==
-                audio_source.AudioSource.asmrOne
-            ? s.sortDlCount
-            : s.sortRelease;
-        final trailing = find.descendant(
-          of: sortTile,
-          matching: find.text(fieldLabel),
-        );
-        expect(trailing, findsOneWidget);
-        return DefaultTextStyle.of(tester.element(trailing)).style.fontSize!;
-      }
-
-      final asmrFieldTextSize = await currentSortTextSize();
-      await tester.ensureVisible(
-        find.text(audio_source.AudioSource.jpAsmr.label),
+      final drawer = find.byKey(const ValueKey('library-drawer'));
+      final fieldTitle = find
+          .descendant(of: drawer, matching: find.text(title))
+          .first;
+      await tester.scrollUntilVisible(
+        fieldTitle,
+        160,
+        scrollable: find
+            .descendant(of: drawer, matching: find.byType(Scrollable))
+            .first,
       );
-      await tester.tap(find.text(audio_source.AudioSource.jpAsmr.label));
-      await tester.pumpAndSettle();
-      expect(
-        container.read(audioSourceProvider),
-        audio_source.AudioSource.jpAsmr,
+      final fieldTile = find
+          .ancestor(of: fieldTitle, matching: find.byType(ListTile))
+          .first;
+      final trailing = find.descendant(
+        of: fieldTile,
+        matching: find.text(value),
       );
-      final jpFieldTextSize = await currentSortTextSize();
-      expect(jpFieldTextSize, asmrFieldTextSize);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      expect(trailing, findsOneWidget);
+      return DefaultTextStyle.of(tester.element(trailing)).style.fontSize!;
+    }
+
+    final asmrFieldTextSize = await currentFieldTextSize(
+      title: s.sort,
+      value: s.sortDlCount,
+    );
+    await tester.ensureVisible(
+      find.text(audio_source.AudioSource.jpAsmr.label),
+    );
+    await tester.tap(find.text(audio_source.AudioSource.jpAsmr.label));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(audioSourceProvider),
+      audio_source.AudioSource.jpAsmr,
+    );
+    final jpInitialLoadCalls = works.loadWorksCalls;
+    final jpFieldTextSize = await currentFieldTextSize(
+      title: s.ageRatingLabel,
+      value: s.ageRatingAll,
+    );
+    expect(jpFieldTextSize, asmrFieldTextSize);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('library-drawer')),
+        matching: find.text(s.ageRatingLabel),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ageRatingDialog = find.byType(SimpleDialog);
+    Finder ageRatingOption(String label) =>
+        find.descendant(of: ageRatingDialog, matching: find.text(label));
+    expect(ageRatingDialog, findsOneWidget);
+    expect(ageRatingOption(s.ageRatingAll), findsOneWidget);
+    expect(ageRatingOption(s.ageRatingGeneral), findsOneWidget);
+    expect(ageRatingOption(s.ageRatingR15), findsNothing);
+    expect(ageRatingOption(s.ageRatingAdult), findsNothing);
+    await tester.tap(ageRatingOption(s.ageRatingGeneral));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrAgeRating,
+      AgeRating.general,
+    );
+    expect(works.loadWorksCalls, jpInitialLoadCalls + 1);
+
+    final jpUpdatedFieldTextSize = await currentFieldTextSize(
+      title: s.ageRatingLabel,
+      value: s.ageRatingGeneral,
+    );
+    expect(jpUpdatedFieldTextSize, asmrFieldTextSize);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final source in audio_source.AudioSource.values) {
     testWidgets('sidebar opens existing blocking settings for ${source.name}', (
@@ -986,52 +941,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-
-  testWidgets('JP sidebar selects a calendar year and month', (tester) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      AudioSourceNotifier.preferenceKey,
-      audio_source.AudioSource.jpAsmr.name,
-    );
-    final reduced = ValueNotifier(true);
-    addTearDown(reduced.dispose);
-    await _pumpAudioScreen(tester, reduced);
-    final s = S.of(tester.element(find.byType(AudioScreen)));
-    final container = ProviderScope.containerOf(
-      tester.element(find.byType(AudioScreen)),
-    );
-    final ok = MaterialLocalizations.of(
-      tester.element(find.byType(AudioScreen)),
-    ).okButtonLabel;
-    _requestAudioPage(tester, 'popular');
-    await tester.pumpAndSettle();
-    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(s.jpAsmrPeriodSelectYear));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('2020'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(ok));
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.archiveYear,
-    );
-    expect(container.read(worksProvider).japaneseAsmrArchiveDate?.year, 2020);
-
-    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(s.jpAsmrPeriodSelectMonth));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(ok));
-    await tester.pumpAndSettle();
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.archiveMonth,
-    );
-    expect(container.read(worksProvider).japaneseAsmrArchiveDate?.year, 2020);
-    expect(tester.takeException(), isNull);
-  });
 
   testWidgets(
     'Android system back restores the painted audio home after rotation',

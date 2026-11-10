@@ -3511,6 +3511,7 @@ class AudioPlayerService {
   }
 
   AudioTrack _refreshStoredTrackCredentials(AudioTrack track) {
+    if (track.workId != null && track.workId! < 0) return track;
     return track.copyWith(
       url: _refreshStoredUrlToken(track.url) ?? track.url,
       artworkUrl: _refreshStoredUrlToken(track.artworkUrl),

@@ -1,26 +1,26 @@
 import '../models/work.dart';
 
 class WorkTrackFileBuilder {
-  const WorkTrackFileBuilder({
-    required this.host,
-    required this.token,
-  });
+  const WorkTrackFileBuilder({required this.host, required this.token});
 
   final String host;
   final String token;
 
-  Work withTracks({
-    required Work work,
-    required List<dynamic> files,
-  }) {
-    return work.copyWith(children: toAudioFiles(files));
+  Work withTracks({required Work work, required List<dynamic> files}) {
+    return work.copyWith(
+      children: _toAudioFiles(files, _normalizedHost, work.isJapaneseAsmr),
+    );
   }
 
   List<AudioFile> toAudioFiles(List<dynamic> files) {
-    return _toAudioFiles(files, _normalizedHost);
+    return _toAudioFiles(files, _normalizedHost, false);
   }
 
-  List<AudioFile> _toAudioFiles(List<dynamic> files, String normalizedHost) {
+  List<AudioFile> _toAudioFiles(
+    List<dynamic> files,
+    String normalizedHost,
+    bool preferDownloadUrl,
+  ) {
     return files.map((file) {
       final fileMap = Map<String, dynamic>.from(file as Map);
       final type = fileMap['type'] as String?;
@@ -32,7 +32,11 @@ class WorkTrackFileBuilder {
       List<AudioFile>? children;
       final rawChildren = fileMap['children'];
       if (rawChildren is List) {
-        children = _toAudioFiles(rawChildren, normalizedHost);
+        children = _toAudioFiles(
+          rawChildren,
+          normalizedHost,
+          preferDownloadUrl,
+        );
       }
 
       return AudioFile(
@@ -44,7 +48,13 @@ class WorkTrackFileBuilder {
         duration: fileMap['duration'],
         startTimeMs: (fileMap['startTimeMs'] as num?)?.toInt(),
         endTimeMs: (fileMap['endTimeMs'] as num?)?.toInt(),
-        mediaDownloadUrl: _downloadUrlFor(fileMap, normalizedHost, hash, type),
+        mediaDownloadUrl: _downloadUrlFor(
+          fileMap,
+          normalizedHost,
+          hash,
+          type,
+          preferDownloadUrl,
+        ),
       );
     }).toList();
   }
@@ -54,7 +64,14 @@ class WorkTrackFileBuilder {
     String normalizedHost,
     String? hash,
     String? type,
+    bool preferDownloadUrl,
   ) {
+    final mediaDownloadUrl = file['mediaDownloadUrl'];
+    if (preferDownloadUrl &&
+        mediaDownloadUrl != null &&
+        mediaDownloadUrl.toString().isNotEmpty) {
+      return mediaDownloadUrl.toString();
+    }
     final mediaStreamUrl = file['mediaStreamUrl'];
     if (mediaStreamUrl != null && mediaStreamUrl.toString().isNotEmpty) {
       return mediaStreamUrl.toString();

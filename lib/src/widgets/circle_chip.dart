@@ -9,6 +9,7 @@ class CircleChip extends StatelessWidget {
   final VoidCallback? onDeleted;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final bool searchEnabled;
   final bool compact;
   final double? fontSize;
   final EdgeInsetsGeometry? padding;
@@ -22,6 +23,7 @@ class CircleChip extends StatelessWidget {
     this.onDeleted,
     this.onTap,
     this.onLongPress,
+    this.searchEnabled = true,
     this.compact = false,
     this.fontSize,
     this.padding,
@@ -40,6 +42,7 @@ class CircleChip extends StatelessWidget {
       onDeleted: onDeleted,
       onTap: onTap,
       onLongPress: onLongPress,
+      searchEnabled: searchEnabled,
       compact: compact,
       compactFontSize: null,
       fontSize: fontSize,

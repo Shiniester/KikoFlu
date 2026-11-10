@@ -26,11 +26,7 @@ class _Request {
     this.order,
     this.sort,
     this.japaneseAsmrSort,
-    this.japaneseAsmrDirection = SortDirection.desc,
     this.japaneseAsmrAgeRating = AgeRating.all,
-    this.japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
-    this.archiveYear,
-    this.archiveMonth,
     this.endpoint = 'works',
     this.keyword,
   });
@@ -42,11 +38,7 @@ class _Request {
   final String? order;
   final String? sort;
   final JapaneseAsmrSortOption? japaneseAsmrSort;
-  final SortDirection japaneseAsmrDirection;
   final AgeRating japaneseAsmrAgeRating;
-  final JapaneseAsmrPeriod japaneseAsmrPeriod;
-  final int? archiveYear;
-  final int? archiveMonth;
   final String? keyword;
   final response = Completer<Map<String, dynamic>>();
 }
@@ -94,11 +86,7 @@ class _DeferredApi extends KikoeruApiService {
       order: order,
       sort: sort,
       japaneseAsmrSort: japaneseAsmrSort,
-      japaneseAsmrDirection: japaneseAsmrDirection,
       japaneseAsmrAgeRating: japaneseAsmrAgeRating,
-      japaneseAsmrPeriod: japaneseAsmrPeriod,
-      archiveYear: japaneseAsmrArchiveYear,
-      archiveMonth: japaneseAsmrArchiveMonth,
     );
     _recordRequest(request);
     return request.response.future;
@@ -296,31 +284,20 @@ void main() {
       expect(japaneseRequest.japaneseAsmrAgeRating, AgeRating.all);
       await _completeRequest(container, japaneseRequest, _response(-1));
 
-      final requestCountBeforeJapaneseSort = api.requests.length;
-      notifier.applyJapaneseAsmrSort(
-        JapaneseAsmrSortOption.title,
-        SortDirection.asc,
-        AgeRating.adult,
-      );
-      expect(api.requests, hasLength(requestCountBeforeJapaneseSort + 1));
-      final sortedJapaneseRequest = api.requests.last;
-      expect(sortedJapaneseRequest.source, AudioSource.jpAsmr);
-      expect(
-        sortedJapaneseRequest.japaneseAsmrSort,
-        JapaneseAsmrSortOption.title,
-      );
-      expect(sortedJapaneseRequest.japaneseAsmrDirection, SortDirection.asc);
-      expect(sortedJapaneseRequest.japaneseAsmrAgeRating, AgeRating.adult);
-      expect(container.read(worksProvider).sortOption, SortOrder.rating);
-      expect(container.read(worksProvider).sortDirection, SortDirection.asc);
+      final requestCountBeforeJapaneseAgeChange = api.requests.length;
+      notifier.setJapaneseAsmrAgeRating(AgeRating.general);
+      expect(api.requests, hasLength(requestCountBeforeJapaneseAgeChange + 1));
+      final generalJapaneseRequest = api.requests.last;
+      expect(generalJapaneseRequest.source, AudioSource.jpAsmr);
+      expect(generalJapaneseRequest.page, 1);
+      expect(generalJapaneseRequest.order, isNull);
+      expect(generalJapaneseRequest.sort, isNull);
+      expect(generalJapaneseRequest.japaneseAsmrSort, isNull);
+      expect(generalJapaneseRequest.japaneseAsmrAgeRating, AgeRating.general);
       expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
-      await _completeRequest(container, sortedJapaneseRequest, _response(-2));
-      notifier.applyJapaneseAsmrSort(
-        JapaneseAsmrSortOption.title,
-        SortDirection.asc,
-        AgeRating.adult,
-      );
-      expect(api.requests, hasLength(requestCountBeforeJapaneseSort + 1));
+      await _completeRequest(container, generalJapaneseRequest, _response(-2));
+      notifier.setJapaneseAsmrAgeRating(AgeRating.general);
+      expect(api.requests, hasLength(requestCountBeforeJapaneseAgeChange + 1));
 
       await container
           .read(audioSourceProvider.notifier)
@@ -421,168 +398,157 @@ void main() {
     },
   );
 
-  test('JP rating changes reset the page and supersede old results', () async {
+  test('JP Eara home uses default sorting and paginates works', () async {
     final api = _DeferredApi();
     final container = await _createContainer(api);
     final notifier = container.read(worksProvider.notifier);
     await container
         .read(audioSourceProvider.notifier)
         .select(AudioSource.jpAsmr);
-    notifier.setJapaneseAsmrSortOption(JapaneseAsmrSortOption.title);
-    notifier.setJapaneseAsmrSortDirection(SortDirection.asc);
-    unawaited(notifier.loadWorks(targetPage: 3, supersede: true));
+    final firstPage = api.requests.last;
+    expect(firstPage.source, AudioSource.jpAsmr);
+    expect(firstPage.page, 1);
+    expect(firstPage.order, isNull);
+    expect(firstPage.sort, isNull);
+    expect(firstPage.japaneseAsmrSort, isNull);
+    expect(firstPage.japaneseAsmrAgeRating, AgeRating.all);
+    await _completeRequest(
+      container,
+      firstPage,
+      _pagedResponse(-1, page: 1, totalCount: 80),
+    );
+    expect(container.read(worksProvider).hasMore, isTrue);
+
+    final secondPageLoad = notifier.loadMore();
+    final secondPage = api.requests.last;
+    expect(secondPage.source, AudioSource.jpAsmr);
+    expect(secondPage.page, 2);
+    expect(secondPage.order, isNull);
+    expect(secondPage.sort, isNull);
+    expect(secondPage.japaneseAsmrSort, isNull);
+    expect(secondPage.japaneseAsmrAgeRating, AgeRating.all);
+    await _completeRequest(
+      container,
+      secondPage,
+      _pagedResponse(-2, page: 2, totalCount: 80),
+    );
+    await secondPageLoad;
+    expect(container.read(worksProvider).works.map((work) => work.id), [-2]);
+    expect(container.read(worksProvider).currentPage, 2);
+    expect(container.read(worksProvider).hasMore, isFalse);
+
+    notifier.setJapaneseAsmrAgeRating(AgeRating.general);
+    final generalRequest = api.requests.last;
+    expect(generalRequest.page, 1);
+    expect(generalRequest.japaneseAsmrAgeRating, AgeRating.general);
+    expect(generalRequest.order, isNull);
+    expect(generalRequest.sort, isNull);
+    await _completeRequest(container, generalRequest, _response(-3));
+
+    notifier.setJapaneseAsmrAgeRating(AgeRating.adult);
+    final unsupportedAgeRequest = api.requests.last;
+    expect(unsupportedAgeRequest.page, 1);
+    expect(unsupportedAgeRequest.japaneseAsmrAgeRating, AgeRating.all);
+    expect(
+      container.read(worksProvider).japaneseAsmrAgeRating,
+      AgeRating.adult,
+    );
+    await _completeRequest(container, unsupportedAgeRequest, _response(-4));
+  });
+
+  test('JP age changes discard late home responses', () async {
+    final api = _DeferredApi();
+    final container = await _createContainer(api);
+    final notifier = container.read(worksProvider.notifier);
+    await container
+        .read(audioSourceProvider.notifier)
+        .select(AudioSource.jpAsmr);
     final oldRequest = api.requests.last;
 
     notifier.setJapaneseAsmrAgeRating(AgeRating.general);
     final newRequest = api.requests.last;
     expect(oldRequest.cancelToken!.isCancelled, isTrue);
+    expect(oldRequest.page, 1);
     expect(newRequest.page, 1);
-    expect(newRequest.japaneseAsmrSort, JapaneseAsmrSortOption.title);
-    expect(newRequest.japaneseAsmrDirection, SortDirection.asc);
     expect(newRequest.japaneseAsmrAgeRating, AgeRating.general);
+    expect(newRequest.order, isNull);
+    expect(newRequest.sort, isNull);
     await _completeRequest(container, newRequest, _response(-20));
+
     oldRequest.response.complete(_response(-30));
     await oldRequest.response.future;
     expect(container.read(worksProvider).works.single.id, -20);
+  });
+
+  test('JP rejects unsupported works feeds', () async {
+    final api = _DeferredApi();
+    final container = await _createContainer(api);
+    final notifier = container.read(worksProvider.notifier);
+    await container
+        .read(audioSourceProvider.notifier)
+        .select(AudioSource.jpAsmr);
+    await _completeRequest(container, api.requests.last, _response(-1));
+
+    final requestCount = api.requests.length;
+    notifier.setDisplayMode(DisplayMode.recommended);
+    expect(container.read(worksProvider).displayMode, DisplayMode.all);
+    expect(api.requests, hasLength(requestCount));
 
     notifier.setDisplayMode(DisplayMode.popular);
-    expect(api.requests.last.japaneseAsmrAgeRating, AgeRating.all);
+    expect(container.read(worksProvider).displayMode, DisplayMode.popular);
+    expect(
+      container.read(worksProvider).error,
+      contains('Eara does not provide this works feed'),
+    );
+    expect(api.requests, hasLength(requestCount));
+  });
+
+  test('ASMR sorting stays separate from Eara home defaults', () async {
+    final api = _DeferredApi();
+    final container = await _createContainer(
+      api,
+      preferences: {
+        'default_sort_order': SortOrder.review.value,
+        'default_sort_direction': SortDirection.asc.value,
+      },
+    );
+    final notifier = container.read(worksProvider.notifier);
+
+    expect(container.read(worksProvider).sortOption, SortOrder.release);
+    expect(container.read(worksProvider).sortDirection, SortDirection.desc);
+    notifier.applyWorksSort(SortOrder.rating, SortDirection.asc, AgeRating.all);
+    final sortedAsmrRequest = api.requests.last;
+    expect(sortedAsmrRequest.source, AudioSource.asmrOne);
+    expect(sortedAsmrRequest.order, SortOrder.rating.value);
+    expect(sortedAsmrRequest.sort, SortDirection.asc.value);
+    await _completeRequest(container, sortedAsmrRequest, _response(1));
+
+    await container
+        .read(audioSourceProvider.notifier)
+        .select(AudioSource.jpAsmr);
+    expect(api.requests.last.source, AudioSource.jpAsmr);
+    expect(api.requests.last.order, isNull);
+    expect(api.requests.last.sort, isNull);
+    expect(api.requests.last.japaneseAsmrSort, isNull);
+    await _completeRequest(container, api.requests.last, _response(-1));
+
     await container
         .read(audioSourceProvider.notifier)
         .select(AudioSource.asmrOne);
-    expect(api.requests.last.japaneseAsmrAgeRating, AgeRating.all);
+
+    expect(api.requests.last.order, SortOrder.rating.value);
+    expect(api.requests.last.sort, SortDirection.asc.value);
     expect(api.requests.last.japaneseAsmrSort, isNull);
-  });
+    await _completeRequest(container, api.requests.last, _response(2));
 
-  test(
-    'source sidebar sorting ignores legacy default sort preferences',
-    () async {
-      final api = _DeferredApi();
-      final container = await _createContainer(
-        api,
-        preferences: {
-          'default_sort_order': SortOrder.review.value,
-          'default_sort_direction': SortDirection.asc.value,
-        },
-      );
-      final notifier = container.read(worksProvider.notifier);
-
-      expect(container.read(worksProvider).sortOption, SortOrder.release);
-      expect(container.read(worksProvider).sortDirection, SortDirection.desc);
-      expect(
-        container.read(worksProvider).japaneseAsmrSortOption,
-        JapaneseAsmrSortOption.date,
-      );
-      expect(
-        container.read(worksProvider).japaneseAsmrDirection,
-        SortDirection.desc,
-      );
-
-      notifier.setSortOption(SortOrder.rating);
-      notifier.setSortDirection(SortDirection.asc);
-      await container
-          .read(audioSourceProvider.notifier)
-          .select(AudioSource.jpAsmr);
-      expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.date);
-      expect(api.requests.last.japaneseAsmrDirection, SortDirection.desc);
-
-      notifier.setJapaneseAsmrSortOption(JapaneseAsmrSortOption.title);
-      notifier.setJapaneseAsmrSortDirection(SortDirection.asc);
-      await container
-          .read(audioSourceProvider.notifier)
-          .select(AudioSource.asmrOne);
-
-      expect(api.requests.last.order, SortOrder.rating.value);
-      expect(api.requests.last.sort, SortDirection.asc.value);
-      expect(api.requests.last.japaneseAsmrSort, isNull);
-      expect(
-        container.read(worksProvider).japaneseAsmrSortOption,
-        JapaneseAsmrSortOption.title,
-      );
-
-      await container
-          .read(audioSourceProvider.notifier)
-          .select(AudioSource.jpAsmr);
-      expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.title);
-      expect(api.requests.last.japaneseAsmrDirection, SortDirection.asc);
-    },
-  );
-
-  test('archive popularity does not change home or comment periods', () async {
-    final api = _DeferredApi();
-    final container = await _createContainer(api);
-    final notifier = container.read(worksProvider.notifier);
     await container
         .read(audioSourceProvider.notifier)
         .select(AudioSource.jpAsmr);
-    notifier.setDisplayMode(DisplayMode.popular);
-    expect(api.requests.last.japaneseAsmrPeriod, JapaneseAsmrPeriod.week);
-    notifier.setJapaneseAsmrPeriod(
-      JapaneseAsmrPeriod.archiveMonth,
-      archiveDate: DateTime(2026, 1),
-    );
-    expect(api.requests.last.archiveYear, 2026);
-    expect(api.requests.last.archiveMonth, 1);
-
-    notifier.setDisplayMode(DisplayMode.all);
-    unawaited(notifier.refresh(resetPage: true));
-    expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.date);
-    expect(api.requests.last.archiveYear, isNull);
-    expect(api.requests.last.archiveMonth, isNull);
-    notifier.setJapaneseAsmrSortOption(JapaneseAsmrSortOption.comments);
-    notifier.setJapaneseAsmrPeriod(JapaneseAsmrPeriod.twoWeeks);
-    expect(api.requests.last.japaneseAsmrPeriod, JapaneseAsmrPeriod.twoWeeks);
-    expect(api.requests.last.page, 1);
-
-    notifier.setDisplayMode(DisplayMode.popular);
-    expect(
-      container.read(worksProvider).japaneseAsmrPeriod,
-      JapaneseAsmrPeriod.archiveMonth,
-    );
-  });
-
-  test('new popular period supersedes a late response', () async {
-    final api = _DeferredApi();
-    final container = await _createContainer(api);
-    final notifier = container.read(worksProvider.notifier);
-    await container
-        .read(audioSourceProvider.notifier)
-        .select(AudioSource.jpAsmr);
-    notifier.setDisplayMode(DisplayMode.popular);
-    final oldRequest = api.requests.last;
-    notifier.setJapaneseAsmrPeriod(JapaneseAsmrPeriod.month);
-    expect(oldRequest.cancelToken!.isCancelled, isTrue);
+    expect(api.requests.last.source, AudioSource.jpAsmr);
+    expect(api.requests.last.order, isNull);
+    expect(api.requests.last.sort, isNull);
+    expect(api.requests.last.japaneseAsmrSort, isNull);
     await _completeRequest(container, api.requests.last, _response(-2));
-    final unchanged = container.read(worksProvider);
-    oldRequest.response.complete(_response(-1));
-    await oldRequest.response.future;
-    expect(container.read(worksProvider), unchanged);
-    expect(container.read(worksProvider).works.single.id, -2);
-  });
-
-  test('JP popular pagination continues beyond 100 works', () async {
-    final api = _DeferredApi();
-    final container = await _createContainer(api);
-    final notifier = container.read(worksProvider.notifier);
-    await container
-        .read(audioSourceProvider.notifier)
-        .select(AudioSource.jpAsmr);
-    notifier.setDisplayMode(DisplayMode.popular);
-    for (var page = 1; page <= 3; page++) {
-      if (page > 1) unawaited(notifier.loadMore());
-      await _completeRequest(container, api.requests.last, {
-        'works': [
-          for (var index = 0; index < 40; index++)
-            {'id': -(page * 40 + index), 'title': 'Work $page/$index'},
-        ],
-        'pagination': {'currentPage': page, 'totalCount': 200},
-      });
-    }
-    expect(container.read(worksProvider).works, hasLength(120));
-    expect(container.read(worksProvider).hasMore, isTrue);
-    unawaited(notifier.loadMore());
-    expect(api.requests.last.page, 4);
-    expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.popular);
   });
 
   test(
@@ -666,26 +632,12 @@ void main() {
           .read(audioSourceProvider.notifier)
           .select(AudioSource.jpAsmr);
       final defaultJapaneseRequest = api.requests.last;
-      expect(
-        defaultJapaneseRequest.japaneseAsmrSort,
-        JapaneseAsmrSortOption.date,
-      );
-      expect(defaultJapaneseRequest.japaneseAsmrDirection, SortDirection.desc);
+      expect(defaultJapaneseRequest.source, AudioSource.jpAsmr);
+      expect(defaultJapaneseRequest.order, isNull);
+      expect(defaultJapaneseRequest.sort, isNull);
+      expect(defaultJapaneseRequest.japaneseAsmrSort, isNull);
+      expect(defaultJapaneseRequest.japaneseAsmrAgeRating, AgeRating.all);
       await _completeRequest(container, defaultJapaneseRequest, _response(-1));
-
-      notifier.applyJapaneseAsmrSort(
-        JapaneseAsmrSortOption.title,
-        SortDirection.asc,
-        AgeRating.adult,
-      );
-      final sortedJapaneseRequest = api.requests.last;
-      expect(
-        sortedJapaneseRequest.japaneseAsmrSort,
-        JapaneseAsmrSortOption.title,
-      );
-      expect(sortedJapaneseRequest.japaneseAsmrDirection, SortDirection.asc);
-      expect(sortedJapaneseRequest.japaneseAsmrAgeRating, AgeRating.adult);
-      await _completeRequest(container, sortedJapaneseRequest, _response(-2));
 
       await container
           .read(audioSourceProvider.notifier)
@@ -721,11 +673,10 @@ void main() {
           .select(AudioSource.jpAsmr);
       final restoredJapaneseRequest = api.requests.last;
       expect(restoredJapaneseRequest.source, AudioSource.jpAsmr);
-      expect(
-        restoredJapaneseRequest.japaneseAsmrSort,
-        JapaneseAsmrSortOption.title,
-      );
-      expect(restoredJapaneseRequest.japaneseAsmrDirection, SortDirection.asc);
+      expect(restoredJapaneseRequest.order, isNull);
+      expect(restoredJapaneseRequest.sort, isNull);
+      expect(restoredJapaneseRequest.japaneseAsmrSort, isNull);
+      expect(restoredJapaneseRequest.japaneseAsmrAgeRating, AgeRating.all);
       await _completeRequest(
         restartedContainer,
         restoredJapaneseRequest,

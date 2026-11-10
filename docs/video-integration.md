@@ -208,7 +208,7 @@ Windows 使用独立的 WebView2 配置目录保存源站浏览器会话。
 
 当前网络中，导入浏览器 Cookie 后的原生请求仍返回 HTTP 403。网页读取改用已验证浏览器的普通页面导航。账号 API 使用同一浏览器内的请求。视频页和播放器仍使用 Flutter 界面。浏览器中的页面导航与 API 请求按顺序执行，避免导航打断账号操作。
 
-Windows 和 Android 的验证浏览器使用应用代理设置。Android 与 Japanese ASMR 验证共用代理协调器，关闭一个验证窗口不会移除另一个会话的代理。iOS、macOS 和 Linux 的验证浏览器目前需要系统代理模式。Linux 构建还需要 `libwebkit2gtk-4.1-dev` 和 `libsoup-3.0-dev`。
+Windows 和 Android 的验证浏览器使用应用代理设置。Android 的视频验证窗口共用代理协调器，关闭一个窗口不会移除另一个会话的代理。iOS、macOS 和 Linux 的验证浏览器目前需要系统代理模式。Linux 构建还需要 `libwebkit2gtk-4.1-dev` 和 `libsoup-3.0-dev`。
 
 媒体 CDN 的原生请求同样返回 HTTP 403。媒体改由独立的源站浏览器读取，再通过本机转发交给播放器和下载器。浏览器按片段流式传输数据；HLS 清单中的地址改写为本机地址。媒体浏览器与网页浏览器分开，浏览目录不会打断播放或下载。
 

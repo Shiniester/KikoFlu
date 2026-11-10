@@ -257,6 +257,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       });
 
       final apiService = ref.read(kikoeruApiServiceProvider);
+      apiService.registerJapaneseAsmrWork(_work);
       final files = await apiService.getWorkTracks(
         _work.id,
         forceRefresh: forceRefresh,
@@ -502,6 +503,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     // 获取当前作品的完整文件树（用于字幕查找）
     try {
       final apiService = ref.read(kikoeruApiServiceProvider);
+      apiService.registerJapaneseAsmrWork(_work);
       final allFiles = await apiService.getWorkTracks(_work.id);
 
       // 只在播放音频时更新全局文件列表，这样字幕才能正确关联
@@ -1080,9 +1082,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       initialTab: _errorMessage == null
           ? WorkResourceTab.audio
           : WorkResourceTab.resources,
-      recommendationBuilder:
-          widget.recommendationBuilder ??
-          (context) => RecommendationSection(work: _work),
+      recommendationBuilder: _work.isJapaneseAsmr
+          ? null
+          : widget.recommendationBuilder ??
+                (context) => RecommendationSection(work: _work),
       progressMessage: _translationController.isBulkTranslating
           ? _translationController.progress
           : null,

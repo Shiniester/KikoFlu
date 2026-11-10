@@ -15,8 +15,9 @@ Widget _testApp(Widget child) {
 
 void main() {
   group('MetadataSearchChip', () {
-    testWidgets('renders an action chip and runs the provided tap callback',
-        (tester) async {
+    testWidgets('renders an action chip and runs the provided tap callback', (
+      tester,
+    ) async {
       var tapped = 0;
 
       await tester.pumpWidget(
@@ -39,8 +40,9 @@ void main() {
       expect(tapped, 1);
     });
 
-    testWidgets('renders an input chip and runs the delete callback',
-        (tester) async {
+    testWidgets('renders an input chip and runs the delete callback', (
+      tester,
+    ) async {
       var deleted = 0;
 
       await tester.pumpWidget(
@@ -62,8 +64,9 @@ void main() {
       expect(deleted, 1);
     });
 
-    testWidgets('uses compact custom style and long press callback',
-        (tester) async {
+    testWidgets('uses compact custom style and long press callback', (
+      tester,
+    ) async {
       var longPressed = 0;
 
       await tester.pumpWidget(
@@ -91,11 +94,39 @@ void main() {
       await tester.longPress(find.text('VA'));
       expect(longPressed, 1);
     });
+
+    testWidgets('disabled search keeps long press actions', (tester) async {
+      var tapped = 0;
+      var longPressed = 0;
+
+      await tester.pumpWidget(
+        _testApp(
+          MetadataSearchChip(
+            label: 'JP tag',
+            searchKeyword: 'JP tag',
+            searchTypeLabel: 'Tag',
+            searchParams: const {'tagId': 1},
+            chipTone: MetadataChipTone.secondary,
+            searchEnabled: false,
+            fontSize: 12,
+            onTap: () => tapped++,
+            onLongPress: () => longPressed++,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('JP tag'));
+      expect(tapped, 0);
+
+      await tester.longPress(find.text('JP tag'));
+      expect(longPressed, 1);
+    });
   });
 
   group('metadata chip wrappers', () {
-    testWidgets('TagChip delegates rendering and custom tap handling',
-        (tester) async {
+    testWidgets('TagChip delegates rendering and custom tap handling', (
+      tester,
+    ) async {
       var tapped = 0;
 
       await tester.pumpWidget(

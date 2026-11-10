@@ -22,7 +22,6 @@ import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
 import '../widgets/audio_account_prompt.dart';
-import '../widgets/japanese_asmr_access_prompt.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
@@ -307,20 +306,6 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
     void guardedRefresh() {
       if (isActive()) unawaited(notifier.refresh());
-    }
-
-    if (worksState.error?.contains('[jp-asmr-verification-required]') == true &&
-        ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
-      void refreshJapaneseAsmr() {
-        if (mounted && ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
-          guardedRefresh();
-        }
-      }
-
-      return JapaneseAsmrAccessPrompt(
-        onRetry: refreshJapaneseAsmr,
-        onVerified: refreshJapaneseAsmr,
-      );
     }
 
     return WorksGridView(

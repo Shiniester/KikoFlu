@@ -1,234 +1,28 @@
-# JP-ASMR 访问验证
+# JP-ASMR
 
-Android 主页的 HTTP 403 与站点访问验证有关。
-用户确认同一手机浏览器需要先完成 Cloudflare 验证。
-普通 HTTP 客户端不能执行验证页所需的 JavaScript。
+JP-ASMR 的作品列表、搜索和曲目目录使用 Eara 后端。播放和下载直接访问接口返回的媒体地址。
 
-Android 主页和搜索页提供“完成网站验证”入口。
-验证通过后，应用重新加载作品。
+## 数据与请求
 
-## 现场结果
+- 首页和搜索使用 `/api/jp-asmr/search`。
+- 曲目目录使用 `/api/jp-asmr/tracks`。
+- 请求使用应用的代理设置，不携带 ASMR.ONE 的账号凭据。
+- Eara 接收搜索关键词和作品编号。
 
-2026-10-20，通过同一网络检查公开页面：
+首页按发行时间降序展示作品，支持“全部”和“全年龄”筛选。全局搜索支持关键词和番号。
 
-| 请求 | HTTP 状态 | 响应 |
-| --- | --- | --- |
-| `https://japaneseasmr.com/` | 200 | 作品目录 |
-| `https://japaneseasmr.com/?s=RaRo` | 403 | `Just a moment...` 验证页 |
-| `https://japaneseasmr.com/?s=RJ01726738` | 403 | `Just a moment...` 验证页 |
-| `https://japaneseasmr.com/search/RaRo/` | 200 | 搜索结果 |
-| `https://japaneseasmr.com/search/RaRo/page/2/` | 200 | 搜索结果第 2 页 |
-| `https://japaneseasmr.com/search/耳かき%20%26%20voice/` | 200 | 对应关键词的搜索结果 |
-| `https://japaneseasmr.com/151342/` | 200 | 作品详情 |
-| `https://v.weeab0o.xyz/RJ01726738.m3u8` | 200 | HLS 播放清单 |
-| `https://japaneseasmr.com/dlc.php?f=RJ01726738` | 403 | `Just a moment...` 验证页 |
+## 作品与下载
 
-实际 `JapaneseAsmrService` 请求也复现了查询参数搜索的 403。
-添加浏览器 User-Agent 和 Referer 后，该地址仍返回 403。
-搜索结果页的分页链接使用 `/search/关键词/page/页码/`。
+作品继续使用负数页面 ID，原有历史和下载记录保留该 ID。读取详情或曲目时，应用使用已保存的作品编号查询 Eara。旧记录没有编号时，应用按标题搜索前 20 条结果，并核对页面 ID。
 
-## Android 验证流程
+Eara 返回的 HLS 章节转换为应用现有的章节时间范围。章节下载仍保存为独立的 AAC 文件。完整音频使用接口返回的媒体地址。
 
-应用识别 `cf-mitigated: challenge` 响应头和验证页标记。
-主页和搜索页显示验证说明，不再直接显示这类 Dio 错误。
+旧下载任务中的源站下载页地址仅在 Eara 返回唯一的同编号完整音频地址时恢复。无法确认时，任务保留为失败状态。
 
-Android 系统 WebView 展示站点验证页。
-验证页使用实际受限的地址，保留排序参数和页码。
-验证页与作品请求使用相同的代理配置。
-正常页面加载且验证 Cookie 写入后，验证窗口自动关闭。
-验证窗口等待延迟写入的 Cookie，不把空 Cookie 当作成功。
-验证完成后，应用保留同一个 WebView。
-首次刷新使用验证窗口返回的网页内容。
-后续 JP-ASMR 的 HTTPS 页面请求继续使用该 WebView。
-主页、分页、搜索和作品详情共用浏览器会话。
-网页读取按顺序执行，单次读取在 25 秒后超时。
-取消读取会停止对应请求。
-读取完成后，后台 WebView 切换到空白页，再恢复系统代理设置。
-第三方下载主机继续使用普通 HTTP 客户端。
-取消验证不触发作品刷新。
+## 功能范围
 
-## 搜索地址
+当前接入不支持源站热门榜、评论排序、完整分类目录和相关推荐。JP-ASMR 不再显示这些入口。屏蔽项仍可手动添加。
 
-`JapaneseAsmrService` 使用原生搜索路径。
-关键词作为单个路径段编码，保留空格、日文和特殊字符。
-搜索翻页沿用原生路径。
+Eara 数据可能延迟或缺少作品。没有匹配作品时，应用显示加载失败，不回退到 JP-ASMR 网页。
 
-## 相关推荐
-
-2026-10-21，公开[作品详情页](https://japaneseasmr.com/151342/)包含原生的
-“More Like This”列表。
-推荐作品位于 `.yarpp-related`，包含作品链接、标题和封面。
-
-JP-ASMR 作品的相关推荐按源站顺序展示。
-推荐请求复用详情页缓存和访问验证会话。
-推荐作品沿用 JP-ASMR 的负数内部 ID。
-推荐列表沿用已有屏蔽逻辑。
-源站卡片未提供的标签、声优和社团字段无法用于屏蔽。
-源站列表为空或请求失败时，不回退到 ASMR.ONE。
-
-## 热门和排序
-
-JP-ASMR 的“热门”入口位于音声页侧栏的“页面”中。
-榜单和排序控件位于侧栏的“浏览选项”中。
-
-热门默认显示周榜，支持以下范围：
-
-- 最近、周、月、半年、年和总榜。
-- 指定年份的榜单。
-- 指定年月的榜单。
-
-热门按源站浏览量降序展示。
-作品主页支持日期升降序、标题升降序和评论数排序。
-排序窗口的年龄分级支持全部、全年龄、R15 和 R18。
-分级与当前排序共同生效，切换分级后从第 1 页开始。
-分级选择只用于作品主页，热门榜单保持原有范围。
-评论数支持周、双周、月、半年、年和总数。
-切换排序或榜单范围后，列表从第 1 页开始。
-翻页和计算总数时，保留当前排序和榜单范围。
-
-默认排序沿用 ASMR.ONE 的设置机制。
-列表内的排序修改只保留在当前会话。
-JP-ASMR 不支持的默认排序回退到最新发布。
-
-源站[排序菜单](https://japaneseasmr.com/)提供周期参数。
-[热门归档](https://japaneseasmr.com/extended-search/)提供年份和月份链接。
-热门请求使用 `orderby=post_views`。
-评论数请求使用 `orderby=comment_count`。
-指定年份使用 `/date/年份/`，指定年月使用 `/date/年份/月份/`。
-年月路径和翻页路径都保留排序参数。
-
-JP-ASMR 和 ASMR.ONE 的作品主页共用排序窗口。
-排序字段、排序方向和年龄分级均使用相同字号的单选列表。
-选中项保留圆圈，文字加粗并使用强调色，不显示背景色块。
-窗口内的选择先暂存，点击“确定”后一次应用并返回第 1 页。
-点击“取消”或关闭窗口会放弃未确认的选择。
-两个源的侧栏“排序”右侧均显示当前排序字段。
-
-ASMR.ONE 官方接口支持全部、全年龄、R15 和 R18。
-年龄分级独立于排序字段，通过 `$age:general$`、`$age:r15$`、
-`$age:adult$` 搜索条件筛选作品。
-原“全年龄”排序不再出现在作品主页的排序字段中。
-旧默认排序为“全年龄”时，主页使用发布日期排序并筛选全年龄作品。
-自定义服务器沿用现有 `nsfw=1/2` 适配，不提供 R15 选项。
-从官方服务器切到自定义服务器时，已选的 R15 会重置为全部。
-自定义服务器需支持相应参数才能筛选分级。
-
-音声页侧栏的“浏览选项”提供“屏蔽”入口。
-入口打开当前音声源的屏蔽列表。
-JP-ASMR 的添加候选词来自源站标签、声优和社团目录。
-JP-ASMR 名称保留原文，不套用 ASMR.ONE 标签翻译。
-两种音声源分别保存屏蔽列表，ASMR.ONE 的旧数据保留。
-作品列表、搜索结果和相关推荐按作品所属音声源应用屏蔽。
-偏好设置不再提供屏蔽入口。
-
-2026-10-21，当前网络访问半年榜、年榜和月榜均返回 HTTP 403。
-这些榜单的在线结果尚未验证。
-
-## 验证范围
-
-### 排序窗口和年龄分级
-
-2026-10-22，以下命令中的 87 项测试全部通过：
-
-```text
-flutter test --no-pub test/audio_screen_test.dart test/sort_dialog_test.dart test/preferences_proxy_settings_test.dart test/online_subtitle_feed_pagination_test.dart
-flutter test --no-pub test/works_provider_source_switch_test.dart test/kikoeru_api_age_filter_test.dart test/kikoeru_api_japanese_source_test.dart
-```
-
-测试覆盖两源的单选样式、暂存选择、取消和一次确认。
-侧栏当前排序字段、320 像素单列和 844 像素双列布局均有覆盖。
-接口测试覆盖年龄条件、排序参数和随机种子的传递。
-状态测试覆盖分页、过期响应、音声源隔离和旧默认排序。
-从 R15 切换到自定义服务器后，旧主页缓存会清空。
-本轮修改的 4 个生产文件和 4 个测试文件通过定向静态检查。
-本轮未做真机验证，未验证自定义服务器的在线分级结果。
-
-### 屏蔽列表隔离
-
-2026-10-22，以下命令中的 51 项测试全部通过：
-
-```text
-flutter test --no-pub test/blocked_items_source_test.dart test/preferences_proxy_settings_test.dart
-flutter test --no-pub test/blocked_items_provider_test.dart test/blocked_items_source_test.dart test/recommendation_provider_test.dart test/recommendation_section_test.dart test/online_subtitle_feed_pagination_test.dart test/works_provider_source_switch_test.dart
-flutter test --no-pub test/audio_screen_test.dart --plain-name "sidebar opens existing blocking settings"
-```
-
-测试覆盖两源的标签、声优和社团候选。
-测试覆盖独立保存、增删后的筛选和重启恢复。
-ASMR.ONE 旧屏蔽数据和两源的重启恢复测试通过。
-固定来源的 JP-ASMR 搜索和相关推荐分别应用 JP-ASMR 屏蔽列表。
-候选词重试保留输入，不回退到另一音声源。
-偏好设置不再显示屏蔽入口。
-
-### 目录、排序和访问验证
-
-以下命令中的 102 项测试全部通过：
-
-```text
-flutter test --no-pub test/japanese_asmr_service_test.dart test/kikoeru_api_japanese_source_test.dart test/online_subtitle_feed_pagination_test.dart
-flutter test --no-pub test/works_provider_source_switch_test.dart
-flutter test --no-pub test/audio_screen_test.dart
-flutter test --no-pub test/japanese_asmr_access_prompt_test.dart
-```
-
-测试覆盖搜索地址、关键词编码、分页总数和账户凭据隔离。
-API 分发和音声源切换测试也通过。
-热门和排序测试覆盖原生参数、归档末页计数和过期响应。
-侧栏测试覆盖标题排序、评论周期和指定年月选择。
-分级测试覆盖源站目录、分页参数和旧响应处理。
-ASMR.ONE 和 JP-ASMR 的侧栏屏蔽入口均通过跳转和返回测试。
-320 像素宽度下的排序和周期选择测试通过。
-JP-ASMR 热门超过 100 条后仍能继续分页。
-验证取消、失败重试和已有作品时的验证入口均有回归覆盖。
-正常页面的 Cloudflare 后台脚本不会触发验证提示。
-修改的服务和测试通过定向 `flutter analyze --no-pub` 检查。
-新增界面文案已生成 4 种语言的本地化代码。
-修复后的实际服务搜索返回 20 个作品，总数为 247。
-
-Android 验证桥通过 `:app:compileDebugKotlin` 编译。
-`flutter build apk --debug --no-pub` 已构建调试安装包。
-安装包位于 `build/app/outputs/flutter-apk/app-debug.apk`。
-调试版与正式版并存。
-
-手机验证步骤：
-
-1. 安装调试版。
-2. 选择 JP-ASMR。
-3. 如果出现验证提示，选择“完成网站验证”。
-4. 完成网站验证，确认作品列表自动加载。
-
-## 真机结果
-
-2026-10-20，在 ABR-AL60、Android 12 上检查调试版。
-系统 WebView 为 `com.huawei.webview`，版本为 `114.0.5.302`。
-
-| 检查 | 结果 |
-| --- | --- |
-| JP-ASMR 主页 | 作品列表加载正常 |
-| 关闭后重新打开应用 | JP-ASMR 主页加载正常 |
-| 搜索 `RARO` | 返回 247 个作品 |
-| 作品 `RJ01726738` | 详情和音频资源列表加载正常 |
-| 作品分页 | 进入第 2 / 861 页，总数为 34,415 |
-| 原生验证窗口与会话回传 | 返回成功，随后加载 20 个作品 |
-
-原生验证记录保存在 `build/jp-device-verification/native-result.json`。
-手机已恢复为正常入口的调试版。
-正式版的版本和安装时间记录未改变。
-
-## 限制
-
-本轮真机检查没有复现主页 403。
-人工交互式挑战、原生播放器和完整下载尚未验证。
-本次检查的下载索引返回了访问验证页。
-搜索地址修改不能解除下载索引的访问验证。
-第三方下载主机也不接收 JP-ASMR 的验证 Cookie。
-应用内验证入口仅支持 Android。
-其他平台仍可更换网络或代理后重试。
-目录和搜索需要读取末页来计算精确总数。
-如果末页请求失败，当前列表请求也会失败。
-
-Cloudflare 对嵌入式浏览器的支持有限。
-如果验证仍失败，需要在实际手机上核查。
-浏览器支持范围见 [Cloudflare 支持的浏览器](https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/)。
-
-音声源的身份和功能范围见 [ADR 0003](../adr/0003-independent-audio-sources.md)。
+媒体站的网络连接或访问限制可能影响播放和下载。

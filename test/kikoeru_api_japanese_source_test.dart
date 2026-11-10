@@ -24,6 +24,9 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
   final relatedWorkIds = <int>[];
 
   @override
+  bool hasRegisteredWork(int postId) => true;
+
+  @override
   Future<Map<String, dynamic>> getWorks({
     required int page,
     required int pageSize,
@@ -97,6 +100,24 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
 }
 
 void main() {
+  test('a cancelled Japanese work request stops before lookup', () async {
+    final japanese = _JapaneseAsmrService();
+    final api = KikoeruApiService(japaneseAsmrService: japanese);
+    final cancelToken = CancelToken()..cancel();
+
+    await expectLater(
+      api.getWork(-1726738, cancelToken: cancelToken),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    expect(japanese.workId, isNull);
+  });
+
   test(
     'facade routes explicit Japanese requests and negative work IDs',
     () async {

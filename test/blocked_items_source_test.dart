@@ -23,9 +23,6 @@ class _FixedAudioSourceNotifier extends AudioSourceNotifier {
 class _BlockedItemsApi extends KikoeruApiService {
   final catalogTypes = <SearchType>[];
   final legacyTypes = <SearchType>[];
-  int nativeFailuresRemaining;
-
-  _BlockedItemsApi({this.nativeFailuresRemaining = 0});
 
   @override
   Future<List<Map<String, dynamic>>> getSearchCatalog(
@@ -33,10 +30,6 @@ class _BlockedItemsApi extends KikoeruApiService {
     CancelToken? cancelToken,
   }) async {
     catalogTypes.add(type);
-    if (nativeFailuresRemaining > 0) {
-      nativeFailuresRemaining--;
-      throw StateError('catalog unavailable');
-    }
     return [
       {
         'name': _catalogName(type),
@@ -128,6 +121,7 @@ Future<void> _addCatalogItem(
   required SearchType type,
   required String name,
   required S strings,
+  required bool selectSuggestion,
 }) async {
   if (type != SearchType.tag) {
     await tester.tap(find.text(_tabLabel(type, strings)));
@@ -140,8 +134,10 @@ Future<void> _addCatalogItem(
   final field = find.byType(TextField);
   await tester.enterText(field, name);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(name).last);
-  await tester.pumpAndSettle();
+  if (selectSuggestion) {
+    await tester.tap(find.text(name).last);
+    await tester.pumpAndSettle();
+  }
 
   expect(find.byType(AlertDialog), findsOneWidget);
   expect(tester.widget<TextField>(field).controller!.text, name);
@@ -170,12 +166,15 @@ void main() {
         final screen = find.byType(BlockedItemsScreen);
         final strings = S.of(tester.element(screen));
         final name = _expectedName(source, type);
-        await _addCatalogItem(tester, type: type, name: name, strings: strings);
-
-        expect(
-          api.catalogTypes,
-          source == AudioSource.jpAsmr ? [type] : isEmpty,
+        await _addCatalogItem(
+          tester,
+          type: type,
+          name: name,
+          strings: strings,
+          selectSuggestion: source == AudioSource.asmrOne,
         );
+
+        expect(api.catalogTypes, isEmpty);
         expect(
           api.legacyTypes,
           source == AudioSource.asmrOne ? [type] : isEmpty,
@@ -209,35 +208,25 @@ void main() {
     }
   }
 
-  testWidgets('JP-ASMR catalog retry stays on the native catalog', (
+  testWidgets('JP block entries can be added without a directory catalog', (
     tester,
   ) async {
-    final api = _BlockedItemsApi(nativeFailuresRemaining: 1);
+    final api = _BlockedItemsApi();
     await _pumpScreen(tester, api: api, source: AudioSource.jpAsmr);
     final screen = find.byType(BlockedItemsScreen);
     final strings = S.of(tester.element(screen));
 
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
-    expect(find.text(strings.loadFailed), findsOneWidget);
-    expect(api.catalogTypes, [SearchType.tag]);
+    expect(find.text(strings.loadFailed), findsNothing);
+    expect(api.catalogTypes, isEmpty);
     expect(api.legacyTypes, isEmpty);
-
     await tester.enterText(find.byType(TextField), 'manual block');
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(strings.retry));
+    await tester.tap(find.text(strings.add));
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
-      'manual block',
-    );
-    expect(api.catalogTypes, [SearchType.tag, SearchType.tag]);
-    expect(api.legacyTypes, isEmpty);
-    await tester.enterText(
-      find.byType(TextField),
-      _catalogName(SearchType.tag),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text(_catalogName(SearchType.tag)), findsWidgets);
+
+    expect(find.text('manual block'), findsOneWidget);
+    expect(api.catalogTypes, isEmpty);
   });
 }

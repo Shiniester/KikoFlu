@@ -323,6 +323,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Japanese audio card metadata chips are not searchable', (
+    tester,
+  ) async {
+    const work = Work(
+      id: -12345,
+      title: 'Japanese audio card',
+      vas: [Va(id: 'va-1', name: 'Voice actor')],
+      tags: [Tag(id: 21, name: 'Healing')],
+    );
+
+    await tester.pumpWidget(
+      _testApp(
+        const EnhancedWorkCard(
+          work: work,
+          crossAxisCount: 1,
+          isListLayout: true,
+        ),
+        contentWidth: 320,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(tester.widget<TagChip>(find.byType(TagChip)).searchEnabled, isFalse);
+    expect(tester.widget<VaChip>(find.byType(VaChip)).searchEnabled, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('audio card metadata stays together above voice actors', (
     tester,
   ) async {

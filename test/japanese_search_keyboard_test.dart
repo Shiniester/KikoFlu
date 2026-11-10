@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -157,73 +156,28 @@ void main() {
     );
   });
 
-  testWidgets('first tap shows loaded suggestions for an empty input', (
-    tester,
-  ) async {
+  testWidgets('JP search supports keyword and RJ number only', (tester) async {
     final api = _CatalogApi();
     await _pumpSearchScreen(
       tester,
       api: api,
       sourceNotifier: _JapaneseSourceNotifier(),
     );
-    await _selectTag(tester);
-
-    await tester.tap(find.byType(TextField).first);
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('耳かき (5)'), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
-    expect(find.text('耳かき (5)'), findsNothing);
-
-    await tester.tap(find.byType(TextField).first);
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('耳かき (5)'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('JP-ASMR keyboard submit selects the highlighted catalog item', (
-    tester,
-  ) async {
-    final api = _CatalogApi();
-    await _pumpSearchScreen(
-      tester,
-      api: api,
-      sourceNotifier: _JapaneseSourceNotifier(),
-    );
-
-    await _selectTag(tester);
-    expect(api.catalogTypes, [SearchType.tag]);
+    final strings = await S.delegate.load(const Locale('zh'));
+    expect(find.text(strings.searchTypeKeyword), findsOneWidget);
+    expect(find.text(strings.searchTypeRjNumber), findsOneWidget);
+    expect(find.text(strings.searchTypeTag), findsNothing);
+    expect(find.text(strings.searchTypeVa), findsNothing);
+    expect(find.text(strings.searchTypeCircle), findsNothing);
 
     final field = find.byType(TextField).first;
     await tester.tap(field);
-    await tester.enterText(field, '耳');
+    await tester.enterText(field, 'ear rubbing');
+    await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
     await tester.pumpAndSettle();
-    expect(find.text('耳かき (5)'), findsOneWidget);
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pump();
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-
-    expect(find.text('标签: 耳かき'), findsOneWidget);
-    expect(api.searchCalls, hasLength(1));
     expect(api.searchCalls.single.source, AudioSource.jpAsmr);
-    expect(api.searchCalls.single.keyword, isEmpty);
-    expect(api.searchCalls.single.conditions, hasLength(1));
-    expect(api.searchCalls.single.conditions.single.type, SearchType.tag);
-    expect(api.searchCalls.single.conditions.single.value, '耳かき');
-    expect(
-      api.searchCalls.single.conditions.single.sourcePath,
-      '/tag/%e8%80%b3%e3%81%8b%e3%81%8d/',
-    );
-    expect(find.byIcon(Icons.expand_less), findsNothing);
-    final layoutButton = find.byKey(
-      const ValueKey('audio-search-layout-toggle'),
-    );
-    expect(layoutButton, findsOneWidget);
+    expect(api.searchCalls.single.keyword, 'ear rubbing');
+    expect(api.searchCalls.single.conditions, isEmpty);
     expect(
       find.byKey(const ValueKey('audio-search-subtitle-toggle')),
       findsNothing,
@@ -236,6 +190,19 @@ void main() {
       find.byKey(const ValueKey('audio-search-advanced-filter')),
       findsNothing,
     );
+    expect(api.catalogTypes, isEmpty);
+    expect(api.tagCatalogRequests, isEmpty);
+
+    await tester.tap(find.text(strings.searchTypeRjNumber));
+    await tester.pumpAndSettle();
+    final rjField = find.byType(TextField).first;
+    await tester.enterText(rjField, '12345');
+    await tester.tap(find.byKey(const ValueKey('audio-search-submit')));
+    await tester.pumpAndSettle();
+    expect(api.searchCalls, hasLength(2));
+    expect(api.searchCalls.last.source, AudioSource.jpAsmr);
+    expect(api.searchCalls.last.keyword, 'RJ12345');
+    expect(api.searchCalls.last.conditions, isEmpty);
     expect(tester.takeException(), isNull);
   });
 

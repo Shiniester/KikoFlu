@@ -44,7 +44,9 @@ bool canLoadPlayerWorkFileTree({
 }) {
   final hasOfflineTreeSource =
       track.subtitleWorkDirPath?.trim().isNotEmpty == true;
-  final mayLoadOnlineTree = isLoggedIn && (host?.trim().isNotEmpty ?? false);
+  final mayLoadOnlineTree =
+      (track.workId ?? 0) < 0 ||
+      (isLoggedIn && (host?.trim().isNotEmpty ?? false));
   return hasOfflineTreeSource || mayLoadOnlineTree;
 }
 
@@ -198,6 +200,9 @@ final playerWorkDetailsProvider = FutureProvider<PlayerWorkDetailsData?>((
   final fileListState = ref.watch(fileListControllerProvider);
   final fileTreeLoader = ref.watch(playbackLyricFileTreeLoaderProvider);
   final auth = ref.watch(authProvider);
+  final isOnlineJapaneseAsmr =
+      (track.workId ?? 0) < 0 &&
+      track.subtitleWorkDirPath?.trim().isNotEmpty != true;
   var files = fileListState.matches(track)
       ? fileListState.files
       : const <dynamic>[];
@@ -220,7 +225,9 @@ final playerWorkDetailsProvider = FutureProvider<PlayerWorkDetailsData?>((
   return PlayerWorkDetailsRepository.instance.load(
     track: track,
     fileTree: files,
-    canUseRemoteMetadata: auth.isLoggedIn && (auth.host?.isNotEmpty ?? false),
+    canUseRemoteMetadata:
+        isOnlineJapaneseAsmr ||
+        (auth.isLoggedIn && (auth.host?.isNotEmpty ?? false)),
     loadRemoteWork: ref.read(kikoeruApiServiceProvider).getWork,
   );
 });
@@ -271,7 +278,7 @@ class PlayerAudioVariantQueueController {
     );
     final workDir = current.subtitleWorkDirPath;
     final isOffline = workDir != null && workDir.isNotEmpty;
-    if (!isOffline && (auth.host?.isEmpty ?? true)) {
+    if (!isOffline && details.work.id >= 0 && (auth.host?.isEmpty ?? true)) {
       return const PlayerEnqueueVariantResult(
         PlayerEnqueueVariantStatus.unavailable,
       );

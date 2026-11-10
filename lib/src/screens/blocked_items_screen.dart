@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
-import '../models/search_type.dart';
 import '../providers/settings_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/tag_localizer.dart';
 import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
-import '../widgets/japanese_asmr_access_prompt.dart';
 
 class BlockedItemsScreen extends ConsumerWidget {
   const BlockedItemsScreen({super.key, required this.source});
@@ -174,6 +172,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   }
 
   Future<void> _loadSuggestions() async {
+    if (widget.source == AudioSource.jpAsmr) return;
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -182,24 +181,16 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
       final api = ref.read(kikoeruApiServiceProvider);
       List<dynamic> data = [];
 
-      if (widget.source == AudioSource.jpAsmr) {
-        data = await api.getSearchCatalog(switch (widget.type) {
-          _BlockedType.tag => SearchType.tag,
-          _BlockedType.cv => SearchType.va,
-          _BlockedType.circle => SearchType.circle,
-        });
-      } else {
-        switch (widget.type) {
-          case _BlockedType.tag:
-            data = await api.getAllTags();
-            break;
-          case _BlockedType.cv:
-            data = await api.getAllVas();
-            break;
-          case _BlockedType.circle:
-            data = await api.getAllCircles();
-            break;
-        }
+      switch (widget.type) {
+        case _BlockedType.tag:
+          data = await api.getAllTags();
+          break;
+        case _BlockedType.cv:
+          data = await api.getAllVas();
+          break;
+        case _BlockedType.circle:
+          data = await api.getAllCircles();
+          break;
       }
 
       if (mounted) {
@@ -252,12 +243,6 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
           children: [
             if (_isLoading)
               const LinearProgressIndicator()
-            else if (_loadError?.contains('[jp-asmr-verification-required]') ==
-                true)
-              JapaneseAsmrAccessPrompt(
-                onRetry: _loadSuggestions,
-                onVerified: _loadSuggestions,
-              )
             else
               Autocomplete<Map<String, dynamic>>(
                 initialValue: TextEditingValue(text: _controller.text),
@@ -386,8 +371,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
                   // 选中后不自动提交，让用户确认
                 },
               ),
-            if (_loadError != null &&
-                !_loadError!.contains('[jp-asmr-verification-required]'))
+            if (_loadError != null)
               Row(
                 children: [
                   Expanded(child: Text(S.of(context).loadFailed)),

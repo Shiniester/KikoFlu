@@ -28,7 +28,6 @@ import '../widgets/floating_feed_toolbar.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/search_condition_chip.dart';
 import '../widgets/async_state_view.dart';
-import '../widgets/japanese_asmr_access_prompt.dart';
 
 class SearchResultScreen extends StatelessWidget {
   final String keyword;
@@ -616,20 +615,6 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
   Widget _buildBody(SearchResultState searchState, LayoutType layoutType) {
     if (searchState.error != null && searchState.works.isEmpty) {
-      final error = searchState.error!;
-      if (error.contains('[jp-asmr-verification-required]') &&
-          _isJapaneseQuery) {
-        void refreshForJapaneseAsmr() {
-          if (mounted && _isJapaneseQuery) {
-            ref.read(searchResultProvider.notifier).refresh();
-          }
-        }
-
-        return JapaneseAsmrAccessPrompt(
-          onRetry: refreshForJapaneseAsmr,
-          onVerified: refreshForJapaneseAsmr,
-        );
-      }
       return AsyncStateView(
         icon: Icon(
           Icons.error_outline,
@@ -729,7 +714,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             ),
           ),
         if (searchState.error != null && searchState.works.isNotEmpty)
-          SliverToBoxAdapter(child: _buildUpdateError(searchState.error!)),
+          SliverToBoxAdapter(child: _buildUpdateError()),
         if (!widget.embedded ||
             (searchState.totalCountKnown && searchState.totalCount > 0))
           SliverToBoxAdapter(
@@ -756,13 +741,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     );
   }
 
-  Widget _buildUpdateError(String error) {
-    if (error.contains('[jp-asmr-verification-required]') && _isJapaneseQuery) {
-      return JapaneseAsmrAccessPrompt(
-        onRetry: () => ref.read(searchResultProvider.notifier).refresh(),
-        onVerified: () => ref.read(searchResultProvider.notifier).refresh(),
-      );
-    }
+  Widget _buildUpdateError() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(

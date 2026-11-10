@@ -372,6 +372,7 @@ class HistoryWorkCard extends ConsumerWidget {
 
     // 1. Get all files
     final apiService = ref.read(kikoeruApiServiceProvider);
+    apiService.registerJapaneseAsmrWork(work);
     List<dynamic> allFiles = [];
     try {
       allFiles = await apiService.getWorkTracks(work.id);
