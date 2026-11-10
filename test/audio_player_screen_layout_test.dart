@@ -3984,6 +3984,286 @@ void main() {
     });
   }
 
+  for (final layout in const [
+    (name: 'compact', size: Size(390, 844), isWide: false),
+    (name: 'wide', size: Size(1280, 720), isWide: true),
+  ]) {
+    for (final pageFraction in [0.35, 0.65]) {
+      for (final source in ['list', 'listAgain', 'action']) {
+        testWidgets(
+          'held subtitle-to-queue drag keeps both pages still (${layout.name}, $pageFraction, $source)',
+          (tester) async {
+            final positions = StreamController<Duration>.broadcast(sync: true);
+            addTearDown(positions.close);
+            await _pumpPlayer(
+              tester,
+              layout.size,
+              playing: true,
+              positionStream: positions.stream,
+              lyrics: List.generate(
+                30,
+                (index) => LyricLine(
+                  startTime: Duration(seconds: index),
+                  endTime: Duration(seconds: index + 1),
+                  text: 'held queue lyric $index',
+                ),
+              ),
+            );
+            positions.add(const Duration(seconds: 4));
+            final horizontal = tester.widget<PageView>(
+              find.byKey(
+                ValueKey(
+                  layout.isWide ? 'wide-right-pages' : 'compact-player-pages',
+                ),
+              ),
+            );
+            horizontal.controller!.jumpToPage(2);
+            await tester.pumpAndSettle();
+
+            final list = find.byKey(const ValueKey('full-lyric-list'));
+            final position = tester.widget<ListView>(list).controller!.position;
+            position.jumpTo(position.maxScrollExtent - 120);
+            await tester.pump();
+            if (source != 'list') {
+              final browse = await tester.startGesture(tester.getCenter(list));
+              await browse.moveBy(const Offset(0, -40));
+              await tester.pump();
+              await browse.moveBy(
+                Offset(0, position.pixels - position.maxScrollExtent),
+              );
+              await tester.pump();
+              await browse.up();
+              await tester.pumpAndSettle();
+              expect(position.pixels, closeTo(position.maxScrollExtent, 0.1));
+              await tester.pump(const Duration(seconds: 1));
+            }
+            final vertical = tester.widget<PageView>(
+              find.byKey(
+                ValueKey(
+                  layout.isWide
+                      ? 'wide-vertical-player-pages'
+                      : 'compact-vertical-player-pages',
+                ),
+              ),
+            );
+            final viewport = tester.getRect(
+              find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+            );
+            final gesture = await tester.startGesture(
+              source == 'action'
+                  ? tester.getCenter(
+                      find.byKey(
+                        const ValueKey('lyric-subtitle-picker-button'),
+                      ),
+                    )
+                  : Offset(viewport.center.dx, viewport.bottom - 12),
+            );
+            await gesture.moveBy(const Offset(0, -40));
+            await tester.pump();
+            await gesture.moveBy(
+              Offset(
+                0,
+                (source == 'list'
+                        ? position.pixels - position.maxScrollExtent
+                        : 0) -
+                    vertical.controller!.position.viewportDimension *
+                        pageFraction,
+              ),
+            );
+            await tester.pump();
+            final heldPage = vertical.controller!.page!;
+            expect(heldPage, closeTo(pageFraction, 0.02));
+            final heldOffset = position.pixels;
+            final lastLine = find.text('held queue lyric 29');
+            final heldY = tester.getCenter(lastLine).dy;
+            var pageStayed = true;
+            var subtitleStayed = true;
+            for (var frame = 0; frame < 300; frame++) {
+              if (frame % 60 == 0) {
+                positions.add(Duration(seconds: 5 + frame ~/ 60));
+              }
+              await tester.pump(const Duration(milliseconds: 16));
+              pageStayed =
+                  pageStayed &&
+                  ((vertical.controller!.page ?? -1) - heldPage).abs() < 0.001;
+              subtitleStayed =
+                  subtitleStayed &&
+                  (position.pixels - heldOffset).abs() < 0.1 &&
+                  lastLine.evaluate().isNotEmpty &&
+                  (tester.getCenter(lastLine).dy - heldY).abs() < 0.1;
+            }
+            await gesture.up();
+            await tester.pumpAndSettle();
+            expect(
+              pageStayed,
+              isTrue,
+              reason: 'the held queue page must stay still',
+            );
+            expect(
+              subtitleStayed,
+              isTrue,
+              reason: 'subtitles must not return while held',
+            );
+            expect(
+              vertical.controller!.page,
+              closeTo(pageFraction < 0.5 ? 0 : 1, 0.001),
+            );
+            if (source == 'action' && pageFraction < 0.5) {
+              final releasedOffset = position.pixels;
+              await tester.pump(const Duration(milliseconds: 2900));
+              expect(position.pixels, closeTo(releasedOffset, 0.1));
+              await tester.pump(const Duration(milliseconds: 100));
+              await tester.pump(const Duration(milliseconds: 160));
+              expect(position.pixels, lessThan(releasedOffset));
+              await tester.pumpAndSettle();
+            }
+          },
+        );
+      }
+    }
+  }
+
+  for (final layout in const [
+    (name: 'compact', size: Size(390, 844), isWide: false),
+    (name: 'wide', size: Size(1280, 720), isWide: true),
+  ]) {
+    testWidgets(
+      'subtitle queue drag reverses past the midpoint (${layout.name})',
+      (tester) async {
+        final lyrics = List.generate(
+          30,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'reversible queue lyric $index',
+          ),
+        );
+        await _pumpPlayer(
+          tester,
+          layout.size,
+          lyrics: lyrics,
+          playing: true,
+          platform: TargetPlatform.android,
+        );
+        final horizontalPages = tester.widget<PageView>(
+          find.byKey(
+            ValueKey(
+              layout.isWide ? 'wide-right-pages' : 'compact-player-pages',
+            ),
+          ),
+        );
+        horizontalPages.controller!.jumpToPage(2);
+        await tester.pumpAndSettle();
+
+        final list = find.byKey(const ValueKey('full-lyric-list'));
+        final position = tester.widget<ListView>(list).controller!.position;
+        final browse = await tester.startGesture(tester.getCenter(list));
+        await browse.moveBy(const Offset(0, -100));
+        await tester.pump();
+        await browse.moveBy(
+          Offset(0, position.pixels - position.maxScrollExtent),
+        );
+        await tester.pump();
+        await browse.up();
+        await tester.pumpAndSettle();
+        expect(position.pixels, closeTo(position.maxScrollExtent, 0.1));
+        await tester.pump(const Duration(seconds: 1));
+        final verticalPages = tester.widget<PageView>(
+          find.byKey(
+            ValueKey(
+              layout.isWide
+                  ? 'wide-vertical-player-pages'
+                  : 'compact-vertical-player-pages',
+            ),
+          ),
+        );
+        final viewport = tester.getRect(
+          find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+        );
+        final gesture = await tester.startGesture(
+          Offset(viewport.center.dx, viewport.bottom - 12),
+        );
+        await gesture.moveBy(const Offset(0, -40));
+        await tester.pump();
+        await gesture.moveBy(const Offset(0, -500));
+        await tester.pump();
+        expect(verticalPages.controller!.page, greaterThan(0.5));
+        expect(
+          tester
+              .widget<PlayerLyricsSurface>(find.byType(PlayerLyricsSurface))
+              .isActive,
+          isFalse,
+        );
+        final focusExclusion = find.descendant(
+          of: find.byType(PlayerLyricsSurface),
+          matching: find.byType(ExcludeFocus),
+        );
+        expect(
+          tester.widget<ExcludeFocus>(focusExclusion.first).excluding,
+          isTrue,
+        );
+        final semanticsExclusion = find.descendant(
+          of: find.byType(PlayerLyricsSurface),
+          matching: find.byType(ExcludeSemantics),
+        );
+        expect(
+          tester.widget<ExcludeSemantics>(semanticsExclusion.first).excluding,
+          isTrue,
+        );
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(position.pixels, closeTo(position.maxScrollExtent, 0.1));
+
+        await gesture.moveBy(const Offset(0, 300));
+        await tester.pump();
+        expect(verticalPages.controller!.page, lessThan(0.5));
+        await gesture.moveBy(const Offset(0, 260));
+        await tester.pump();
+        expect(verticalPages.controller!.page, closeTo(0, 0.001));
+        expect(position.pixels, lessThan(position.maxScrollExtent));
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(verticalPages.controller!.page, closeTo(0, 0.001));
+        expect(
+          find.byKey(ValueKey('lyrics-pane-${layout.name}')),
+          findsOneWidget,
+        );
+        final browsedOffset = position.pixels;
+        await tester.pump(const Duration(milliseconds: 2900));
+        expect(position.pixels, closeTo(browsedOffset, 0.1));
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 160));
+        expect(position.pixels, lessThan(browsedOffset));
+        await tester.pumpAndSettle();
+
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        final openQueue = await tester.startGesture(
+          Offset(viewport.center.dx, viewport.bottom - 12),
+        );
+        await openQueue.moveBy(const Offset(0, -40));
+        await tester.pump();
+        await openQueue.moveBy(const Offset(0, -500));
+        await tester.pump();
+        await openQueue.up();
+        await tester.pumpAndSettle();
+        expect(verticalPages.controller!.page, closeTo(1, 0.001));
+        expect(
+          tester
+              .widget<FullLyricDisplay>(
+                find.byType(FullLyricDisplay, skipOffstage: false),
+              )
+              .isActive,
+          isFalse,
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(verticalPages.controller!.page, closeTo(0, 0.001));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('cancelled queue pull keeps the subtitle return animated', (
     tester,
   ) async {

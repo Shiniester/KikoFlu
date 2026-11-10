@@ -2185,6 +2185,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   : !_isLyricLocked &&
                         _compactPage == 2 &&
                         _rightPane != PlayerRightPane.queue,
+              keepScrollActiveDuringPageDrag:
+                  !_isLyricLocked &&
+                  _verticalPageDragActive &&
+                  (isWide ? _widePageHandoff : _compactPageHandoff)
+                      .hasActiveDrag &&
+                  _pageDragOrigins[isWide
+                          ? _wideVerticalPageController
+                          : _compactVerticalPageController] ==
+                      0 &&
+                  _queueReturnState?.rightPane == PlayerRightPane.lyrics,
               seekingPosition: _seekingPosition,
               seekingPositionListenable: _seekPreview,
               onTogglePlayback: _togglePlayback,

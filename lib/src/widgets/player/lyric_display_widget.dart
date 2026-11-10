@@ -1318,6 +1318,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.seekingPosition,
     this.seekingPositionListenable,
     this.isActive = true,
+    this.isPageDragActive = false,
     this.isPortrait = false,
     this.isLocked = false,
     this.onLongPress,
@@ -1342,6 +1343,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final Duration? seekingPosition;
   final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final bool isActive;
+  final bool isPageDragActive;
   final bool isPortrait;
   final bool isLocked;
   final VoidCallback? onLongPress;
@@ -1542,6 +1544,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   @override
   void didUpdateWidget(covariant FullLyricDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isPageDragActive && widget.isPageDragActive) {
+      if (!_userScrollInProgress) _beginUserBrowse(showControls: false);
+    } else if (oldWidget.isPageDragActive && !widget.isPageDragActive) {
+      _endUserBrowse();
+    }
     if (!identical(oldWidget.controller, widget.controller)) {
       oldWidget.controller?._detach(this);
       widget.controller?._attach(this);
@@ -3614,7 +3621,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (!widget.isActive) return false;
-    if ((notification is ScrollUpdateNotification &&
+    if ((notification is ScrollStartNotification &&
+            !widget.isLocked &&
+            notification.dragDetails != null) ||
+        (notification is ScrollUpdateNotification &&
             notification.dragDetails != null) ||
         (notification is UserScrollNotification &&
             notification.direction != ScrollDirection.idle)) {
