@@ -195,6 +195,7 @@ class _RecordingApi extends KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) => _request(
     endpoint: 'search',

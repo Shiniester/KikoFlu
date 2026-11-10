@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show kikoeruApiServiceProvider;
@@ -35,6 +36,7 @@ class _SearchApi extends KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     requestedSource = source;

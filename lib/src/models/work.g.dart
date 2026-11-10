@@ -132,6 +132,10 @@ Map<String, dynamic> _$VaToJson(Va instance) => <String, dynamic>{
 Tag _$TagFromJson(Map<String, dynamic> json) => Tag(
       id: (json['id'] as num).toInt(),
       name: json['name'] as String,
+      names: (json['names'] as Map<String, dynamic>?)?.map(
+            (k, e) => MapEntry(k, e as String),
+          ) ??
+          const {},
       upvote: (json['upvote'] as num?)?.toInt(),
       downvote: (json['downvote'] as num?)?.toInt(),
       myVote: (json['myVote'] as num?)?.toInt(),
@@ -141,6 +145,7 @@ Tag _$TagFromJson(Map<String, dynamic> json) => Tag(
 Map<String, dynamic> _$TagToJson(Tag instance) => <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
+      'names': instance.names,
       'upvote': instance.upvote,
       'downvote': instance.downvote,
       'myVote': instance.myVote,
@@ -155,6 +160,7 @@ AudioFile _$AudioFileFromJson(Map<String, dynamic> json) => AudioFile(
           ?.map((e) => AudioFile.fromJson(e as Map<String, dynamic>))
           .toList(),
       mediaDownloadUrl: json['mediaDownloadUrl'] as String?,
+      originalDownloadUrl: json['originalDownloadUrl'] as String?,
       size: (json['size'] as num?)?.toInt(),
       duration: json['duration'],
       startTimeMs: (json['startTimeMs'] as num?)?.toInt(),
@@ -167,6 +173,7 @@ Map<String, dynamic> _$AudioFileToJson(AudioFile instance) => <String, dynamic>{
       'hash': instance.hash,
       'children': instance.children,
       'mediaDownloadUrl': instance.mediaDownloadUrl,
+      'originalDownloadUrl': instance.originalDownloadUrl,
       'size': instance.size,
       'duration': instance.duration,
       'startTimeMs': instance.startTimeMs,

@@ -48,6 +48,7 @@ class WorkTrackFileBuilder {
         duration: fileMap['duration'],
         startTimeMs: (fileMap['startTimeMs'] as num?)?.toInt(),
         endTimeMs: (fileMap['endTimeMs'] as num?)?.toInt(),
+        originalDownloadUrl: fileMap['originalDownloadUrl'] as String?,
         mediaDownloadUrl: _downloadUrlFor(
           fileMap,
           normalizedHost,

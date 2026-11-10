@@ -35,6 +35,7 @@ void main() {
         workTitle: 'ASMR',
         fileName: 'final.aac',
         downloadUrl: 'https://example.com/work.m3u8',
+        originalDownloadUrl: 'https://files.example.com/final',
         hash: 'final-chapter',
         startTimeMs: 3956000,
         createdAt: DateTime.utc(2026, 1, 1),

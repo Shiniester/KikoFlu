@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/audio_source.dart';
 import '../screens/search_screen.dart';
 import 'app_bottom_dock_transition.dart';
 import 'global_audio_player_wrapper.dart';
@@ -29,6 +30,7 @@ class MetadataSearchChip extends StatelessWidget {
   final double? compactFontSize;
   final String? logName;
   final Object? logId;
+  final AudioSource? source;
 
   const MetadataSearchChip({
     super.key,
@@ -54,6 +56,7 @@ class MetadataSearchChip extends StatelessWidget {
     this.compactFontSize = 10,
     this.logName,
     this.logId,
+    this.source,
   });
 
   bool get _usesCustomStyle =>
@@ -169,8 +172,12 @@ class MetadataSearchChip extends StatelessWidget {
       builder: (context) => GlobalAudioPlayerWrapper(
         child: SearchScreen(
           showBackButton: true,
+          source: source,
           initialKeyword: searchKeyword,
-          initialSearchParams: searchParams,
+          initialSearchParams: {
+            ...searchParams,
+            if (source != null) 'source': source!.name,
+          },
         ),
       ),
     );

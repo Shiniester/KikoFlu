@@ -169,39 +169,73 @@ void main() {
     });
   });
 
-  test('search uses the tag list before localized tag details', () async {
-    final item = _item(
-      tagDetails: [
-        {
-          'key': 'asmr-one:tag:68',
-          'originalName': 'Ear cleaning',
-          'names': {'en': 'Ear cleaning', 'ja': '耳かき'},
-        },
-        {'key': 'dlsite:genre:068', 'originalName': 'Ear cleaning'},
-      ],
-    );
-    final fallback = _item(workId: 150868, rj: 'RJ01707049')
-      ..['tags'] = <String>[]
-      ..['tagDetails'] = [
-        {'originalName': 'Relaxation'},
-      ];
-    final adapter = _Adapter((_) => _Reply(_searchResponse([item, fallback])));
-    final service = JapaneseAsmrService(dio: _dio(adapter));
+  test(
+    'keyword search passes the all-ages filter separately from keywords',
+    () async {
+      final adapter = _Adapter((_) => _Reply(_searchResponse([])));
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+      await service.searchWorks(
+        keyword: '耳かき',
+        page: 1,
+        pageSize: 20,
+        ageRating: AgeRating.general,
+      );
+      expect(adapter.requests.single.uri.queryParameters['q'], '耳かき');
+      expect(adapter.requests.single.uri.queryParameters['allAges'], 'true');
+      await expectLater(
+        service.searchWorks(
+          keyword: '',
+          page: 1,
+          pageSize: 20,
+          ageRating: AgeRating.adult,
+        ),
+        throwsUnsupportedError,
+      );
+      expect(adapter.requests, hasLength(1));
+    },
+  );
 
-    final response = await service.searchWorks(
-      keyword: '',
-      page: 1,
-      pageSize: 20,
-    );
-    final works = response['works'] as List<Map<String, dynamic>>;
+  test(
+    'search keeps original tag names and attaches localized details',
+    () async {
+      final item = _item(
+        tagDetails: [
+          {
+            'key': 'asmr-one:tag:68',
+            'originalName': 'Ear cleaning',
+            'names': {'en': 'Ear cleaning', 'ja': '耳かき'},
+          },
+          {'key': 'dlsite:genre:068', 'originalName': 'Ear cleaning'},
+        ],
+      );
+      final fallback = _item(workId: 150868, rj: 'RJ01707049')
+        ..['tags'] = <String>[]
+        ..['tagDetails'] = [
+          {'originalName': 'Relaxation'},
+        ];
+      final adapter = _Adapter(
+        (_) => _Reply(_searchResponse([item, fallback])),
+      );
+      final service = JapaneseAsmrService(dio: _dio(adapter));
 
-    expect(Work.fromJson(works[0]).tags!.map((tag) => tag.name), [
-      'Ear cleaning',
-    ]);
-    expect(Work.fromJson(works[1]).tags!.map((tag) => tag.name), [
-      'Relaxation',
-    ]);
-  });
+      final response = await service.searchWorks(
+        keyword: '',
+        page: 1,
+        pageSize: 20,
+      );
+      final works = response['works'] as List<Map<String, dynamic>>;
+
+      expect(Work.fromJson(works[0]).tags!.map((tag) => tag.name), [
+        'Ear cleaning',
+      ]);
+      final tag = Work.fromJson(works[0]).tags!.single;
+      expect(tag.names, {'en': 'Ear cleaning', 'ja': '耳かき'});
+      expect(Tag.fromJson(tag.toJson()), tag);
+      expect(Work.fromJson(works[1]).tags!.map((tag) => tag.name), [
+        'Relaxation',
+      ]);
+    },
+  );
 
   test(
     'home rejects unsupported rating and ordering without a request',
@@ -408,6 +442,10 @@ void main() {
         'jp-150867-file-4',
       ]);
       expect(tracks.take(2).map((track) => track['startTimeMs']), [0, 106000]);
+      expect(tracks.take(2).map((track) => track['originalDownloadUrl']), [
+        'https://ts.buzzheavier.com/d/full-file',
+        'https://ts.buzzheavier.com/d/second-file',
+      ]);
       expect(tracks.take(2).map((track) => track['endTimeMs']), [106000, null]);
       expect(tracks.last.containsKey('startTimeMs'), isFalse);
       expect(tracks.last.containsKey('endTimeMs'), isFalse);

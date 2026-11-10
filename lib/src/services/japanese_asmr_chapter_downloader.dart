@@ -6,13 +6,28 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 import '../utils/audio_source_headers.dart';
+import 'resumable_file_transfer.dart';
 import 'remote_asset_cache.dart';
 
 typedef JapaneseAsmrChapterProgress =
     void Function(int downloadedBytes, int? totalBytes);
 
+class JapaneseAsmrChapterDownloadResult {
+  const JapaneseAsmrChapterDownloadResult({
+    required this.bytes,
+    required this.fileExtension,
+    required this.usedOriginalFile,
+  });
+
+  final int bytes;
+  final String fileExtension;
+  final bool usedOriginalFile;
+}
+
 class JapaneseAsmrChapterDownloader {
-  JapaneseAsmrChapterDownloader({Dio? dio}) : _dio = dio ?? Dio() {
+  JapaneseAsmrChapterDownloader({Dio? dio, ResumableFileTransfer? fileTransfer})
+    : _dio = dio ?? Dio(),
+      _fileTransfer = fileTransfer ?? ResumableFileTransfer() {
     _dio.options.connectTimeout ??= const Duration(seconds: 20);
     _dio.options.receiveTimeout ??= const Duration(seconds: 25);
   }
@@ -36,6 +51,82 @@ class JapaneseAsmrChapterDownloader {
   };
 
   final Dio _dio;
+  final ResumableFileTransfer _fileTransfer;
+
+  Future<JapaneseAsmrChapterDownloadResult> downloadPreferred({
+    required String playlistUrl,
+    required String? originalDownloadUrl,
+    required int startTimeMs,
+    required int? endTimeMs,
+    required File outputFile,
+    required RemoteAssetCancellation cancellation,
+    Future<String> Function(String url)? resolveOriginalDownloadUrl,
+    JapaneseAsmrChapterProgress? onProgress,
+  }) async {
+    if (originalDownloadUrl != null && originalDownloadUrl.trim().isNotEmpty) {
+      final originalPartialFile = File(
+        '${outputFile.path}.original.downloading',
+      );
+      try {
+        final resolvedOriginalUrl = resolveOriginalDownloadUrl == null
+            ? originalDownloadUrl
+            : await resolveOriginalDownloadUrl(originalDownloadUrl);
+        final originalUri = Uri.tryParse(resolvedOriginalUrl);
+        if (originalUri == null ||
+            !originalUri.hasAuthority ||
+            !const ['http', 'https'].contains(originalUri.scheme) ||
+            originalUri.host.isEmpty) {
+          throw const FormatException('Invalid original chapter download URL');
+        }
+        final result = await _fileTransfer.download(
+          uri: originalUri,
+          partialFile: originalPartialFile,
+          cancellation: cancellation,
+          headers: japaneseAsmrRequestHeaders,
+          expectedAudio: true,
+          onProgress: onProgress,
+        );
+        _checkCancelled(cancellation);
+        final fileExtension = await _audioFileExtension(originalPartialFile);
+        _checkCancelled(cancellation);
+        await _discardPartialFile(outputFile);
+        await originalPartialFile.rename(outputFile.path);
+        return JapaneseAsmrChapterDownloadResult(
+          bytes: result.totalBytes,
+          fileExtension: fileExtension,
+          usedOriginalFile: true,
+        );
+      } on FileSystemException {
+        rethrow;
+      } on IOException {
+        await _discardPartialFile(originalPartialFile);
+        _checkCancelled(cancellation);
+      } on FormatException {
+        await _discardPartialFile(originalPartialFile);
+        _checkCancelled(cancellation);
+      } on TimeoutException {
+        await _discardPartialFile(originalPartialFile);
+        _checkCancelled(cancellation);
+      } on DioException catch (error) {
+        await _discardPartialFile(originalPartialFile);
+        if (cancellation.isCancelled || CancelToken.isCancel(error)) rethrow;
+      }
+    }
+
+    final bytes = await download(
+      playlistUrl: playlistUrl,
+      startTimeMs: startTimeMs,
+      endTimeMs: endTimeMs,
+      outputFile: outputFile,
+      cancellation: cancellation,
+      onProgress: onProgress,
+    );
+    return JapaneseAsmrChapterDownloadResult(
+      bytes: bytes,
+      fileExtension: '.aac',
+      usedOriginalFile: false,
+    );
+  }
 
   Future<int> download({
     required String playlistUrl,
@@ -492,6 +583,79 @@ class JapaneseAsmrChapterDownloader {
         prefix.startsWith('<html') ||
         prefix.startsWith('<head') ||
         prefix.startsWith('<body');
+  }
+
+  Future<String> _audioFileExtension(File file) async {
+    final handle = await file.open();
+    late final List<int> bytes;
+    try {
+      bytes = await handle.read(64);
+    } finally {
+      await handle.close();
+    }
+    final extension = _audioExtensionFromHeader(bytes);
+    if (extension == null) {
+      throw const FormatException(
+        'Original chapter is not a supported audio file',
+      );
+    }
+    return extension;
+  }
+
+  String? _audioExtensionFromHeader(List<int> bytes) {
+    bool startsWith(List<int> signature) =>
+        bytes.length >= signature.length &&
+        bytes
+            .take(signature.length)
+            .toList()
+            .asMap()
+            .entries
+            .every((entry) => entry.value == signature[entry.key]);
+
+    String asciiAt(int offset, int length) => bytes.length >= offset + length
+        ? String.fromCharCodes(bytes.skip(offset).take(length))
+        : '';
+
+    if (asciiAt(0, 3) == 'ID3') return '.mp3';
+    if (startsWith(const [0x66, 0x4c, 0x61, 0x43])) return '.flac';
+    if (asciiAt(0, 4) == 'RIFF' && asciiAt(8, 4) == 'WAVE') return '.wav';
+    if (asciiAt(0, 4) == 'OggS' && bytes.length >= 27) {
+      final packetOffset = 27 + bytes[26];
+      return asciiAt(packetOffset, 8) == 'OpusHead' ? '.opus' : '.ogg';
+    }
+    if (asciiAt(4, 4) == 'ftyp') {
+      return asciiAt(8, 4) == 'M4B ' ? '.m4b' : '.m4a';
+    }
+    if (startsWith(const [
+      0x30,
+      0x26,
+      0xb2,
+      0x75,
+      0x8e,
+      0x66,
+      0xcf,
+      0x11,
+      0xa6,
+      0xd9,
+    ])) {
+      return '.wma';
+    }
+    if (bytes.length >= 2 && bytes[0] == 0xff && (bytes[1] & 0xf6) == 0xf0) {
+      return '.aac';
+    }
+    if (bytes.length >= 4 &&
+        bytes[0] == 0xff &&
+        (bytes[1] & 0xe0) == 0xe0 &&
+        (bytes[1] & 0x06) != 0 &&
+        (bytes[2] & 0xf0) != 0xf0 &&
+        (bytes[2] & 0x0c) != 0x0c) {
+      return '.mp3';
+    }
+    return null;
+  }
+
+  Future<void> _discardPartialFile(File file) async {
+    if (await file.exists()) await file.delete();
   }
 
   void _checkCancelled(RemoteAssetCancellation cancellation) {

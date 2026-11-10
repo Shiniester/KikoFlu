@@ -1181,7 +1181,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
         WorkTagChipsSection(
           tags: work.tags,
-          searchEnabled: !work.isJapaneseAsmr,
+          source: work.audioSource,
           onTagLongPress: work.isJapaneseAsmr ? null : _showTagInfo,
           onTagSecondaryTap: work.isJapaneseAsmr ? null : _showTagInfo,
           onAddTag: work.isJapaneseAsmr ? null : _showAddTagDialog,

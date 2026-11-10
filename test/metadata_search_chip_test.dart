@@ -1,9 +1,26 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart';
+import 'package:kikoeru_flutter/src/models/download_task_change.dart';
+import 'package:kikoeru_flutter/src/models/search_query.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/screens/search_screen.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    hide kikoeruApiServiceProvider;
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _testApp(Widget child) {
   return MaterialApp(
@@ -13,7 +30,50 @@ Widget _testApp(Widget child) {
   );
 }
 
+class _RouteSearchCall {
+  const _RouteSearchCall(this.keyword, this.source, this.ageRating);
+
+  final String keyword;
+  final AudioSource source;
+  final AgeRating ageRating;
+}
+
+class _RouteSearchApi extends KikoeruApiService {
+  final calls = <_RouteSearchCall>[];
+
+  @override
+  Future<Map<String, dynamic>> searchWorks({
+    required String keyword,
+    int page = 1,
+    int pageSize = 40,
+    AudioSource source = AudioSource.asmrOne,
+    List<SearchCondition> conditions = const [],
+    String? order,
+    String? sort,
+    int? subtitle,
+    int? seed,
+    bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
+    CancelToken? cancelToken,
+  }) async {
+    calls.add(_RouteSearchCall(keyword, source, ageRating));
+    return {
+      'works': <dynamic>[],
+      'pagination': {'totalCount': 0, 'hasMore': false},
+    };
+  }
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
+
   group('MetadataSearchChip', () {
     testWidgets('renders an action chip and runs the provided tap callback', (
       tester,
@@ -143,6 +203,73 @@ void main() {
 
       await tester.tap(find.byType(ActionChip));
       expect(tapped, 1);
+    });
+
+    testWidgets('JP tag routes by original name and pins its source', (
+      tester,
+    ) async {
+      final api = _RouteSearchApi();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            kikoeruApiServiceProvider.overrideWithValue(api),
+            audioSourceProvider.overrideWith((ref) => AudioSourceNotifier()),
+            currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+            downloadSummaryProvider.overrideWith(
+              (ref) => Stream.value(const DownloadTaskSummary.empty()),
+            ),
+          ],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: Center(
+                child: TagChip(
+                  tag: Tag(
+                    id: -42,
+                    name: 'original tag',
+                    names: {'en': 'Localized tag'},
+                  ),
+                  source: AudioSource.jpAsmr,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Localized tag'));
+      await tester.pumpAndSettle();
+
+      final routedScreen = tester.widget<SearchScreen>(
+        find.byType(SearchScreen),
+      );
+      expect(routedScreen.source, AudioSource.jpAsmr);
+      expect(routedScreen.initialKeyword, 'original tag');
+      expect(routedScreen.initialSearchParams?['source'], 'jpAsmr');
+      expect(routedScreen.initialSearchParams?.containsKey('tagId'), isFalse);
+      expect(api.calls, hasLength(1));
+      expect(api.calls.single.source, AudioSource.jpAsmr);
+      expect(api.calls.single.keyword, 'original tag');
+      expect(api.calls.single.ageRating, AgeRating.all);
+
+      final globalSource = ProviderScope.containerOf(
+        tester.element(find.byType(SearchScreen)),
+      ).read(audioSourceProvider);
+      expect(globalSource, AudioSource.asmrOne);
+
+      final strings = S.of(tester.element(find.byType(SearchScreen)));
+      await tester.tap(find.byKey(const ValueKey('audio-search-sort-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(strings.ageRatingGeneral));
+      await tester.pumpAndSettle();
+      expect(api.calls, hasLength(2));
+      expect(api.calls.last.keyword, 'original tag');
+      expect(api.calls.last.source, AudioSource.jpAsmr);
+      expect(api.calls.last.ageRating, AgeRating.general);
+      expect(tester.takeException(), isNull);
     });
   });
 }

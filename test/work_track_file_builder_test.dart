@@ -33,6 +33,7 @@ void main() {
         'title': 'Chapter 2.aac',
         'hash': 'jp-151514-chapter-425000',
         'mediaStreamUrl': 'https://v.weeab0o.xyz/RJ01737373.m3u8',
+        'originalDownloadUrl': 'https://files.example/chapter.flac',
         'startTimeMs': 425000,
         'endTimeMs': 1313000,
         'duration': 888,
@@ -44,11 +45,13 @@ void main() {
     expect(restored.isAudio, isTrue);
     expect(restored.mediaDownloadUrl, 'https://v.weeab0o.xyz/RJ01737373.m3u8');
     expect(restored.duration, 888);
+    expect(restored.originalDownloadUrl, 'https://files.example/chapter.flac');
     final offlineMetadata =
         DownloadFilePathService.annotateFileTreeWithLocalPaths([chapter]);
     final offlineChapter = AudioFile.fromJson(offlineMetadata.single);
     expect(FileTreeUtils.property(offlineChapter, 'startTimeMs'), 425000);
     expect(FileTreeUtils.property(offlineChapter, 'endTimeMs'), 1313000);
+    expect(offlineChapter.originalDownloadUrl, 'https://files.example/chapter.flac');
     expect(AudioFile.fromJson(const {'title': 'old.mp3'}).startTimeMs, isNull);
   });
 

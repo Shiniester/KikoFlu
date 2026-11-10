@@ -197,7 +197,7 @@ Each Audio Source has a separate Works Sort. Age Rating Filter independently
 determines which works appear in the feed.
 
 **Age Rating Filter (年龄分级筛选)**:
-A restriction of a works feed to the selected Audio Source's age classification.
+A restriction of a works feed or work search results to the selected Audio Source's age classification.
 “全部” includes every age classification supported by that source;
 individual classifications use 全年龄, R15, and R18.
 _Avoid_: Age rating sort
@@ -231,7 +231,7 @@ are distinct from the matching works. An Audio Source may not provide a catalog.
 
 **Audio Tag (音声标签)**:
 A classification attached to an audio work. Its source-provided name and
-translated names refer to the same Audio Tag.
+translated names refer to the same Audio Tag. Tag search can match either name.
 
 **User-added Audio Tag (用户添加的标签)**:
 由音声源用户补充的作品标签，与作品默认标签区分。

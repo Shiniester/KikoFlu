@@ -82,6 +82,8 @@ class FileTreeUtils {
           return (item as dynamic).startTimeMs ?? defaultValue;
         case 'endTimeMs':
           return (item as dynamic).endTimeMs ?? defaultValue;
+        case 'originalDownloadUrl':
+          return (item as dynamic).originalDownloadUrl ?? defaultValue;
         default:
           return defaultValue;
       }

@@ -33,6 +33,7 @@ class SearchResultScreen extends StatelessWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final AudioSource? source;
   final bool embedded;
   final int queryRevision;
   final SortOrder? initialSortOption;
@@ -50,6 +51,7 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
     this.embedded = false,
     this.queryRevision = 0,
     this.initialSortOption,
@@ -68,6 +70,7 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
   }) : embedded = false,
        queryRevision = 0,
        initialSortOption = null,
@@ -80,6 +83,10 @@ class SearchResultScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ProviderScope(
       overrides: [
+        if (source != null)
+          audioSourceProvider.overrideWith(
+            (ref) => _PinnedAudioSourceNotifier(source!),
+          ),
         searchResultProvider.overrideWith((ref) {
           final apiService = ref.watch(kikoeruApiServiceProvider);
           final pageSize = ref.read(pageSizeProvider);
@@ -119,6 +126,7 @@ class SearchResultScreen extends StatelessWidget {
         keyword: keyword,
         searchTypeLabel: searchTypeLabel,
         searchParams: searchParams,
+        source: source,
         restored: _initialState != null,
         initialScrollOffset: _initialScrollOffset,
         pendingPage: _pendingPage,
@@ -138,6 +146,7 @@ class _SearchResultContent extends ConsumerStatefulWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final AudioSource? source;
   final bool restored;
   final double initialScrollOffset;
   final int? pendingPage;
@@ -154,6 +163,7 @@ class _SearchResultContent extends ConsumerStatefulWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
     required this.restored,
     required this.initialScrollOffset,
     required this.pendingPage,
@@ -289,6 +299,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             keyword: widget.keyword,
             searchTypeLabel: widget.searchTypeLabel,
             searchParams: widget.searchParams,
+            source: widget.source,
           ),
         ),
       );
@@ -333,6 +344,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   }
 
   bool get _isJapaneseQuery =>
+      widget.source == AudioSource.jpAsmr ||
       widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
       ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
@@ -371,6 +383,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     final layoutType = ref.watch(audioLayoutProvider);
     final currentSource = ref.watch(audioSourceProvider);
     final isJapaneseAsmr =
+        widget.source == AudioSource.jpAsmr ||
         widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
         currentSource == AudioSource.jpAsmr;
 
@@ -765,5 +778,11 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     // type is a localized label, so we match by checking common patterns
     // This is a best-effort fallback; the main UI uses SearchType enum directly
     return Icons.search;
+  }
+}
+
+class _PinnedAudioSourceNotifier extends AudioSourceNotifier {
+  _PinnedAudioSourceNotifier(AudioSource source) {
+    state = source;
   }
 }

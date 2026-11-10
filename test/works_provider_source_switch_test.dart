@@ -104,6 +104,7 @@ class _DeferredApi extends KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) {
     final request = _Request(

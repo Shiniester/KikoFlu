@@ -259,6 +259,11 @@ class DownloadFilePathService {
         'startTimeMs': FileTreeUtils.property(item, 'startTimeMs'),
       if (FileTreeUtils.property(item, 'endTimeMs') != null)
         'endTimeMs': FileTreeUtils.property(item, 'endTimeMs'),
+      if (FileTreeUtils.property(item, 'originalDownloadUrl') != null)
+        'originalDownloadUrl': FileTreeUtils.property(
+          item,
+          'originalDownloadUrl',
+        ),
     };
   }
 

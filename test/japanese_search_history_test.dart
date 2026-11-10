@@ -8,9 +8,12 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
+import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
@@ -24,11 +27,19 @@ class _JapaneseSourceNotifier extends AudioSourceNotifier {
 }
 
 class _SearchCall {
-  const _SearchCall(this.keyword, this.source, this.conditions);
+  const _SearchCall(
+    this.keyword,
+    this.source,
+    this.conditions,
+    this.ageRating,
+    this.page,
+  );
 
   final String keyword;
   final AudioSource source;
   final List<SearchCondition> conditions;
+  final AgeRating ageRating;
+  final int page;
 }
 
 class _HistorySearchApi extends KikoeruApiService {
@@ -46,12 +57,21 @@ class _HistorySearchApi extends KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
-    calls.add(_SearchCall(keyword, source, List.unmodifiable(conditions)));
+    calls.add(
+      _SearchCall(
+        keyword,
+        source,
+        List.unmodifiable(conditions),
+        ageRating,
+        page,
+      ),
+    );
     return {
       'works': <dynamic>[],
-      'pagination': {'totalCount': 0, 'hasMore': false},
+      'pagination': {'totalCount': 100, 'hasMore': true},
     };
   }
 }
@@ -141,4 +161,96 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('JP age rating saves, restores, and restarts at page one', (
+    tester,
+  ) async {
+    final api = _HistorySearchApi();
+    await _pumpSearch(tester, api);
+    final screen = find.byType(SearchScreen);
+    final strings = S.of(tester.element(screen));
+    final sortButton = find.byKey(const ValueKey('audio-search-sort-button'));
+
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('sort-age-rating-section')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('sort-field-section')), findsNothing);
+    expect(find.text(strings.ageRatingAll), findsOneWidget);
+    expect(find.text(strings.ageRatingGeneral), findsOneWidget);
+    expect(find.text('R15'), findsNothing);
+    expect(find.text('R18'), findsNothing);
+
+    await tester.tap(find.text(strings.ageRatingGeneral));
+    await tester.pumpAndSettle();
+    expect(api.calls.single.keyword, isEmpty);
+    expect(api.calls.single.ageRating, AgeRating.general);
+    expect(api.calls.single.page, 1);
+
+    const historyContext = UnifiedSearchHistoryContext(
+      contentType: 'audio',
+      entryScope: 'global-works',
+      source: 'jpAsmr',
+    );
+    final container = ProviderScope.containerOf(tester.element(screen));
+    final history = container.read(unifiedSearchHistoryProvider);
+    final entry = history.itemsFor(historyContext).single;
+    expect(entry.payload['ageRatingValue'], AgeRating.general.value);
+    expect(
+      (entry.payload['searchParams'] as Map)['ageRatingValue'],
+      AgeRating.general.value,
+    );
+    final historyLabel =
+        '${strings.ageRatingLabel}: ${strings.ageRatingGeneral}';
+    expect(entry.payload['displayText'], historyLabel);
+
+    final resultContainer = ProviderScope.containerOf(
+      tester.element(find.text(strings.noResults)),
+    );
+    await resultContainer.read(searchResultProvider.notifier).goToPage(2);
+    await tester.pumpAndSettle();
+    expect(api.calls.last.page, 2);
+
+    await tester.tap(find.byKey(const ValueKey('audio-search-history-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(historyLabel).last);
+    await tester.pumpAndSettle();
+    expect(api.calls.last.page, 1);
+    expect(api.calls.last.ageRating, AgeRating.general);
+
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(strings.ageRatingAll));
+    await tester.pumpAndSettle();
+    expect(api.calls.last.page, 1);
+    expect(api.calls.last.ageRating, AgeRating.all);
+    expect(api.calls.last.keyword, isEmpty);
+    final allHistoryLabel =
+        '${strings.ageRatingLabel}: ${strings.ageRatingAll}';
+    final allEntry = container
+        .read(unifiedSearchHistoryProvider)
+        .itemsFor(historyContext)
+        .singleWhere(
+          (entry) => entry.payload['displayText'] == allHistoryLabel,
+        );
+    expect(allEntry.payload['displayText'], allHistoryLabel);
+    expect(
+      container
+          .read(unifiedSearchHistoryProvider)
+          .itemsFor(historyContext)
+          .any((entry) => entry.payload['displayText'] == historyLabel),
+      isTrue,
+    );
+
+    await tester.tap(find.byTooltip(strings.clear));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(allHistoryLabel));
+    await tester.pumpAndSettle();
+    expect(api.calls.last.page, 1);
+    expect(api.calls.last.ageRating, AgeRating.all);
+    expect(api.calls.last.keyword, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
 }

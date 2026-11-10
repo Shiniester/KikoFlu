@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
+import '../../models/audio_source.dart';
 import '../circle_chip.dart';
 import '../tag_chip.dart';
 import '../va_chip.dart';
@@ -24,7 +25,6 @@ class WorkCreatorChipsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasCircle = work.name != null && work.name!.isNotEmpty;
     final hasVas = work.vas != null && work.vas!.isNotEmpty;
-    final searchEnabled = !work.isJapaneseAsmr;
     if (!hasCircle && !hasVas) return const SizedBox.shrink();
 
     final l10n = S.of(context);
@@ -40,9 +40,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
           children: [
             if (hasCircle)
               MouseRegion(
-                cursor: searchEnabled
-                    ? SystemMouseCursors.click
-                    : SystemMouseCursors.basic,
+                cursor: SystemMouseCursors.click,
                 child: CircleChip(
                   circleId: work.circleId ?? 0,
                   circleName: work.name!,
@@ -50,7 +48,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
                   padding: _chipPadding,
                   borderRadius: _chipBorderRadius,
                   fontWeight: _chipFontWeight,
-                  searchEnabled: searchEnabled,
+                  source: work.audioSource,
                   onLongPress: onCopy == null
                       ? null
                       : () => onCopy!(work.name!, l10n.circleLabel),
@@ -59,16 +57,14 @@ class WorkCreatorChipsSection extends StatelessWidget {
             if (hasVas)
               ...work.vas!.map(
                 (va) => MouseRegion(
-                  cursor: searchEnabled
-                      ? SystemMouseCursors.click
-                      : SystemMouseCursors.basic,
+                  cursor: SystemMouseCursors.click,
                   child: VaChip(
                     va: va,
                     fontSize: _chipFontSize,
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,
                     fontWeight: _chipFontWeight,
-                    searchEnabled: searchEnabled,
+                    source: work.audioSource,
                     onLongPress: onCopy == null
                         ? null
                         : () => onCopy!(va.name, l10n.vaLabel),
@@ -91,6 +87,7 @@ class WorkTagChipsSection extends StatelessWidget {
     this.onTagSecondaryTap,
     this.onAddTag,
     this.searchEnabled = true,
+    this.source,
   });
 
   final List<Tag>? tags;
@@ -98,6 +95,7 @@ class WorkTagChipsSection extends StatelessWidget {
   final ValueChanged<Tag>? onTagSecondaryTap;
   final VoidCallback? onAddTag;
   final bool searchEnabled;
+  final AudioSource? source;
 
   bool get _hasTags => tags != null && tags!.isNotEmpty;
 
@@ -140,6 +138,7 @@ class WorkTagChipsSection extends StatelessWidget {
                       : (_) => onTagSecondaryTap!(tag),
                   child: TagChip(
                     tag: tag,
+                    source: source,
                     fontSize: _chipFontSize,
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,

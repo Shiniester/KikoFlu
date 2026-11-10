@@ -16,6 +16,10 @@ class JapaneseAsmrService {
   final Dio _dio;
   final Map<int, String> _sourceIdsByPostId = {};
   final Map<int, String> _titlesByPostId = {};
+  final Map<String, Map<String, dynamic>> _tagsByName = {};
+  final Map<String, Map<String, dynamic>> _vasByName = {};
+  final Map<String, Map<String, dynamic>> _circlesByName = {};
+  bool _suggestionsLoaded = false;
 
   JapaneseAsmrService({Dio? dio}) : _dio = dio ?? Dio() {
     _dio.options.connectTimeout = const Duration(seconds: 20);
@@ -39,6 +43,16 @@ class JapaneseAsmrService {
     if (title.isNotEmpty) _titlesByPostId[work.id.abs()] = title;
     final sourceId = _sourceId(work.sourceId);
     if (sourceId != null) _sourceIdsByPostId[work.id.abs()] = sourceId;
+    for (final tag in work.tags ?? const <Tag>[]) {
+      _remember(_tagsByName, tag.toJson());
+    }
+    for (final va in work.vas ?? const <Va>[]) {
+      _remember(_vasByName, {'id': va.id, 'name': va.name});
+    }
+    final circle = _optionalString(work.name);
+    if (circle != null) {
+      _remember(_circlesByName, {'id': circle, 'name': circle});
+    }
   }
 
   bool hasRegisteredWork(int postId) =>
@@ -79,8 +93,12 @@ class JapaneseAsmrService {
     required int page,
     required int pageSize,
     List<SearchCondition> conditions = const [],
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
+    if (ageRating != AgeRating.all && ageRating != AgeRating.general) {
+      throw UnsupportedError('Eara supports all-ages filtering only');
+    }
     if (conditions.any(
       (condition) =>
           condition.isExclude ||
@@ -93,6 +111,7 @@ class JapaneseAsmrService {
       query: keyword.trim(),
       page: page,
       pageSize: pageSize,
+      allAges: ageRating == AgeRating.general,
       cancelToken: cancelToken,
     );
   }
@@ -101,7 +120,68 @@ class JapaneseAsmrService {
     SearchType type, {
     CancelToken? cancelToken,
   }) async {
-    throw UnsupportedError('Eara does not provide a search catalog');
+    if (type != SearchType.tag &&
+        type != SearchType.va &&
+        type != SearchType.circle) {
+      return const [];
+    }
+    if (type != SearchType.circle && !_suggestionsLoaded) {
+      try {
+        final response = await _getJson(
+          _apiBase.resolve('../search-suggestions'),
+          queryParameters: const {},
+          cancelToken: cancelToken,
+        );
+        for (final item in response['hotTags'] as List? ?? const []) {
+          if (item is! Map) continue;
+          final name = _optionalString(item['value']);
+          if (name == null) continue;
+          for (final tag in _tagValues([name], item['tagDetails'])) {
+            _remember(_tagsByName, {...tag, 'count': item['count'] ?? 0});
+          }
+        }
+        for (final item in response['hotCvs'] as List? ?? const []) {
+          if (item is! Map) continue;
+          final name = _optionalString(item['value']);
+          if (name != null) {
+            _remember(_vasByName, {
+              'id': name,
+              'name': name,
+              'count': item['count'] ?? 0,
+            });
+          }
+        }
+        _suggestionsLoaded = true;
+      } catch (error) {
+        if (error is! DioException ||
+            CancelToken.isCancel(error) ||
+            (type == SearchType.tag ? _tagsByName : _vasByName).isEmpty) {
+          rethrow;
+        }
+      }
+    }
+    final catalog = switch (type) {
+      SearchType.tag => _tagsByName,
+      SearchType.va => _vasByName,
+      _ => _circlesByName,
+    };
+    return catalog.values
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  static void _remember(
+    Map<String, Map<String, dynamic>> catalog,
+    Map<String, dynamic> item,
+  ) {
+    final name = item['name'] as String;
+    final previous = catalog[name];
+    catalog[name] = {
+      ...?previous,
+      ...item,
+      if (previous?['names'] is Map || item['names'] is Map)
+        'names': {...?previous?['names'] as Map?, ...?item['names'] as Map?},
+    };
   }
 
   Future<Map<String, dynamic>> _loadPage({
@@ -259,6 +339,7 @@ class JapaneseAsmrService {
       'mediaStreamUrl': cleanStreamUrl,
       if (startTimeMs != null) ...{
         'mediaDownloadUrl': cleanStreamUrl,
+        if (directDownloadUrl != null) 'originalDownloadUrl': directDownloadUrl,
         'startTimeMs': startTimeMs,
         'endTimeMs': endTimeMs,
       } else if (directDownloadUrl != null)
@@ -538,11 +619,45 @@ class JapaneseAsmrService {
     if (item['allAges'] == true) work['age'] = 'general';
     work['vas'] = _namedValues(item['cvs'], tags: false);
     final tags = item['tags'];
-    work['tags'] = _namedValues(
+    work['tags'] = _tagValues(
       tags is List && tags.isNotEmpty ? tags : item['tagDetails'],
-      tags: true,
+      item['tagDetails'],
     );
+    registerWork(Work.fromJson(work));
     return work;
+  }
+
+  static List<Map<String, dynamic>> _tagValues(
+    dynamic rawTags,
+    dynamic details,
+  ) {
+    final tags = _namedValues(rawTags, tags: true);
+    if (details is! List) return tags;
+    for (final tag in tags) {
+      final names = <String, String>{};
+      final conflicts = <String>{};
+      for (final detail in details.whereType<Map>()) {
+        final localized = detail['names'];
+        if (localized is! Map ||
+            (detail['originalName'] != tag['name'] &&
+                !localized.values.contains(tag['name']))) {
+          continue;
+        }
+        for (final entry in localized.entries) {
+          final language = _optionalString(entry.key);
+          final name = _optionalString(entry.value);
+          if (language == null || name == null) continue;
+          if (names.containsKey(language) && names[language] != name) {
+            conflicts.add(language);
+          } else {
+            names[language] = name;
+          }
+        }
+      }
+      names.removeWhere((key, _) => conflicts.contains(key));
+      tag['names'] = names;
+    }
+    return tags;
   }
 
   static List<Map<String, dynamic>> _namedValues(

@@ -40,6 +40,7 @@ class DownloadService implements DownloadTaskRepository {
   // Prevent two rapid addTask calls for the same file from both passing the
   // duplicate check while either call is waiting on the cache/filesystem.
   final Map<String, Future<DownloadTask>> _pendingTaskAdds = {};
+  final Map<int, Future<void>> _workMetadataWriteQueues = {};
   final StreamController<List<DownloadTask>> _tasksController =
       StreamController<List<DownloadTask>>.broadcast();
   final StreamController<DownloadTaskChange> _taskChangesController =
@@ -280,31 +281,33 @@ class DownloadService implements DownloadTaskRepository {
     Map<String, dynamic> updatedWork, {
     bool Function()? shouldUpdate,
   }) async {
-    final workDir = await getWorkDirectory(workId);
-    final existing =
-        await _loadWorkMetadata(workId, workDirectory: workDir) ??
-        <String, dynamic>{};
-    final metadata = <String, dynamic>{...existing, ...updatedWork}
-      ..['id'] = workId
-      ..[LocalWorkMetadataService.localWorkDirNameKey] = p.basename(
-        workDir.path,
-      );
-    for (final key in ['children', 'localCoverPath']) {
-      if (existing.containsKey(key)) {
-        metadata[key] = existing[key];
-      } else {
-        metadata.remove(key);
+    await _queueWorkMetadataWrite(workId, () async {
+      final workDir = await getWorkDirectory(workId);
+      final existing =
+          await _loadWorkMetadata(workId, workDirectory: workDir) ??
+          <String, dynamic>{};
+      final metadata = <String, dynamic>{...existing, ...updatedWork}
+        ..['id'] = workId
+        ..[LocalWorkMetadataService.localWorkDirNameKey] = p.basename(
+          workDir.path,
+        );
+      for (final key in ['children', 'localCoverPath']) {
+        if (existing.containsKey(key)) {
+          metadata[key] = existing[key];
+        } else {
+          metadata.remove(key);
+        }
       }
-    }
 
-    if (shouldUpdate != null && !shouldUpdate()) return;
-    await _workMetadataFile(
-      workDir,
-    ).writeAsString(jsonEncode(metadata), flush: true);
-    for (final task in _tasks.where((task) => task.workId == workId)) {
-      _updateTask(task.copyWith(workMetadata: metadata));
-    }
-    await flushPendingWrites();
+      if (shouldUpdate != null && !shouldUpdate()) return;
+      await _workMetadataFile(
+        workDir,
+      ).writeAsString(jsonEncode(metadata), flush: true);
+      for (final task in _tasks.where((task) => task.workId == workId)) {
+        _updateTask(task.copyWith(workMetadata: metadata));
+      }
+      await flushPendingWrites();
+    });
   }
 
   String? localCoverPathForMetadata(
@@ -402,7 +405,17 @@ class DownloadService implements DownloadTaskRepository {
       );
 
       final metadataFile = _workMetadataFile(workDir);
-      await metadataFile.writeAsString(jsonEncode(metadataToSave), flush: true);
+      await _queueWorkMetadataWrite(workId, () async {
+        mergeChapterMetadataPaths(
+          metadata: metadataToSave,
+          workId: workId,
+          tasks: _tasks,
+        );
+        await metadataFile.writeAsString(
+          jsonEncode(metadataToSave),
+          flush: true,
+        );
+      });
       _log.debug(
         '已保存作品元数据: workId=$workId, path=${metadataFile.path}, '
         'children=${(metadataToSave['children'] as List?)?.length ?? 0}',
@@ -424,6 +437,30 @@ class DownloadService implements DownloadTaskRepository {
     }
   }
 
+  Future<void> _queueWorkMetadataWrite(
+    int workId,
+    Future<void> Function() write,
+  ) {
+    final previous = _workMetadataWriteQueues[workId] ?? Future<void>.value();
+    final operation = previous.catchError((Object _) {}).then((_) => write());
+    _workMetadataWriteQueues[workId] = operation;
+    unawaited(
+      operation.then<void>(
+        (_) {
+          if (identical(_workMetadataWriteQueues[workId], operation)) {
+            _workMetadataWriteQueues.remove(workId);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (identical(_workMetadataWriteQueues[workId], operation)) {
+            _workMetadataWriteQueues.remove(workId);
+          }
+        },
+      ),
+    );
+    return operation;
+  }
+
   Future<void> _saveCoverForMetadata({
     required int workId,
     required Directory workDir,
@@ -438,11 +475,15 @@ class DownloadService implements DownloadTaskRepository {
     if (localCoverPath == null) return;
 
     try {
-      final updatedMetadata = Map<String, dynamic>.from(metadata)
-        ..['localCoverPath'] = 'cover.jpg';
-      await _workMetadataFile(
-        workDir,
-      ).writeAsString(jsonEncode(updatedMetadata), flush: true);
+      await _queueWorkMetadataWrite(workId, () async {
+        final currentMetadata =
+            await _loadWorkMetadata(workId, workDirectory: workDir) ?? metadata;
+        final updatedMetadata = Map<String, dynamic>.from(currentMetadata)
+          ..['localCoverPath'] = 'cover.jpg';
+        await _workMetadataFile(
+          workDir,
+        ).writeAsString(jsonEncode(updatedMetadata), flush: true);
+      });
       _log.debug('已更新作品封面元数据: workId=$workId', tag: 'Download');
     } catch (e) {
       _log.error('更新作品封面元数据失败: $e', tag: 'Download');
@@ -614,6 +655,7 @@ class DownloadService implements DownloadTaskRepository {
     required String fileName,
     required String downloadUrl,
     required String? hash,
+    String? originalDownloadUrl,
     int? totalBytes,
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
@@ -640,6 +682,7 @@ class DownloadService implements DownloadTaskRepository {
       fileName: safeFileName,
       downloadUrl: downloadUrl,
       hash: hash,
+      originalDownloadUrl: originalDownloadUrl?.trim(),
       totalBytes: totalBytes,
       workMetadata: workMetadata,
       coverUrl: coverUrl,
@@ -670,6 +713,7 @@ class DownloadService implements DownloadTaskRepository {
     required String fileName,
     required String downloadUrl,
     required String? hash,
+    String? originalDownloadUrl,
     int? totalBytes,
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
@@ -694,6 +738,15 @@ class DownloadService implements DownloadTaskRepository {
           return updatedTask;
         }
         return existingTask;
+      }
+      if (originalDownloadUrl != null &&
+          originalDownloadUrl.isNotEmpty &&
+          existingTask.originalDownloadUrl != originalDownloadUrl) {
+        final updatedTask = existingTask.copyWith(
+          originalDownloadUrl: originalDownloadUrl,
+        );
+        _updateTask(updatedTask, immediate: true);
+        return updatedTask;
       }
       // 如果任务存在但未完成，返回现有任务
       return existingTask;
@@ -724,6 +777,7 @@ class DownloadService implements DownloadTaskRepository {
           workTitle: workTitle,
           fileName: fileName, // 使用包含路径的完整文件名
           downloadUrl: downloadUrl,
+          originalDownloadUrl: originalDownloadUrl,
           hash: hash,
           totalBytes: totalBytes ?? await targetFile.length(),
           downloadedBytes: totalBytes ?? await targetFile.length(),
@@ -751,6 +805,7 @@ class DownloadService implements DownloadTaskRepository {
       workTitle: workTitle,
       fileName: fileName,
       downloadUrl: downloadUrl,
+      originalDownloadUrl: originalDownloadUrl,
       hash: hash,
       totalBytes: totalBytes,
       createdAt: DateTime.now(),
@@ -954,19 +1009,28 @@ class DownloadService implements DownloadTaskRepository {
       }
 
       if (isChapter) {
-        if (!task.fileName.toLowerCase().endsWith('.aac')) {
-          throw const FormatException(
-            'Japanese ASMR chapter downloads require an .aac filename',
-          );
-        }
         int lastUpdateTime = 0;
         const chapterUpdateInterval = 500;
-        final outputBytes = await _chapterDownloader.download(
+        final downloadResult = await _chapterDownloader.downloadPreferred(
           playlistUrl: task.downloadUrl,
+          originalDownloadUrl: task.originalDownloadUrl,
           startTimeMs: task.startTimeMs!,
           endTimeMs: task.endTimeMs,
           outputFile: tempFile,
           cancellation: cancelToken,
+          resolveOriginalDownloadUrl: (url) async {
+            final resolverToken = CancelToken();
+            if (cancelToken.isCancelled) resolverToken.cancel();
+            unawaited(
+              cancelToken.whenCancelled.then((_) {
+                if (!resolverToken.isCancelled) resolverToken.cancel();
+              }),
+            );
+            return JapaneseAsmrService.instance.resolveDownloadUrl(
+              url,
+              cancelToken: resolverToken,
+            );
+          },
           onProgress: (received, total) {
             if (total == null || total <= 0) return;
             final now = DateTime.now().millisecondsSinceEpoch;
@@ -989,11 +1053,19 @@ class DownloadService implements DownloadTaskRepository {
         if (cancelToken.isCancelled) {
           throw const HttpException('Japanese ASMR chapter download cancelled');
         }
-        await tempFile.rename(filePath);
+        final outputFileName =
+            '${p.withoutExtension(task.fileName)}${downloadResult.fileExtension}';
+        final outputPath = DownloadFilePathService.localPathForRelativePath(
+          rootPath: workDir,
+          relativePath: outputFileName,
+        );
+        final outputFile = File(outputPath);
+        if (await outputFile.exists()) await outputFile.delete();
+        await tempFile.rename(outputPath);
         final currentTask = taskById(task.id);
         if (cancelToken.isCancelled ||
             currentTask?.status != DownloadStatus.downloading) {
-          if (await file.exists()) await file.delete();
+          if (await outputFile.exists()) await outputFile.delete();
           if (cancelToken.isCancelled) {
             throw const HttpException(
               'Japanese ASMR chapter download cancelled',
@@ -1001,13 +1073,59 @@ class DownloadService implements DownloadTaskRepository {
           }
           return;
         }
-        final completedTask = currentTask!.copyWith(
-          status: DownloadStatus.completed,
-          completedAt: DateTime.now(),
-          downloadedBytes: outputBytes,
-          totalBytes: outputBytes,
+        final downloadedTask = currentTask!.copyWith(
+          fileName: outputFileName,
+          downloadedBytes: downloadResult.bytes,
+          totalBytes: downloadResult.bytes,
         );
-        _updateTask(completedTask, immediate: true);
+        _updateTask(downloadedTask, immediate: true);
+        if (downloadResult.usedOriginalFile ||
+            outputFileName != task.fileName) {
+          final metadata = await _updateChapterMetadataFileName(
+            task: downloadedTask,
+            fileName: outputFileName,
+            fileExtension: downloadResult.fileExtension,
+          );
+          final latestTask = taskById(task.id);
+          if (cancelToken.isCancelled ||
+              latestTask?.status != DownloadStatus.downloading) {
+            if (await outputFile.exists()) await outputFile.delete();
+            if (cancelToken.isCancelled) {
+              throw const HttpException(
+                'Japanese ASMR chapter download cancelled',
+              );
+            }
+            return;
+          }
+          if (metadata != null && latestTask != null) {
+            _updateTask(
+              latestTask.copyWith(workMetadata: metadata),
+              immediate: true,
+            );
+          }
+        }
+        if (await file.exists() &&
+            !await FileSystemEntity.identical(file.path, outputFile.path)) {
+          await file.delete();
+        }
+        final latestTask = taskById(task.id);
+        if (cancelToken.isCancelled ||
+            latestTask?.status != DownloadStatus.downloading) {
+          if (await outputFile.exists()) await outputFile.delete();
+          if (cancelToken.isCancelled) {
+            throw const HttpException(
+              'Japanese ASMR chapter download cancelled',
+            );
+          }
+          return;
+        }
+        _updateTask(
+          latestTask!.copyWith(
+            status: DownloadStatus.completed,
+            completedAt: DateTime.now(),
+          ),
+          immediate: true,
+        );
         if (identical(_cancelTokens[task.id], cancelToken)) {
           _cancelTokens.remove(task.id);
         }
@@ -1180,6 +1298,109 @@ class DownloadService implements DownloadTaskRepository {
         _cancelTokens.remove(task.id);
       }
     }
+  }
+
+  Future<Map<String, dynamic>?> _updateChapterMetadataFileName({
+    required DownloadTask task,
+    required String fileName,
+    required String fileExtension,
+  }) async {
+    final hash = task.hash;
+    if (hash == null || hash.isEmpty) return null;
+    Map<String, dynamic>? updatedMetadata;
+    await _queueWorkMetadataWrite(task.workId, () async {
+      final workDir = Directory(await _getWorkDownloadDirectory(task.workId));
+      final metadata = await _loadWorkMetadata(
+        task.workId,
+        workDirectory: workDir,
+      );
+      if (metadata == null) return;
+
+      final children = metadata['children'];
+      final updated =
+          children is List &&
+          _updateChapterMetadataNodes(
+            children,
+            hash: hash,
+            startTimeMs: task.startTimeMs,
+            fileName: fileName,
+            fileExtension: fileExtension,
+          );
+      if (!updated) return;
+
+      final metadataToSave = Map<String, dynamic>.from(metadata)
+        ..['id'] = task.workId
+        ..[LocalWorkMetadataService.localWorkDirNameKey] = p.basename(
+          workDir.path,
+        );
+      await _workMetadataFile(
+        workDir,
+      ).writeAsString(jsonEncode(metadataToSave), flush: true);
+      updatedMetadata = metadataToSave;
+    });
+    return updatedMetadata;
+  }
+
+  static bool mergeChapterMetadataPaths({
+    required Map<String, dynamic> metadata,
+    required int workId,
+    required Iterable<DownloadTask> tasks,
+  }) {
+    final children = metadata['children'];
+    if (children is! List) return false;
+    var updated = false;
+    for (final task in tasks.where(
+      (task) =>
+          task.workId == workId &&
+          task.startTimeMs != null &&
+          task.hash != null &&
+          task.hash!.isNotEmpty,
+    )) {
+      updated =
+          _updateChapterMetadataNodes(
+            children,
+            hash: task.hash!,
+            startTimeMs: task.startTimeMs,
+            fileName: task.fileName,
+            fileExtension: p.extension(task.fileName),
+          ) ||
+          updated;
+    }
+    return updated;
+  }
+
+  static bool _updateChapterMetadataNodes(
+    List<dynamic>? children, {
+    required String hash,
+    required int? startTimeMs,
+    required String fileName,
+    required String fileExtension,
+  }) {
+    var updated = false;
+    for (final child in children ?? const <dynamic>[]) {
+      if (child is! Map<String, dynamic>) continue;
+      if (child['hash']?.toString() == hash &&
+          child['startTimeMs'] == startTimeMs) {
+        final title = child['title'] as String?;
+        child['title'] = title == null || title.isEmpty
+            ? p.basename(fileName)
+            : '${p.basenameWithoutExtension(title)}$fileExtension';
+        child[DownloadFilePathService.localRelativePathKey] = fileName;
+        updated = true;
+      }
+      final nested = child['children'];
+      if (nested is List &&
+          _updateChapterMetadataNodes(
+            nested,
+            hash: hash,
+            startTimeMs: startTimeMs,
+            fileName: fileName,
+            fileExtension: fileExtension,
+          )) {
+        updated = true;
+      }
+    }
+    return updated;
   }
 
   Future<void> pauseTask(String taskId) async {
@@ -1729,6 +1950,15 @@ class DownloadService implements DownloadTaskRepository {
     int workId,
     Directory workDir,
     List<DownloadDiskFile> inventoryFiles,
+  ) => _queueWorkMetadataWrite(
+    workId,
+    () => _syncFileTreeWithDiskFromInventory(workId, workDir, inventoryFiles),
+  );
+
+  Future<void> _syncFileTreeWithDiskFromInventory(
+    int workId,
+    Directory workDir,
+    List<DownloadDiskFile> inventoryFiles,
   ) async {
     // Reuse the background inventory for tree sync instead of walking the
     // directory once per consumer.
@@ -1785,6 +2015,14 @@ class DownloadService implements DownloadTaskRepository {
         metadataChanged = true;
       }
     }
+
+    metadataChanged =
+        mergeChapterMetadataPaths(
+          metadata: metadata,
+          workId: workId,
+          tasks: _tasks,
+        ) ||
+        metadataChanged;
 
     // 3. 收集已有文件树中所有文件的相对路径
     final existingChildren = (metadata['children'] as List<dynamic>?) ?? [];

@@ -53,6 +53,7 @@ class _AudioSearchApi extends KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     calls.add(_SearchCall(keyword, order, sort, subtitle));

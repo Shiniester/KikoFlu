@@ -650,6 +650,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         fileName: title,
         relativePath: parentPath,
         downloadUrl: downloadUrl,
+        originalDownloadUrl:
+            FileTreeUtils.property(file, 'originalDownloadUrl') as String?,
         hash: hash,
         startTimeMs: (FileTreeUtils.property(file, 'startTimeMs') as num?)
             ?.toInt(),

@@ -942,7 +942,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         children: tags.map((tag) {
           return TagChip(
             tag: tag,
-            searchEnabled: !widget.work.isJapaneseAsmr,
+            source: widget.work.audioSource,
             fontSize: fontSize,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             borderRadius: 6,
@@ -965,7 +965,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         children: widget.work.vas!.map((va) {
           return VaChip(
             va: va,
-            searchEnabled: !widget.work.isJapaneseAsmr,
+            source: widget.work.audioSource,
             fontSize: fontSize,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             borderRadius: 6,

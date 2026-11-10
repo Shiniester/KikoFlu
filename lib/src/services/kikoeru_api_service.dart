@@ -1221,6 +1221,7 @@ class KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     if (source == AudioSource.jpAsmr) {
@@ -1229,6 +1230,7 @@ class KikoeruApiService {
         page: page,
         pageSize: pageSize,
         conditions: conditions,
+        ageRating: ageRating,
         cancelToken: cancelToken,
       );
     }
