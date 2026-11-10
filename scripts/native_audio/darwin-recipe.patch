@@ -1,10 +1,115 @@
+diff --git a/Makefile b/Makefile
+index b96190c..ff1a6b6 100644
+--- a/Makefile
++++ b/Makefile
+@@ -195 +195 @@ ${LINKS_DIR}:
+-		BINARIES="meson ninja cmake nasm" \
++		BINARIES="meson ninja cmake nasm python3" \
+@@ -651,0 +652,40 @@ ${INTERMEDIATE_DIR}/uchardet_%: \
++# libplacebo_<os>-<arch>
++${INTERMEDIATE_DIR}/libplacebo_%: \
++	${DOWNLOADS_DIR} \
++	${PKGCONFIG_DIR} \
++	${LINKS_DIR}
++
++	@echo "\033[32mRULE\033[0m $@"
++
++	$(eval TARGET_DIR=$@)
++	$(eval TARGET_PATTERN=$*)
++	$(eval TARGET_NAME=$(notdir ${TARGET_DIR}))
++	$(eval TARGET_PKGNAME=$(firstword $(subst _${TARGET_PATTERN}, ,${TARGET_NAME})))
++	$(eval TARGET_TMP_DIR=${TMP_DIR}/${TARGET_NAME})
++	$(eval TARGET_SRC_DIR=${TARGET_TMP_DIR}/src/${TARGET_PKGNAME})
++	$(eval TARGET_OUTPUT_DIR=${PROJECT_DIR}/${TARGET_DIR})
++	$(eval ARCHIVE_FILE=$(firstword $(wildcard ${DOWNLOADS_DIR}/${TARGET_PKGNAME}-*.tar.*)))
++	$(eval TARGET_OS=$(word 1, $(subst -, ,${TARGET_PATTERN})))
++	$(eval TARGET_ARCH=$(word 2, $(subst -, ,${TARGET_PATTERN})))
++
++	rm -rf ${TARGET_TMP_DIR} ${TARGET_DIR}
++	mkdir -p ${TARGET_TMP_DIR}
++
++	env -i \
++		PATH=${SANDBOX_PATH} \
++		ARCHIVE_FILE=${ARCHIVE_FILE} \
++		TARGET_DIR=${TARGET_SRC_DIR} \
++		sh ${PROJECT_DIR}/scripts/extract/build.sh
++
++	env -i \
++		PATH=${SANDBOX_PATH} \
++		PROJECT_DIR=${PROJECT_DIR} \
++		DOWNLOADS_DIR=${DOWNLOADS_DIR} \
++		OS=${TARGET_OS} \
++		ARCH=${TARGET_ARCH} \
++		SRC_DIR=${TARGET_SRC_DIR} \
++		OUTPUT_DIR=${TARGET_OUTPUT_DIR} \
++		sh ${PROJECT_DIR}/scripts/libplacebo/build.sh
++
++	rm -rf ${TARGET_TMP_DIR}
++
+@@ -656,0 +697 @@ ${INTERMEDIATE_DIR}/mpv_%: \
++	${INTERMEDIATE_DIR}/libplacebo_$$(word 1,$$(subst -, ,$$*))-$$(word 2,$$(subst -, ,$$*)) \
+diff --git a/downloads.lock b/downloads.lock
+index 3e3bd1e..e9ce09c 100644
+--- a/downloads.lock
++++ b/downloads.lock
+@@ -6,3 +6,3 @@ ffmpeg:
+-  version: "6.0"
+-  url: https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz
+-  sha256: 57be87c22d9b49c112b6d24bc67d42508660e6b718b3db89c44e47e289137082
++  version: 9.0.2
++  url: https://github.com/FFmpeg/FFmpeg/archive/946fcce07b6dcd0331c8cc609192aeff5e1924f8.tar.gz
++  sha256: 0aa2b1de2a5698b20a23e93d539a9a8e82ca0117496c5bdf05d198805f42bb3b
+@@ -24,0 +25,20 @@ harfbuzz:
++libplacebo:
++  version: 7.387.0
++  url: https://github.com/haasn/libplacebo/archive/275f7dea27924cdd34ab2e6c20e448b6bc4fab65.tar.gz
++  sha256: adbca47395410ada01414bc527e0103c716b9b758be857464c40e5ff0ec695be
++libplacebo-fast_float:
++  version: 97b54ca9e75f5303507699d27c6b4f4efe4641a1
++  url: https://github.com/fastfloat/fast_float/archive/97b54ca9e75f5303507699d27c6b4f4efe4641a1.tar.gz
++  sha256: 2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801
++libplacebo-glad:
++  version: 73db193f853e2ee079bf3ca8a64aa2eaf6459043
++  url: https://github.com/Dav1dde/glad/archive/73db193f853e2ee079bf3ca8a64aa2eaf6459043.tar.gz
++  sha256: 33dbeae44d8315ece57e14eba4b1b4a02ac5406d1c4f49cd20048c91522a6b9a
++libplacebo-jinja:
++  version: 15206881c006c79667fe5154fe80c01c65410679
++  url: https://github.com/pallets/jinja/archive/15206881c006c79667fe5154fe80c01c65410679.tar.gz
++  sha256: b88a20dcc2e34072fcf4159325bc6c34cd4b29a81a8b83d15d2f28ba561da296
++libplacebo-markupsafe:
++  version: 297fc8e356e6836a62087949245d09a28e9f1b13
++  url: https://github.com/pallets/markupsafe/archive/297fc8e356e6836a62087949245d09a28e9f1b13.tar.gz
++  sha256: da7c010c9c81a66ac73036558c1fcb6212b50482f43211cd1254035b94f82414
+@@ -54,3 +74,3 @@ mpv:
+-  version: 0.36.0
+-  url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.36.0.tar.gz
+-  sha256: 29abc44f8ebee013bb2f9fe14d80b30db19b534c679056e4851ceadf5a5e8bf6
++  version: 0.42.0
++  url: https://github.com/mpv-player/mpv/archive/b0841e8c4d156b8403dc1876c4cbd9011eb583f3.tar.gz
++  sha256: a4a79fa6ca728762f7b198b0f93dbcbba250c3bb3bf97b77a342042be802e4
+diff --git a/scripts/ffmpeg/build.sh b/scripts/ffmpeg/build.sh
+index cb14b05..785cc37 100644
+--- a/scripts/ffmpeg/build.sh
++++ b/scripts/ffmpeg/build.sh
+@@ -8,2 +8,8 @@ cd ${SRC_DIR}
+-patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-vp9-hwaccel.patch
+-patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-hls-mp4-seek.patch
++release_version=$(cat RELEASE)
++version_lock=$(grep -A1 '^ffmpeg:' "${PROJECT_DIR}/downloads.lock" | awk '$1 == "version:" { gsub(/"/, "", $2); print $2 }')
++if [ "${release_version}" != "${version_lock}" ]; then
++    echo "FFmpeg RELEASE ${release_version} differs from download lock ${version_lock}" >&2
++    exit 1
++fi
++printf '%s\n' "${release_version}" > VERSION
++
+@@ -11 +17 @@ patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch
+-patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-dash-base-url-escape.patch
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"
 diff --git a/scripts/ffmpeg/meson.build b/scripts/ffmpeg/meson.build
+index aa3831e..3fb8c59 100644
 --- a/scripts/ffmpeg/meson.build
 +++ b/scripts/ffmpeg/meson.build
-@@ -156,4 +156,28 @@ audio_default_options = [
-     # filters
-     '--enable-filter=overlay',
-     '--enable-filter=equalizer',
+@@ -168,0 +169,24 @@ audio_default_options = [
 +    '--enable-filter=aformat',
 +    '--enable-filter=aresample',
 +    '--enable-filter=anull',
@@ -29,37 +134,106 @@ diff --git a/scripts/ffmpeg/meson.build b/scripts/ffmpeg/meson.build
 +    '--enable-filter=arealtime',
 +    '--enable-filter=asendcmd',
 +    '--enable-filter=apad',
- ]
-diff --git a/scripts/ffmpeg/build.sh b/scripts/ffmpeg/build.sh
---- a/scripts/ffmpeg/build.sh
-+++ b/scripts/ffmpeg/build.sh
-@@ -8,2 +8,3 @@
- patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-vp9-hwaccel.patch
-+git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"
- patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-hls-mp4-seek.patch
+diff --git a/scripts/libplacebo/build.sh b/scripts/libplacebo/build.sh
+new file mode 100644
+index 0000000..3e9a7b8
+--- /dev/null
++++ b/scripts/libplacebo/build.sh
+@@ -0,0 +1,67 @@
++#!/bin/sh
++
++set -e # exit immediately if a command exits with a non-zero status
++set -u # treat unset variables as an error
++
++cd "${SRC_DIR}"
++for dependency in fast_float glad jinja markupsafe; do
++    archive=''
++    for candidate in "${PROJECT_DIR}/${DOWNLOADS_DIR}/libplacebo-${dependency}-"*.tar.gz; do
++        [ -f "${candidate}" ] || continue
++        archive=${candidate}
++        break
++    done
++    [ -n "${archive}" ]
++    mkdir -p "3rdparty/${dependency}"
++    tar -xzf "${archive}" --strip-components 1 -C "3rdparty/${dependency}"
++done
++
++cross_file="${PROJECT_DIR}/cross-files/${OS}-${ARCH}.ini"
++target_cross_file="${SRC_DIR}/darwin-cross-file.ini"
++case "${OS}" in
++    macos)
++        source_minimum='-mmacosx-version-min=10.9'
++        sed_expression='s/-mmacosx-version-min=10[.]9/-mmacosx-version-min=10.15/g'
++        ;;
++    ios)
++        source_minimum='-miphoneos-version-min=9.0'
++        sed_expression='s/-miphoneos-version-min=9[.]0/-miphoneos-version-min=13.0/g'
++        ;;
++    iossimulator)
++        if grep -Fq -- '-mios-simulator-version-min=12.0' "${cross_file}"; then
++            source_minimum='-mios-simulator-version-min=12.0'
++            sed_expression='s/-mios-simulator-version-min=12[.]0/-mios-simulator-version-min=13.0/g'
++        else
++            source_minimum='-mios-simulator-version-min=9.0'
++            sed_expression='s/-mios-simulator-version-min=9[.]0/-mios-simulator-version-min=13.0/g'
++        fi
++        ;;
++    *)
++        echo "Unsupported libplacebo target OS: ${OS}" >&2
++        exit 1
++        ;;
++esac
++grep -Fq -- "${source_minimum}" "${cross_file}"
++sed "${sed_expression}" "${cross_file}" > "${target_cross_file}"
++
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/libplacebo-darwin-charconv.patch"
++
++meson setup build \
++    --cross-file "${target_cross_file}" \
++    --prefix="${OUTPUT_DIR}" \
++    -Ddefault_library=static \
++    -Dopengl=enabled \
++    -Dvulkan=disabled \
++    -Dglslang=disabled \
++    -Dshaderc=disabled \
++    -Dlcms=disabled \
++    -Ddovi=disabled \
++    -Dlibdovi=disabled \
++    -Dunwind=disabled \
++    -Dxxhash=disabled \
++    -Ddemos=false \
++    -Dtests=false \
++    -Dbench=false \
++    -Dfuzz=false
++meson compile -C build
++meson install -C build
 diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
+index ce9ba20..54f6739 100644
 --- a/scripts/mpv/build.sh
 +++ b/scripts/mpv/build.sh
-@@ -8,2 +8,5 @@
- patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch
-+git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-filter-command-target.patch"
-+git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-reinit.patch"
+@@ -8 +8 @@ cd ${SRC_DIR}
+-patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch
 +git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"
- if [ "${VARIANT}" == "audio" ]; then
-     patch -p1 <${PROJECT_DIR}/patches/mpv-remove-libass.patch
- fi
-diff --git a/scripts/pkg-config/build.sh b/scripts/pkg-config/build.sh
---- a/scripts/pkg-config/build.sh
-+++ b/scripts/pkg-config/build.sh
-@@ -8,2 +8,3 @@
- cp ${PROJECT_DIR}/scripts/pkg-config/meson.build ./meson.build
-+patch -p1 <${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch
- meson setup build \
-diff --git a/scripts/freetype/build.sh b/scripts/freetype/build.sh
---- a/scripts/freetype/build.sh
-+++ b/scripts/freetype/build.sh
-@@ -6,2 +6,4 @@
- cd ${SRC_DIR}
-+meson subprojects download libpng
-+patch -p1 -d subprojects/libpng-1.6.40 <${PROJECT_DIR}/patches/libpng-macos-fp-header.patch
- meson setup build \
+@@ -20 +19,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dta-leak-report=false `# enable ta leak report by default (development only)`
+@@ -36 +34,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dsdl2=disabled `# SDL2`
+@@ -38 +35,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dstdatomic=disabled `# C11 stdatomic.h`
+@@ -43 +39,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dwin32-internal-pthreads=disabled `#internal pthread wrapper for win32 (Vista+)`
+@@ -82,2 +77,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dlibplacebo=disabled `# libplacebo support`
+-    -Drpi=disabled `# Raspberry Pi support`
+@@ -95 +88,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Dvaapi-x-egl=disabled `# VAAPI EGL on X11`
+@@ -109 +101,0 @@ DISABLE_ALL_OPTIONS=(
+-    -Drpi-mmal=disabled `# Raspberry Pi MMAL hwaccel`
+@@ -113,3 +105,4 @@ DISABLE_ALL_OPTIONS=(
+-    -Dmacos-10-11-features=disabled `# macOS 10.11 SDK Features`
+-    -Dmacos-10-12-2-features=disabled `# macOS 10.12.2 SDK Features`
+-    -Dmacos-10-14-features=disabled `# macOS 10.14 SDK Features`
++    -Dmacos-10-15-4-features=disabled `# macOS 10.15.4 SDK Features`
++    -Dmacos-11-features=disabled `# macOS 11 SDK Features`
++    -Dmacos-11-3-features=disabled `# macOS 11.3 SDK Features`
++    -Dmacos-12-features=disabled `# macOS 12 SDK Features`

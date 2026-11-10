@@ -17,17 +17,14 @@ fail() {
 grep -Fqx "v_sdk=$ANDROID_SDK_TOOLS" "$depinfo" || fail "Android command-line tools ref changed"
 grep -Fqx "v_ndk=$ANDROID_NDK" "$depinfo" || fail "Android NDK ref changed"
 grep -Fqx "v_sdk_build_tools=$ANDROID_BUILD_TOOLS" "$depinfo" || fail "Android build-tools ref changed"
-grep -Fqx "v_ffmpeg=$ANDROID_FFMPEG_VERSION" "$depinfo" || fail "FFmpeg version ref changed"
-grep -Fqx "v_mpv=$ANDROID_MPV_COMMIT" "$depinfo" || fail "mpv source commit changed"
+grep -Fqx 'v_ffmpeg=$FFMPEG_VERSION' "$depinfo" || fail "FFmpeg version ref changed"
+grep -Fqx 'v_mpv=$MPV_COMMIT' "$depinfo" || fail "mpv source commit changed"
+grep -Fqx 'v_libplacebo=$LIBPLACEBO_COMMIT' "$depinfo" || fail "libplacebo source commit changed"
 grep -Eq "^[[:space:]]*local apilvl=$ANDROID_API$" "$source_dir/buildscripts/build.sh" ||
     fail "Android native API level changed"
 grep -Fq "$GAS_PREPROCESSOR_COMMIT/gas-preprocessor.pl" "$download_sdk" ||
     fail "gas-preprocessor is not pinned to $GAS_PREPROCESSOR_COMMIT"
 (
-    cd "$script_dir"
-    bash "$script_dir/apply_mpv_audio_reinit.sh" --check-patch \
-        "$script_dir/mpv-audio-reinit.patch" "$MPV_AUDIO_REINIT_PATCH_COMMIT" ||
-        fail "mpv audio reinit patch changed"
     bash "$script_dir/apply_mpv_audio_controls.sh" --check-patch \
         "$script_dir/mpv-audio-controls.patch" ||
         fail "mpv audio controls patch changed"
@@ -37,6 +34,11 @@ grep -Fq "$GAS_PREPROCESSOR_COMMIT/gas-preprocessor.pl" "$download_sdk" ||
 )
 grep -Fq 'apply_mpv_audio_controls.sh' "$script_dir/build_android.sh" ||
     fail "mpv audio controls patch is not applied to the pinned source"
+grep -Fq 'apply_ffmpeg_sendcmd_precision.sh' "$script_dir/build_android.sh" ||
+    fail "FFmpeg sendcmd precision patch is not applied to the pinned source"
+if grep -Fq 'apply_mpv_audio_reinit.sh' "$script_dir/build_android.sh"; then
+    fail "mpv 0.42.0 already includes the audio reinitialization fix"
+fi
 
 if grep -Eq 'git clone.*(--branch[[:space:]]+(main|master)|refs/heads/(main|master))' "$download_deps"; then
     fail "default flavor downloads an unpinned moving branch"
@@ -48,6 +50,44 @@ grep -Fq 'git clone https://github.com/media-kit/media-kit-android-helper.git' "
     fail "media-kit Android helper source is not downloaded"
 grep -Fq 'git reset --hard "$ANDROID_HELPER_COMMIT"' "$download_deps" ||
     fail "media-kit Android helper is not checked out at its locked commit"
+grep -Fq 'git -C mpv fetch --depth 1 "$MPV_URL" "$v_mpv"' "$download_deps" ||
+    fail "mpv is not fetched at the common locked commit"
+grep -Fq 'git -C libplacebo fetch --depth 1 "$LIBPLACEBO_URL" "$v_libplacebo"' "$download_deps" ||
+    fail "libplacebo is not fetched at the common locked commit"
+grep -Fq 'git clone --depth 1 --branch n$v_ffmpeg "$FFMPEG_URL" ffmpeg' "$download_deps" ||
+    fail "FFmpeg is not fetched from the common locked source"
+if grep -Eq -- '^[[:space:]]*--(disable-postproc|enable-libshaderc)(=|[[:space:]]|$)' "$ffmpeg_config"; then
+    fail "FFmpeg 9.0.2 configure options must not include postproc or libshaderc"
+fi
+grep -Fq 'dep_mpv=(ffmpeg libass libplacebo)' "$depinfo" ||
+    fail "libplacebo is not a required mpv build dependency"
+[[ -f "$source_dir/buildscripts/scripts/libplacebo.sh" ]] ||
+    fail "libplacebo build script is missing"
+if grep -Fq -- '-Dlibplacebo=disabled' "$source_dir/buildscripts/scripts/mpv.sh"; then
+    fail "mpv cannot build with libplacebo disabled"
+fi
+grep -Fq -- '-Dopengl=enabled' "$source_dir/buildscripts/scripts/libplacebo.sh" ||
+    fail "libplacebo must preserve the Android OpenGL video renderer"
+grep -Fq -- '-Dgl=enabled' "$source_dir/buildscripts/scripts/mpv.sh" ||
+    fail "mpv must keep its OpenGL renderer"
+grep -Fq -- '-Degl-android=enabled' "$source_dir/buildscripts/scripts/mpv.sh" ||
+    fail "mpv must keep its Android EGL renderer"
+grep -Fq -- '-Dvulkan=disabled' "$source_dir/buildscripts/scripts/libplacebo.sh" ||
+    fail "Android libplacebo must preserve API 21 compatibility"
+grep -Fq 'git -C "$libplacebo_source_dir" submodule update --init --recursive --depth 1' "$script_dir/build_android.sh" ||
+    fail "Android must initialize pinned libplacebo submodules"
+for required_path in \
+    '3rdparty/glad/glad/__init__.py' \
+    '3rdparty/jinja/src/jinja2/__init__.py' \
+    '3rdparty/markupsafe/src/markupsafe/__init__.py'
+do
+    grep -Fq "$required_path" "$script_dir/build_android.sh" ||
+        fail "Android libplacebo submodule check is missing $required_path"
+done
+libplacebo_pin_line=$(grep -Fn 'assert_source_commit libplacebo' "$script_dir/build_android.sh" | cut -d: -f1)
+libplacebo_submodule_line=$(grep -Fn 'submodule update --init --recursive --depth 1' "$script_dir/build_android.sh" | cut -d: -f1)
+[[ -n "$libplacebo_pin_line" && -n "$libplacebo_submodule_line" && "$libplacebo_pin_line" -lt "$libplacebo_submodule_line" ]] ||
+    fail "libplacebo submodules must initialize after the locked source is verified"
 
 [[ "$(grep -Fc -- '--disable-filters' "$ffmpeg_config")" == 1 ]] ||
     fail "FFmpeg must keep its explicit filter allowlist"
@@ -57,7 +97,7 @@ fi
 
 expected_filters=$(
     {
-        cat "$script_dir/filters.txt"
+        tr -d '\r' < "$script_dir/filters.txt"
         printf '%s\n' overlay equalizer
     } | LC_ALL=C sort
 )

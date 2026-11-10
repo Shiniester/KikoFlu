@@ -1,11 +1,8 @@
+source "$(dirname -- "${BASH_SOURCE[0]}")/common.lock"
+
 RECIPE_URL=https://github.com/media-kit/libmpv-win32-video-cmake.git
 RECIPE_REF=20241021
 RECIPE_COMMIT=8ddbe5472465950b87853789f7173f2eedc5586a
-MPV_URL=https://github.com/mpv-player/mpv.git
-MPV_COMMIT=0f7858451817c5fd5ebdb74a807a7c997662c390
-MPV_AUDIO_REINIT_PATCH_COMMIT=a7f6460e7eb5995704c8940092c411feb6038932
-FFMPEG_URL=https://github.com/FFmpeg/FFmpeg.git
-FFMPEG_COMMIT=8d940a07d19023a98689f353e4425a14688547e9
 OPUS_URL=https://github.com/xiph/opus.git
 OPUS_COMMIT=ddbe48383984d56acd9e1ab6a090c54ca6b735a6
 LIBDVDCSS_URL=https://code.videolan.org/videolan/libdvdcss.git
@@ -142,8 +139,6 @@ GLAD_URL=https://github.com/Dav1dde/glad.git
 GLAD_COMMIT=0a7cf1af9e25e02821587bd4095807fc90b6426a
 LIBDOVI_URL=https://github.com/quietvoid/dovi_tool.git
 LIBDOVI_COMMIT=41dae646193c12de152333ff5dbc33579cb9ef4a
-LIBPLACEBO_URL=https://github.com/haasn/libplacebo.git
-LIBPLACEBO_COMMIT=9fabf6d5057c40089afb020017c6347002b07308
 # Immutable refs observed in Windows build log 42542031639.
 SHADERC_URL=https://github.com/google/shaderc.git
 SHADERC_COMMIT=4f0683ab2419ecbb9e18c9edfd4ffd70c2ba8cc6

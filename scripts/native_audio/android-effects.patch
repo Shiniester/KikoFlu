@@ -1,15 +1,17 @@
 diff --git a/buildscripts/build.sh b/buildscripts/build.sh
-index 33282bd..87de670 100644
+index 33282bd..87de670 100755
 --- a/buildscripts/build.sh
 +++ b/buildscripts/build.sh
 @@ -9 +9 @@ target=mpv
 -archs=(armv7l arm64 x86 x86_64)
 +archs=(arm64 armv7l x86 x86_64)
 diff --git a/buildscripts/flavors/default.sh b/buildscripts/flavors/default.sh
-index 5968d5d..ca5267c 100644
+index 5968d5d..5e884fa 100644
 --- a/buildscripts/flavors/default.sh
 +++ b/buildscripts/flavors/default.sh
-@@ -224,0 +225,24 @@ cpuflags=
+@@ -51 +50,0 @@ cpuflags=
+-	--disable-postproc \
+@@ -224,0 +224,24 @@ cpuflags=
 +	--enable-filter=aformat \
 +	--enable-filter=aresample \
 +	--enable-filter=anull \
@@ -34,8 +36,26 @@ index 5968d5d..ca5267c 100644
 +	--enable-filter=arealtime \
 +	--enable-filter=asendcmd \
 +	--enable-filter=apad \
+diff --git a/buildscripts/include/depinfo.sh b/buildscripts/include/depinfo.sh
+index 4817574..a4121e0 100755
+--- a/buildscripts/include/depinfo.sh
++++ b/buildscripts/include/depinfo.sh
+@@ -16,2 +16,3 @@ v_libxml2=2.10.3
+-v_ffmpeg=6.0
+-v_mpv=78d43740f52db817d98bcf24fb30a76ab6fa13ff
++v_ffmpeg=$FFMPEG_VERSION
++v_mpv=$MPV_COMMIT
++v_libplacebo=$LIBPLACEBO_COMMIT
+@@ -41 +42 @@ if [ -n "$ENCODERS_GPL" ]; then
+-	dep_mpv=(ffmpeg libass fftools_ffi)
++	dep_mpv=(ffmpeg libass fftools_ffi libplacebo)
+@@ -43 +44 @@ else
+-	dep_mpv=(ffmpeg libass)
++	dep_mpv=(ffmpeg libass libplacebo)
+@@ -44,0 +46 @@ fi
++dep_libplacebo=()
 diff --git a/buildscripts/include/download-deps.sh b/buildscripts/include/download-deps.sh
-index 11c1e40..d641b64 100644
+index 11c1e40..4ae1ae7 100755
 --- a/buildscripts/include/download-deps.sh
 +++ b/buildscripts/include/download-deps.sh
 @@ -18,12 +17,0 @@ mkdir -p deps && cd deps
@@ -51,22 +71,73 @@ index 11c1e40..d641b64 100644
 -# libx264
 -[ ! -d libx264 ] && git clone --depth 1 https://code.videolan.org/videolan/x264.git --branch master libx264
 -
-@@ -55,9 +42,2 @@ HEREDOC
+@@ -31 +19,4 @@ mkdir -p deps && cd deps
+-[ ! -d ffmpeg ] && git clone --depth 1 --branch n$v_ffmpeg https://github.com/FFmpeg/FFmpeg.git ffmpeg
++[ ! -d ffmpeg ] && git clone --depth 1 --branch n$v_ffmpeg "$FFMPEG_URL" ffmpeg
++
++# libplacebo
++[ ! -d libplacebo ] && git init libplacebo && git -C libplacebo fetch --depth 1 "$LIBPLACEBO_URL" "$v_libplacebo" && git -C libplacebo checkout --detach FETCH_HEAD
+@@ -53,4 +44 @@ HEREDOC
+-[ ! -d mpv ] && git clone https://github.com/mpv-player/mpv.git mpv && cd mpv && git reset --hard 78d43740f52db817d98bcf24fb30a76ab6fa13ff && cd ..
+-
 -# fftools_ffi
 -[ ! -d fftools_ffi ] && git clone --depth 1 --branch main https://github.com/moffatman/fftools-ffi.git fftools_ffi
--
--# media-kit-android-helper
++[ ! -d mpv ] && git init mpv && git -C mpv fetch --depth 1 "$MPV_URL" "$v_mpv" && git -C mpv checkout --detach FETCH_HEAD
+@@ -59,5 +47 @@ HEREDOC
 -[ ! -d media-kit-android-helper ] && git clone --branch main https://github.com/media-kit/media-kit-android-helper.git && cd media-kit-android-helper && git reset --hard 42054e5d479f39ccbb0ae604862e2bcaf59b74c2 && cd ..
 -
 -# media_kit
 -[ ! -d media_kit ] && git clone --depth 1 --single-branch --branch main https://github.com/alexmercerind/media_kit.git
 -
-+# media-kit-android-helper
 +[ ! -d media-kit-android-helper ] && git clone https://github.com/media-kit/media-kit-android-helper.git && cd media-kit-android-helper && git reset --hard "$ANDROID_HELPER_COMMIT" && cd ..
 diff --git a/buildscripts/include/download-sdk.sh b/buildscripts/include/download-sdk.sh
-index 45261eb..2178cc4 100644
+index 45261eb..2178cc4 100755
 --- a/buildscripts/include/download-sdk.sh
 +++ b/buildscripts/include/download-sdk.sh
 @@ -71 +71 @@ mkdir -p bin
 -$WGET "https://github.com/FFmpeg/gas-preprocessor/raw/master/gas-preprocessor.pl" \
 +$WGET "https://raw.githubusercontent.com/FFmpeg/gas-preprocessor/ac1836309c2e77023c228b7184485597286289d3/gas-preprocessor.pl" \
+diff --git a/buildscripts/scripts/libplacebo.sh b/buildscripts/scripts/libplacebo.sh
+new file mode 100644
+index 0000000..1a36e72
+--- /dev/null
++++ b/buildscripts/scripts/libplacebo.sh
+@@ -0,0 +1,29 @@
++#!/bin/bash -e
++
++. ../../include/depinfo.sh
++. ../../include/path.sh
++
++build=_build$ndk_suffix
++
++if [ "$1" == "build" ]; then
++	true
++elif [ "$1" == "clean" ]; then
++	rm -rf "$build"
++	exit 0
++else
++	exit 255
++fi
++
++unset CC CXX
++
++meson setup "$build" --cross-file "$prefix_dir/crossfile.txt" \
++	-Ddefault_library=static \
++	-Ddemos=false -Dtests=false \
++	-Dvulkan=disabled \
++	-Dopengl=enabled -Dgl-proc-addr=enabled \
++	-Dglslang=disabled -Dshaderc=disabled \
++	-Dlcms=disabled -Dlibdovi=disabled \
++	-Dxxhash=disabled -Dunwind=disabled
++
++ninja -C "$build" -j"$cores"
++DESTDIR="$prefix_dir" ninja -C "$build" install
+diff --git a/buildscripts/scripts/mpv.sh b/buildscripts/scripts/mpv.sh
+index 7e4ea4e..4eddf4a 100755
+--- a/buildscripts/scripts/mpv.sh
++++ b/buildscripts/scripts/mpv.sh
+@@ -23,0 +24,2 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
++	-Dgl=enabled \
++	-Degl-android=enabled \
+@@ -28 +29,0 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
+-   	-Dlibplacebo=disabled \

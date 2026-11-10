@@ -56,17 +56,33 @@ diff --git a/toolchain/cppwinrt.cmake b/toolchain/cppwinrt.cmake
 diff --git a/cmake/download_externalproject.cmake b/cmake/download_externalproject.cmake
 --- a/cmake/download_externalproject.cmake
 +++ b/cmake/download_externalproject.cmake
-@@ -6,5 +6,5 @@
+@@ -6,5 +6,6 @@
  if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/modules.tar.gz")
      execute_process(
 -        COMMAND curl -sL https://gitlab.kitware.com/cmake/cmake/-/archive/release/cmake-release.tar.gz?path=Modules/ExternalProject -o modules.tar.gz
-+        COMMAND curl -sL https://gitlab.kitware.com/cmake/cmake/-/archive/0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e/cmake-0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e.tar.gz?path=Modules/ExternalProject -o modules.tar.gz
++        COMMAND curl --fail --location --silent --show-error --retry 3 --retry-all-errors --retry-delay 1 https://gitlab.kitware.com/cmake/cmake/-/archive/0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e/cmake-0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e.tar.gz?path=Modules/ExternalProject -o modules.tar.gz
++        COMMAND_ERROR_IS_FATAL ANY
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
      )
-@@ -17,5 +17,5 @@
+@@ -12,5 +13,6 @@
+     execute_process(
+         COMMAND tar -C ${CMAKE_CURRENT_BINARY_DIR}/cmake --strip-components=1 -xf modules.tar.gz
++        COMMAND_ERROR_IS_FATAL ANY
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+     )
+ endif()
+@@ -17,5 +19,6 @@
  if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/cmake/Modules/ExternalProject.cmake")
      execute_process(
 -        COMMAND curl -sLO https://gitlab.kitware.com/cmake/cmake/-/raw/v3.26.4/Modules/ExternalProject.cmake
-+        COMMAND curl -sLO https://gitlab.kitware.com/cmake/cmake/-/raw/0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e/Modules/ExternalProject.cmake
++        COMMAND curl --fail --location --silent --show-error --retry 3 --retry-all-errors --retry-delay 1 -O https://gitlab.kitware.com/cmake/cmake/-/raw/0926ed1f69aee7fdb454e10d9b98016c3dfc4e7e/Modules/ExternalProject.cmake
++        COMMAND_ERROR_IS_FATAL ANY
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cmake/Modules
      )
+@@ -22,5 +25,6 @@
+     execute_process(
+         COMMAND patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/packages/cmake-0001-ExternalProject-changes.patch
++        COMMAND_ERROR_IS_FATAL ANY
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cmake
+     )
+ endif()

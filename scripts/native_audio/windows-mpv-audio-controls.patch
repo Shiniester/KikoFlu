@@ -1,0 +1,17 @@
+diff --git a/packages/mpv.cmake b/packages/mpv.cmake
+index c87b8e4..bb657eb 100644
+--- a/packages/mpv.cmake
++++ b/packages/mpv.cmake
+@@ -19,6 +19,12 @@ ExternalProject_Add(mpv
+     GIT_TAG $ENV{MPV_COMMIT}
+     SOURCE_DIR ${SOURCE_LOCATION}
+     UPDATE_COMMAND ""
++    PATCH_COMMAND bash
++        ${CMAKE_CURRENT_LIST_DIR}/apply_mpv_audio_controls.sh
++        --apply
++        <SOURCE_DIR>
++        $ENV{MPV_COMMIT}
++        ${CMAKE_CURRENT_LIST_DIR}/mpv-audio-controls.patch
+     CONFIGURE_COMMAND ${EXEC} CONF=1 meson setup <BINARY_DIR> <SOURCE_DIR>
+         --prefix=${MINGW_INSTALL_PREFIX}
+         --libdir=${MINGW_INSTALL_PREFIX}/lib

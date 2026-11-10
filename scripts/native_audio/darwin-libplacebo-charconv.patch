@@ -1,0 +1,9 @@
+diff --git a/src/convert.cc b/src/convert.cc
+--- a/src/convert.cc
++++ b/src/convert.cc
+@@ -22,1 +22,5 @@
++#if defined(__APPLE__) && !defined(HAS_STD_TO_CHARS_FP)
++# define HAS_STD_TO_CHARS_FP 0
++#endif
++
+ #if __has_include(<fast_float/fast_float.h>)

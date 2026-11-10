@@ -154,7 +154,6 @@ class NativeAudioEffects {
   bool _passthrough = false;
   bool _failed = false;
   bool _pendingControls = false;
-  final bool _systemLibrary = defaultTargetPlatform == TargetPlatform.linux;
   // Android and Apple libmpv builds do not enumerate libavfilter choices.
   final bool _checkFilterSupport =
       defaultTargetPlatform == TargetPlatform.linux || Platform.isWindows;
@@ -226,7 +225,7 @@ class NativeAudioEffects {
       player,
       _passthrough
           ? ''
-          : AudioEffectsGraph.render(_settings, systemLibrary: _systemLibrary),
+          : AudioEffectsGraph.render(_settings, systemLibrary: false),
     );
     if (result < 0) {
       _markUnavailable();

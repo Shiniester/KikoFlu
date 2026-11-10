@@ -62,7 +62,7 @@ jobs:
           test_darwin_native.LibpngMacOSPatchTests
           test_darwin_native.DarwinArtifactTests
           test_darwin_native.DarwinSdkPathTests
-          test_darwin_native.DarwinRecipePatchTests.test_native_source_patches_apply_at_the_pinned_source_locations
+          test_darwin_native.DarwinRecipePatchTests.test_fixed_sources_keep_upstream_fixes_and_accept_darwin_audio_patches
 
       - name: Build and validate custom frameworks
         run: bash scripts/native_audio/build_darwin.sh

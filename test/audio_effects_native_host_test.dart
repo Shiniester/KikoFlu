@@ -2,7 +2,6 @@ import 'package:ffi/ffi.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
 import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
@@ -16,10 +15,8 @@ void main() {
   });
 
   test(
-    'real system-library controller applies paused latest state and preserves source identity',
+    'real native controller applies paused latest state and preserves source identity',
     () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       final ready = Completer<void>();
       final player = Player(
         configuration: PlayerConfiguration(ready: ready.complete),

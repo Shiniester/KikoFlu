@@ -4,7 +4,8 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 source "$script_dir/android.lock"
-export ANDROID_HELPER_COMMIT
+export ANDROID_HELPER_COMMIT MPV_URL MPV_COMMIT FFMPEG_URL FFMPEG_VERSION \
+    LIBPLACEBO_URL LIBPLACEBO_COMMIT
 
 mode=${1:-arm64}
 work_dir="${RUNNER_TEMP:-$repo_root/build}/native-audio-work/android"
@@ -47,17 +48,24 @@ TRAVIS=1 ./download.sh
 mpv_source_dir="$buildscripts_dir/deps/mpv"
 ffmpeg_source_dir="$buildscripts_dir/deps/ffmpeg"
 helper_source_dir="$buildscripts_dir/deps/media-kit-android-helper"
-assert_source_commit mpv "$ANDROID_MPV_COMMIT" "$mpv_source_dir"
-assert_source_commit FFmpeg "$ANDROID_FFMPEG_COMMIT" "$ffmpeg_source_dir"
+assert_source_commit mpv "$MPV_COMMIT" "$mpv_source_dir"
+assert_source_commit FFmpeg "$FFMPEG_COMMIT" "$ffmpeg_source_dir"
+libplacebo_source_dir="$buildscripts_dir/deps/libplacebo"
+assert_source_commit libplacebo "$LIBPLACEBO_COMMIT" "$libplacebo_source_dir"
+git -C "$libplacebo_source_dir" submodule update --init --recursive --depth 1
+for required_file in \
+    "$libplacebo_source_dir/3rdparty/glad/glad/__init__.py" \
+    "$libplacebo_source_dir/3rdparty/jinja/src/jinja2/__init__.py" \
+    "$libplacebo_source_dir/3rdparty/markupsafe/src/markupsafe/__init__.py"
+do
+    [[ -f "$required_file" ]] || fail "libplacebo OpenGL submodule file is missing: $required_file"
+done
 assert_source_commit media-kit-android-helper "$ANDROID_HELPER_COMMIT" "$helper_source_dir"
-bash "$script_dir/apply_mpv_audio_reinit.sh" --apply \
-    "$mpv_source_dir" "$ANDROID_MPV_COMMIT" \
-    "$script_dir/mpv-audio-reinit.patch" "$MPV_AUDIO_REINIT_PATCH_COMMIT"
 bash "$script_dir/apply_mpv_audio_controls.sh" --apply \
-    "$mpv_source_dir" "$ANDROID_MPV_COMMIT" \
+    "$mpv_source_dir" "$MPV_COMMIT" \
     "$script_dir/mpv-audio-controls.patch"
 bash "$script_dir/apply_ffmpeg_sendcmd_precision.sh" --apply \
-    "$ffmpeg_source_dir" "$ANDROID_FFMPEG_COMMIT" \
+    "$ffmpeg_source_dir" "$FFMPEG_COMMIT" \
     "$script_dir/ffmpeg-sendcmd-precision.patch"
 cp flavors/default.sh scripts/ffmpeg.sh
 
@@ -72,8 +80,8 @@ assert_source_commit HarfBuzz "$ANDROID_HARFBUZZ_COMMIT" "$buildscripts_dir/deps
 assert_source_commit libass "$ANDROID_LIBASS_COMMIT" "$buildscripts_dir/deps/libass"
 assert_source_commit libxml2 "$ANDROID_LIBXML2_COMMIT" "$buildscripts_dir/deps/libxml2"
 assert_source_commit MbedTLS "$ANDROID_MBEDTLS_COMMIT" "$buildscripts_dir/deps/mbedtls"
-[[ "$(git -C deps/ffmpeg describe --tags --exact-match HEAD)" == "n$ANDROID_FFMPEG_VERSION" ]] ||
-    fail "FFmpeg source does not match n$ANDROID_FFMPEG_VERSION"
+[[ "$(git -C deps/ffmpeg describe --tags --exact-match HEAD)" == "n$FFMPEG_VERSION" ]] ||
+    fail "FFmpeg source does not match n$FFMPEG_VERSION"
 
 if [[ "$mode" == all ]]; then
     arches=(arm64 armv7l x86 x86_64)
@@ -143,9 +151,12 @@ done
     printf 'builder_url=%s\n' "$ANDROID_BUILDER_URL"
     printf 'builder_ref=%s\n' "$ANDROID_BUILDER_COMMIT"
     printf 'android_helper_commit=%s\n' "$ANDROID_HELPER_COMMIT"
-    printf 'ffmpeg_version=n%s\n' "$ANDROID_FFMPEG_VERSION"
-    printf 'mpv_commit=%s\n' "$ANDROID_MPV_COMMIT"
-    printf 'mpv_audio_reinit_patch_commit=%s\n' "$MPV_AUDIO_REINIT_PATCH_COMMIT"
+    printf 'ffmpeg_version=%s\n' "$FFMPEG_VERSION"
+    printf 'ffmpeg_commit=%s\n' "$FFMPEG_COMMIT"
+    printf 'mpv_version=%s\n' "$MPV_VERSION"
+    printf 'mpv_commit=%s\n' "$MPV_COMMIT"
+    printf 'libplacebo_version=%s\n' "$LIBPLACEBO_VERSION"
+    printf 'libplacebo_commit=%s\n' "$LIBPLACEBO_COMMIT"
     printf 'mpv_audio_controls_patch=%s\n' 'mpv-audio-controls.patch'
     printf 'ffmpeg_sendcmd_argument_format=%s\n' '%.17g'
     printf 'gas_preprocessor_commit=%s\n' "$GAS_PREPROCESSOR_COMMIT"

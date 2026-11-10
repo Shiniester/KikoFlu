@@ -3,6 +3,7 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
+source "$script_dir/common.lock"
 source "$script_dir/darwin.lock"
 
 output_dir="$repo_root/build/native-audio/darwin-output"
@@ -66,9 +67,9 @@ actual_commit=$(git -C "$recipe_dir" rev-parse HEAD)
 [[ "$actual_commit" == "$DARWIN_RECIPE_COMMIT" ]] ||
     fail "recipe tag $DARWIN_RECIPE_REF resolved to $actual_commit, expected $DARWIN_RECIPE_COMMIT"
 
-git -C "$recipe_dir" apply --check "$script_dir/darwin-recipe.patch" ||
+git -C "$recipe_dir" apply --unidiff-zero --check "$script_dir/darwin-recipe.patch" ||
     fail 'Darwin recipe patch does not apply cleanly'
-git -C "$recipe_dir" apply "$script_dir/darwin-recipe.patch"
+git -C "$recipe_dir" apply --unidiff-zero "$script_dir/darwin-recipe.patch"
 git -C "$recipe_dir" apply --unidiff-zero --check "$script_dir/darwin-download-retry.patch" ||
     fail 'Darwin download retry patch does not apply cleanly'
 git -C "$recipe_dir" apply --unidiff-zero "$script_dir/darwin-download-retry.patch"
@@ -80,11 +81,27 @@ python3 "$script_dir/rewrite_darwin_sdk_paths.py" "$recipe_dir/cross-files" \
     --ios-simulator-sdk "$actual_ios_simulator_sdk_path"
 cp "$script_dir/libpng-macos-fp-header.patch" "$recipe_dir/patches/libpng-macos-fp-header.patch"
 cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$recipe_dir/patches/ffmpeg-sendcmd-precision.patch"
-cp "$script_dir/mpv-filter-command-target.patch" "$recipe_dir/patches/mpv-filter-command-target.patch"
-cp "$script_dir/mpv-audio-reinit.patch" "$recipe_dir/patches/mpv-audio-reinit.patch"
+cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"
+cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"
 cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"
 cp "$script_dir/pkg-config-glib-atomics.patch" "$recipe_dir/patches/pkg-config-glib-atomics.patch"
 bash "$script_dir/check_darwin_config.sh" "$recipe_dir"
+
+(
+    cd "$recipe_dir"
+    make build/intermediate/downloads
+)
+pinned_sources="$work_dir/pinned-sources"
+mkdir -p "$pinned_sources/mpv" "$pinned_sources/ffmpeg" "$pinned_sources/libplacebo"
+tar -xzf "$recipe_dir/build/intermediate/downloads/mpv-${MPV_VERSION}.tar.gz" \
+    --strip-components=1 -C "$pinned_sources/mpv"
+tar -xzf "$recipe_dir/build/intermediate/downloads/ffmpeg-${FFMPEG_VERSION}.tar.gz" \
+    --strip-components=1 -C "$pinned_sources/ffmpeg"
+tar -xzf "$recipe_dir/build/intermediate/downloads/libplacebo-${LIBPLACEBO_VERSION}.tar.gz" \
+    --strip-components=1 -C "$pinned_sources/libplacebo"
+DARWIN_NATIVE_SOURCE_DIR="$pinned_sources" \
+DARWIN_RECIPE_SOURCE_DIR="$recipe_dir" \
+    python3 "$script_dir/test_darwin_native.py"
 
 printf 'Darwin recipe: %s @ %s\n' "$DARWIN_RECIPE_REF" "$actual_commit"
 printf 'Xcode: %s (%s), iOS SDK %s, macOS SDK %s\n' \
@@ -92,9 +109,10 @@ printf 'Xcode: %s (%s), iOS SDK %s, macOS SDK %s\n' \
 printf 'Selected developer directory: %s\n' "$actual_developer_dir"
 printf 'Clang toolchain:\n'
 xcrun clang --version
-printf 'FFmpeg and MPV source pins:\n'
+printf 'FFmpeg, MPV, and libplacebo source pins:\n'
 grep -A3 '^ffmpeg:' "$recipe_dir/downloads.lock"
 grep -A3 '^mpv:' "$recipe_dir/downloads.lock"
+grep -A3 '^libplacebo:' "$recipe_dir/downloads.lock"
 
 ios_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz"
 macos_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz"
@@ -131,12 +149,16 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'ninja=%s\n' "$actual_ninja"
     printf 'make=GNU Make %s\n' "$actual_make"
     printf 'clang=%s\n' "$actual_clang"
-    printf 'mpv_source_version=%s\n' "$DARWIN_MPV_VERSION"
-    printf 'mpv_source_tag_commit=%s\n' "$DARWIN_MPV_COMMIT"
+    printf 'mpv_source_version=%s\n' "$MPV_VERSION"
+    printf 'mpv_source_commit=%s\n' "$MPV_COMMIT"
+    printf 'ffmpeg_source_version=%s\n' "$FFMPEG_VERSION"
+    printf 'ffmpeg_source_commit=%s\n' "$FFMPEG_COMMIT"
+    printf 'libplacebo_source_version=%s\n' "$LIBPLACEBO_VERSION"
+    printf 'libplacebo_source_commit=%s\n' "$LIBPLACEBO_COMMIT"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
-    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-filter-command-target.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch\n'
+    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     printf '\nupstream_downloads.lock:\n'
     sed 's/^/  /' "$recipe_dir/downloads.lock"

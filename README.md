@@ -128,7 +128,7 @@ flutter pub get
 | Android | `flutter build apk --release --split-per-abi` |
 | Windows | `flutter build windows --release` |
 | macOS | `flutter build macos --release` |
-| Linux | `flutter build linux --release` |
+| Linux | [构建原生库](docs/development/linux-native-audio.md)，再运行 `flutter build linux --release` |
 | iOS | `./build_ios_xcode.sh` |
 
 ---

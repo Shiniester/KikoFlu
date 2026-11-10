@@ -1,0 +1,21 @@
+diff --git a/libavcodec/videotoolbox.c b/libavcodec/videotoolbox.c
+index 8df8a32..3375734 100644
+--- a/libavcodec/videotoolbox.c
++++ b/libavcodec/videotoolbox.c
+@@ -1263,3 +1263,7 @@ static enum AVPixelFormat videotoolbox_best_pixel_format(AVCodecContext *avctx)
+     if (depth > 8) {
++#if TARGET_OS_IPHONE
++        return AV_PIX_FMT_BGRA;
++#else
+         return AV_PIX_FMT_P010;
++#endif
+     }
+diff --git a/libavutil/hwcontext_videotoolbox.c b/libavutil/hwcontext_videotoolbox.c
+index 5add409..0a84930 100644
+--- a/libavutil/hwcontext_videotoolbox.c
++++ b/libavutil/hwcontext_videotoolbox.c
+@@ -52,3 +52,3 @@ static const struct {
+     { kCVPixelFormatType_422YpCbCr8,                    false, AV_PIX_FMT_UYVY422 },
+-    { kCVPixelFormatType_32BGRA,                        true,  AV_PIX_FMT_BGRA },
++    { kCVPixelFormatType_32BGRA,                        false, AV_PIX_FMT_BGRA },
+ #ifdef kCFCoreFoundationVersionNumber10_7

@@ -208,7 +208,7 @@ index da8a017..346d673 100644
 +++ b/packages/libplacebo.cmake
 @@ -13,2 +13,3 @@ ExternalProject_Add(libplacebo
      GIT_REPOSITORY https://github.com/haasn/libplacebo.git
-+    GIT_TAG 9fabf6d5057c40089afb020017c6347002b07308
++    GIT_TAG $ENV{LIBPLACEBO_COMMIT}
      SOURCE_DIR ${SOURCE_LOCATION}
 diff --git a/packages/libpng.cmake b/packages/libpng.cmake
 index c5e9a98..c13da8d 100644

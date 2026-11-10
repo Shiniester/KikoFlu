@@ -51,6 +51,11 @@ set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
 # System-level dependencies.
+set(NATIVE_AUDIO_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../build/native-audio/linux-output")
+if(NOT EXISTS "${NATIVE_AUDIO_PREFIX}/lib/pkgconfig/mpv.pc")
+  message(FATAL_ERROR "Build the pinned native audio libraries first: bash scripts/native_audio/build_linux.sh")
+endif()
+set(ENV{PKG_CONFIG_PATH} "${NATIVE_AUDIO_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 

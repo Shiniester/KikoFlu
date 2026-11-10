@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import tarfile
@@ -107,112 +108,92 @@ def _normalized_patch(source: Path, root: Path) -> Path:
 
 
 class DarwinRecipePatchTests(unittest.TestCase):
-    def test_recipe_patch_adds_only_the_required_audio_filter_allowlist(self) -> None:
+    def test_recipe_patch_is_applied_to_the_pinned_recipe(self) -> None:
+        recipe_dir = os.environ.get("DARWIN_RECIPE_SOURCE_DIR")
+        if not recipe_dir:
+            recipe_dir = str(
+                REPO_ROOT / "build/native-audio-upgrade/darwin/libmpv-darwin-build"
+            )
+        recipe = Path(recipe_dir)
+        if not recipe.is_dir() or not (recipe / "downloads.lock").is_file():
+            self.skipTest("the pinned Darwin recipe is available after the builder fetches it")
+
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            ffmpeg = root / "scripts/ffmpeg"
-            mpv = root / "scripts/mpv"
-            pkg_config = root / "scripts/pkg-config"
-            ffmpeg.mkdir(parents=True)
-            mpv.mkdir(parents=True)
-            pkg_config.mkdir(parents=True)
-            freetype = root / "scripts/freetype"
-            freetype.mkdir(parents=True)
-            meson_lines = ["# fixture\n"] * 155 + [
-                "    # filters\n",
-                "    '--enable-filter=overlay',\n",
-                "    '--enable-filter=equalizer',\n",
-                "]\n",
-            ]
-            (ffmpeg / "meson.build").write_bytes(
-                "".join(meson_lines).encode("utf-8")
-            )
-            (ffmpeg / "build.sh").write_bytes(
-                (
-                    "#!/bin/sh\n"
-                    "\n"
-                    "set -e # exit immediately if a command exits with a non-zero status\n"
-                    "set -u # treat unset variables as an error\n"
-                    "\n"
-                    "cd ${SRC_DIR}\n"
-                    "\n"
-                    "patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-vp9-hwaccel.patch\n"
-                    "patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-hls-mp4-seek.patch\n"
-                    "patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch\n"
-                    "patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-dash-base-url-escape.patch\n"
-                    "\n"
-                    "cp ${PROJECT_DIR}/scripts/ffmpeg/meson.* .\n"
-                    "meson setup build \\\n"
-                ).encode("utf-8")
-            )
-            (mpv / "build.sh").write_bytes(
-                (
-                    "#!/bin/bash\n"
-                    "\n"
-                    "set -e # exit immediately if a command exits with a non-zero status\n"
-                    "set -u # treat unset variables as an error\n"
-                    "\n"
-                    "cd ${SRC_DIR}\n"
-                    "\n"
-                    "patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch\n"
-                    'if [ "${VARIANT}" == "audio" ]; then\n'
-                    "    patch -p1 <${PROJECT_DIR}/patches/mpv-remove-libass.patch\n"
-                    "fi\n"
-                ).encode("utf-8")
-            )
-            (pkg_config / "build.sh").write_bytes(
-                (
-                    "#!/bin/sh\n"
-                    "set -e\n"
-                    "set -u\n"
-                    "cd ${SRC_DIR}\n"
-                    "cp ${PROJECT_DIR}/scripts/pkg-config/meson.build ./meson.build\n"
-                    "meson setup build \\\n"
-                ).encode("utf-8")
-            )
-            freetype_builder = (
-                "#!/bin/sh\n\n"
-                "set -e # exit immediately if a command exits with a non-zero status\n"
-                "set -u # treat unset variables as an error\n\n"
-                "cd ${SRC_DIR}\n"
-                "meson setup build " + "\\" + "\n"
-            )
-            (freetype / "build.sh").write_bytes(freetype_builder.encode("utf-8"))
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "false"], check=True)
-            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
-
-            recipe_patch = _normalized_patch(SCRIPT_DIR / "darwin-recipe.patch", root)
-
+            patch_file = _normalized_patch(SCRIPT_DIR / "darwin-recipe.patch", Path(temporary))
             subprocess.run(
-                ["git", "-C", str(root), "apply", "--check", str(recipe_patch)],
+                [
+                    "git",
+                    "-C",
+                    str(recipe),
+                    "apply",
+                    "--unidiff-zero",
+                    "--reverse",
+                    "--check",
+                    str(patch_file),
+                ],
                 check=True,
             )
-            subprocess.run(
-                ["git", "-C", str(root), "apply", str(recipe_patch)],
-                check=True,
-            )
-
-            actual = {
-                line.split("=", 1)[1].strip("', ")
-                for line in (ffmpeg / "meson.build").read_text().splitlines()
-                if "--enable-filter=" in line
-            }
-            expected = set((SCRIPT_DIR / "filters.txt").read_text().splitlines()) | {
-                "overlay",
-                "equalizer",
-            }
-            self.assertEqual(expected, actual)
-            self.assertNotIn("--enable-filters", (ffmpeg / "meson.build").read_text())
-            self.assertIn(
-                "patch -p1 <${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch",
-                (pkg_config / "build.sh").read_text(),
-            )
-            self.assertIn("meson subprojects download libpng", (freetype / "build.sh").read_text())
-            self.assertIn(
-                "patch -p1 -d subprojects/libpng-1.6.40 <${PROJECT_DIR}/patches/libpng-macos-fp-header.patch",
-                (freetype / "build.sh").read_text(),
-            )
+        ffmpeg_options = (recipe / "scripts/ffmpeg/meson.build").read_text(encoding="utf-8")
+        mpv_build = (recipe / "scripts/mpv/build.sh").read_text(encoding="utf-8")
+        ffmpeg_build = (recipe / "scripts/ffmpeg/build.sh").read_text(encoding="utf-8")
+        makefile = (recipe / "Makefile").read_text(encoding="utf-8")
+        libplacebo_build = (recipe / "scripts/libplacebo/build.sh").read_text(encoding="utf-8")
+        audio_default_options = ffmpeg_options.split(
+            "audio_default_options = [", 1
+        )[1].split("\n]", 1)[0]
+        actual_filters = {
+            line.split("=", 1)[1].strip("', ")
+            for line in audio_default_options.splitlines()
+            if "--enable-filter=" in line
+        }
+        expected_filters = set((SCRIPT_DIR / "filters.txt").read_text().splitlines()) | {
+            "overlay",
+            "equalizer",
+        }
+        self.assertEqual(expected_filters, actual_filters)
+        self.assertNotIn("--enable-filters", audio_default_options)
+        self.assertIn("mpv-audio-controls.patch", mpv_build)
+        self.assertNotIn("mpv-audio-reinit.patch", mpv_build)
+        self.assertNotIn("mpv-filter-command-target.patch", mpv_build)
+        self.assertIn("ffmpeg-sendcmd-precision.patch", ffmpeg_build)
+        self.assertIn("ffmpeg-fix-ios-hdr-texture.patch", ffmpeg_build)
+        self.assertIn("release_version=$(cat RELEASE)", ffmpeg_build)
+        self.assertIn("${INTERMEDIATE_DIR}/libplacebo_", makefile)
+        self.assertIn("-Dopengl=enabled", libplacebo_build)
+        self.assertIn("for dependency in fast_float glad jinja markupsafe", libplacebo_build)
+        self.assertIn("libplacebo-darwin-charconv.patch", libplacebo_build)
+        self.assertIn("-mmacosx-version-min=10.15", libplacebo_build)
+        self.assertIn("-miphoneos-version-min=13.0", libplacebo_build)
+        self.assertIn("-mios-simulator-version-min=13.0", libplacebo_build)
+        self.assertIn(
+            "libplacebo-glad", (recipe / "downloads.lock").read_text(encoding="utf-8")
+        )
+        self.assertIn(
+            "libplacebo-fast_float", (recipe / "downloads.lock").read_text(encoding="utf-8")
+        )
+        simulator_arm64_cross_file = recipe / "cross-files/iossimulator-arm64.ini"
+        simulator_arm64_contents = simulator_arm64_cross_file.read_text(encoding="utf-8")
+        self.assertRegex(
+            simulator_arm64_contents,
+            r"-m(?:iphoneos|ios-simulator)-version-min=12\.0",
+        )
+        simulator_case = libplacebo_build.split("iossimulator)", 1)[1].split(";;", 1)[0]
+        simulator_expressions = re.findall(
+            r"sed_expression='([^']+)'", simulator_case
+        )
+        expression = next(item for item in simulator_expressions if "12[.]0" in item)
+        simulator_arm64_contents = simulator_arm64_contents.replace(
+            "-miphoneos-version-min=", "-mios-simulator-version-min="
+        )
+        rewritten = subprocess.run(
+            ["sed", expression],
+            input=simulator_arm64_contents,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertIn("-mios-simulator-version-min=13.0", rewritten)
+        self.assertNotIn("-mios-simulator-version-min=12.0", rewritten)
 
     def test_recipe_patch_rejects_unmatched_upstream_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -236,54 +217,191 @@ class DarwinRecipePatchTests(unittest.TestCase):
             recipe_patch = _normalized_patch(SCRIPT_DIR / "darwin-recipe.patch", root)
 
             result = subprocess.run(
-                ["git", "-C", str(root), "apply", "--check", str(recipe_patch)],
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "apply",
+                    "--unidiff-zero",
+                    "--check",
+                    str(recipe_patch),
+                ],
                 capture_output=True,
                 text=True,
             )
             self.assertNotEqual(0, result.returncode)
 
-    def test_native_source_patches_apply_at_the_pinned_source_locations(self) -> None:
+    def test_ffmpeg_release_metadata_matches_the_download_lock(self) -> None:
+        recipe_dir = os.environ.get("DARWIN_RECIPE_SOURCE_DIR")
+        if not recipe_dir:
+            recipe_dir = str(
+                REPO_ROOT / "build/native-audio-upgrade/darwin/libmpv-darwin-build"
+            )
+        recipe = Path(recipe_dir)
+        ffmpeg_build = recipe / "scripts/ffmpeg/build.sh"
+        if not ffmpeg_build.is_file():
+            self.skipTest("the pinned Darwin recipe is available after the builder fetches it")
+        bash = _bash_executable()
+        if bash is None:
+            self.skipTest("Bash is required to verify FFmpeg release metadata")
+
+        build_script = ffmpeg_build.read_text(encoding="utf-8")
+        version_setup = build_script.split(
+            "patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch",
+            1,
+        )[0]
+        self.assertIn("version_lock=$(grep -A1", version_setup)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            (project / "downloads.lock").write_text(
+                "ffmpeg:\n  version: 9.0.2\n", encoding="utf-8"
+            )
+            source = project / "build/tmp/ffmpeg"
+            source.mkdir(parents=True)
+            (source / "RELEASE").write_text("9.0.2\n", encoding="utf-8")
+            environment = os.environ.copy()
+            environment["PROJECT_DIR"] = str(project)
+            environment["SRC_DIR"] = str(source)
+            result = subprocess.run(
+                [bash, "-c", version_setup],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("9.0.2\n", (source / "VERSION").read_text(encoding="utf-8"))
+
+            mismatch_source = project / "build/tmp/ffmpeg-mismatch"
+            mismatch_source.mkdir(parents=True)
+            (mismatch_source / "RELEASE").write_text("9.0.1\n", encoding="utf-8")
+            environment["SRC_DIR"] = str(mismatch_source)
+            mismatch = subprocess.run(
+                [bash, "-c", version_setup],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+            self.assertNotEqual(0, mismatch.returncode)
+            self.assertFalse((mismatch_source / "VERSION").exists())
+
+    def test_fixed_sources_keep_upstream_fixes_and_accept_darwin_audio_patches(self) -> None:
+        source_dir = os.environ.get("DARWIN_NATIVE_SOURCE_DIR")
+        if not source_dir:
+            source_dir = str(REPO_ROOT / "build/native-audio-upgrade/darwin")
+        sources = Path(source_dir)
+        mpv_root = sources / "mpv"
+        ffmpeg_root = sources / "ffmpeg"
+        libplacebo_root = sources / "libplacebo"
+        if (
+            not (mpv_root / "MPV_VERSION").is_file()
+            or not (ffmpeg_root / "RELEASE").is_file()
+            or not (libplacebo_root / "src/convert.cc").is_file()
+        ):
+            self.skipTest("the pinned MPV and FFmpeg sources are available after download")
+
+        common_lock = (SCRIPT_DIR / "common.lock").read_text().splitlines()
+        pins = dict(
+            line.split("=", 1)
+            for line in common_lock
+            if line.startswith(("MPV_VERSION=", "MPV_COMMIT=", "FFMPEG_VERSION=", "FFMPEG_COMMIT="))
+        )
+        self.assertEqual(pins["MPV_VERSION"], (mpv_root / "MPV_VERSION").read_text().strip())
+        self.assertEqual(pins["FFMPEG_VERSION"], (ffmpeg_root / "RELEASE").read_text().strip())
+        for source, expected in ((mpv_root, pins["MPV_COMMIT"]), (ffmpeg_root, pins["FFMPEG_COMMIT"])):
+            git_dir = source / ".git"
+            if git_dir.exists():
+                actual = subprocess.run(
+                    ["git", "-C", str(source), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                self.assertEqual(expected, actual)
+
+        mpv_audio = (mpv_root / "player/audio.c").read_text(encoding="utf-8")
+        mpv_command = (mpv_root / "player/command.c").read_text(encoding="utf-8")
+        mpv_filter_header = (mpv_root / "filters/filter.h").read_text(encoding="utf-8")
+        ffmpeg_vp9 = (ffmpeg_root / "libavcodec/vp9.c").read_text(encoding="utf-8")
+        ffmpeg_hls = (ffmpeg_root / "libavformat/hls.c").read_text(encoding="utf-8")
+        ffmpeg_dash = (ffmpeg_root / "libavformat/dashdec.c").read_text(encoding="utf-8")
+        reinit_audio = mpv_audio.split(
+            "static int reinit_audio_filters_and_output", 1
+        )[1].split("static bool ao_chain_init_decoder", 1)[0]
+        self.assertNotIn("ao_is_playing(mpctx->ao)", reinit_audio)
+        self.assertNotIn("Wait until all played", reinit_audio)
+        self.assertIn("uninit_audio_out(mpctx);", reinit_audio)
+        self.assertIn(".target = cmd->args[3].v.s", mpv_command)
+        self.assertIn("const char *target;", mpv_filter_header)
+        self.assertIn("HWACCEL_VIDEOTOOLBOX(vp9)", ffmpeg_vp9)
+        self.assertIn("pls->cur_init_section = NULL;", ffmpeg_hls)
+        self.assertGreaterEqual(ffmpeg_dash.count("xmlEncodeSpecialChars(NULL,"), 2)
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            mpv = root / "build/tmp/mpv/player/audio.c"
-            ffmpeg = root / "build/tmp/ffmpeg/libavfilter/f_sendcmd.c"
-            mpv.parent.mkdir(parents=True)
-            ffmpeg.parent.mkdir(parents=True)
+            patch_cases = (
+                (
+                    "mpv-audio-controls.patch",
+                    mpv_root,
+                    ["filters/f_lavfi.c"],
+                ),
+                (
+                    "ffmpeg-sendcmd-precision.patch",
+                    ffmpeg_root,
+                    ["libavfilter/f_sendcmd.c"],
+                ),
+                (
+                    "darwin-ffmpeg-ios-hdr.patch",
+                    ffmpeg_root,
+                    ["libavcodec/videotoolbox.c", "libavutil/hwcontext_videotoolbox.c"],
+                ),
+                (
+                    "darwin-libplacebo-charconv.patch",
+                    libplacebo_root,
+                    ["src/convert.cc"],
+                ),
+            )
+            for patch_name, source_root, source_files in patch_cases:
+                case_root = root / Path(patch_name).stem
+                for relative in source_files:
+                    destination = case_root / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_root / relative, destination)
+                subprocess.run(["git", "init", "-q", str(case_root)], check=True)
+                subprocess.run(["git", "-C", str(case_root), "add", "."], check=True)
+                patch_path = _normalized_patch(SCRIPT_DIR / patch_name, case_root)
+                subprocess.run(
+                    ["git", "-C", str(case_root), "apply", "--check", str(patch_path)],
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "-C", str(case_root), "apply", str(patch_path)],
+                    check=True,
+                )
+                if patch_name == "darwin-libplacebo-charconv.patch":
+                    convert = (case_root / "src/convert.cc").read_text(encoding="utf-8")
+                    self.assertIn("# define HAS_STD_TO_CHARS_FP 0", convert)
 
-            mpv_lines = ["// fixture\n"] * 391 + [
-                "    // Wait until all played.\n",
-                "    if (mpctx->ao && ao_is_playing(mpctx->ao)) {\n",
-                "        talloc_free(out_fmt);\n",
-                "        return 0;\n",
-                "    }\n",
-                "    // Format change during syncing. Force playback start early, then wait.\n",
-                "    if (ao_c->ao_queue && mp_async_queue_get_frames(ao_c->ao_queue) &&\n",
-                "        mpctx->audio_status == STATUS_SYNCING)\n",
-            ]
-            ffmpeg_lines = ["// fixture\n"] * 549 + [
-                '                        cmd_arg = av_asprintf("%g", res);\n',
-                "                        if (!cmd_arg) {\n",
-                "                            av_frame_free(&ref);\n",
-                "                            return AVERROR(ENOMEM);\n",
-            ]
-            mpv.write_bytes("".join(mpv_lines).encode("utf-8"))
-            ffmpeg.write_bytes("".join(ffmpeg_lines).encode("utf-8"))
-            (root / ".gitignore").write_bytes(b"build/\n")
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "false"], check=True)
-            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
-
-            for patch_file, source_dir in (
-                ("mpv-audio-reinit.patch", "build/tmp/mpv"),
-                ("ffmpeg-sendcmd-precision.patch", "build/tmp/ffmpeg"),
-            ):
-                patch_path = _normalized_patch(SCRIPT_DIR / patch_file, root)
-                command = ["git", "-C", str(root), "apply", f"--directory={source_dir}"]
-                subprocess.run([*command, "--check", str(patch_path)], check=True)
-                subprocess.run([*command, str(patch_path)], check=True)
-
-            self.assertNotIn("ao_is_playing(mpctx->ao)", mpv.read_text())
-            self.assertIn('av_asprintf("%.17g", res)', ffmpeg.read_text())
+            patched_lavfi = (root / "mpv-audio-controls/filters/f_lavfi.c").read_text(
+                encoding="utf-8"
+            )
+            patched_sendcmd = (
+                root / "ffmpeg-sendcmd-precision/libavfilter/f_sendcmd.c"
+            ).read_text(encoding="utf-8")
+            patched_hdr_codec = (
+                root / "darwin-ffmpeg-ios-hdr/libavcodec/videotoolbox.c"
+            ).read_text(encoding="utf-8")
+            patched_hdr_hwctx = (
+                root / "darwin-ffmpeg-ios-hdr/libavutil/hwcontext_videotoolbox.c"
+            ).read_text(encoding="utf-8")
+            self.assertIn("replay_lavfi_commands(c)", patched_lavfi)
+            self.assertIn('av_asprintf("%.17g", res)', patched_sendcmd)
+            self.assertIn("#if TARGET_OS_IPHONE", patched_hdr_codec)
+            self.assertIn("return AV_PIX_FMT_BGRA;", patched_hdr_codec)
+            self.assertIn("return AV_PIX_FMT_P010;", patched_hdr_codec)
+            self.assertIn("kCVPixelFormatType_32BGRA,                        false, AV_PIX_FMT_BGRA", patched_hdr_hwctx)
 
     def test_pkgconfig_atomic_patch_uses_pointer_sized_atomic_intrinsics(self) -> None:
         added_lines = [
@@ -316,7 +434,11 @@ class DarwinRecipePatchTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "false"], check=True)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
 
-            for patch_file in ("mpv-audio-reinit.patch", "ffmpeg-sendcmd-precision.patch"):
+            for patch_file in (
+                "mpv-audio-controls.patch",
+                "ffmpeg-sendcmd-precision.patch",
+                "darwin-ffmpeg-ios-hdr.patch",
+            ):
                 result = subprocess.run(
                     [
                         "git",
@@ -722,10 +844,18 @@ class DarwinProviderTests(unittest.TestCase):
             "ninja=%s",
             "make=GNU Make %s",
             "clang=%s",
+            "mpv_source_version=%s",
+            "mpv_source_commit=%s",
+            "ffmpeg_source_version=%s",
+            "ffmpeg_source_commit=%s",
+            "libplacebo_source_version=%s",
+            "libplacebo_source_commit=%s",
             "ios_minimum=%s",
             "macos_minimum=%s",
             "filters=%s,overlay,equalizer",
-            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-filter-command-target.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
+            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
+            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz",
+            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz",
             "pkg-config-glib-atomics.patch",
             "upstream_downloads.lock:",
         ):
@@ -741,6 +871,14 @@ class DarwinProviderTests(unittest.TestCase):
         )
         self.assertIn(
             'cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"',
+            builder,
+        )
+        self.assertIn(
+            'cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"',
+            builder,
+        )
+        self.assertIn(
+            'cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"',
             builder,
         )
         self.assertIn(

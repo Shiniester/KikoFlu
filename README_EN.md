@@ -120,7 +120,7 @@ flutter pub get
 | Android | `flutter build apk --release --split-per-abi` |
 | Windows | `flutter build windows --release` |
 | macOS | `flutter build macos --release` |
-| Linux | `flutter build linux --release` |
+| Linux | [Build native libraries](docs/development/linux-native-audio.md), then run `flutter build linux --release` |
 | iOS | `./build_ios_xcode.sh` |
 
 ---

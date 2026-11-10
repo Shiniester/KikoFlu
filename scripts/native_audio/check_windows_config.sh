@@ -54,8 +54,8 @@ grep -Fqx '        --prefer-static' "$libass_config" ||
     fail "libass must resolve static dependency requirements"
 grep -Fqx '        -Dvulkan=enabled' "$libplacebo_config" ||
     fail "libplacebo must build with Vulkan support"
-grep -Fqx '        -Dpdf-build=disabled' "$mpv_config" ||
-    fail "mpv-dev build must not require PDF generation"
+grep -Fqx '        -Dmanpage-build=disabled' "$mpv_config" ||
+    fail "mpv-dev build must not require manual generation"
 grep -Fq -- '-DEGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE=0x3207' "$mpv_config" ||
     fail "mpv must define the ANGLE D3D9 enum missing from the pinned headers"
 if grep -Fq '<BINARY_DIR>/mpv.pdf' "$mpv_config"; then
@@ -65,8 +65,14 @@ cmp -s "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libar
     fail "libarchive OpenSSL patch differs from the checked patch"
 grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch' "$libarchive_config" ||
     fail "libarchive OpenSSL patch is not applied during the source build"
-grep -Fqx "    GIT_TAG $FFMPEG_COMMIT" "$ffmpeg_config" ||
+grep -Fqx '    GIT_TAG $ENV{FFMPEG_COMMIT}' "$ffmpeg_config" ||
     fail "FFmpeg source is not pinned to $FFMPEG_COMMIT"
+if grep -Eq '^[[:space:]]*--(disable-postproc|enable-libshaderc)(=|[[:space:]]|$)' "$ffmpeg_config"; then
+    fail "FFmpeg 9.0.2 configure options must not include postproc or libshaderc"
+fi
+if [[ -e "$source_dir/packages/ffmpeg-dash-base-url-escape.patch" ]]; then
+    fail "FFmpeg 9.0.2 already escapes DASH BaseURL content"
+fi
 [[ -f "$source_dir/packages/ffmpeg-sendcmd-precision.patch" ]] ||
     fail "FFmpeg sendcmd precision patch is missing from the recipe"
 [[ -f "$source_dir/packages/apply_ffmpeg_sendcmd_precision.sh" ]] ||
@@ -87,54 +93,38 @@ configure_command_line=$(grep -Fn 'CONFIGURE_COMMAND ${EXEC} CONF=1 <SOURCE_DIR>
     fail "FFmpeg patch application and pre-build verification steps are required"
 [[ "$patch_command_line" -lt "$verify_command_line" && "$verify_command_line" -lt "$configure_command_line" ]] ||
     fail "FFmpeg precision verification must run after patching and before configure"
-grep -Fqx "            --verify <SOURCE_DIR> $FFMPEG_COMMIT \${CMAKE_CURRENT_LIST_DIR}/ffmpeg-sendcmd-precision.patch" "$ffmpeg_config" ||
+grep -Fqx '            --verify <SOURCE_DIR> $ENV{FFMPEG_COMMIT} ${CMAKE_CURRENT_LIST_DIR}/ffmpeg-sendcmd-precision.patch' "$ffmpeg_config" ||
     fail "FFmpeg precision verifier is not bound to the pinned source and patch"
-grep -Fqx "    GIT_TAG $MPV_COMMIT" "$mpv_config" ||
+grep -Fqx '    GIT_TAG $ENV{MPV_COMMIT}' "$mpv_config" ||
     fail "mpv source is not pinned to $MPV_COMMIT"
-[[ -f "$source_dir/packages/mpv-audio-reinit.patch" ]] ||
-    fail "mpv audio reinit patch is missing from the recipe"
-[[ -f "$source_dir/packages/apply_mpv_audio_reinit.sh" ]] ||
-    fail "mpv audio reinit patch runner is missing from the recipe"
 [[ -f "$source_dir/packages/mpv-audio-controls.patch" ]] ||
     fail "mpv audio controls patch is missing from the recipe"
 [[ -f "$source_dir/packages/apply_mpv_audio_controls.sh" ]] ||
     fail "mpv audio controls patch runner is missing from the recipe"
-cmp -s "$script_dir/mpv-audio-reinit.patch" "$source_dir/packages/mpv-audio-reinit.patch" ||
-    fail "mpv audio reinit patch differs from the pinned patch"
-cmp -s "$script_dir/apply_mpv_audio_reinit.sh" "$source_dir/packages/apply_mpv_audio_reinit.sh" ||
-    fail "mpv audio reinit patch runner differs from the checked runner"
 cmp -s "$script_dir/mpv-audio-controls.patch" "$source_dir/packages/mpv-audio-controls.patch" ||
     fail "mpv audio controls patch differs from the checked patch"
 cmp -s "$script_dir/apply_mpv_audio_controls.sh" "$source_dir/packages/apply_mpv_audio_controls.sh" ||
     fail "mpv audio controls patch runner differs from the checked runner"
-bash "$script_dir/apply_mpv_audio_reinit.sh" --check-patch \
-    "$script_dir/mpv-audio-reinit.patch" "$MPV_AUDIO_REINIT_PATCH_COMMIT" ||
-    fail "mpv audio reinit patch changed"
 bash "$script_dir/apply_mpv_audio_controls.sh" --check-patch \
     "$script_dir/mpv-audio-controls.patch" ||
     fail "mpv audio controls patch changed"
 grep -Fqx '    PATCH_COMMAND bash' "$mpv_config" ||
-    fail "mpv audio reinit patch is not applied during the source build"
-grep -Fqx '        ${CMAKE_CURRENT_LIST_DIR}/apply_mpv_audio_reinit.sh' "$mpv_config" ||
-    fail "mpv audio reinit patch runner is not configured"
-grep -Fqx '        --apply' "$mpv_config" || fail "mpv audio reinit patch runner mode changed"
-grep -Fqx '        <SOURCE_DIR>' "$mpv_config" || fail "mpv patch source directory changed"
-grep -Fqx "        $MPV_COMMIT" "$mpv_config" ||
-    fail "mpv audio reinit patch source does not match the pinned mpv commit"
-grep -Fqx '        ${CMAKE_CURRENT_LIST_DIR}/mpv-audio-reinit.patch' "$mpv_config" ||
-    fail "mpv audio reinit patch path changed"
-grep -Fqx "        $MPV_AUDIO_REINIT_PATCH_COMMIT" "$mpv_config" ||
-    fail "mpv audio reinit patch commit is not pinned in the recipe"
-grep -Fqx '    COMMAND bash' "$mpv_config" ||
     fail "mpv audio controls patch is not applied during the source build"
 grep -Fqx '        ${CMAKE_CURRENT_LIST_DIR}/apply_mpv_audio_controls.sh' "$mpv_config" ||
     fail "mpv audio controls patch runner is not configured"
 grep -Fqx '        --apply' "$mpv_config" || fail "mpv controls patch runner mode changed"
 grep -Fqx '        <SOURCE_DIR>' "$mpv_config" || fail "mpv controls patch source directory changed"
-grep -Fqx "        $MPV_COMMIT" "$mpv_config" ||
+grep -Fqx '        $ENV{MPV_COMMIT}' "$mpv_config" ||
     fail "mpv audio controls patch source does not match the pinned mpv commit"
 grep -Fqx '        ${CMAKE_CURRENT_LIST_DIR}/mpv-audio-controls.patch' "$mpv_config" ||
     fail "mpv audio controls patch path changed"
+if grep -Fq 'apply_mpv_audio_reinit' "$mpv_config"; then
+    fail "mpv reinit patch must not be reapplied over mpv 0.42.0"
+fi
+if grep -Fq 'apply_mpv_audio_reinit' "$script_dir/build_windows.sh"; then
+    fail "mpv reinit patch must not be applied over mpv 0.42.0"
+fi
+
 grep -Fqx "    GIT_REPOSITORY $OPUS_URL" "$opus_config" ||
     fail "Opus source repository changed"
 grep -Fqx "    GIT_TAG $OPUS_COMMIT" "$opus_config" ||
@@ -194,7 +184,7 @@ fi
 
 expected_filters=$(
     {
-        cat "$script_dir/filters.txt"
+        tr -d '\r' < "$script_dir/filters.txt"
         printf '%s\n' overlay equalizer
     } | LC_ALL=C sort
 )
@@ -288,7 +278,10 @@ grep -Fq 'windows-git-closure.patch' "$script_dir/build_windows.sh" ||
 check_git_pin fast_float "$FAST_FLOAT_URL" "$FAST_FLOAT_COMMIT" "$source_dir/packages/fast_float.cmake"
 check_git_pin glad "$GLAD_URL" "$GLAD_COMMIT" "$source_dir/packages/glad.cmake"
 check_git_pin libdovi "$LIBDOVI_URL" "$LIBDOVI_COMMIT" "$source_dir/packages/libdovi.cmake"
-check_git_pin libplacebo "$LIBPLACEBO_URL" "$LIBPLACEBO_COMMIT" "$source_dir/packages/libplacebo.cmake"
+grep -Fqx "    GIT_REPOSITORY $LIBPLACEBO_URL" "$libplacebo_config" ||
+    fail "libplacebo source repository changed"
+grep -Fqx '    GIT_TAG $ENV{LIBPLACEBO_COMMIT}' "$libplacebo_config" ||
+    fail "libplacebo source is not pinned to $LIBPLACEBO_COMMIT"
 check_git_pin shaderc "$SHADERC_URL" "$SHADERC_COMMIT" "$source_dir/packages/shaderc.cmake"
 zstd_config="$source_dir/packages/zstd.cmake"
 grep -Fqx "    GIT_REPOSITORY $ZSTD_URL" "$zstd_config" ||

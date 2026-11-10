@@ -1,0 +1,9 @@
+MPV_URL=https://github.com/mpv-player/mpv.git
+MPV_VERSION=0.42.0
+MPV_COMMIT=b0841e8c4d156b8403dc1876c4cbd9011eb583f3
+FFMPEG_URL=https://github.com/FFmpeg/FFmpeg.git
+FFMPEG_VERSION=9.0.2
+FFMPEG_COMMIT=946fcce07b6dcd0331c8cc609192aeff5e1924f8
+LIBPLACEBO_URL=https://github.com/haasn/libplacebo.git
+LIBPLACEBO_VERSION=7.387.0
+LIBPLACEBO_COMMIT=275f7dea27924cdd34ab2e6c20e448b6bc4fab65
