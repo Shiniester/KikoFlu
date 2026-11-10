@@ -545,9 +545,9 @@ Automatic Audio Cache, without changing the currently published track.
 _Avoid_: Track Switch, playback buffer
 
 **Track Presentation Transition (曲目视觉过渡)**:
-The existing cover and title animation after a committed track is published.
-Its direction follows the accepted playback request. It is separate from source
-preparation and does not block further track-switch requests.
+The cover and title animation after a committed track is published. The title's
+direction follows the accepted playback request. The transition is separate from
+source preparation and does not block further track-switch requests.
 _Avoid_: Track Switch, audio crossfade
 
 **Player Cover Scale (播放器封面缩放)**:

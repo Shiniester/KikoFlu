@@ -2460,12 +2460,10 @@ void main() {
         find.byKey(const ValueKey('playback-line-time')),
       );
       final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
+      final timeFinder = find.byKey(const ValueKey('playback-line-time'));
       expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
-            .style
-            ?.fontSize,
-        cutIcon.width,
+        tester.widget<Text>(timeFinder).style?.fontSize,
+        Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.fontSize,
       );
       expect(timeRect.width, greaterThan(cutIcon.width));
       expect(
@@ -2763,16 +2761,10 @@ void main() {
         expect(timeBoxes, isNotEmpty);
         expect(timeParagraph.size.width, closeTo(naturalTime.width, 0.01));
         naturalTime.dispose();
-        final timeScale = timeParagraph.getTransformTo(null).entry(0, 0);
         expect(
-          tester.getRect(timeFinder).width,
-          lessThanOrEqualTo(timeColumn.width),
+          timeParagraph.getTransformTo(null).entry(0, 0),
+          closeTo(1, 0.001),
         );
-        if (size.width < 600) {
-          expect(timeScale, lessThanOrEqualTo(1));
-        } else {
-          expect(timeScale, closeTo(1, 0.001));
-        }
         final lyricFinder = find.byWidgetPredicate(
           (widget) =>
               widget is RichText && widget.text.toPlainText() == longLyric,
@@ -2822,7 +2814,10 @@ void main() {
         }
         final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
         expect(cutIcon.width, 16);
-        expect(timeWidget.style?.fontSize, 16);
+        expect(
+          timeWidget.style?.fontSize,
+          Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.fontSize,
+        );
         expect(
           timeWidget.style?.height,
           Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.height,
@@ -2899,7 +2894,7 @@ void main() {
     },
   );
 
-  testWidgets('playback line and timestamp fit a narrow scaled layout', (
+  testWidgets('long timestamps stay unscaled on narrow layouts', (
     tester,
   ) async {
     const startTime = Duration(hours: 123, minutes: 45, seconds: 6);
@@ -2963,10 +2958,10 @@ void main() {
     final timeRect = tester.getRect(timeFinder);
     final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
     expect(_playbackControlsOpacity(tester), 1);
-    expect(indicator.width, greaterThanOrEqualTo(24));
+    expect(indicator.width, 0);
     expect(time.data, startsWith('123:45:'));
-    expect(timeRect.width, lessThanOrEqualTo(timeColumn.width));
-    expect(timeParagraph.getTransformTo(null).entry(0, 0), lessThan(1));
+    expect(timeRect.width, greaterThan(timeColumn.width));
+    expect(timeParagraph.getTransformTo(null).entry(0, 0), closeTo(1, 0.001));
     expect(tester.takeException(), isNull);
   });
 }

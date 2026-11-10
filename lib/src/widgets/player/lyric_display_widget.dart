@@ -31,7 +31,6 @@ import '../../../l10n/app_localizations.dart';
 
 const _playbackLineCutSize = 48.0;
 const _playbackLineCutIconSize = 16.0;
-const _playbackLineMinimumWidth = 24.0;
 const _playbackLineTimeInset =
     (_playbackLineCutSize - _playbackLineCutIconSize) / 2;
 const _lyricTapFeedbackDuration = Duration(milliseconds: 500);
@@ -3820,9 +3819,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                         padding: const EdgeInsets.only(
                           right: _playbackLineTimeInset,
                         ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
+                        child: OverflowBox(
                           alignment: Alignment.centerRight,
+                          minWidth: 0,
+                          maxWidth: double.infinity,
+                          minHeight: 0,
+                          maxHeight: double.infinity,
                           child: Text(
                             key: const ValueKey('playback-line-time'),
                             time,
@@ -4323,7 +4325,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final locale = Localizations.maybeLocaleOf(context);
           final timeStyle = (theme.textTheme.labelSmall ?? const TextStyle())
               .copyWith(
-                fontSize: _playbackLineCutIconSize,
                 color: colors.onSurfaceVariant.withValues(alpha: 0.75),
                 fontFeatures: const [FontFeature.tabularFigures()],
               );
@@ -4344,10 +4345,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             );
             timePainter.dispose();
           }
-          final sideColumnWidth = math.min(
-            timeColumnWidth,
-            math.max(0.0, (layoutWidth - _playbackLineMinimumWidth) / 2),
-          );
+          final sideColumnWidth = math.min(timeColumnWidth, layoutWidth / 2);
           final availableTextWidth = math.max(1.0, layoutWidth - 56);
           final lyricWidthLimit = widget.showPlaybackLineControls
               ? layoutWidth

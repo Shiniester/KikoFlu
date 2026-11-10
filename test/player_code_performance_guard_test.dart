@@ -303,7 +303,7 @@ void main() {
 
     expect(coverTransition, isNot(contains('AnimatedBuilder')));
     expect(coverTransition, contains('FadeTransition('));
-    expect(coverTransition, contains('ScaleTransition('));
+    expect(coverTransition, isNot(contains('ScaleTransition(')));
     expect(coverTransition, contains(r'player-cover-$role-layer'));
     expect(coverTransition, contains('RepaintBoundary('));
     expect(titleSwitcher, isNot(contains('return AnimatedBuilder(')));

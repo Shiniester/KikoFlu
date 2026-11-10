@@ -140,7 +140,7 @@ void main() {
     expect(find.byType(Hero), findsNothing);
   });
 
-  testWidgets('ready track artwork expands and cross-fades in 300ms', (
+  testWidgets('ready track artwork fades in at a fixed size over 500ms', (
     tester,
   ) async {
     const first = AudioTrack(
@@ -217,26 +217,34 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 125));
+    expect(
+      tester
+          .widget<FadeTransition>(
+            find.byKey(const ValueKey('player-cover-outgoing-opacity')),
+          )
+          .opacity
+          .value,
+      1,
+    );
+    expect(
+      tester
+          .widget<FadeTransition>(
+            find.byKey(const ValueKey('player-cover-incoming-opacity')),
+          )
+          .opacity
+          .value,
+      closeTo(0.25, 0.01),
+    );
+    await tester.pump(const Duration(milliseconds: 125));
     final outgoingOpacity = tester.widget<FadeTransition>(
       find.byKey(const ValueKey('player-cover-outgoing-opacity')),
     );
     final incomingOpacity = tester.widget<FadeTransition>(
       find.byKey(const ValueKey('player-cover-incoming-opacity')),
     );
-    final outgoingScale = tester.widget<ScaleTransition>(
-      find.byKey(const ValueKey('player-cover-outgoing-scale')),
-    );
-    final incomingScale = tester.widget<ScaleTransition>(
-      find.byKey(const ValueKey('player-cover-incoming-scale')),
-    );
-    expect(outgoingOpacity.opacity.value, closeTo(0.5, 0.05));
+    expect(outgoingOpacity.opacity.value, 1);
     expect(incomingOpacity.opacity.value, closeTo(0.5, 0.05));
-    expect(outgoingScale.scale.value, greaterThan(1));
-    expect(incomingScale.scale.value, greaterThan(1));
-    expect(outgoingScale.scale.value, greaterThan(incomingScale.scale.value));
-    expect(outgoingScale.scale.value, closeTo(1.175, 0.02));
-    expect(incomingScale.scale.value, closeTo(1.025, 0.02));
     expect(
       find.byKey(const ValueKey('player-cover-outgoing-layer')),
       findsOneWidget,
@@ -245,12 +253,23 @@ void main() {
       find.byKey(const ValueKey('player-cover-incoming-layer')),
       findsOneWidget,
     );
+    final frameRect = tester.getRect(
+      find.byKey(const ValueKey('player-cover-transition-clip')),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('player-cover-outgoing-layer'))),
+      frameRect,
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('player-cover-incoming-layer'))),
+      frameRect,
+    );
     final transitionClip = tester.widget<ClipRRect>(
       find.byKey(const ValueKey('player-cover-transition-clip')),
     );
     expect(transitionClip.borderRadius, BorderRadius.circular(14));
     expect(transitionClip.clipBehavior, Clip.antiAlias);
-    await tester.pump(const Duration(milliseconds: 160));
+    await tester.pump(const Duration(milliseconds: 251));
     expect(
       find.byKey(const ValueKey('player-cover-transition-stack')),
       findsNothing,
@@ -409,7 +428,7 @@ void main() {
       find.byKey(const ValueKey('player-cover-transition-stack')),
       findsOneWidget,
     );
-    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump(const Duration(milliseconds: 501));
 
     track.value = emptyCoverAgain;
     await tester.pump();
@@ -500,12 +519,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 45));
     track.value = latest;
     await tester.pump();
+    final stack = find.byKey(const ValueKey('player-cover-transition-stack'));
+    expect(stack, findsOneWidget);
+    final layers = find.descendant(
+      of: stack,
+      matching: find.byType(FadeTransition),
+    );
+    expect(layers.evaluate().length, lessThanOrEqualTo(3));
     expect(
-      find.byKey(const ValueKey('player-cover-transition-stack')),
-      findsOneWidget,
+      layers.evaluate().any(
+        (element) => (element.widget as FadeTransition).opacity.value == 1,
+      ),
+      isTrue,
     );
 
-    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump(const Duration(milliseconds: 501));
     expect(
       find.byKey(const ValueKey('player-cover-artwork-rapid-latest')),
       findsOneWidget,

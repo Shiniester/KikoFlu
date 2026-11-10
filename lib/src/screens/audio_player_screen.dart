@@ -3549,7 +3549,7 @@ class _PlayerTrackTitleSwitcher extends StatefulWidget {
     required this.onOpenWorkDetails,
   });
 
-  static const duration = Duration(milliseconds: 260);
+  static const duration = Duration(milliseconds: 500);
 
   final AudioTrack track;
   final bool isWide;

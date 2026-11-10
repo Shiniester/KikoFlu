@@ -1463,7 +1463,7 @@ void main() {
 
       tracks.add(nextTrack);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 130));
+      await tester.pump(const Duration(milliseconds: 250));
 
       final outgoing = tester.widget<SlideTransition>(
         find.byKey(const ValueKey('player-track-title-outgoing')),
@@ -1497,7 +1497,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 251));
       await tester.pump();
       expect(
         find.byKey(const ValueKey('player-track-title-content-track-1')),
@@ -1534,7 +1534,7 @@ void main() {
 
     tracks.add(previousTrack);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 130));
+    await tester.pump(const Duration(milliseconds: 250));
 
     final outgoing = tester.widget<SlideTransition>(
       find.byKey(const ValueKey('player-track-title-outgoing')),
@@ -1545,7 +1545,7 @@ void main() {
     expect(outgoing.position.value.dx, closeTo(0.875, 0.01));
     expect(incoming.position.value.dx, closeTo(-0.125, 0.01));
 
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 251));
     await tester.pump();
     expect(find.text(_track.title), findsNothing);
     expect(find.text(previousTrack.title), findsOneWidget);
@@ -5068,12 +5068,10 @@ void main() {
       matching: find.byIcon(Icons.content_cut),
     );
     final cutIconRect = tester.getRect(cutIcon);
+    final timeFinder = find.byKey(const ValueKey('playback-line-time'));
     expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
-          .style
-          ?.fontSize,
-      cutIconRect.width,
+      tester.widget<Text>(timeFinder).style?.fontSize,
+      Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.fontSize,
     );
     expect(timeText.width, greaterThan(cutIconRect.width));
     final line = tester.getRect(
