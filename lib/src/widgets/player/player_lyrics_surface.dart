@@ -21,6 +21,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     required this.onFullscreen,
     required this.translateButton,
     this.isActive = true,
+    this.keepScrollActiveDuringPageDrag = false,
     this.seekingPosition,
     this.seekingPositionListenable,
     this.onDownload,
@@ -37,6 +38,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final VoidCallback onFullscreen;
   final Widget translateButton;
   final bool isActive;
+  final bool keepScrollActiveDuringPageDrag;
   final VoidCallback? onDownload;
   final VoidCallback? onLongPress;
   final ScrollController? scrollController;
@@ -162,7 +164,10 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       seekingPosition: widget.seekingPosition,
                       seekingPositionListenable:
                           widget.seekingPositionListenable,
-                      isActive: widget.isActive,
+                      isActive:
+                          widget.isActive ||
+                          widget.keepScrollActiveDuringPageDrag,
+                      isPageDragActive: widget.keepScrollActiveDuringPageDrag,
                       isPortrait: !widget.isWide,
                       onLongPress: widget.onLongPress,
                       suspendAutoScroll: _searchSessionActive,
@@ -176,7 +181,10 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       selectedSearchMatch: _searchHighlightsVisible
                           ? selectedMatch
                           : null,
-                      contentWidth: actionWidth,
+                      contentWidth: (actionWidth - 24).clamp(
+                        1.0,
+                        double.infinity,
+                      ),
                       visibleBottomInset: displayVisibleBottomInset,
                       snapOnAutoScrollResume: !_skipNextAutoScrollResume,
                       snapToCurrentOnFirstLayout: true,

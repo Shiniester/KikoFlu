@@ -3,15 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../providers/audio_provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/update_provider.dart';
 import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
 import 'mini_player.dart';
 import 'responsive_dialog.dart';
-
-const _offlineBannerHeight = 30.0;
 
 class AppNavigationShell extends StatefulWidget {
   const AppNavigationShell({
@@ -36,7 +33,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   bool _landscapeInsetsScheduled = false;
   double _audioMiniPlayerHeight = 0;
   EdgeInsets? _lastPlayerPadding;
-  bool? _lastPlayerOffline;
   bool? _lastPlayerHasTrack;
   bool _animateNavigation = false;
   bool _reduceMotion = false;
@@ -190,12 +186,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         label: s.navSettings,
       ),
     ];
-    final auth = ref.watch(authProvider);
-    final offline =
-        controller.selectedIndex == 0 &&
-        auth.currentUser != null &&
-        !auth.isLoggedIn &&
-        auth.error != null;
     final transition = controller.fullscreenTransition;
     final playerTransition = isLandscape
         ? controller.audioPlayerNavigationTransition
@@ -211,16 +201,13 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       final padding = MediaQuery.paddingOf(context);
       if (controller.audioPlayerLandscapeInsets == null ||
           _lastPlayerPadding != padding ||
-          _lastPlayerOffline != offline ||
           _lastPlayerHasTrack != (miniPlayer != null)) {
         _lastPlayerPadding = padding;
-        _lastPlayerOffline = offline;
         _lastPlayerHasTrack = miniPlayer != null;
         _scheduleAudioLandscapeInsets();
       }
     } else {
       _lastPlayerPadding = null;
-      _lastPlayerOffline = null;
       _lastPlayerHasTrack = null;
     }
     void selectTab(int index) {
@@ -256,12 +243,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       builder: (context, _) => _buildShellFrame(
         context,
         isLandscape: isLandscape,
-        offline: offline,
         miniPlayer: miniPlayer,
         dock: dock,
         rail: rail,
         sheets: sheets,
-        ref: ref,
         progress: explicitTransition
             ? transition.value
             : _navigationMotion.value,
@@ -292,7 +277,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       controller.setAudioPlayerLandscapeInsets(
         EdgeInsets.fromLTRB(
           rail.size.width + 1,
-          _lastPlayerOffline == true ? _offlineBannerHeight : 0,
+          0,
           padding.right,
           padding.bottom + _audioMiniPlayerHeight,
         ),
@@ -303,12 +288,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   Widget _buildShellFrame(
     BuildContext context, {
     required bool isLandscape,
-    required bool offline,
     required Widget? miniPlayer,
     required Widget dock,
     required Widget? rail,
     required List<ResponsiveBottomSheetRoute<dynamic>> sheets,
-    required WidgetRef ref,
     required double progress,
     required bool explicitTransition,
     required Animation<double>? playerTransition,
@@ -324,27 +307,15 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     final railOnstage = navigationOnstage || playerTransition != null
         ? rail
         : null;
-    final railTop =
-        isLandscape &&
-            !visible &&
-            _keepAudioRailStationary &&
-            offline &&
-            !controller.playerLaunchPreviewActive
-        ? _offlineBannerHeight
-        : 0.0;
     final railWithDivider = railOnstage == null
         ? null
-        : Padding(
-            padding: EdgeInsets.only(top: railTop),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                railOnstage,
-                const VerticalDivider(thickness: 1, width: 1),
-              ],
-            ),
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              railOnstage,
+              const VerticalDivider(thickness: 1, width: 1),
+            ],
           );
-    final showOffline = offline && visible;
     final keyboardVisible =
         isLandscape && MediaQuery.viewInsetsOf(context).bottom > 0;
     final measuredMiniPlayer = miniPlayer == null
@@ -399,21 +370,15 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                       : -progress,
                   0,
                 ),
-                child: Padding(
-                  padding: EdgeInsets.only(top: railTop),
-                  child: railOnstage,
-                ),
+                child: railOnstage,
               ),
             ),
           ),
         if (showRail)
-          Padding(
-            padding: EdgeInsets.only(top: railTop),
-            child: SizedBox(
-              width: explicitTransition ? 1 - progress : 1,
-              child: _protectNavigation(
-                const VerticalDivider(thickness: 1, width: 1),
-              ),
+          SizedBox(
+            width: explicitTransition ? 1 - progress : 1,
+            child: _protectNavigation(
+              const VerticalDivider(thickness: 1, width: 1),
             ),
           ),
         Expanded(
@@ -488,18 +453,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       resizeToAvoidBottomInset: visible,
       body: Stack(
         children: [
-          Padding(
-            padding: EdgeInsets.only(
-              top:
-                  showOffline ||
-                      (isLandscape &&
-                          offline &&
-                          controller.playerLaunchPreviewActive)
-                  ? _offlineBannerHeight
-                  : 0,
-            ),
-            child: content,
-          ),
+          content,
           if (!layoutVisible && railOnstage != null)
             Positioned.fill(
               child: Row(
@@ -548,13 +502,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                   ),
                 ],
               ),
-            ),
-          if (showOffline)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: _protectNavigation(_offlineBanner(context, ref)),
             ),
         ],
       ),
@@ -650,44 +597,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       ],
     );
   }
-
-  Widget _offlineBanner(BuildContext context, WidgetRef ref) => Container(
-    padding: EdgeInsets.fromLTRB(
-      12,
-      MediaQuery.paddingOf(context).top + 4,
-      12,
-      4,
-    ),
-    color: Colors.orange.shade800,
-    child: Row(
-      children: [
-        const Icon(Icons.cloud_off, size: 14, color: Colors.white),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            S.of(context).offlineModeMessage,
-            style: const TextStyle(fontSize: 11, color: Colors.white),
-          ),
-        ),
-        TextButton(
-          onPressed: () => ref.read(authProvider.notifier).retryConnection(),
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: Text(
-            S.of(context).retry,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _DockSheetClipper extends CustomClipper<Path> {

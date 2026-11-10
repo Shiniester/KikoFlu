@@ -299,7 +299,7 @@ class PlayerCoverWidget extends StatefulWidget {
 
 class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     with TickerProviderStateMixin {
-  static const _transitionDuration = Duration(milliseconds: 300);
+  static const _transitionDuration = Duration(milliseconds: 500);
   late final PlayerTrackLayers<_PlayerCoverSnapshot> _presentation;
   late _PlayerCoverSnapshot _displayed;
   ImageStream? _pendingImageStream;
@@ -560,7 +560,10 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
         child: _buildArtworkContent(_displayed, radius),
       );
     }
-    final firstOutgoing = layers.where((layer) => layer.exiting).firstOrNull;
+    final incoming = layers.lastWhere((layer) => !layer.exiting);
+    final firstOutgoing = layers
+        .where((layer) => !identical(layer, incoming))
+        .firstOrNull;
     return Stack(
       key: const ValueKey('player-cover-transition-stack'),
       fit: StackFit.expand,
@@ -573,6 +576,7 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
               layer,
               radius,
               identical(layer, firstOutgoing),
+              identical(layer, incoming),
             ),
           ),
       ],
@@ -583,21 +587,18 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     PlayerTrackLayer<_PlayerCoverSnapshot> layer,
     BorderRadius radius,
     bool primaryOutgoing,
+    bool incoming,
   ) {
-    final role = layer.exiting
-        ? (primaryOutgoing ? 'outgoing' : 'outgoing-${layer.token}')
-        : 'incoming';
+    final role = incoming
+        ? 'incoming'
+        : (primaryOutgoing ? 'outgoing' : 'outgoing-${layer.token}');
     return FadeTransition(
       key: ValueKey('player-cover-$role-opacity'),
       opacity: layer.opacity,
-      child: ScaleTransition(
-        key: ValueKey('player-cover-$role-scale'),
-        scale: layer.scale,
-        child: RepaintBoundary(
-          key: ValueKey('player-cover-$role-layer'),
-          child: ExcludeSemantics(
-            child: _buildArtworkContent(layer.value, radius),
-          ),
+      child: RepaintBoundary(
+        key: ValueKey('player-cover-$role-layer'),
+        child: ExcludeSemantics(
+          child: _buildArtworkContent(layer.value, radius),
         ),
       ),
     );

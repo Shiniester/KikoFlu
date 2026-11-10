@@ -50,14 +50,25 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
           ? Offset.zero
           : Offset(direction.toDouble(), 0),
     );
-    layer.scale = AlwaysStoppedAnimation(
-      !settled && kind == PlayerTrackVisualKind.cover ? 1.20 : 1,
-    );
     layer.opacity = AlwaysStoppedAnimation(
       !settled && kind == PlayerTrackVisualKind.cover ? 0 : 1,
     );
     layer.controller.addStatusListener((status) {
       if (status != AnimationStatus.completed || _disposed) return;
+      if (kind == PlayerTrackVisualKind.cover) {
+        if (layer.exiting) {
+          _layers.remove(layer);
+          layer.controller.dispose();
+        }
+        _settleCoverLayers();
+        final pending = _pending;
+        if (pending != null && _layers.length < 3) {
+          _pending = null;
+          _present(pending, _pendingDirection);
+        }
+        notifyListeners();
+        return;
+      }
       if (layer.exiting) {
         _layers.remove(layer);
         layer.controller.dispose();
@@ -100,6 +111,10 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
       _pendingDirection = direction;
       return;
     }
+    if (kind == PlayerTrackVisualKind.cover) {
+      _presentCover(value, existing);
+      return;
+    }
     final interrupted = isTransitioning;
     for (final layer in _layers) {
       if (identical(layer, existing)) continue;
@@ -108,26 +123,54 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
     if (existing != null) {
       existing.value = value;
       existing.exiting = false;
-      _animate(
-        existing,
-        offset: Offset.zero,
-        scale: 1,
-        opacity: 1,
-        duration: duration,
-      );
+      _animate(existing, offset: Offset.zero, opacity: 1, duration: duration);
     } else if (_layers.length < 3) {
       final incoming = _create(value, direction: direction);
       _layers.add(incoming);
-      _animate(
-        incoming,
-        offset: Offset.zero,
-        scale: 1,
-        opacity: 1,
-        duration: duration,
-      );
+      _animate(incoming, offset: Offset.zero, opacity: 1, duration: duration);
     } else {
       _pending = value;
       _pendingDirection = direction;
+    }
+  }
+
+  void _presentCover(T value, PlayerTrackLayer<T>? existing) {
+    if (existing == null) {
+      final incoming = _create(value);
+      _layers.add(incoming);
+      _animate(incoming, offset: Offset.zero, opacity: 1, duration: duration);
+      return;
+    }
+
+    final targetIndex = _layers.indexOf(existing);
+    existing.value = value;
+    existing.exiting = false;
+    _animate(existing, offset: Offset.zero, opacity: 1, duration: duration);
+    for (var index = targetIndex + 1; index < _layers.length; index++) {
+      _retire(_layers[index], 1, interrupted: false);
+    }
+  }
+
+  void _settleCoverLayers() {
+    for (var index = _layers.length - 1; index >= 0; index--) {
+      final layer = _layers[index];
+      if (layer.exiting ||
+          layer.controller.isAnimating ||
+          layer.opacity.value < 1) {
+        continue;
+      }
+      final layersAbove = _layers.skip(index + 1);
+      if (layersAbove.any(
+        (above) => above.controller.isAnimating || above.opacity.value > 0,
+      )) {
+        continue;
+      }
+      for (final other in _layers.toList()) {
+        if (identical(other, layer)) continue;
+        _layers.remove(other);
+        other.controller.dispose();
+      }
+      return;
     }
   }
 
@@ -157,7 +200,6 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
     _animate(
       layer,
       offset: targetOffset,
-      scale: kind == PlayerTrackVisualKind.cover ? 1.20 : 1,
       opacity: layer.fades ? 0 : 1,
       duration: retireDuration,
     );
@@ -166,19 +208,16 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
   void _animate(
     PlayerTrackLayer<T> layer, {
     required Offset offset,
-    required double scale,
     required double opacity,
     required Duration duration,
   }) {
     final startOffset = layer.offset.value;
-    final startScale = layer.scale.value;
     final startOpacity = layer.opacity.value;
     layer.controller.stop();
     final eased = layer.controller.drive(
       CurveTween(curve: Curves.easeOutCubic),
     );
     layer.offset = Tween(begin: startOffset, end: offset).animate(eased);
-    layer.scale = Tween(begin: startScale, end: scale).animate(eased);
     layer.opacity = Tween(
       begin: startOpacity,
       end: opacity,
@@ -193,6 +232,7 @@ class PlayerTrackLayers<T> extends ChangeNotifier {
   }
 
   bool replaceContent(bool Function(T) matches, T value) {
+    if (!matches(_target)) return false;
     var replaced = false;
     for (final layer in _layers) {
       if (matches(layer.value)) {
@@ -242,7 +282,6 @@ class PlayerTrackLayer<T> {
   T value;
   final AnimationController controller;
   late Animation<Offset> offset;
-  late Animation<double> scale;
   late Animation<double> opacity;
   bool exiting = false;
   bool fades = false;

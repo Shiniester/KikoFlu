@@ -20,6 +20,8 @@ class PlayerScrollDragHandoffCoordinator {
   final VoidCallback? onPageDragStart;
   final Set<_PlayerScrollDragHandoff> _activeDrags = {};
 
+  bool get hasActiveDrag => _activeDrags.isNotEmpty;
+
   PlayerScrollDragHandoffController createScrollController({
     String? debugLabel,
   }) => PlayerScrollDragHandoffController(

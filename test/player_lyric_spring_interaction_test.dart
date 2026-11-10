@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart'
+    show RenderParagraph, RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -23,6 +25,73 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  testWidgets('lyric pixels stay stable when browsing and returning', (
+    tester,
+  ) async {
+    await _mount(
+      tester,
+      position: const Duration(seconds: 1),
+      display: (_) => const RepaintBoundary(
+        key: ValueKey('lyric-size-boundary'),
+        child: FullLyricDisplay(
+          isPortrait: true,
+          showPlaybackLineControls: true,
+        ),
+      ),
+    );
+    final activeLine = find.text('spring 1');
+    expect(
+      tester.getRect(activeLine).width,
+      greaterThan(tester.getSize(activeLine).width),
+    );
+    final activeBoundary = find
+        .ancestor(of: activeLine, matching: find.byType(RepaintBoundary))
+        .first;
+    final activePixels = await _lyricInkPixelCount(
+      tester,
+      activeBoundary,
+      activeLine,
+    );
+
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final unplayedLine = find.text('spring 4');
+    await tester.drag(list, const Offset(0, -40));
+    await tester.pumpAndSettle();
+    final browsedActivePixels = await _lyricInkPixelCount(
+      tester,
+      activeBoundary,
+      activeLine,
+    );
+    expect(
+      (browsedActivePixels - activePixels).abs() / activePixels,
+      lessThan(0.01),
+    );
+    await tester.pump(const Duration(seconds: 3));
+
+    final pixelCounts = <int>[];
+    double? firstFrameCenterY;
+    var lastFrameCenterY = 0.0;
+    for (var frame = 0; frame < 12; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final centerY = tester.getCenter(unplayedLine).dy;
+      firstFrameCenterY ??= centerY;
+      lastFrameCenterY = centerY;
+      pixelCounts.add(
+        await _lyricInkPixelCount(
+          tester,
+          find.byKey(const ValueKey('lyric-size-boundary')),
+          unplayedLine,
+        ),
+      );
+    }
+    final minPixels = pixelCounts.reduce((a, b) => a < b ? a : b);
+    final maxPixels = pixelCounts.reduce((a, b) => a > b ? a : b);
+    expect((maxPixels - minPixels) / maxPixels, lessThan(0.0125));
+    expect((lastFrameCenterY - firstFrameCenterY!).abs(), greaterThan(1));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 1');
   });
 
   testWidgets(
@@ -65,7 +134,7 @@ void main() {
       ],
       display: (_) => const FullLyricDisplay(
         isPortrait: true,
-        contentWidth: 160,
+        contentWidth: 192,
         showPlaybackLineControls: true,
       ),
     );
@@ -145,7 +214,7 @@ void main() {
       ],
       display: (_) => const FullLyricDisplay(
         isPortrait: true,
-        contentWidth: 160,
+        contentWidth: 320,
         showPlaybackLineControls: true,
       ),
     );
@@ -166,6 +235,79 @@ void main() {
     expect(current.bottom, lessThanOrEqualTo(next.top + 0.5));
     expect(next.center.dy - current.center.dy, closeTo(spacing, 0.5));
   });
+
+  for (final locked in [false, true]) {
+    for (final reducedMotion in [false, true]) {
+      testWidgets(
+        'full-screen subtitles fit with locked=$locked and reducedMotion=$reducedMotion',
+        (tester) async {
+          const subtitle = 'MMMMMMMMMMMMMMMMMMMMMMMM';
+          final playback = await _mount(
+            tester,
+            lyrics: [
+              LyricLine(
+                startTime: Duration.zero,
+                endTime: const Duration(seconds: 1),
+                text: 'first',
+              ),
+              LyricLine(
+                startTime: const Duration(seconds: 1),
+                endTime: const Duration(seconds: 2),
+                text: subtitle,
+              ),
+            ],
+            display: (_) =>
+                FullLyricDisplay(isPortrait: true, isLocked: locked),
+          );
+          final settings = playback.container.read(
+            playerLyricSettingsProvider.notifier,
+          );
+          await settings.updateFullActiveFontSize(32);
+          await settings.updateFullInactiveFontSize(12);
+          playback.reducedMotion.value = reducedMotion;
+          await tester.pumpAndSettle();
+          playback.positions.add(const Duration(seconds: 1));
+
+          final viewport = tester.getRect(
+            find.byKey(const ValueKey('full-lyric-list')),
+          );
+          final finder = find.byWidgetPredicate(
+            (widget) =>
+                widget is RichText && widget.text.toPlainText() == subtitle,
+          );
+          for (var frame = 0; frame < 60; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            final paragraph = tester.renderObject<RenderParagraph>(finder);
+            for (var index = 0; index < subtitle.length; index++) {
+              final boxes = paragraph.getBoxesForSelection(
+                TextSelection(baseOffset: index, extentOffset: index + 1),
+              );
+              for (final box in boxes) {
+                final left = paragraph.localToGlobal(Offset(box.left, box.top));
+                final right = paragraph.localToGlobal(
+                  Offset(box.right, box.bottom),
+                );
+                expect(left.dx, greaterThanOrEqualTo(viewport.left - 0.01));
+                expect(right.dx, lessThanOrEqualTo(viewport.right + 0.01));
+              }
+            }
+          }
+          final paragraph = tester.renderObject<RenderParagraph>(finder);
+          final firstBox = paragraph
+              .getBoxesForSelection(
+                const TextSelection(baseOffset: 0, extentOffset: 1),
+              )
+              .single;
+          final lastBox = paragraph
+              .getBoxesForSelection(
+                const TextSelection(baseOffset: 23, extentOffset: 24),
+              )
+              .single;
+          expect(lastBox.top, greaterThan(firstBox.top));
+        },
+      );
+    }
+  }
 
   testWidgets('subtitle overflow inside the lyric list remains tappable', (
     tester,
@@ -1107,8 +1249,57 @@ void main() {
             _expectAnchor(tester, 'spring 1');
           }
         } else {
+          final retainedInkWells = <InkWell>[];
+          for (final element in find.byType(InkWell).evaluate()) {
+            final inkWell = element.widget as InkWell;
+            final key = inkWell.key;
+            if (key == null) continue;
+            final row = find.byKey(key);
+            final isPositioned = find
+                .ancestor(of: row, matching: find.byType(Positioned))
+                .evaluate()
+                .isNotEmpty;
+            final hasLyric = find
+                .descendant(
+                  of: row,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is RichText &&
+                        widget.text.toPlainText().startsWith('spring '),
+                  ),
+                )
+                .evaluate()
+                .isNotEmpty;
+            if (isPositioned && hasLyric) retainedInkWells.add(inkWell);
+          }
+          expect(retainedInkWells, isNotEmpty);
           for (var frame = 0; frame < 30; frame++) {
             await tester.pump(const Duration(milliseconds: 16));
+            if (frame == 0) {
+              InkWell? retainedInkWell;
+              for (final inkWell in retainedInkWells) {
+                final key = inkWell.key;
+                if (key == null) continue;
+                final row = find.byKey(key);
+                final stillPositioned = find
+                    .ancestor(of: row, matching: find.byType(Positioned))
+                    .evaluate()
+                    .isNotEmpty;
+                if (stillPositioned) {
+                  retainedInkWell = inkWell;
+                  break;
+                }
+              }
+              expect(retainedInkWell, isNotNull);
+              expect(
+                identical(
+                  retainedInkWell,
+                  tester.widget<InkWell>(find.byKey(retainedInkWell!.key!)),
+                ),
+                isTrue,
+                reason: 'retained row interaction widget rebuilt during motion',
+              );
+            }
             _lyricIndexAtPlaybackAnchor(tester);
           }
           await tester.pumpAndSettle();
@@ -2471,6 +2662,34 @@ double _visibleLyricAlpha(WidgetTester tester, Finder lyric) {
   return opacities.fold(color?.a ?? 1.0, (alpha, opacity) {
     return alpha * opacity.opacity;
   });
+}
+
+Future<int> _lyricInkPixelCount(
+  WidgetTester tester,
+  Finder boundaryFinder,
+  Finder lyricFinder,
+) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(boundaryFinder);
+  final rect = tester.getRect(lyricFinder);
+  final topLeft = boundary.globalToLocal(rect.topLeft);
+  final bottomRight = boundary.globalToLocal(rect.bottomRight);
+  final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 3));
+  final bytes = await tester.runAsync(
+    () => image!.toByteData(format: ui.ImageByteFormat.rawRgba),
+  );
+  final data = bytes!.buffer.asUint8List();
+  final x0 = ((topLeft.dx - 2) * 3).floor().clamp(0, image!.width - 1);
+  final x1 = ((bottomRight.dx + 2) * 3).ceil().clamp(0, image.width);
+  final y0 = ((topLeft.dy - 2) * 3).floor().clamp(0, image.height - 1);
+  final y1 = ((bottomRight.dy + 2) * 3).ceil().clamp(0, image.height);
+  var count = 0;
+  for (var y = y0; y < y1; y++) {
+    for (var x = x0; x < x1; x++) {
+      if (data[(y * image.width + x) * 4 + 3] > 8) count++;
+    }
+  }
+  image.dispose();
+  return count;
 }
 
 void _expectMatch(WidgetTester tester, String text, int start, int end) {

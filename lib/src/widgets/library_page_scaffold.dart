@@ -17,6 +17,7 @@ class LibraryPageScaffold extends StatefulWidget {
     this.deferDrawerActions = false,
     this.drawerFooter,
     this.floatingActionButton,
+    this.bottomNavigationBar,
   });
 
   final String title;
@@ -27,6 +28,7 @@ class LibraryPageScaffold extends StatefulWidget {
   final bool deferDrawerActions;
   final Widget? drawerFooter;
   final Widget? floatingActionButton;
+  final Widget? bottomNavigationBar;
 
   @override
   State<LibraryPageScaffold> createState() => _LibraryPageScaffoldState();
@@ -89,6 +91,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
               : _drawerContent(),
         ),
         floatingActionButton: widget.floatingActionButton,
+        bottomNavigationBar: widget.bottomNavigationBar,
         body: Column(
           children: [
             SafeArea(

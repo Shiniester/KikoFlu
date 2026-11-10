@@ -82,14 +82,9 @@ void main() {
         const ValueKey('player-cover-incoming-opacity'),
       );
       final opacity = tester.widget<FadeTransition>(incoming).opacity.value;
-      final scaleFinder = find.byKey(
-        const ValueKey('player-cover-incoming-scale'),
-      );
-      final scale = tester.widget<ScaleTransition>(scaleFinder).scale.value;
       providers[1].ready.complete(ImageInfo(image: image.clone()));
       await tester.pump();
       expect(tester.widget<FadeTransition>(incoming).opacity.value, opacity);
-      expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, scale);
       reduced.value = true;
       await tester.pump();
       expect(
@@ -112,6 +107,97 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       providers[3].ready.complete(ImageInfo(image: image.clone()));
       await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'latest same-work artwork waits for its image and wins retargeting',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final image = (await tester.runAsync(() async {
+        final codec = await ui.instantiateImageCodec(
+          File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+        );
+        final image = (await codec.getNextFrame()).image;
+        codec.dispose();
+        return image;
+      }))!;
+      addTearDown(image.dispose);
+
+      const a = AudioTrack(id: 'race-a', title: 'A', url: 'a.mp3', workId: 1);
+      const b = AudioTrack(id: 'race-b', title: 'B', url: 'b.mp3', workId: 2);
+      const c = AudioTrack(id: 'race-c', title: 'C', url: 'c.mp3', workId: 3);
+      const b1 = AudioTrack(
+        id: 'race-b1',
+        title: 'B1',
+        url: 'b1.mp3',
+        workId: 2,
+      );
+      const b2 = AudioTrack(
+        id: 'race-b2',
+        title: 'B2',
+        url: 'b2.mp3',
+        workId: 2,
+      );
+      final providers = <String, _PendingImage>{
+        for (final track in [a, b, c, b1, b2]) track.id: _PendingImage(),
+      };
+      for (final track in [a, b, c]) {
+        providers[track.id]!.ready.complete(ImageInfo(image: image.clone()));
+      }
+      final track = ValueNotifier<AudioTrack>(a);
+      addTearDown(track.dispose);
+
+      Finder imageFor(_PendingImage provider) => find.byWidgetPredicate(
+        (widget) => widget is Image && identical(widget.image, provider),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<AudioTrack>(
+                valueListenable: track,
+                builder: (context, value, _) => PlayerCoverWidget(
+                  track: value,
+                  animateTrackChanges: true,
+                  imageProviderOverride: providers[value.id],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      track.value = b;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 45));
+      track.value = c;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 45));
+      expect(imageFor(providers[b.id]!), findsOneWidget);
+
+      track.value = b1;
+      await tester.pump();
+      track.value = b2;
+      await tester.pump();
+      expect(imageFor(providers[b.id]!), findsOneWidget);
+      expect(imageFor(providers[b2.id]!), findsNothing);
+
+      providers[b2.id]!.ready.complete(ImageInfo(image: image.clone()));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('player-cover-artwork-race-b2')),
+        findsOneWidget,
+      );
+      expect(imageFor(providers[b2.id]!), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('player-cover-artwork-race-c')),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
     },
   );

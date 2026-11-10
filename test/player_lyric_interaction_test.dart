@@ -177,6 +177,166 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('five-line preview taps a row at its animated position', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 3));
+    Duration? requested;
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 300,
+                height: 200,
+                child: ThreeLineLyricDisplay(
+                  lineCount: 5,
+                  onSeekRequested: (position) => requested = position,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+    final viewport = find.descendant(of: list, matching: find.byType(Viewport));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ThreeLineLyricDisplay)),
+      listen: false,
+    );
+    expect(container.read(currentLyricIndexProvider), 3);
+    final itemExtent = tester.widget<ListView>(list).itemExtent!;
+    final initialOffset = scrollable.position.pixels;
+    positions.add(const Duration(seconds: 4));
+    await tester.pump();
+    expect(container.read(currentLyricIndexProvider), 4);
+    for (
+      var frame = 0;
+      frame < 20 &&
+          scrollable.position.pixels - initialOffset <= itemExtent / 2;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(
+      scrollable.position.pixels - initialOffset,
+      greaterThan(itemExtent / 2),
+    );
+
+    final visibleRow = find.byKey(const ValueKey('compact-lyric-line-4'));
+    final visibleCenter = tester.getCenter(visibleRow);
+    final naturalCenter =
+        tester.getCenter(viewport).dy +
+        (4 - scrollable.position.pixels / itemExtent) * itemExtent;
+    expect(
+      (visibleCenter.dy - naturalCenter).abs(),
+      greaterThan(itemExtent / 2),
+    );
+
+    await tester.tapAt(visibleCenter);
+    await tester.pump();
+    expect(requested, const Duration(seconds: 4));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final feedback in [false, true]) {
+    for (final cancel in [false, true]) {
+      testWidgets('holding a moving preview pauses until release, '
+          'feedback=$feedback, cancel=$cancel', (tester) async {
+        final positions = StreamController<Duration>();
+        addTearDown(positions.close);
+        positions.add(const Duration(seconds: 3));
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              positionProvider.overrideWith((ref) => positions.stream),
+              lyricControllerProvider.overrideWith(
+                (ref) => LyricController(
+                  ref,
+                  initialState: LyricState(lyrics: lyrics),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 334,
+                    height: 200,
+                    child: ThreeLineLyricDisplay(
+                      lineCount: 5,
+                      enableLineTapFeedback: feedback,
+                      onSeekRequested: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+        final scrollable = tester.state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        );
+        final initialOffset = scrollable.position.pixels;
+        positions.add(const Duration(seconds: 4));
+        await tester.pump();
+        for (var frame = 0; frame < 7; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(scrollable.position.pixels, greaterThan(initialOffset + 1));
+        final row = find.byKey(const ValueKey('compact-lyric-line-4'));
+        final heldOffset = scrollable.position.pixels;
+        final heldCenter = tester.getCenter(row).dy;
+        final gesture = await tester.startGesture(tester.getCenter(list));
+        await tester.pump(const Duration(milliseconds: 180));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        expect(tester.getCenter(row).dy, closeTo(heldCenter, 0.1));
+
+        positions.add(const Duration(seconds: 6));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 4));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        expect(tester.getCenter(row).dy, closeTo(heldCenter, 0.1));
+        if (cancel) {
+          await gesture.cancel();
+        } else {
+          await gesture.up();
+        }
+        await tester.pump(const Duration(milliseconds: 2900));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .getCenter(find.byKey(const ValueKey('compact-lyric-line-6')))
+              .dy,
+          closeTo(tester.getCenter(list).dy, 1),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('hidden preview follows without replaying a suspended scroll', (
     tester,
   ) async {
@@ -1541,7 +1701,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 2900));
     expect(scrollable.position.pixels, greaterThan(followedOffset));
     await tester.pump(const Duration(milliseconds: 120));
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.pumpAndSettle();
     expect(scrollable.position.pixels, closeTo(followedOffset, 1));
     expect(tester.takeException(), isNull);
   });
@@ -2376,6 +2536,16 @@ void main() {
             .data,
         '00:54',
       );
+      final timeRect = tester.getRect(
+        find.byKey(const ValueKey('playback-line-time')),
+      );
+      final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
+      final timeFinder = find.byKey(const ValueKey('playback-line-time'));
+      expect(
+        tester.widget<Text>(timeFinder).style?.fontSize,
+        Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.fontSize,
+      );
+      expect(timeRect.width, greaterThan(cutIcon.width));
       expect(
         tester
             .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
@@ -2583,13 +2753,13 @@ void main() {
       ];
 
       for (final layout in const [
+        (size: Size(240, 720), actionWidth: null),
         (size: Size(320, 720), actionWidth: 288.0),
         (size: Size(320, 720), actionWidth: null),
         (size: Size(1000, 720), actionWidth: 600.0),
         (size: Size(1000, 720), actionWidth: null),
       ]) {
         final size = layout.size;
-        final actionWidth = layout.actionWidth ?? size.width;
         await tester.binding.setSurfaceSize(size);
         await tester.pumpWidget(
           ProviderScope(
@@ -2641,8 +2811,8 @@ void main() {
         final controls = tester.getRect(
           find.byKey(const ValueKey('playback-line-controls')),
         );
-        expect(controls.left, greaterThanOrEqualTo(0));
-        expect(controls.right, lessThanOrEqualTo(size.width));
+        expect(controls.left, closeTo(0, 0.01));
+        expect(controls.right, closeTo(size.width, 0.01));
         expect(
           tester
               .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
@@ -2652,8 +2822,15 @@ void main() {
         final timeColumn = tester.getRect(
           find.byKey(const ValueKey('playback-line-time-column')),
         );
+        expect(timeColumn.right, closeTo(size.width, 0.01));
         final timeFinder = find.byKey(const ValueKey('playback-line-time'));
+        final timeWidget = tester.widget<Text>(timeFinder);
         final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
+        final naturalTime = TextPainter(
+          text: TextSpan(text: timeWidget.data, style: timeWidget.style),
+          textDirection: TextDirection.ltr,
+          textScaler: const TextScaler.linear(2),
+        )..layout();
         final timeBoxes = timeParagraph.getBoxesForSelection(
           TextSelection(
             baseOffset: 0,
@@ -2661,31 +2838,33 @@ void main() {
           ),
         );
         expect(timeColumn.width, greaterThanOrEqualTo(48));
-        if (size.width >= 600) {
-          expect(
-            timeParagraph.getTransformTo(null).entry(0, 0),
-            closeTo(1, 0.001),
-          );
-        }
         expect(timeBoxes, isNotEmpty);
-        for (final box in timeBoxes) {
-          expect(
-            timeParagraph.localToGlobal(Offset(box.left, box.top)).dx,
-            greaterThanOrEqualTo(timeColumn.left),
-          );
-          expect(
-            timeParagraph.localToGlobal(Offset(box.right, box.bottom)).dx,
-            lessThanOrEqualTo(timeColumn.right),
-          );
-        }
+        expect(timeParagraph.size.width, closeTo(naturalTime.width, 0.01));
+        naturalTime.dispose();
+        expect(
+          timeParagraph.getTransformTo(null).entry(0, 0),
+          closeTo(1, 0.001),
+        );
         final lyricFinder = find.byWidgetPredicate(
           (widget) =>
               widget is RichText && widget.text.toPlainText() == longLyric,
         );
         final lyricRect = tester.getRect(lyricFinder);
         final lyricLayoutWidth = tester.getSize(lyricFinder).width;
-        expect(lyricRect.width, greaterThanOrEqualTo(actionWidth - 0.01));
-        expect(lyricRect.width, lessThanOrEqualTo(size.width + 0.01));
+        final subtitleIcon = tester.getRect(
+          find.descendant(
+            of: find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+            matching: find.byIcon(Icons.subtitles_outlined),
+          ),
+        );
+        final searchIcon = tester.getRect(
+          find.descendant(
+            of: find.byKey(const ValueKey('lyric-search-button')),
+            matching: find.byIcon(Icons.search),
+          ),
+        );
+        expect(lyricRect.left, closeTo(subtitleIcon.left, 0.01));
+        expect(lyricRect.right, closeTo(searchIcon.right, 0.01));
         final paragraph = tester.renderObject<RenderParagraph>(lyricFinder);
         for (var index = 0; index < longLyric.length; index++) {
           if (longLyric[index] == ' ') continue;
@@ -2708,13 +2887,25 @@ void main() {
         );
         expect(button.width, 48);
         expect(button.height, 48);
+        expect(button.left, closeTo(0, 0.01));
         if (size.width == 320) {
           expect(button.right, greaterThan(lyricRect.left));
           expect(timeColumn.left, lessThan(lyricRect.right));
         }
+        final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
+        expect(cutIcon.width, 16);
         expect(
-          tester.getSize(find.byIcon(Icons.content_cut)).width,
-          lessThan(18),
+          timeWidget.style?.fontSize,
+          Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.fontSize,
+        );
+        expect(
+          timeWidget.style?.height,
+          Theme.of(tester.element(timeFinder)).textTheme.labelSmall?.height,
+        );
+        expect(tester.getRect(timeFinder).width, greaterThan(cutIcon.width));
+        expect(
+          controls.right - tester.getRect(timeFinder).right,
+          closeTo(cutIcon.left - controls.left, 0.01),
         );
 
         final lineFinder = find.byKey(
@@ -2722,9 +2913,17 @@ void main() {
         );
         final lineRect = tester.getRect(lineFinder);
         expect(lineRect.height, 1);
-        expect(lineRect.width, closeTo(actionWidth, 0.01));
+        expect(lineRect.left, greaterThanOrEqualTo(button.right));
+        expect(lineRect.right, closeTo(timeColumn.left, 0.01));
+        if (lineRect.width > 0) {
+          expect(
+            lineRect.right,
+            lessThanOrEqualTo(tester.getRect(timeFinder).left + 0.01),
+          );
+          expect(lineRect.overlaps(lyricRect), isTrue);
+        }
+        expect(lineRect.center.dx, closeTo(controls.center.dx, 0.01));
         expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
-        expect(lineRect.overlaps(lyricRect), isTrue);
         final lineColor = tester
             .widget<ColoredBox>(
               find.descendant(
@@ -2741,6 +2940,21 @@ void main() {
           lyricStack.children.first.key,
           const ValueKey('playback-line-indicator'),
         );
+        if (layout.actionWidth == 288) {
+          final settings = ProviderScope.containerOf(
+            tester.element(find.byType(PlayerLyricsSurface)),
+            listen: false,
+          ).read(playerLyricSettingsProvider.notifier);
+          await settings.updateFullActiveFontSize(32);
+          await settings.updateFullInactiveFontSize(12);
+          await tester.pumpAndSettle();
+          final enlarged = tester.getRect(lyricFinder);
+          expect(enlarged.left, closeTo(subtitleIcon.left, 0.01));
+          expect(enlarged.right, closeTo(searchIcon.right, 0.01));
+          await settings.updateFullActiveFontSize(18);
+          await settings.updateFullInactiveFontSize(16);
+          await tester.pumpAndSettle();
+        }
         if (size.width == 320) {
           expect(lyricRect.height, greaterThan(48));
         }
@@ -2759,6 +2973,77 @@ void main() {
       await tester.binding.setSurfaceSize(null);
     },
   );
+
+  testWidgets('long timestamps stay unscaled on narrow layouts', (
+    tester,
+  ) async {
+    const startTime = Duration(hours: 123, minutes: 45, seconds: 6);
+    final longTimeLyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: startTime + Duration(seconds: index * 10),
+        endTime: startTime + Duration(seconds: (index + 1) * 10),
+        text: 'narrow lyric $index',
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(240, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => Stream.value(startTime)),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: longTimeLyrics),
+            ),
+          ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(4)),
+            child: child!,
+          ),
+          home: const Scaffold(
+            body: FullLyricDisplay(
+              isPortrait: true,
+              showPlaybackLineControls: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('full-lyric-list')),
+      const Offset(0, -100),
+    );
+    await tester.pumpAndSettle();
+
+    final indicator = tester.getRect(
+      find.byKey(const ValueKey('playback-line-indicator')),
+    );
+    final timeColumn = tester.getRect(
+      find.byKey(const ValueKey('playback-line-time-column')),
+    );
+    final timeFinder = find.byKey(const ValueKey('playback-line-time'));
+    final time = tester.widget<Text>(timeFinder);
+    final timeRect = tester.getRect(timeFinder);
+    final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
+    expect(_playbackControlsOpacity(tester), 1);
+    expect(indicator.width, 0);
+    expect(time.data, startsWith('123:45:'));
+    expect(timeRect.width, greaterThan(timeColumn.width));
+    expect(timeParagraph.getTransformTo(null).entry(0, 0), closeTo(1, 0.001));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 void _expectMatchAtPlaybackAnchor(

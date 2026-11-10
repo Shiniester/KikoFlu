@@ -60,6 +60,7 @@ import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
+import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
@@ -512,6 +513,26 @@ class _AuthenticatedAudio extends AuthNotifier {
       isLoggedIn: true,
     );
   }
+  int retryCalls = 0;
+  Completer<bool>? retryResult;
+
+  void setOffline(bool offline) {
+    state = state.copyWith(
+      isLoggedIn: !offline,
+      error: offline ? 'offline' : null,
+    );
+  }
+
+  @override
+  Future<void> retryConnection() async {
+    retryCalls++;
+    final result = retryResult;
+    if (result != null) {
+      setOffline(false);
+      setOffline(!await result.future);
+    }
+  }
+
   @override
   Future<void> enterAnonymous({String? host}) async {}
 }
@@ -527,6 +548,195 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets(
+      'offline audio keeps retry and its download FAB usable ($size)',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final reduced = ValueNotifier(true);
+        addTearDown(reduced.dispose);
+        await _pumpAudioScreen(
+          tester,
+          reduced,
+          screen: const MainScreen(),
+          theme: AppTheme.lightTheme(null),
+        );
+        final context = tester.element(find.byType(AudioScreen));
+        final auth =
+            ProviderScope.containerOf(context).read(authProvider.notifier)
+                as _AuthenticatedAudio;
+        final navigation = AppNavigationScope.of(context);
+        final s = S.of(context);
+        final header = find.byKey(const ValueKey('library-page-header'));
+        final initialTop = tester.getTopLeft(header).dy;
+        _requestAudioPage(tester, 'downloads');
+        await tester.pumpAndSettle();
+        auth.setOffline(true);
+        await tester.pumpAndSettle();
+        final notice = find.ancestor(
+          of: find.text(s.offlineModeMessage),
+          matching: find.byType(Card),
+        );
+        expect(tester.getTopLeft(header).dy, initialTop);
+        expect(
+          tester.getRect(find.byType(FloatingActionButton)).bottom,
+          lessThan(tester.getRect(notice).top),
+        );
+        await tester.tap(find.byType(FloatingActionButton));
+        expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
+        navigation.tabNavigator(appAudioTabIndex)!.pop();
+        await tester.pumpAndSettle();
+
+        await tester.pump(const Duration(seconds: 4));
+        final retry = find.widgetWithText(TextButton, s.retry);
+        expect(retry.hitTestable(), findsOneWidget);
+        await tester.tap(retry);
+        await tester.pumpAndSettle();
+        await tester.tap(retry);
+        await tester.pumpAndSettle();
+        expect(auth.retryCalls, 2);
+        expect(retry.hitTestable(), findsOneWidget);
+
+        final failure = Completer<bool>();
+        auth.retryResult = failure;
+        await tester.tap(retry);
+        await tester.pump();
+        expect(find.text(s.offlineModeMessage), findsOneWidget);
+        expect(tester.widget<TextButton>(retry).onPressed, isNull);
+        await tester.tap(retry);
+        expect(auth.retryCalls, 3);
+        failure.complete(false);
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextButton>(retry).onPressed, isNotNull);
+
+        final success = Completer<bool>();
+        auth.retryResult = success;
+        await tester.tap(retry);
+        await tester.pump();
+        expect(auth.retryCalls, 4);
+        success.complete(true);
+        await tester.pumpAndSettle();
+        expect(find.text(s.offlineModeMessage), findsNothing);
+        expect(tester.getTopLeft(header).dy, initialTop);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('offline audio keeps page geometry through player and popups', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: const MainScreen(),
+      theme: AppTheme.lightTheme(null),
+      track: const AudioTrack(
+        id: 'offline-player-track',
+        title: 'Offline audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+    final context = tester.element(find.byType(AudioScreen));
+    final navigation = AppNavigationScope.of(context);
+    final auth =
+        ProviderScope.containerOf(context).read(authProvider.notifier)
+            as _AuthenticatedAudio;
+    final message = S.of(context).offlineModeMessage;
+    auth.setOffline(true);
+    await tester.pumpAndSettle();
+    final pages = find.byKey(
+      const ValueKey('audio-tab-pages'),
+      skipOffstage: false,
+    );
+    final viewport = tester.getRect(pages);
+    unawaited(
+      navigation.navigator!.push<void>(
+        AudioPlayerPageRoute<void>(
+          builder: (_) => const Scaffold(
+            body: SizedBox.expand(key: ValueKey('offline-player-viewport')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(pages), viewport);
+    expect(find.text(message).hitTestable(), findsNothing);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('offline-player-viewport'))),
+      const Size(1280, 720),
+    );
+    await tester.pumpAndSettle();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getRect(pages), viewport);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(pages), viewport);
+    expect(find.text(message).hitTestable(), findsOneWidget);
+
+    unawaited(
+      showResponsiveBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => BottomSheetMenu(
+          children: [
+            ListTile(
+              title: const Text('Offline sheet action'),
+              onTap: () => Navigator.of(sheetContext).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(message).hitTestable(), findsNothing);
+    await tester.tap(find.text('Offline sheet action'));
+    await tester.pumpAndSettle();
+    expect(find.text(message).hitTestable(), findsOneWidget);
+    expect(tester.getRect(pages), viewport);
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close offline dialog'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(message).hitTestable(), findsNothing);
+    await tester.tap(find.text('Close offline dialog'));
+    await tester.pumpAndSettle();
+    expect(find.text(message).hitTestable(), findsOneWidget);
+    expect(tester.getRect(pages), viewport);
+
+    addTearDown(SnackBarUtil.clearAll);
+    SnackBarUtil.showInfo(context, 'Global offline notification');
+    await tester.pumpAndSettle();
+    expect(find.text('Global offline notification'), findsOneWidget);
+    expect(find.text(message).hitTestable(), findsOneWidget);
+    auth.setOffline(false);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+    expect(find.text('Global offline notification'), findsOneWidget);
+    SnackBarUtil.clearAll();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('queue history is nested under history and opens without audio', (
