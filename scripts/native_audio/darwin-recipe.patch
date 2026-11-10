@@ -135,12 +135,12 @@ index aa3831e..3fb8c59 100644
 +    '--enable-filter=asendcmd',
 +    '--enable-filter=apad',
 diff --git a/scripts/freetype/build.sh b/scripts/freetype/build.sh
-index 175ad59..629e0d8 100644
+index 175ad59..2cd39f3 100644
 --- a/scripts/freetype/build.sh
 +++ b/scripts/freetype/build.sh
 @@ -16,0 +17,4 @@ meson setup build \
 +(
-+    cd build/subprojects/libpng-1.6.40
++    cd subprojects/libpng-1.6.40
 +    patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"
 +)
 diff --git a/scripts/libplacebo/build.sh b/scripts/libplacebo/build.sh

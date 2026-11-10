@@ -123,7 +123,7 @@ grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}"
     fail 'MPV audio controls patch is not applied by the pinned build script'
 grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"' "$pkgconfig_build" ||
     fail 'pkg-config bundled GLib atomic patch is not applied before configure'
-grep -Fq 'cd build/subprojects/libpng-1.6.40' "$freetype_build" ||
+grep -Fq 'cd subprojects/libpng-1.6.40' "$freetype_build" ||
     fail 'libpng fallback source directory is not patched'
 grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"' "$freetype_build" ||
     fail 'libpng macOS math-header patch is not applied'

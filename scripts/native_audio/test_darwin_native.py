@@ -171,7 +171,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
             'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"',
             pkgconfig_build,
         )
-        self.assertIn("cd build/subprojects/libpng-1.6.40", freetype_build)
+        self.assertIn("cd subprojects/libpng-1.6.40", freetype_build)
         libpng_patch_command = (
             'patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"'
         )

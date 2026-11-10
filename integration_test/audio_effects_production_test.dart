@@ -407,6 +407,8 @@ Future<List<(double, double)>> _captureProduction(
   try {
     for (final (key, value) in [
       ('cache-on-disk', 'no'),
+      // Periodic synthetic WAV can otherwise be misdetected as MPEG-TS.
+      ('demuxer-lavf-format', 'wav'),
       ('ao', 'pcm'),
       ('ao-pcm-waveheader', 'no'),
       ('ao-pcm-file', pcm.path),
