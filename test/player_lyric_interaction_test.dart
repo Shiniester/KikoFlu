@@ -2583,6 +2583,7 @@ void main() {
       ];
 
       for (final layout in const [
+        (size: Size(240, 720), actionWidth: null),
         (size: Size(320, 720), actionWidth: 288.0),
         (size: Size(320, 720), actionWidth: null),
         (size: Size(1000, 720), actionWidth: 600.0),
@@ -2653,7 +2654,6 @@ void main() {
         );
         expect(timeColumn.right, closeTo(size.width, 0.01));
         final timeFinder = find.byKey(const ValueKey('playback-line-time'));
-        expect(tester.getRect(timeFinder).right, closeTo(size.width - 1, 0.01));
         final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
         final timeBoxes = timeParagraph.getBoxesForSelection(
           TextSelection(
@@ -2719,16 +2719,18 @@ void main() {
         final button = tester.getRect(
           find.byKey(const ValueKey('player-slice-cut-button')),
         );
-        expect(button.width, 48);
-        expect(button.height, 48);
+        expect(button.width, 32);
+        expect(button.height, 32);
         expect(button.left, closeTo(0, 0.01));
         if (size.width == 320) {
           expect(button.right, greaterThan(lyricRect.left));
           expect(timeColumn.left, lessThan(lyricRect.right));
         }
+        final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
+        expect(cutIcon.width, 16);
         expect(
-          tester.getSize(find.byIcon(Icons.content_cut)).width,
-          lessThan(18),
+          controls.right - tester.getRect(timeFinder).right,
+          closeTo(cutIcon.left - controls.left, 0.01),
         );
 
         final lineFinder = find.byKey(

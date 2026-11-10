@@ -1180,8 +1180,57 @@ void main() {
             _expectAnchor(tester, 'spring 1');
           }
         } else {
+          final retainedInkWells = <InkWell>[];
+          for (final element in find.byType(InkWell).evaluate()) {
+            final inkWell = element.widget as InkWell;
+            final key = inkWell.key;
+            if (key == null) continue;
+            final row = find.byKey(key);
+            final isPositioned = find
+                .ancestor(of: row, matching: find.byType(Positioned))
+                .evaluate()
+                .isNotEmpty;
+            final hasLyric = find
+                .descendant(
+                  of: row,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is RichText &&
+                        widget.text.toPlainText().startsWith('spring '),
+                  ),
+                )
+                .evaluate()
+                .isNotEmpty;
+            if (isPositioned && hasLyric) retainedInkWells.add(inkWell);
+          }
+          expect(retainedInkWells, isNotEmpty);
           for (var frame = 0; frame < 30; frame++) {
             await tester.pump(const Duration(milliseconds: 16));
+            if (frame == 0) {
+              InkWell? retainedInkWell;
+              for (final inkWell in retainedInkWells) {
+                final key = inkWell.key;
+                if (key == null) continue;
+                final row = find.byKey(key);
+                final stillPositioned = find
+                    .ancestor(of: row, matching: find.byType(Positioned))
+                    .evaluate()
+                    .isNotEmpty;
+                if (stillPositioned) {
+                  retainedInkWell = inkWell;
+                  break;
+                }
+              }
+              expect(retainedInkWell, isNotNull);
+              expect(
+                identical(
+                  retainedInkWell,
+                  tester.widget<InkWell>(find.byKey(retainedInkWell!.key!)),
+                ),
+                isTrue,
+                reason: 'retained row interaction widget rebuilt during motion',
+              );
+            }
             _lyricIndexAtPlaybackAnchor(tester);
           }
           await tester.pumpAndSettle();

@@ -2183,7 +2183,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               isActive: isWide
                   ? !_isLyricLocked && _rightPane == PlayerRightPane.lyrics
                   : !_isLyricLocked &&
-                        !_queueTransitionActive &&
                         _compactPage == 2 &&
                         _rightPane != PlayerRightPane.queue,
               seekingPosition: _seekingPosition,

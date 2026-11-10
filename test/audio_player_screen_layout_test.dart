@@ -3984,6 +3984,63 @@ void main() {
     });
   }
 
+  testWidgets('cancelled queue pull keeps the subtitle return animated', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      30,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'edge return lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: lyrics,
+      playing: true,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final position = tester.widget<ListView>(list).controller!.position;
+    final browse = await tester.startGesture(tester.getCenter(list));
+    await browse.moveBy(const Offset(0, -100));
+    await tester.pump();
+    await browse.moveBy(Offset(0, position.pixels - position.maxScrollExtent));
+    await tester.pump();
+    await browse.up();
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(position.maxScrollExtent, 0.1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.drag(list, const Offset(0, -240));
+    for (var frame = 0; frame < 50; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+    final lastLine = find.text('edge return lyric 29');
+    final browsedY = tester.getCenter(lastLine).dy;
+
+    await tester.pump(const Duration(milliseconds: 2100));
+    expect(tester.getCenter(lastLine).dy, closeTo(browsedY, 0.1));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 160));
+    expect(lastLine, findsOneWidget);
+    expect(tester.getCenter(lastLine).dy, greaterThan(browsedY + 1));
+    await tester.pumpAndSettle();
+    final anchor = tester.getCenter(
+      find.byKey(const ValueKey('playback-line-indicator')),
+    );
+    expect(
+      tester.getCenter(find.text('edge return lyric 0')).dy,
+      closeTo(anchor.dy, 2.1),
+    );
+  });
+
   testWidgets('queue opened from lyrics returns to the lyric page', (
     tester,
   ) async {
@@ -4026,6 +4083,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+    expect(
+      tester
+          .widget<PlayerLyricsSurface>(
+            find.byType(PlayerLyricsSurface, skipOffstage: false),
+          )
+          .isActive,
+      isFalse,
+    );
 
     await tester.drag(
       find.byKey(const ValueKey('player-queue-title-dismiss-surface')),

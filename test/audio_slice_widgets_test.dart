@@ -211,6 +211,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.widget<IconButton>(cut).onPressed, isNotNull);
+      expect(cut.hitTestable(at: const Alignment(1.25, 0)), findsNothing);
+      expect(cut.hitTestable(at: const Alignment(0.9, 0)), findsOneWidget);
       await tester.runAsync(() => tester.tap(cut));
       await tester.pumpAndSettle();
       expect(service.sliceState.pendingStartMs, 22000);

@@ -29,6 +29,10 @@ import 'player_slice_controls.dart';
 import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
+const _playbackLineCutSize = 32.0;
+const _playbackLineCutIconSize = 16.0;
+const _playbackLineTimeInset =
+    (_playbackLineCutSize - _playbackLineCutIconSize) / 2;
 const _lyricTapFeedbackDuration = Duration(milliseconds: 500);
 const _lyricTapFeedbackStaticDuration = Duration(milliseconds: 300);
 const _lyricTapFeedbackFallbackWindow = Duration(milliseconds: 360);
@@ -176,11 +180,9 @@ class _RetainedLyricListView extends ListView {
     required super.itemBuilder,
     super.itemCount,
     super.itemExtentBuilder,
-    required this.motionFrame,
     required this.overlayRowsBuilder,
   }) : super.builder(addRepaintBoundaries: false, addSemanticIndexes: false);
 
-  final ValueListenable<int> motionFrame;
   final List<Widget> Function() overlayRowsBuilder;
 
   @override
@@ -194,12 +196,9 @@ class _RetainedLyricListView extends ListView {
       fit: StackFit.expand,
       children: [
         super.buildViewport(context, offset, axisDirection, slivers),
-        AnimatedBuilder(
-          animation: Listenable.merge([motionFrame, offset]),
-          builder: (context, child) => Semantics(
-            tagForChildren: RenderViewport.useTwoPaneSemantics,
-            child: Stack(fit: StackFit.expand, children: overlayRowsBuilder()),
-          ),
+        Semantics(
+          tagForChildren: RenderViewport.useTwoPaneSemantics,
+          child: Stack(fit: StackFit.expand, children: overlayRowsBuilder()),
         ),
       ],
     );
@@ -2614,6 +2613,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if (_scrollSpringTargetIndex != null && _lyricScrollMotion != null) {
       _queueScrollSpringRow(index);
     }
+    if (!translateWithMotion) return child;
     final contentCenter = _lyricContentCenter(index);
     return AnimatedBuilder(
       animation: _lyricMotionFrame,
@@ -2621,9 +2621,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       builder: (context, child) {
         final naturalY = contentCenter - _scrollController.position.pixels;
         final motionY = _lyricMotionCenter(index, contentCenter);
-        final offset = translateWithMotion ? motionY - naturalY : 0.0;
         return Transform.translate(
-          offset: Offset(0, offset),
+          offset: Offset(0, motionY - naturalY),
           transformHitTests: true,
           child: child,
         );
@@ -3337,12 +3336,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: SizedBox(
-                      width: 48,
-                      height: 48,
+                      width: _playbackLineCutSize,
+                      height: _playbackLineCutSize,
                       child: IconTheme.merge(
                         data: IconThemeData(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          size: 16,
+                          size: _playbackLineCutIconSize,
                         ),
                         child: Opacity(
                           opacity: 0.75,
@@ -3363,7 +3362,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                     alignment: Alignment.centerRight,
                     child: IgnorePointer(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        padding: const EdgeInsets.only(
+                          right: _playbackLineTimeInset,
+                        ),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
@@ -3886,7 +3887,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               textScaler: textScaler,
               locale: locale,
             )..layout();
-            timeColumnWidth = math.max(48.0, timePainter.width + 2);
+            timeColumnWidth = math.max(
+              48.0,
+              timePainter.width + _playbackLineTimeInset,
+            );
             timePainter.dispose();
           }
           final minLyricWidth = math.min(64.0, math.max(1.0, layoutWidth - 96));
@@ -4266,16 +4270,23 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               currentIndex: currentIndex,
               selectedMatch: widget.selectedSearchMatch,
             );
-            final center = _lyricMotionCenter(
-              index,
-              _lyricContentCenter(index),
-            );
-            return Positioned(
-              left: 0,
-              right: 0,
-              top: center - extent / 2,
-              height: extent,
+            final contentCenter = _lyricContentCenter(index);
+            return AnimatedBuilder(
+              animation: Listenable.merge([
+                _lyricMotionFrame,
+                _scrollController.position,
+              ]),
               child: motion,
+              builder: (context, child) {
+                final center = _lyricMotionCenter(index, contentCenter);
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  top: center - extent / 2,
+                  height: extent,
+                  child: child!,
+                );
+              },
             );
           }
 
@@ -4287,7 +4298,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                 if (widget.showPlaybackLineControls)
                   Positioned(
                     key: const ValueKey('playback-line-indicator'),
-                    left: math.min(48.0, sideColumnWidth),
+                    left: math.min(_playbackLineCutSize, sideColumnWidth),
                     right: sideColumnWidth,
                     top: anchorY - 0.5,
                     height: 1,
@@ -4327,7 +4338,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                               _retainedScrollSpringRows.contains(index)
                               ? const SizedBox.expand()
                               : buildLyricRow(index),
-                          motionFrame: _lyricMotionFrame,
                           overlayRowsBuilder: () => [
                             for (final index in _retainedScrollSpringRows)
                               buildLyricRow(index, positionedOverlay: true),
