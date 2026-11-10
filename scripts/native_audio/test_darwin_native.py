@@ -435,7 +435,7 @@ class DarwinArtifactTests(unittest.TestCase):
 
 
 class DarwinSdkPathTests(unittest.TestCase):
-    def test_rewrites_all_locked_cross_file_sdks_without_changing_deployment_targets(self) -> None:
+    def test_rewrites_sdks_and_preserves_simulator_deployment_versions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cross_files = Path(temporary)
             macos = "/Applications/Xcode_16.4.app/SDKs/MacOSX.sdk"
@@ -450,6 +450,11 @@ class DarwinSdkPathTests(unittest.TestCase):
             )
             (cross_files / "iossimulator-arm64.ini").write_text(
                 "c_args = ['-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk', '-miphoneos-version-min=12.0']\n"
+                "c_link_args = ['-miphoneos-version-min=12.0']\n"
+            )
+            (cross_files / "iossimulator-amd64.ini").write_text(
+                "c_args = ['-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk', '-miphoneos-version-min=9.0']\n"
+                "c_link_args = ['-miphoneos-version-min=9.0']\n"
             )
 
             rewrite_sdk_paths(
@@ -467,7 +472,11 @@ class DarwinSdkPathTests(unittest.TestCase):
             self.assertIn("-miphoneos-version-min=9.0", ios_contents)
             simulator_contents = (cross_files / "iossimulator-arm64.ini").read_text()
             self.assertIn(simulator, simulator_contents)
-            self.assertIn("-miphoneos-version-min=12.0", simulator_contents)
+            self.assertEqual(2, simulator_contents.count("-mios-simulator-version-min=12.0"))
+            self.assertNotIn("-miphoneos-version-min=", simulator_contents)
+            simulator_amd64 = (cross_files / "iossimulator-amd64.ini").read_text()
+            self.assertEqual(2, simulator_amd64.count("-mios-simulator-version-min=9.0"))
+            self.assertNotIn("-miphoneos-version-min=", simulator_amd64)
 
     def test_rejects_cross_files_missing_a_locked_sdk_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

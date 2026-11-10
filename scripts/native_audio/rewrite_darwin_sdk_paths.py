@@ -46,6 +46,10 @@ def rewrite_sdk_paths(
             if count:
                 contents = contents.replace(locked_path, selected_paths[name])
                 replacements[name] += count
+        if cross_file.name.startswith("iossimulator-"):
+            contents = contents.replace(
+                "-miphoneos-version-min=", "-mios-simulator-version-min="
+            )
         if "/Applications/Xcode.app/Contents/Developer/Platforms/" in contents:
             raise DarwinSdkPathError(f"stale Xcode.app SDK path remains in {cross_file.name}")
         with cross_file.open("w", encoding="utf-8", newline="") as destination:
