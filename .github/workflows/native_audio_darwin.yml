@@ -55,9 +55,12 @@ jobs:
             --requirement scripts/native_audio/darwin-requirements.txt
           echo "$RUNNER_TEMP/darwin-audio-tools/bin" >> "$GITHUB_PATH"
 
-      - name: Verify libpng patch
+      - name: Verify source patches
         working-directory: scripts/native_audio
-        run: python3 -m unittest test_darwin_native.LibpngMacOSPatchTests
+        run: >-
+          python3 -m unittest
+          test_darwin_native.LibpngMacOSPatchTests
+          test_darwin_native.DarwinRecipePatchTests.test_native_source_patches_apply_at_the_pinned_source_locations
 
       - name: Build and validate custom frameworks
         run: bash scripts/native_audio/build_darwin.sh

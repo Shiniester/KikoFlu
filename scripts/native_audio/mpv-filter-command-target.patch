@@ -1,0 +1,115 @@
+From d32f1aac3ffd2e7b766773446c4510a2cad397fb Mon Sep 17 00:00:00 2001
+From: Ashyni <jeffrey.c@tuta.io>
+Date: Fri, 20 Jan 2023 00:23:54 +0100
+Subject: [PATCH] af/vf-command: add ability to target a specific lavfi filter
+
+fixes: #11180
+---
+ DOCS/man/input.rst | 21 +++++++++++++--------
+ filters/f_lavfi.c  |  3 ++-
+ filters/filter.h   |  1 +
+ player/command.c   | 23 +++++++++++++++++------
+ 4 files changed, 33 insertions(+), 15 deletions(-)
+
+diff --git a/DOCS/man/input.rst b/DOCS/man/input.rst
+index 024e8d1a5cfc5..59ca00c9684eb 100644
+--- a/DOCS/man/input.rst
++++ b/DOCS/man/input.rst
+@@ -1296,16 +1296,21 @@ Input Commands that are Possibly Subject to Change
+     The ``flags`` argument is like the first argument to ``screenshot`` and
+     supports ``subtitles``, ``video``, ``window``.
+
+-``vf-command <label> <command> <argument>``
+-    Send a command to the filter with the given ``<label>``. Use ``all`` to send
+-    it to all filters at once. The command and argument string is filter
+-    specific. Currently, this only works with the ``lavfi`` filter - see
+-    the libavfilter documentation for which commands a filter supports.
++``vf-command <label> <command> <argument> [<target>]``
++    Send a command to the filter. Note that currently, this only works with
++    the ``lavfi`` filter. Refer to the libavfilter documentation for the list
++    of supported commands for each filter.
+
+-    Note that the ``<label>`` is a mpv filter label, not a libavfilter filter
+-    name.
++    ``<label>`` is a mpv filter label, use ``all`` to send it to all filters
++    at once.
+
+-``af-command <label> <command> <argument>``
++    ``<command>`` and ``<argument>`` are filter-specific strings.
++
++    ``<target>`` is a filter or filter instance name and defaults to ``all``.
++    Note that the target is an additional specifier for filters that
++    support them, such as complex ``lavfi`` filter chains.
++
++``af-command <label> <command> <argument> [<target>]``
+     Same as ``vf-command``, but for audio filters.
+
+ ``apply-profile <name> [<mode>]``
+diff --git a/filters/f_lavfi.c b/filters/f_lavfi.c
+index ec50dd5946fc6..fe7d3e4527dba 100644
+--- a/filters/f_lavfi.c
++++ b/filters/f_lavfi.c
+@@ -814,7 +814,8 @@ static bool lavfi_command(struct mp_filter *f, struct mp_filter_command *cmd)
+
+     switch (cmd->type) {
+     case MP_FILTER_COMMAND_TEXT: {
+-        return avfilter_graph_send_command(c->graph, "all", cmd->cmd, cmd->arg,
++        return avfilter_graph_send_command(c->graph, cmd->target,
++                                           cmd->cmd, cmd->arg,
+                                            &(char){0}, 0, 0) >= 0;
+     }
+     case MP_FILTER_COMMAND_GET_META: {
+diff --git a/filters/filter.h b/filters/filter.h
+index 8820199a42d7e..44d5f5970718f 100644
+--- a/filters/filter.h
++++ b/filters/filter.h
+@@ -376,6 +376,7 @@ struct mp_filter_command {
+     enum mp_filter_command_type type;
+
+     // For MP_FILTER_COMMAND_TEXT
++    const char *target;
+     const char *cmd;
+     const char *arg;
+
+diff --git a/player/command.c b/player/command.c
+index 8470e802ea349..ef4dbd42c0788 100644
+--- a/player/command.c
++++ b/player/command.c
+@@ -5999,6 +5999,7 @@ static void cmd_filter_command(void *p)
+     }
+     struct mp_filter_command filter_cmd = {
+         .type = MP_FILTER_COMMAND_TEXT,
++        .target = cmd->args[3].v.s,
+         .cmd = cmd->args[1].v.s,
+         .arg = cmd->args[2].v.s,
+     };
+@@ -6643,13 +6644,23 @@ const struct mp_cmd_def mp_cmds[] = {
+                           {"value", OPT_STRING(v.s)}, },
+         .priv = &(const int){STREAM_VIDEO} },
+
+-    { "af-command", cmd_filter_command, { {"label", OPT_STRING(v.s)},
+-                                          {"command", OPT_STRING(v.s)},
+-                                          {"argument", OPT_STRING(v.s)}, },
++    { "af-command", cmd_filter_command,
++        {
++            {"label", OPT_STRING(v.s)},
++            {"command", OPT_STRING(v.s)},
++            {"argument", OPT_STRING(v.s)},
++            {"target", OPT_STRING(v.s), OPTDEF_STR("all"),
++                .flags = MP_CMD_OPT_ARG},
++        },
+         .priv = &(const int){STREAM_AUDIO} },
+-    { "vf-command", cmd_filter_command, { {"label", OPT_STRING(v.s)},
+-                                          {"command", OPT_STRING(v.s)},
+-                                          {"argument", OPT_STRING(v.s)}, },
++    { "vf-command", cmd_filter_command,
++        {
++            {"label", OPT_STRING(v.s)},
++            {"command", OPT_STRING(v.s)},
++            {"argument", OPT_STRING(v.s)},
++            {"target", OPT_STRING(v.s), OPTDEF_STR("all"),
++                .flags = MP_CMD_OPT_ARG},
++        },
+         .priv = &(const int){STREAM_VIDEO} },
+
+     { "ao-reload", cmd_ao_reload },

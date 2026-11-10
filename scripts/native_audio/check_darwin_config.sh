@@ -23,6 +23,8 @@ mpv_build="$source_dir/scripts/mpv/build.sh"
     fail 'one or more pinned recipe files are missing'
 [[ -f "$source_dir/patches/mpv-audio-controls.patch" ]] ||
     fail 'MPV audio controls patch is missing from the recipe'
+cmp -s "$script_dir/mpv-filter-command-target.patch" "$source_dir/patches/mpv-filter-command-target.patch" ||
+    fail 'MPV filter command target patch is missing or differs from the checked patch'
 cmp -s "$script_dir/mpv-audio-controls.patch" "$source_dir/patches/mpv-audio-controls.patch" ||
     fail 'MPV audio controls patch differs from the checked patch'
 bash "$script_dir/apply_mpv_audio_controls.sh" --check-patch \
@@ -50,11 +52,13 @@ if grep -Eq -- '--enable-filters(=|[[:space:]]|$)' <<<"$audio_default_options"; 
     fail 'FFmpeg audio-default must not enable all filters'
 fi
 
-grep -Fq 'patch -p1 <${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch' "$ffmpeg_build" ||
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"' "$ffmpeg_build" ||
     fail 'FFmpeg sendcmd precision patch is not applied by the pinned build script'
-grep -Fq 'patch -p1 <${PROJECT_DIR}/patches/mpv-audio-reinit.patch' "$mpv_build" ||
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-filter-command-target.patch"' "$mpv_build" ||
+    fail 'MPV filter command target patch is not applied by the pinned build script'
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-reinit.patch"' "$mpv_build" ||
     fail 'MPV audio filter reinit patch is not applied by the pinned build script'
-grep -Fq 'patch -p1 <${PROJECT_DIR}/patches/mpv-audio-controls.patch' "$mpv_build" ||
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"' "$mpv_build" ||
     fail 'MPV audio controls patch is not applied by the pinned build script'
 
 for option in \

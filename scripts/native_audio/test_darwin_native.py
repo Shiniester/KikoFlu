@@ -245,8 +245,8 @@ class DarwinRecipePatchTests(unittest.TestCase):
     def test_native_source_patches_apply_at_the_pinned_source_locations(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            mpv = root / "player/audio.c"
-            ffmpeg = root / "libavfilter/f_sendcmd.c"
+            mpv = root / "build/tmp/mpv/player/audio.c"
+            ffmpeg = root / "build/tmp/ffmpeg/libavfilter/f_sendcmd.c"
             mpv.parent.mkdir(parents=True)
             ffmpeg.parent.mkdir(parents=True)
 
@@ -268,14 +268,19 @@ class DarwinRecipePatchTests(unittest.TestCase):
             ]
             mpv.write_bytes("".join(mpv_lines).encode("utf-8"))
             ffmpeg.write_bytes("".join(ffmpeg_lines).encode("utf-8"))
+            (root / ".gitignore").write_bytes(b"build/\n")
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             subprocess.run(["git", "-C", str(root), "config", "core.autocrlf", "false"], check=True)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
 
-            for patch_file in ("mpv-audio-reinit.patch", "ffmpeg-sendcmd-precision.patch"):
+            for patch_file, source_dir in (
+                ("mpv-audio-reinit.patch", "build/tmp/mpv"),
+                ("ffmpeg-sendcmd-precision.patch", "build/tmp/ffmpeg"),
+            ):
                 patch_path = _normalized_patch(SCRIPT_DIR / patch_file, root)
-                subprocess.run(["git", "-C", str(root), "apply", "--check", str(patch_path)], check=True)
-                subprocess.run(["git", "-C", str(root), "apply", str(patch_path)], check=True)
+                command = ["git", "-C", str(root), "apply", f"--directory={source_dir}"]
+                subprocess.run([*command, "--check", str(patch_path)], check=True)
+                subprocess.run([*command, str(patch_path)], check=True)
 
             self.assertNotIn("ao_is_playing(mpctx->ao)", mpv.read_text())
             self.assertIn('av_asprintf("%.17g", res)', ffmpeg.read_text())
@@ -678,7 +683,7 @@ class DarwinProviderTests(unittest.TestCase):
             "ios_minimum=%s",
             "macos_minimum=%s",
             "filters=%s,overlay,equalizer",
-            "patches=darwin-recipe.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
+            "patches=darwin-recipe.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-filter-command-target.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
             "pkg-config-glib-atomics.patch",
             "upstream_downloads.lock:",
         ):

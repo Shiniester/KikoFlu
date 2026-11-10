@@ -35,15 +35,16 @@ diff --git a/scripts/ffmpeg/build.sh b/scripts/ffmpeg/build.sh
 +++ b/scripts/ffmpeg/build.sh
 @@ -8,2 +8,3 @@
  patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-vp9-hwaccel.patch
-+patch -p1 <${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"
  patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-hls-mp4-seek.patch
 diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
 --- a/scripts/mpv/build.sh
 +++ b/scripts/mpv/build.sh
-@@ -8,2 +8,4 @@
+@@ -8,2 +8,5 @@
  patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch
-+patch -p1 <${PROJECT_DIR}/patches/mpv-audio-reinit.patch
-+patch -p1 <${PROJECT_DIR}/patches/mpv-audio-controls.patch
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-filter-command-target.patch"
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-reinit.patch"
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"
  if [ "${VARIANT}" == "audio" ]; then
      patch -p1 <${PROJECT_DIR}/patches/mpv-remove-libass.patch
  fi
