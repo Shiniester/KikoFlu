@@ -41,6 +41,11 @@ index 434674b72..a5248ca83 100644
 @@ -1973 +1973 @@ void loader_initialize(void) {
 -#if defined(_WIN32)
 +#if defined(LOADER_DYNAMIC_LIB)
+@@ -2327,3 +2327,3 @@ void loader_initialize(void) {
+-#if defined(_WIN32)
++#if defined(LOADER_DYNAMIC_LIB)
+     return TRUE;
+ #endif
 diff --git a/loader/loader.h b/loader/loader.h
 index fcd95dd10..61c9515a1 100644
 --- a/loader/loader.h
@@ -104,5 +109,5 @@ index 000000000..ed2f30bb2
 +Description: Vulkan Loader
 +Version: @VULKAN_LOADER_VERSION@
 +Libs: -L${libdir} -lvulkan
-+Libs.private: -lshlwapi -lcfgmgr32
++Libs.private: -lshlwapi -lcfgmgr32 -pthread
 +Cflags: -I${includedir}

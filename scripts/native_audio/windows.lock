@@ -31,11 +31,11 @@ X265_URL=https://github.com/Multicorewareinc/x265.git
 XXHASH_URL=https://github.com/Cyan4973/xxHash.git
 XXHASH_COMMIT=41fea3d9ac7881c78fdc4003626977aa073bb906
 # Keep Vulkan loader patch context on its matching official source baseline.
-# Match Vulkan-Loader 6b31 known_good.json, which selects Vulkan-Headers v1.3.295.
+# Match Vulkan-Loader 1.4.350 known_good.json and libplacebo's Vulkan 1.4 requirement.
 VULKAN_URL=https://github.com/KhronosGroup/Vulkan-Loader.git
-VULKAN_COMMIT=6b31cf1995f78f26e0f2fe136343ed09bd35f09b
+VULKAN_COMMIT=a9e72c66d5cb79911eb9a9063bf4016dd0a3a123
 VULKAN_HEADERS_URL=https://github.com/KhronosGroup/Vulkan-Headers.git
-VULKAN_HEADERS_COMMIT=c6391a7b8cd57e79ce6b6c832c8e3043c4d9967b
+VULKAN_HEADERS_COMMIT=8864cdc896bbc2a9b6eb36b3218fc9ef57908d77
 ZSTD_URL=https://github.com/facebook/zstd.git
 ZSTD_COMMIT=f8745da6ff1ad1e7bab384bd1f9d742439278e99
 CPPWINRT_REF=2.0.240405.15

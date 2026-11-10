@@ -69,6 +69,17 @@ diff --git a/packages/libass.cmake b/packages/libass.cmake
          -Dfontconfig=enabled
          -Ddirectwrite=enabled
          -Dasm=enabled
+diff --git a/packages/libplacebo.cmake b/packages/libplacebo.cmake
+--- a/packages/libplacebo.cmake
++++ b/packages/libplacebo.cmake
+@@ -31,6 +31,7 @@ ExternalProject_Add(libplacebo
+         --cross-file=${MESON_CROSS}
+         --default-library=static
+         -Dd3d11=enabled
++        -Dvulkan=enabled
+         -Ddebug=true
+         -Db_ndebug=true
+         -Doptimization=3
 diff --git a/packages/mpv.cmake b/packages/mpv.cmake
 index 1d9ea2e..c029a64 100644
 --- a/packages/mpv.cmake

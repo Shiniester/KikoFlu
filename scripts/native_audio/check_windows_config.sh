@@ -7,6 +7,7 @@ source_dir=${1:?Usage: check_windows_config.sh <libmpv-win32-video-cmake source>
 ffmpeg_config="$source_dir/packages/ffmpeg.cmake"
 libarchive_config="$source_dir/packages/libarchive.cmake"
 libass_config="$source_dir/packages/libass.cmake"
+libplacebo_config="$source_dir/packages/libplacebo.cmake"
 mpv_config="$source_dir/packages/mpv.cmake"
 opus_config="$source_dir/packages/opus.cmake"
 opus_dnn_config="$source_dir/packages/opus-dnn.cmake"
@@ -51,6 +52,8 @@ if grep -Fqx '        openal-soft' "$ffmpeg_config"; then
 fi
 grep -Fqx '        --prefer-static' "$libass_config" ||
     fail "libass must resolve static dependency requirements"
+grep -Fqx '        -Dvulkan=enabled' "$libplacebo_config" ||
+    fail "libplacebo must build with Vulkan support"
 cmp -s "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libarchive-openssl-static.patch" ||
     fail "libarchive OpenSSL patch differs from the checked patch"
 grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch' "$libarchive_config" ||
