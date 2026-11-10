@@ -36,8 +36,8 @@ jobs:
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
-      windows_only: ${{ inputs.native_audio_only && inputs.native_audio_windows_only }}
-      android_only: ${{ inputs.native_audio_android_only }}
+      windows_only: ${{ inputs.native_audio_only == true && inputs.native_audio_windows_only == true }}
+      android_only: ${{ inputs.native_audio_android_only == true }}
       android_all_abis: ${{ !inputs.native_audio_only || inputs.native_audio_all_abis }}
 
   native-audio-darwin:
