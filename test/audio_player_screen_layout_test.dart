@@ -4770,10 +4770,14 @@ void main() {
     expect(lyricRightIcon.right, closeTo(coverRect.right, 0.01));
     expect(lyricText.center.dx, closeTo(coverRect.center.dx, 0.01));
     expect(lyricText.width, lessThanOrEqualTo(actionsRect.width));
-    final timeText = tester.renderObject<RenderBox>(
+    final timeText = tester.getRect(
       find.byKey(const ValueKey('playback-line-time')),
     );
-    expect(timeText.getTransformTo(null).entry(0, 0), closeTo(1, 0.001));
+    final cutIcon = find.descendant(
+      of: find.byKey(const ValueKey('playback-line-controls')),
+      matching: find.byIcon(Icons.content_cut),
+    );
+    expect(timeText.width, closeTo(tester.getRect(cutIcon).width, 0.01));
     final line = tester.getRect(
       find.byKey(const ValueKey('playback-line-indicator')),
     );

@@ -29,7 +29,7 @@ import 'player_slice_controls.dart';
 import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
-const _playbackLineCutSize = 32.0;
+const _playbackLineCutSize = 48.0;
 const _playbackLineCutIconSize = 16.0;
 const _playbackLineTimeInset =
     (_playbackLineCutSize - _playbackLineCutIconSize) / 2;
@@ -3365,26 +3365,29 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                         padding: const EdgeInsets.only(
                           right: _playbackLineTimeInset,
                         ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            key: const ValueKey('playback-line-time'),
-                            time,
-                            maxLines: 1,
-                            softWrap: false,
-                            textAlign: TextAlign.center,
-                            style:
-                                (Theme.of(context).textTheme.labelSmall ??
-                                        const TextStyle())
-                                    .copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant
-                                          .withValues(alpha: 0.75),
-                                      fontFeatures: const [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
+                        child: SizedBox(
+                          width: _playbackLineCutIconSize,
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: Text(
+                              key: const ValueKey('playback-line-time'),
+                              time,
+                              maxLines: 1,
+                              softWrap: false,
+                              textAlign: TextAlign.center,
+                              style:
+                                  (Theme.of(context).textTheme.labelSmall ??
+                                          const TextStyle())
+                                      .copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant
+                                            .withValues(alpha: 0.75),
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                            ),
                           ),
                         ),
                       ),
@@ -3873,29 +3876,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final textScaler = MediaQuery.textScalerOf(context);
           final textDirection = Directionality.of(context);
           final locale = Localizations.maybeLocaleOf(context);
-          var timeColumnWidth = 48.0;
-          if (widget.showPlaybackLineControls && lyrics.isNotEmpty) {
-            final timePainter = TextPainter(
-              text: TextSpan(
-                text: formatDuration(lyrics.last.startTime, padHours: false),
-                style: (theme.textTheme.labelSmall ?? const TextStyle())
-                    .copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-              ),
-              textDirection: textDirection,
-              textScaler: textScaler,
-              locale: locale,
-            )..layout();
-            timeColumnWidth = math.max(
-              48.0,
-              timePainter.width + _playbackLineTimeInset,
-            );
-            timePainter.dispose();
-          }
           final minLyricWidth = math.min(64.0, math.max(1.0, layoutWidth - 96));
           final sideColumnWidth = math.min(
-            timeColumnWidth,
+            _playbackLineCutSize,
             math.max(0.0, (layoutWidth - minLyricWidth) / 2),
           );
           final availableTextWidth = math.max(1.0, layoutWidth - 56);

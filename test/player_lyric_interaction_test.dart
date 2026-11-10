@@ -2377,6 +2377,10 @@ void main() {
         '00:54',
       );
       expect(
+        tester.getRect(find.byKey(const ValueKey('playback-line-time'))).width,
+        closeTo(tester.getRect(find.byIcon(Icons.content_cut)).width, 0.01),
+      );
+      expect(
         tester
             .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
             .position,
@@ -2662,12 +2666,6 @@ void main() {
           ),
         );
         expect(timeColumn.width, greaterThanOrEqualTo(48));
-        if (size.width >= 600) {
-          expect(
-            timeParagraph.getTransformTo(null).entry(0, 0),
-            closeTo(1, 0.001),
-          );
-        }
         expect(timeBoxes, isNotEmpty);
         for (final box in timeBoxes) {
           expect(
@@ -2719,8 +2717,8 @@ void main() {
         final button = tester.getRect(
           find.byKey(const ValueKey('player-slice-cut-button')),
         );
-        expect(button.width, 32);
-        expect(button.height, 32);
+        expect(button.width, 48);
+        expect(button.height, 48);
         expect(button.left, closeTo(0, 0.01));
         if (size.width == 320) {
           expect(button.right, greaterThan(lyricRect.left));
@@ -2728,6 +2726,7 @@ void main() {
         }
         final cutIcon = tester.getRect(find.byIcon(Icons.content_cut));
         expect(cutIcon.width, 16);
+        expect(tester.getRect(timeFinder).width, closeTo(cutIcon.width, 0.01));
         expect(
           controls.right - tester.getRect(timeFinder).right,
           closeTo(cutIcon.left - controls.left, 0.01),
@@ -2740,6 +2739,10 @@ void main() {
         expect(lineRect.height, 1);
         expect(lineRect.left, closeTo(button.right, 0.01));
         expect(lineRect.right, closeTo(timeColumn.left, 0.01));
+        expect(
+          lineRect.left - cutIcon.right,
+          closeTo(tester.getRect(timeFinder).left - lineRect.right, 0.01),
+        );
         expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
         expect(lineRect.overlaps(lyricRect), isTrue);
         final lineColor = tester
