@@ -28,6 +28,7 @@ import '../utils/server_utils.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/audio_account_prompt.dart';
 import 'account_management_screen.dart';
 import '../widgets/download_fab.dart';
@@ -71,6 +72,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   int _pageRequest = 0;
   bool _changingDisplayMode = false;
   bool _reduceMotion = false;
+  bool _retryingConnection = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -1154,6 +1156,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       _ => S.of(context).librarySearchHint(title),
     };
     return LibraryPageScaffold(
+      bottomNavigationBar: _buildOfflineNotice(authState),
       title: title,
       searchHint: searchHint,
       onSearch: _openAdvancedSearch,
@@ -1197,6 +1200,73 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               target: _pageTarget,
               pages: _pages,
               child: tabs[index].widget,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildOfflineNotice(AuthState auth) {
+    final offline =
+        auth.currentUser != null && !auth.isLoggedIn && auth.error != null;
+    if (!offline && !(_retryingConnection && auth.currentUser != null)) {
+      return null;
+    }
+    final navigation = AppNavigationScope.maybeOf(context);
+    final visible =
+        navigation == null ||
+        (navigation.navigationVisible &&
+            navigation.selectedIndex == appAudioTabIndex &&
+            navigation.popupRoute == null);
+    final s = S.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Visibility(
+      visible: visible,
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Card(
+              margin: EdgeInsets.zero,
+              elevation: 6,
+              color: colors.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        s.offlineModeMessage,
+                        style: TextStyle(color: colors.onTertiaryContainer),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _retryingConnection
+                          ? null
+                          : () async {
+                              setState(() => _retryingConnection = true);
+                              try {
+                                await ref
+                                    .read(authProvider.notifier)
+                                    .retryConnection();
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _retryingConnection = false);
+                                }
+                              }
+                            },
+                      child: Text(s.retry),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

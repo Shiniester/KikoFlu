@@ -460,8 +460,10 @@ The subtitle corresponding to the audio's actual playback position. It can
 differ from the subtitle at the Playback Line while browsing or searching.
 
 **Subtitle Spring Motion (字幕弹簧动画)**:
-The elastic movement of subtitle lines as the Player Lyrics Page follows
-playback. It is distinct from word-by-word highlighting.
+The elastic movement of subtitle lines as the Player Cover Page and Player
+Lyrics Page follow playback or move to a selected subtitle. Shared subtitle
+actions use the same motion on both pages. It is distinct from word-by-word
+highlighting.
 _Avoid_: Karaoke animation, word highlighting
 
 **Subtitle Emphasis (字幕强调)**:
@@ -547,6 +549,11 @@ The existing cover and title animation after a committed track is published.
 Its direction follows the accepted playback request. It is separate from source
 preparation and does not block further track-switch requests.
 _Avoid_: Track Switch, audio crossfade
+
+**Player Cover Scale (播放器封面缩放)**:
+The Player Cover Page artwork size that reflects playback and loading states. It
+is separate from user-controlled zoom in Cover Preview.
+_Avoid_: Cover Preview zoom, Track Presentation Transition
 
 **Cover Preview (封面预览)**:
 The zoomable artwork view opened from the Player Cover Page, Work Details Screen,

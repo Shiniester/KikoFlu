@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart' show ProcessingState;
 
 import '../models/work.dart';
 import '../models/audio_track.dart';
@@ -1647,30 +1648,59 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required bool isWide,
     required PlayerVisualPalette previewPalette,
   }) {
-    return ValueListenableBuilder<int>(
-      valueListenable: _semanticPageRevision,
-      builder: (context, _, __) {
-        return ValueListenableBuilder<String?>(
-          valueListenable: _coverPreviewHeroTrackId,
-          builder: (context, previewHeroTrackId, _) {
-            final previewHeroActive = previewHeroTrackId == track.id;
-            final cover = PlayerCoverWidget(
-              track: track,
-              workCoverUrl: coverUrl,
-              isLandscape: isWide,
-              artworkLayerLink: _coverLoadingLayerLink,
-              animateTrackChanges: _isPlayerCoverVisible(isWide: isWide),
-              onTap: coverUrl == null
-                  ? null
-                  : () => _showCoverPreview(track, coverUrl, previewPalette),
-              previewHeroTag: playerCoverPreviewHeroTag(track.id),
-              previewHeroEnabled: previewHeroActive,
-            );
-            // Only the active cover preview participates in its Hero flight.
-            return HeroMode(enabled: previewHeroActive, child: cover);
-          },
+    return Consumer(
+      builder: (context, ref, child) {
+        final service = ref.read(audioPlayerServiceProvider);
+        final state =
+            ref.watch(playerStateProvider).valueOrNull ?? service.playerState;
+        final loading =
+            ref.watch(isTrackLoadingProvider).valueOrNull ??
+            service.isTrackLoading;
+        final scale =
+            state.playing &&
+                state.processingState == ProcessingState.ready &&
+                !loading
+            ? 1.0
+            : 0.9;
+        final disableAnimations = MediaQuery.disableAnimationsOf(context);
+        return TweenAnimationBuilder<double>(
+          tween: Tween(end: scale),
+          duration: disableAnimations
+              ? Duration.zero
+              : const Duration(milliseconds: 500),
+          curve: const Cubic(0.34, 1.56, 0.64, 1),
+          builder: (context, value, child) => Transform.scale(
+            scale: disableAnimations ? scale : value,
+            child: child,
+          ),
+          child: child,
         );
       },
+      child: ValueListenableBuilder<int>(
+        valueListenable: _semanticPageRevision,
+        builder: (context, _, __) {
+          return ValueListenableBuilder<String?>(
+            valueListenable: _coverPreviewHeroTrackId,
+            builder: (context, previewHeroTrackId, _) {
+              final previewHeroActive = previewHeroTrackId == track.id;
+              final cover = PlayerCoverWidget(
+                track: track,
+                workCoverUrl: coverUrl,
+                isLandscape: isWide,
+                artworkLayerLink: _coverLoadingLayerLink,
+                animateTrackChanges: _isPlayerCoverVisible(isWide: isWide),
+                onTap: coverUrl == null
+                    ? null
+                    : () => _showCoverPreview(track, coverUrl, previewPalette),
+                previewHeroTag: playerCoverPreviewHeroTag(track.id),
+                previewHeroEnabled: previewHeroActive,
+              );
+              // Only the active cover preview participates in its Hero flight.
+              return HeroMode(enabled: previewHeroActive, child: cover);
+            },
+          );
+        },
+      ),
     );
   }
 

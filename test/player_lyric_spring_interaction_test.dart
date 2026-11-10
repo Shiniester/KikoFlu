@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart'
+    show RenderParagraph, RenderRepaintBoundary;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -23,6 +25,73 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  testWidgets('lyric pixels stay stable when browsing and returning', (
+    tester,
+  ) async {
+    await _mount(
+      tester,
+      position: const Duration(seconds: 1),
+      display: (_) => const RepaintBoundary(
+        key: ValueKey('lyric-size-boundary'),
+        child: FullLyricDisplay(
+          isPortrait: true,
+          showPlaybackLineControls: true,
+        ),
+      ),
+    );
+    final activeLine = find.text('spring 1');
+    expect(
+      tester.getRect(activeLine).width,
+      greaterThan(tester.getSize(activeLine).width),
+    );
+    final activeBoundary = find
+        .ancestor(of: activeLine, matching: find.byType(RepaintBoundary))
+        .first;
+    final activePixels = await _lyricInkPixelCount(
+      tester,
+      activeBoundary,
+      activeLine,
+    );
+
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final unplayedLine = find.text('spring 4');
+    await tester.drag(list, const Offset(0, -40));
+    await tester.pumpAndSettle();
+    final browsedActivePixels = await _lyricInkPixelCount(
+      tester,
+      activeBoundary,
+      activeLine,
+    );
+    expect(
+      (browsedActivePixels - activePixels).abs() / activePixels,
+      lessThan(0.01),
+    );
+    await tester.pump(const Duration(seconds: 3));
+
+    final pixelCounts = <int>[];
+    double? firstFrameCenterY;
+    var lastFrameCenterY = 0.0;
+    for (var frame = 0; frame < 12; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final centerY = tester.getCenter(unplayedLine).dy;
+      firstFrameCenterY ??= centerY;
+      lastFrameCenterY = centerY;
+      pixelCounts.add(
+        await _lyricInkPixelCount(
+          tester,
+          find.byKey(const ValueKey('lyric-size-boundary')),
+          unplayedLine,
+        ),
+      );
+    }
+    final minPixels = pixelCounts.reduce((a, b) => a < b ? a : b);
+    final maxPixels = pixelCounts.reduce((a, b) => a > b ? a : b);
+    expect((maxPixels - minPixels) / maxPixels, lessThan(0.0125));
+    expect((lastFrameCenterY - firstFrameCenterY!).abs(), greaterThan(1));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 1');
   });
 
   testWidgets(
@@ -2593,6 +2662,34 @@ double _visibleLyricAlpha(WidgetTester tester, Finder lyric) {
   return opacities.fold(color?.a ?? 1.0, (alpha, opacity) {
     return alpha * opacity.opacity;
   });
+}
+
+Future<int> _lyricInkPixelCount(
+  WidgetTester tester,
+  Finder boundaryFinder,
+  Finder lyricFinder,
+) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(boundaryFinder);
+  final rect = tester.getRect(lyricFinder);
+  final topLeft = boundary.globalToLocal(rect.topLeft);
+  final bottomRight = boundary.globalToLocal(rect.bottomRight);
+  final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 3));
+  final bytes = await tester.runAsync(
+    () => image!.toByteData(format: ui.ImageByteFormat.rawRgba),
+  );
+  final data = bytes!.buffer.asUint8List();
+  final x0 = ((topLeft.dx - 2) * 3).floor().clamp(0, image!.width - 1);
+  final x1 = ((bottomRight.dx + 2) * 3).ceil().clamp(0, image.width);
+  final y0 = ((topLeft.dy - 2) * 3).floor().clamp(0, image.height - 1);
+  final y1 = ((bottomRight.dy + 2) * 3).ceil().clamp(0, image.height);
+  var count = 0;
+  for (var y = y0; y < y1; y++) {
+    for (var x = x0; x < x1; x++) {
+      if (data[(y * image.width + x) * 4 + 3] > 8) count++;
+    }
+  }
+  image.dispose();
+  return count;
 }
 
 void _expectMatch(WidgetTester tester, String text, int start, int end) {

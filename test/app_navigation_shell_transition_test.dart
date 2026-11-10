@@ -254,8 +254,11 @@ Future<AppNavigationController> _pumpShell(
             homeBuilder?.call(navigation) ??
             _tabHome(
               navigation,
-              const Scaffold(
-                body: SizedBox.expand(key: ValueKey('home-viewport')),
+              Scaffold(
+                body: const SizedBox.expand(key: ValueKey('home-viewport')),
+                bottomNavigationBar: offline
+                    ? const SafeArea(top: false, child: SizedBox(height: 96))
+                    : null,
               ),
               index: initialTabIndex,
             ),
@@ -2171,7 +2174,7 @@ void main() {
       skipOffstage: false,
     );
     final initialHomeRect = tester.getRect(home);
-    expect(initialRect.top, 30);
+    expect(initialRect.top, 0);
 
     navigation.setPlayerLaunchPreview(true);
     await tester.pump();
@@ -2189,6 +2192,10 @@ void main() {
     final playerTop = tester
         .getTopLeft(find.byKey(const ValueKey('player-viewport')))
         .dy;
+    expect(
+      tester.getSize(find.byKey(const ValueKey('player-viewport'))),
+      const Size(1280, 720),
+    );
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('shell-paint')),
     );

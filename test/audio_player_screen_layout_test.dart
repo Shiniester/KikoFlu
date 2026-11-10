@@ -196,13 +196,14 @@ void main() {
       final controls = tester.getRect(
         find.byKey(const ValueKey('controls-pane-compact')),
       );
-      final cover = tester.getRect(
-        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      final coverFinder = find.byKey(
+        const ValueKey('player-cover-artwork-track-1'),
       );
+      final cover = tester.getRect(coverFinder);
       final preview = tester.getRect(
         find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
       );
-      expect(cover.width, closeTo(controls.width, 0.01));
+      expect(tester.getSize(coverFinder).width, closeTo(controls.width, 0.01));
       expect(cover.bottom, lessThanOrEqualTo(preview.top));
       expect(preview.bottom, lessThanOrEqualTo(controls.top));
       for (final button in [
@@ -561,6 +562,8 @@ void main() {
           const ValueKey('compact-lyric-edge-fade-mask'),
         );
         final coverRect = tester.getRect(cover);
+        final coverLayoutBottom =
+            coverRect.center.dy + tester.getSize(cover).height / 2;
         final previewRect = tester.getRect(preview);
         final progressRect = tester.getRect(progress);
         final sliderTheme = SliderTheme.of(
@@ -581,7 +584,7 @@ void main() {
         );
         expect(
           trackRect.top - previewRect.bottom,
-          closeTo(previewRect.top - coverRect.bottom, 0.01),
+          closeTo(previewRect.top - coverLayoutBottom, 0.01),
         );
         expect(progressRect.height, 32);
         expect(trackRect.top - progressRect.top, 6);
@@ -1315,10 +1318,14 @@ void main() {
     expect(spinner, findsOneWidget);
     expect(tester.getSize(spinner), const Size.square(36));
     expect(
-      tester.getCenter(spinner),
-      tester.getCenter(
-        find.byKey(const ValueKey('player-cover-artwork-loading-cover')),
-      ),
+      (tester.getCenter(spinner) -
+              tester.getCenter(
+                find.byKey(
+                  const ValueKey('player-cover-artwork-loading-cover'),
+                ),
+              ))
+          .distance,
+      lessThan(0.01),
     );
     await tester.pump(const Duration(seconds: 9));
   });
@@ -1384,10 +1391,14 @@ void main() {
     final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
     expect(spinner, findsOneWidget);
     expect(
-      tester.getCenter(spinner),
-      tester.getCenter(
-        find.byKey(const ValueKey('player-cover-artwork-wide-loading-cover')),
-      ),
+      (tester.getCenter(spinner) -
+              tester.getCenter(
+                find.byKey(
+                  const ValueKey('player-cover-artwork-wide-loading-cover'),
+                ),
+              ))
+          .distance,
+      lessThan(0.01),
     );
     await tester.pump(const Duration(seconds: 9));
   });
@@ -4554,7 +4565,7 @@ void main() {
     final lyricViewport = tester.getRect(
       find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
     );
-    expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
+    expect(lyricViewport.width, closeTo(size.width, 0.01));
     expect(lyricViewport.center.dx, closeTo(195, 0.01));
     final feedbackRects = [
       tester.getRect(
@@ -4566,8 +4577,7 @@ void main() {
     ];
     expect(feedbackRects[0].width, closeTo(lyricViewport.width, 0.01));
     expect(feedbackRects[1].width, closeTo(feedbackRects[0].width, 0.01));
-    expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
-    expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
+    expect(lyricViewport.center.dx, closeTo(coverRect.center.dx, 0.01));
     final activeLine = find.text(
       'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
     );
@@ -4923,7 +4933,7 @@ void main() {
         matching: find.byIcon(Icons.queue_music),
       );
       final coverRect = tester.getRect(
-        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+        find.byKey(const ValueKey('compact-main-shared-width')),
       );
       expect(tester.getRect(repeat).left, closeTo(coverRect.left, 0.01));
       expect(tester.getRect(queue).right, closeTo(coverRect.right, 0.01));
@@ -4949,7 +4959,7 @@ void main() {
     await _pumpPlayer(tester, const Size(390, 844));
 
     final coverRect = tester.getRect(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      find.byKey(const ValueKey('compact-main-shared-width')),
     );
     final controls = find.byKey(const ValueKey('controls-pane-compact'));
     final orderedIcons = [
@@ -5004,7 +5014,7 @@ void main() {
     );
     await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
     final coverRect = tester.getRect(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      find.byKey(const ValueKey('compact-main-shared-width')),
     );
     final controls = find.byKey(const ValueKey('controls-pane-compact'));
     final mainLeft = tester.getCenter(
@@ -5057,7 +5067,15 @@ void main() {
       of: find.byKey(const ValueKey('playback-line-controls')),
       matching: find.byIcon(Icons.content_cut),
     );
-    expect(timeText.width, closeTo(tester.getRect(cutIcon).width, 0.01));
+    final cutIconRect = tester.getRect(cutIcon);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+          .style
+          ?.fontSize,
+      cutIconRect.width,
+    );
+    expect(timeText.width, greaterThan(cutIconRect.width));
     final line = tester.getRect(
       find.byKey(const ValueKey('playback-line-indicator')),
     );
@@ -5075,8 +5093,13 @@ void main() {
     );
     expect(cut.left, closeTo(viewport.left, 0.01));
     expect(time.right, closeTo(viewport.right, 0.01));
-    expect(line.left, closeTo(cut.right, 0.01));
+    expect(line.left, greaterThanOrEqualTo(cut.right));
     expect(line.right, closeTo(time.left, 0.01));
+    expect(line.center.dx, closeTo(viewport.center.dx, 0.01));
+    expect(
+      viewport.right - timeText.right,
+      closeTo(cutIconRect.left - viewport.left, 0.01),
+    );
   });
 
   testWidgets('lyric playback controls stay within the safe area', (
@@ -5197,7 +5220,7 @@ void main() {
       expect(scrollable.position.pixels, closeTo(browsedOffset, 0.01));
       await tester.pump(const Duration(milliseconds: 101));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 320));
+      await tester.pumpAndSettle();
       expect(scrollable.position.pixels, closeTo(initialOffset, 0.01));
 
       final previewGesture = await tester.startGesture(previewRect.center);
@@ -6190,15 +6213,18 @@ void main() {
       lyrics: lyrics,
     );
 
-    final coverRect = tester.getRect(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    final coverFinder = find.byKey(
+      const ValueKey('player-cover-artwork-track-1'),
     );
+    final coverRect = tester.getRect(coverFinder);
     final lyricViewport = tester.getRect(
       find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
     );
-    expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
-    expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
-    expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
+    expect(
+      lyricViewport.width,
+      closeTo(tester.getSize(coverFinder).width, 0.01),
+    );
+    expect(lyricViewport.center.dx, closeTo(coverRect.center.dx, 0.01));
     expect(
       tester.getRect(find.byKey(const ValueKey('compact-lyric-line-0'))).width,
       closeTo(lyricViewport.width, 0.01),
@@ -6234,15 +6260,18 @@ void main() {
       ];
       await _pumpPlayer(tester, const Size(360, 700), lyrics: lyrics);
 
-      final coverRect = tester.getRect(
-        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      final coverFinder = find.byKey(
+        const ValueKey('player-cover-artwork-track-1'),
       );
+      final coverRect = tester.getRect(coverFinder);
       final lyricViewport = tester.getRect(
         find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
       );
-      expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
-      expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
-      expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
+      expect(
+        lyricViewport.width,
+        closeTo(tester.getSize(coverFinder).width, 0.01),
+      );
+      expect(lyricViewport.center.dx, closeTo(coverRect.center.dx, 0.01));
       final feedbackRects = [
         tester.getRect(
           find.byKey(const ValueKey('compact-lyric-tap-feedback-0')),
