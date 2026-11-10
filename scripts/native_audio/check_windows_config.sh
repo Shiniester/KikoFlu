@@ -54,6 +54,11 @@ grep -Fqx '        --prefer-static' "$libass_config" ||
     fail "libass must resolve static dependency requirements"
 grep -Fqx '        -Dvulkan=enabled' "$libplacebo_config" ||
     fail "libplacebo must build with Vulkan support"
+grep -Fqx '        -Dpdf-build=disabled' "$mpv_config" ||
+    fail "mpv-dev build must not require PDF generation"
+if grep -Fq '<BINARY_DIR>/mpv.pdf' "$mpv_config"; then
+    fail "mpv-dev build must not copy an unbuilt PDF"
+fi
 cmp -s "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libarchive-openssl-static.patch" ||
     fail "libarchive OpenSSL patch differs from the checked patch"
 grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch' "$libarchive_config" ||

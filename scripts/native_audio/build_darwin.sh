@@ -69,6 +69,11 @@ actual_commit=$(git -C "$recipe_dir" rev-parse HEAD)
 git -C "$recipe_dir" apply --check "$script_dir/darwin-recipe.patch" ||
     fail 'Darwin recipe patch does not apply cleanly'
 git -C "$recipe_dir" apply "$script_dir/darwin-recipe.patch"
+git -C "$recipe_dir" apply --unidiff-zero --check "$script_dir/darwin-download-retry.patch" ||
+    fail 'Darwin download retry patch does not apply cleanly'
+git -C "$recipe_dir" apply --unidiff-zero "$script_dir/darwin-download-retry.patch"
+cp "$script_dir/darwin_download_test.go" "$recipe_dir/cmd/downloads/retry_test.go"
+(cd "$recipe_dir" && go test ./cmd/downloads)
 python3 "$script_dir/rewrite_darwin_sdk_paths.py" "$recipe_dir/cross-files" \
     --macos-sdk "$actual_macos_sdk_path" \
     --ios-sdk "$actual_ios_sdk_path" \
@@ -131,7 +136,7 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
-    printf 'patches=darwin-recipe.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-filter-command-target.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch\n'
+    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,mpv-filter-command-target.patch,mpv-audio-reinit.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     printf '\nupstream_downloads.lock:\n'
     sed 's/^/  /' "$recipe_dir/downloads.lock"
