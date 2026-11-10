@@ -51,6 +51,16 @@ bash "$script_dir/check_android_config.sh" "$source_dir"
 
 cd "$buildscripts_dir"
 TRAVIS=1 ./download.sh
+ndk_root="$buildscripts_dir/sdk/android-sdk-linux/ndk/$ANDROID_NDK"
+ndk_platforms="$ndk_root/meta/platforms.json"
+aaudio_clang="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang"
+[[ -s "$ndk_platforms" ]] || fail "locked Android NDK platform metadata is missing"
+python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); api=int(sys.argv[2]); sys.exit(0 if int(data["min"]) <= api <= int(data["max"]) else 1)' \
+    "$ndk_platforms" "$ANDROID_API" || fail "locked Android NDK does not support API level $ANDROID_API"
+[[ -x "$aaudio_clang" ]] || fail "locked Android NDK API $ANDROID_API compiler is missing"
+printf '%s\n' '#include <aaudio/AAudio.h>' 'int format = AAUDIO_FORMAT_IEC61937;' |
+    "$aaudio_clang" -x c -std=c11 -fsyntax-only - ||
+    fail "locked Android NDK AAudio header does not expose AAUDIO_FORMAT_IEC61937 at API $ANDROID_API"
 ./patch.sh
 mpv_source_dir="$buildscripts_dir/deps/mpv"
 ffmpeg_source_dir="$buildscripts_dir/deps/ffmpeg"
@@ -168,6 +178,8 @@ done
     printf 'libplacebo_version=%s\n' "$LIBPLACEBO_VERSION"
     printf 'libplacebo_commit=%s\n' "$LIBPLACEBO_COMMIT"
     printf 'mpv_audio_controls_patch=%s\n' 'mpv-audio-controls.patch'
+    printf 'android_mpv_java_vm_patch=%s\n' 'android-mpv-java-vm.patch'
+    printf 'android_mbedtls_aesce_patch=%s\n' 'android-mbedtls-aesce.patch'
     printf 'ffmpeg_sendcmd_argument_format=%s\n' '%.17g'
     printf 'gas_preprocessor_commit=%s\n' "$GAS_PREPROCESSOR_COMMIT"
     printf 'android_api=%s\n' "$ANDROID_API"

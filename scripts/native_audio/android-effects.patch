@@ -42,7 +42,7 @@ index 4817574..a4121e0 100755
 +++ b/buildscripts/include/depinfo.sh
 @@ -6 +6 @@
 -v_ndk=25.2.9519653
-+v_ndk=26.3.11579264
++v_ndk=27.3.13750724
 @@ -16,2 +16,3 @@ v_libxml2=2.10.3
 -v_ffmpeg=6.0
 -v_mpv=78d43740f52db817d98bcf24fb30a76ab6fa13ff

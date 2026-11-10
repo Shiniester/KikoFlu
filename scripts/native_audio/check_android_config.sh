@@ -70,6 +70,20 @@ fi
 if grep -Eq 'git clone.*(--branch[[:space:]]+(main|master)|refs/heads/(main|master))' "$download_deps"; then
     fail "default flavor downloads an unpinned moving branch"
 fi
+grep -Fq 'python3 -c '\''import json,sys;' "$script_dir/build_android.sh" ||
+    fail "Android NDK supported API range is not checked after download"
+grep -Fq 'AAUDIO_FORMAT_IEC61937' "$script_dir/build_android.sh" ||
+    fail "Android NDK AAudio enum is not checked after download"
+grep -Fq 'aarch64-linux-android${ANDROID_API}-clang' "$script_dir/build_android.sh" ||
+    fail "Android NDK API-level compiler is not used for the AAudio enum check"
+ndk_download_line=$(grep -Fn 'TRAVIS=1 ./download.sh' "$script_dir/build_android.sh" | cut -d: -f1)
+ndk_check_line=$(grep -Fn 'python3 -c' "$script_dir/build_android.sh" | cut -d: -f1)
+aaudio_check_line=$(grep -Fn -- '-fsyntax-only -' "$script_dir/build_android.sh" | cut -d: -f1)
+ndk_patch_line=$(grep -Fn './patch.sh' "$script_dir/build_android.sh" | cut -d: -f1)
+[[ -n "$ndk_download_line" && -n "$ndk_check_line" && -n "$aaudio_check_line" && -n "$ndk_patch_line" &&
+    "$ndk_download_line" -lt "$ndk_check_line" && "$ndk_check_line" -lt "$aaudio_check_line" &&
+    "$aaudio_check_line" -lt "$ndk_patch_line" ]] ||
+    fail "Android NDK verification must run after download and before source patching"
 if grep -Eq 'git clone.*(fftools-ffi|media_kit|x264\.git)' "$download_deps"; then
     fail "default flavor downloads an unused source repository"
 fi

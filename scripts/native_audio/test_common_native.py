@@ -129,8 +129,17 @@ class CommonNativeSourceTests(unittest.TestCase):
             with self.subTest(submodule_path=path):
                 self.assertIn(path, builder)
         self.assertIn("ANDROID_API=21", (SCRIPT_DIR / "android.lock").read_text())
-        self.assertIn("ANDROID_NDK=26.3.11579264", (SCRIPT_DIR / "android.lock").read_text())
-        self.assertIn("v_ndk=26.3.11579264", (SCRIPT_DIR / "android-effects.patch").read_text())
+        self.assertIn("ANDROID_NDK=27.3.13750724", (SCRIPT_DIR / "android.lock").read_text())
+        self.assertIn("v_ndk=27.3.13750724", (SCRIPT_DIR / "android-effects.patch").read_text())
+        self.assertIn('ndk_root="$buildscripts_dir/sdk/android-sdk-linux/ndk/$ANDROID_NDK"', builder)
+        self.assertIn('python3 -c \'import json,sys;', builder)
+        self.assertIn('int(data["min"]) <= api <= int(data["max"])', builder)
+        self.assertIn("AAUDIO_FORMAT_IEC61937", builder)
+        self.assertLess(builder.index("TRAVIS=1 ./download.sh"), builder.index("python3 -c"))
+        self.assertLess(builder.index("python3 -c"), builder.index("AAUDIO_FORMAT_IEC61937"))
+        self.assertLess(builder.index("AAUDIO_FORMAT_IEC61937"), builder.index("./patch.sh"))
+        self.assertIn("android_mpv_java_vm_patch=%s", builder)
+        self.assertIn("android_mbedtls_aesce_patch=%s", builder)
 
     def test_android_mbedtls_aesce_patch_scopes_crypto_feature_to_functions(self) -> None:
         builder = (SCRIPT_DIR / "build_android.sh").read_text()
