@@ -257,6 +257,86 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final feedback in [false, true]) {
+    for (final cancel in [false, true]) {
+      testWidgets('holding a moving preview pauses until release, '
+          'feedback=$feedback, cancel=$cancel', (tester) async {
+        final positions = StreamController<Duration>();
+        addTearDown(positions.close);
+        positions.add(const Duration(seconds: 3));
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              positionProvider.overrideWith((ref) => positions.stream),
+              lyricControllerProvider.overrideWith(
+                (ref) => LyricController(
+                  ref,
+                  initialState: LyricState(lyrics: lyrics),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 334,
+                    height: 200,
+                    child: ThreeLineLyricDisplay(
+                      lineCount: 5,
+                      enableLineTapFeedback: feedback,
+                      onSeekRequested: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+        final scrollable = tester.state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        );
+        final initialOffset = scrollable.position.pixels;
+        positions.add(const Duration(seconds: 4));
+        await tester.pump();
+        for (var frame = 0; frame < 7; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(scrollable.position.pixels, greaterThan(initialOffset + 1));
+        final row = find.byKey(const ValueKey('compact-lyric-line-4'));
+        final heldOffset = scrollable.position.pixels;
+        final heldCenter = tester.getCenter(row).dy;
+        final gesture = await tester.startGesture(tester.getCenter(list));
+        await tester.pump(const Duration(milliseconds: 180));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        expect(tester.getCenter(row).dy, closeTo(heldCenter, 0.1));
+
+        positions.add(const Duration(seconds: 6));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 4));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        expect(tester.getCenter(row).dy, closeTo(heldCenter, 0.1));
+        if (cancel) {
+          await gesture.cancel();
+        } else {
+          await gesture.up();
+        }
+        await tester.pump(const Duration(milliseconds: 2900));
+        expect(scrollable.position.pixels, closeTo(heldOffset, 0.1));
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .getCenter(find.byKey(const ValueKey('compact-lyric-line-6')))
+              .dy,
+          closeTo(tester.getCenter(list).dy, 1),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('hidden preview follows without replaying a suspended scroll', (
     tester,
   ) async {

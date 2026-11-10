@@ -525,6 +525,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
   final Map<int, Timer> _pointerFeedbackSuppressions = {};
   bool _isUserBrowsing = false;
   bool _userScrollInProgress = false;
+  int? _scrollHoldPointer;
   int _latestIndex = -1;
   int? _lastIndex;
   int? _lyricsSignature;
@@ -1138,6 +1139,15 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     _scheduleFollowResume();
   }
 
+  void _endScrollHold(int pointer) {
+    if (_scrollHoldPointer != pointer) return;
+    _scrollHoldPointer = null;
+    if (!_scrollController.hasClients ||
+        !_scrollController.position.isScrollingNotifier.value) {
+      _endUserBrowse();
+    }
+  }
+
   void _scheduleFollowResume() {
     _resumeFollowTimer?.cancel();
     _resumeFollowTimer = Timer(const Duration(seconds: 3), () {
@@ -1293,21 +1303,34 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                         behavior: widget.enableLineTapFeedback
                             ? HitTestBehavior.opaque
                             : HitTestBehavior.deferToChild,
-                        onPointerDown: widget.enableLineTapFeedback
-                            ? (event) => _pointerTracker.handlePointerDown(
-                                event,
-                                lyricIndex,
-                              )
-                            : null,
+                        onPointerDown: (event) {
+                          if (_scrollMotion != null ||
+                              _scrollRowMotions.isNotEmpty) {
+                            _scrollHoldPointer = event.pointer;
+                            _beginUserBrowse();
+                          }
+                          if (widget.enableLineTapFeedback) {
+                            _pointerTracker.handlePointerDown(
+                              event,
+                              lyricIndex,
+                            );
+                          }
+                        },
                         onPointerMove: widget.enableLineTapFeedback
                             ? _pointerTracker.handlePointerMove
                             : null,
-                        onPointerUp: widget.enableLineTapFeedback
-                            ? _pointerTracker.handlePointerUp
-                            : null,
-                        onPointerCancel: widget.enableLineTapFeedback
-                            ? _pointerTracker.handlePointerCancel
-                            : null,
+                        onPointerUp: (event) {
+                          _endScrollHold(event.pointer);
+                          if (widget.enableLineTapFeedback) {
+                            _pointerTracker.handlePointerUp(event);
+                          }
+                        },
+                        onPointerCancel: (event) {
+                          _endScrollHold(event.pointer);
+                          if (widget.enableLineTapFeedback) {
+                            _pointerTracker.handlePointerCancel(event);
+                          }
+                        },
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
