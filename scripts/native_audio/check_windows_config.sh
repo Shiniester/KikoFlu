@@ -5,6 +5,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$script_dir/windows.lock"
 source_dir=${1:?Usage: check_windows_config.sh <libmpv-win32-video-cmake source>}
 ffmpeg_config="$source_dir/packages/ffmpeg.cmake"
+openssl_config="$source_dir/packages/openssl.cmake"
 libarchive_config="$source_dir/packages/libarchive.cmake"
 libass_config="$source_dir/packages/libass.cmake"
 libplacebo_config="$source_dir/packages/libplacebo.cmake"
@@ -74,6 +75,15 @@ grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libar
     fail "libarchive OpenSSL patch is not applied during the source build"
 grep -Fqx '    GIT_TAG $ENV{FFMPEG_COMMIT}' "$ffmpeg_config" ||
     fail "FFmpeg source is not pinned to $FFMPEG_COMMIT"
+if grep -Fqx '        no-srtp' "$openssl_config"; then
+    fail "OpenSSL SRTP APIs must remain enabled for FFmpeg's DTLS support"
+fi
+grep -Fqx '        --enable-openssl' "$ffmpeg_config" ||
+    fail "FFmpeg HTTPS/TLS must keep OpenSSL support enabled"
+for protocol in https tls; do
+    grep -Fqx "        --enable-protocol=$protocol" "$ffmpeg_config" ||
+        fail "FFmpeg $protocol protocol must remain enabled"
+done
 if grep -Eq '^[[:space:]]*--(disable-postproc|enable-libshaderc)(=|[[:space:]]|$)' "$ffmpeg_config"; then
     fail "FFmpeg 9.0.2 configure options must not include postproc or libshaderc"
 fi

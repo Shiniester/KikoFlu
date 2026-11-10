@@ -36,8 +36,9 @@ ffmpeg_options="$source_dir/scripts/ffmpeg/meson.build"
 ffmpeg_build="$source_dir/scripts/ffmpeg/build.sh"
 mpv_build="$source_dir/scripts/mpv/build.sh"
 libplacebo_build="$source_dir/scripts/libplacebo/build.sh"
+pkgconfig_build="$source_dir/scripts/pkg-config/build.sh"
 makefile="$source_dir/Makefile"
-[[ -f "$ffmpeg_options" && -f "$ffmpeg_build" && -f "$mpv_build" && -f "$libplacebo_build" ]] ||
+[[ -f "$ffmpeg_options" && -f "$ffmpeg_build" && -f "$mpv_build" && -f "$libplacebo_build" && -f "$pkgconfig_build" ]] ||
     fail 'one or more pinned recipe files are missing'
 
 for package_version in \
@@ -76,6 +77,8 @@ cmp -s "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$source_dir/patches/ffmpeg-fix
     fail 'FFmpeg iOS HDR texture patch differs from the checked patch'
 cmp -s "$script_dir/darwin-libplacebo-charconv.patch" "$source_dir/patches/libplacebo-darwin-charconv.patch" ||
     fail 'libplacebo Darwin charconv patch differs from the checked patch'
+cmp -s "$script_dir/pkg-config-glib-atomics.patch" "$source_dir/patches/pkg-config-glib-atomics.patch" ||
+    fail 'pkg-config bundled GLib atomic patch differs from the checked patch'
 bash "$script_dir/apply_mpv_audio_controls.sh" --check-patch \
     "$script_dir/mpv-audio-controls.patch" ||
     fail 'MPV audio controls patch changed'
@@ -115,6 +118,8 @@ grep -Fq '> VERSION' "$ffmpeg_build" ||
     fail 'FFmpeg release version metadata is not written before configure'
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"' "$mpv_build" ||
     fail 'MPV audio controls patch is not applied by the pinned build script'
+grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"' "$pkgconfig_build" ||
+    fail 'pkg-config bundled GLib atomic patch is not applied before configure'
 if grep -Eq 'mpv-(filter-command-target|audio-reinit|fix-missing-objc)\.patch' "$mpv_build"; then
     fail 'MPV build script still applies a patch already included in mpv 0.42.0'
 fi

@@ -32,6 +32,18 @@ def main():
         print(name, report['passed'], len(actual), error, flush=True)
         return report, actual
 
+    scene_tail = [
+        (round(.97 * math.sin(2 * math.pi * 1000 * n / 48000) * 32767),
+         round(.94 * math.sin(2 * math.pi * 1000 * n / 48000 + .15) * 32767))
+        if n < 24000 else (0, 0) for n in range(33600)
+    ]
+    scene_input = [[value / 32768 for value in row] for row in scene_tail]
+    amounts = [min(100, (n + 1) * 100 / 960) for n in range(len(scene_tail))]
+    for scene, name in enumerate(('bathroom', 'through_wall', 'telephone')):
+        expected = scene_oracle(scene_input, name, amounts, 48000)[0]
+        capture(f'scene_tail_{name}_48000', graphs[f'scene_{scene}_100'],
+                scene_tail, 48000, expected)
+
     for rate in (44100, 48000, 96000):
         frames = [(round(32600*math.sin(n*.13)), round(24000*math.sin(n*.17+.3))) for n in range(rate//5+17)]
         original = [[value/32768 for value in row] for row in frames]

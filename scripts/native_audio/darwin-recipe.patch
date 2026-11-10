@@ -237,3 +237,9 @@ index ce9ba20..54f6739 100644
 +    -Dmacos-11-features=disabled `# macOS 11 SDK Features`
 +    -Dmacos-11-3-features=disabled `# macOS 11.3 SDK Features`
 +    -Dmacos-12-features=disabled `# macOS 12 SDK Features`
+diff --git a/scripts/pkg-config/build.sh b/scripts/pkg-config/build.sh
+index d63f487..630a599 100644
+--- a/scripts/pkg-config/build.sh
++++ b/scripts/pkg-config/build.sh
+@@ -7,0 +8 @@ cd ${SRC_DIR}
++patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"

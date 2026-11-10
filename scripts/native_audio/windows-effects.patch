@@ -38,6 +38,11 @@ index ffbcbfc..06b425d 100644
 -        --disable-postproc
 @@ -113 +137,0 @@ ExternalProject_Add(ffmpeg
 -        --enable-libshaderc
+diff --git a/packages/openssl.cmake b/packages/openssl.cmake
+--- a/packages/openssl.cmake
++++ b/packages/openssl.cmake
+@@ -44 +43,0 @@ ExternalProject_Add(openssl
+-        no-srtp
 diff --git a/packages/libarchive.cmake b/packages/libarchive.cmake
 index 4773fae..9bfece7 100644
 --- a/packages/libarchive.cmake

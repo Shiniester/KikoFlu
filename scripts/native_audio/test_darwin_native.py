@@ -138,6 +138,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         ffmpeg_build = (recipe / "scripts/ffmpeg/build.sh").read_text(encoding="utf-8")
         makefile = (recipe / "Makefile").read_text(encoding="utf-8")
         libplacebo_build = (recipe / "scripts/libplacebo/build.sh").read_text(encoding="utf-8")
+        pkgconfig_build = (recipe / "scripts/pkg-config/build.sh").read_text(encoding="utf-8")
         audio_default_options = ffmpeg_options.split(
             "audio_default_options = [", 1
         )[1].split("\n]", 1)[0]
@@ -165,6 +166,10 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn("-mmacosx-version-min=10.15", libplacebo_build)
         self.assertIn("-miphoneos-version-min=13.0", libplacebo_build)
         self.assertIn("-mios-simulator-version-min=13.0", libplacebo_build)
+        self.assertIn(
+            'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"',
+            pkgconfig_build,
+        )
         self.assertIn(
             "libplacebo-glad", (recipe / "downloads.lock").read_text(encoding="utf-8")
         )
@@ -295,12 +300,14 @@ class DarwinRecipePatchTests(unittest.TestCase):
         mpv_root = sources / "mpv"
         ffmpeg_root = sources / "ffmpeg"
         libplacebo_root = sources / "libplacebo"
+        pkg_config_root = sources / "pkg-config"
         if (
             not (mpv_root / "MPV_VERSION").is_file()
             or not (ffmpeg_root / "RELEASE").is_file()
             or not (libplacebo_root / "src/convert.cc").is_file()
+            or not (pkg_config_root / "glib/glib/gatomic.c").is_file()
         ):
-            self.skipTest("the pinned MPV and FFmpeg sources are available after download")
+            self.skipTest("the pinned native sources are available after download")
 
         common_lock = (SCRIPT_DIR / "common.lock").read_text().splitlines()
         pins = dict(
@@ -362,6 +369,11 @@ class DarwinRecipePatchTests(unittest.TestCase):
                     libplacebo_root,
                     ["src/convert.cc"],
                 ),
+                (
+                    "pkg-config-glib-atomics.patch",
+                    pkg_config_root,
+                    ["glib/glib/gatomic.c", "glib/glib/gatomic.h"],
+                ),
             )
             for patch_name, source_root, source_files in patch_cases:
                 case_root = root / Path(patch_name).stem
@@ -383,6 +395,19 @@ class DarwinRecipePatchTests(unittest.TestCase):
                 if patch_name == "darwin-libplacebo-charconv.patch":
                     convert = (case_root / "src/convert.cc").read_text(encoding="utf-8")
                     self.assertIn("# define HAS_STD_TO_CHARS_FP 0", convert)
+                if patch_name == "pkg-config-glib-atomics.patch":
+                    atomic_c = (case_root / "glib/glib/gatomic.c").read_text(encoding="utf-8")
+                    atomic_h = (case_root / "glib/glib/gatomic.h").read_text(encoding="utf-8")
+                    pointer_macros = atomic_h.split(
+                        "#define g_atomic_pointer_add(atomic, val)", 1
+                    )[1].split("#else /* defined(G_ATOMIC_LOCK_FREE)", 1)[0]
+                    self.assertIn("gintptr\n(g_atomic_pointer_add)", atomic_c)
+                    self.assertIn("guintptr\n(g_atomic_pointer_and)", atomic_c)
+                    for operation in ("add", "and", "or", "xor"):
+                        self.assertIn(
+                            f"__atomic_fetch_{operation}", pointer_macros
+                        )
+                    self.assertNotIn("__sync_fetch_and_", pointer_macros)
 
             patched_lavfi = (root / "mpv-audio-controls/filters/f_lavfi.c").read_text(
                 encoding="utf-8"

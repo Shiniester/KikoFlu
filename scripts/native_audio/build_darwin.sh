@@ -92,13 +92,15 @@ bash "$script_dir/check_darwin_config.sh" "$recipe_dir"
     make build/intermediate/downloads
 )
 pinned_sources="$work_dir/pinned-sources"
-mkdir -p "$pinned_sources/mpv" "$pinned_sources/ffmpeg" "$pinned_sources/libplacebo"
+mkdir -p "$pinned_sources/mpv" "$pinned_sources/ffmpeg" "$pinned_sources/libplacebo" "$pinned_sources/pkg-config"
 tar -xzf "$recipe_dir/build/intermediate/downloads/mpv-${MPV_VERSION}.tar.gz" \
     --strip-components=1 -C "$pinned_sources/mpv"
 tar -xzf "$recipe_dir/build/intermediate/downloads/ffmpeg-${FFMPEG_VERSION}.tar.gz" \
     --strip-components=1 -C "$pinned_sources/ffmpeg"
 tar -xzf "$recipe_dir/build/intermediate/downloads/libplacebo-${LIBPLACEBO_VERSION}.tar.gz" \
     --strip-components=1 -C "$pinned_sources/libplacebo"
+tar -xzf "$recipe_dir/build/intermediate/downloads/pkg-config-0.29.2.tar.gz" \
+    --strip-components=1 -C "$pinned_sources/pkg-config"
 DARWIN_NATIVE_SOURCE_DIR="$pinned_sources" \
 DARWIN_RECIPE_SOURCE_DIR="$recipe_dir" \
     python3 "$script_dir/test_darwin_native.py"

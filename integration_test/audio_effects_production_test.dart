@@ -194,48 +194,77 @@ void main() {
     expect(peak, lessThanOrEqualTo(.97 + 1e-7));
   });
 
-  testWidgets(
-    'live production update keeps the same source and maps channels',
-    (tester) async {
-      const rate = 48000;
-      final frames = _productionFixture(rate, rate * 3);
-      final settings = AudioEffectsSettings(
-        channelMode: AudioChannelMode.cloneLeft,
+  testWidgets('live production update keeps the same source and maps channels', (
+    tester,
+  ) async {
+    const rate = 48000;
+    final frames = _productionFixture(rate, rate * 3);
+    final settings = AudioEffectsSettings(
+      channelMode: AudioChannelMode.cloneLeft,
+    );
+    var framesBeforeUpdate = 0;
+    var framesAfterUpdate = 0;
+    final output = await _captureProduction(
+      frames,
+      rate,
+      AudioEffectsSettings(),
+      realtime: true,
+      duringPlayback: (player, native, effects, pcm) async {
+        framesBeforeUpdate = await _waitForPcmFrames(pcm, rate ~/ 4);
+        expect(await native.getProperty('eof-reached'), 'no');
+        final source = await native.getProperty('path');
+        expect(source, isNotEmpty);
+        await effects.configure(native, settings, false);
+        expect(await native.getProperty('path'), source);
+        expect(await native.getProperty('eof-reached'), 'no');
+        framesAfterUpdate = await _waitForPcmFrames(pcm, rate ~/ 2);
+      },
+    );
+    var maxLeftError = 0.0;
+    var maxLeftErrorFrame = 0;
+    for (var n = 0; n < output.length; n++) {
+      final error = (output[n].$1 - frames[n].$1 / 32768).abs();
+      if (error > maxLeftError) {
+        maxLeftError = error;
+        maxLeftErrorFrame = n;
+      }
+    }
+    expect(
+      maxLeftError,
+      lessThan(1e-6),
+      reason:
+          'clone-left must preserve left PCM continuously at frame $maxLeftErrorFrame',
+    );
+
+    var maxBeforeUpdateRightError = 0.0;
+    for (var n = 0; n < framesBeforeUpdate; n++) {
+      maxBeforeUpdateRightError = math.max(
+        maxBeforeUpdateRightError,
+        (output[n].$2 - frames[n].$2 / 32768).abs(),
       );
-      var updatePosition = Duration.zero;
-      final output = await _captureProduction(
-        frames,
-        rate,
-        AudioEffectsSettings(),
-        realtime: true,
-        duringPlayback: (player, native, effects) async {
-          updatePosition = await player.stream.position
-              .firstWhere(
-                (position) => position >= const Duration(milliseconds: 200),
-              )
-              .timeout(const Duration(seconds: 5));
-          final source = await native.getProperty('path');
-          expect(source, isNotEmpty);
-          await effects.configure(native, settings, false);
-          expect(await native.getProperty('path'), source);
-          final advanced = await player.stream.position
-              .firstWhere((position) => position > updatePosition)
-              .timeout(const Duration(seconds: 5));
-          expect(advanced, greaterThan(updatePosition));
-        },
+    }
+    expect(
+      maxBeforeUpdateRightError,
+      lessThan(1e-6),
+      reason: 'the right channel must retain its source before the update',
+    );
+
+    final settledStart = framesAfterUpdate + rate ~/ 10;
+    final settledEnd = settledStart + rate ~/ 20;
+    expect(settledEnd, lessThanOrEqualTo(output.length));
+    var maxAfterUpdateRightError = 0.0;
+    for (var n = settledStart; n < settledEnd; n++) {
+      maxAfterUpdateRightError = math.max(
+        maxAfterUpdateRightError,
+        (output[n].$2 - frames[n].$1 / 32768).abs(),
       );
-      final start = updatePosition.inMilliseconds * rate ~/ 1000 + rate ~/ 10;
-      final settled = output.skip(start).take(rate ~/ 20).toList();
-      expect(settled, hasLength(rate ~/ 20));
-      expect(settled.any((pair) => pair.$1.abs() > .01), isTrue);
-      expect(
-        settled.every((pair) => (pair.$1 - pair.$2).abs() < 1e-6),
-        isTrue,
-        reason:
-            'the live clone-left update must reach PCM without reopening media',
-      );
-    },
-  );
+    }
+    expect(
+      maxAfterUpdateRightError,
+      lessThan(1e-6),
+      reason: 'the right channel must settle to the source left after update',
+    );
+  });
 
   testWidgets(
     'video output remains independent from the production audio graph',
@@ -340,7 +369,7 @@ Future<List<(double, double)>> _captureProduction(
   int rate,
   AudioEffectsSettings settings, {
   bool realtime = false,
-  Future<void> Function(Player, NativePlayer, NativeAudioEffects)?
+  Future<void> Function(Player, NativePlayer, NativeAudioEffects, File)?
   duringPlayback,
 }) async {
   final directory = await Directory.systemTemp.createTemp(
@@ -356,13 +385,22 @@ Future<List<(double, double)>> _captureProduction(
   final effects = NativeAudioEffects(statuses.add);
   final errors = <String>[];
   final completed = Completer<void>();
+  final eofReached = Completer<void>();
+  final nativeFailure = Completer<String>();
+  var observedEof = false;
+  var sourceLoads = 0;
+  void recordError(String error) {
+    errors.add(error);
+    if (!nativeFailure.isCompleted) nativeFailure.complete(error);
+  }
+
   final logs = player.stream.log.listen((log) {
-    if (log.level == 'error' || log.level == 'fatal') errors.add(log.text);
+    if (log.level == 'error' || log.level == 'fatal') recordError(log.text);
   });
   final errorEvents = player.stream.error.listen((error) {
-    errors.add(error.toString());
+    recordError(error.toString());
   });
-  final completion = player.stream.completed.listen((value) {
+  final completionSubscription = player.stream.completed.listen((value) {
     if (value && !completed.isCompleted) completed.complete();
   });
 
@@ -381,12 +419,17 @@ Future<List<(double, double)>> _captureProduction(
     expect(await native.getProperty('options/ao'), 'pcm');
     expect(await native.getProperty('mpv-version'), contains('0.42.0'));
     expect(await native.getProperty('ffmpeg-version'), contains('9.0.2'));
+    await native.observeProperty('eof-reached', (value) async {
+      if (value == 'yes' && !eofReached.isCompleted) eofReached.complete();
+    });
+    observedEof = true;
 
     final graph = AudioEffectsGraph.render(settings, systemLibrary: false);
     expect(graph, isNot(contains('__')));
     await effects.configure(native, settings, false);
     if (realtime) {
       native.onLoadHooks.add(() async {
+        sourceLoads++;
         final chain = await native.getProperty('af');
         const clock = 'asetnsamples=n=128:p=0,arealtime';
         await native.setProperty(
@@ -398,9 +441,49 @@ Future<List<(double, double)>> _captureProduction(
 
     await player.open(Media(source.path)).timeout(const Duration(seconds: 10));
     if (duringPlayback != null) {
-      await duringPlayback(player, native, effects);
+      await duringPlayback(player, native, effects, pcm);
+      expect(
+        statuses.last,
+        AudioEffectsStatus.ready,
+        reason: 'the live native parameter update must be accepted',
+      );
     }
-    await completed.future.timeout(const Duration(seconds: 10));
+    final completionResult =
+        await Future.any<String>([
+          completed.future.then((_) => 'stream-completed'),
+          eofReached.future.then((_) => 'native-eof'),
+          nativeFailure.future.then((error) => 'native-error: $error'),
+        ]).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () async {
+            final eof = await native.getProperty('eof-reached');
+            final position = await native.getProperty('time-pos');
+            final duration = await native.getProperty('duration');
+            final pcmBytes = await pcm.exists() ? await pcm.length() : 0;
+            throw TimeoutException(
+              'Native playback did not reach EOF: eof-reached=$eof, '
+              'time-pos=$position, duration=$duration, pcm-bytes=$pcmBytes, '
+              'errors=${errors.join(' | ')}',
+            );
+          },
+        );
+    if (completionResult.startsWith('native-error:')) {
+      fail(
+        'Native playback failed before EOF: ${completionResult.substring(13)}',
+      );
+    }
+    expect(
+      await native.getProperty('eof-reached'),
+      'yes',
+      reason: 'the source must reach native EOF before PCM can pass',
+    );
+    if (realtime) {
+      expect(
+        sourceLoads,
+        1,
+        reason: 'a live setting update must not reload the source',
+      );
+    }
     await player.stop();
     expect(_commandStatus(native, ['set', 'ao', 'null']), 0);
     expect(await native.getProperty('current-ao'), isNot('pcm'));
@@ -438,12 +521,37 @@ Future<List<(double, double)>> _captureProduction(
     );
     return output;
   } finally {
+    if (observedEof) await native.unobserveProperty('eof-reached');
     await effects.dispose();
     await player.dispose();
     await logs.cancel();
     await errorEvents.cancel();
-    await completion.cancel();
+    await completionSubscription.cancel();
     await directory.delete(recursive: true);
+  }
+}
+
+Future<int> _waitForPcmFrames(File pcm, int minimumFrames) async {
+  final reached = Completer<int>();
+  final timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+    final frames = pcm.existsSync() ? pcm.lengthSync() ~/ 8 : 0;
+    if (frames >= minimumFrames && !reached.isCompleted) {
+      reached.complete(frames);
+      timer.cancel();
+    }
+  });
+  try {
+    return await reached.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        final frames = pcm.existsSync() ? pcm.lengthSync() ~/ 8 : 0;
+        throw TimeoutException(
+          'PCM output reached $frames frames; expected at least $minimumFrames',
+        );
+      },
+    );
+  } finally {
+    timer.cancel();
   }
 }
 

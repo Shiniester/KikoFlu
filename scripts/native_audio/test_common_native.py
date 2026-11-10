@@ -129,6 +129,8 @@ class CommonNativeSourceTests(unittest.TestCase):
             with self.subTest(submodule_path=path):
                 self.assertIn(path, builder)
         self.assertIn("ANDROID_API=21", (SCRIPT_DIR / "android.lock").read_text())
+        self.assertIn("ANDROID_NDK=26.3.11579264", (SCRIPT_DIR / "android.lock").read_text())
+        self.assertIn("v_ndk=26.3.11579264", (SCRIPT_DIR / "android-effects.patch").read_text())
 
     def test_windows_pins_core_repositories_through_shared_environment(self) -> None:
         effects = (SCRIPT_DIR / "windows-effects.patch").read_text()
@@ -168,6 +170,14 @@ class CommonNativeSourceTests(unittest.TestCase):
                     )
                 self.assertIn(option[2:], (SCRIPT_DIR / "check_android_config.sh").read_text())
                 self.assertIn(option[2:], (SCRIPT_DIR / "check_windows_config.sh").read_text())
+
+    def test_windows_tls_keeps_openssl_srtp_api_and_https_enabled(self) -> None:
+        effects = (SCRIPT_DIR / "windows-effects.patch").read_text()
+        config = (SCRIPT_DIR / "check_windows_config.sh").read_text()
+        self.assertIn("-        no-srtp", effects)
+        self.assertIn("        no-srtp", config)
+        self.assertIn("--enable-openssl", config)
+        self.assertIn("for protocol in https tls; do", config)
 
     def test_old_mpv_reinit_patch_is_not_reapplied(self) -> None:
         for name in (
