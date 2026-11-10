@@ -139,6 +139,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         makefile = (recipe / "Makefile").read_text(encoding="utf-8")
         libplacebo_build = (recipe / "scripts/libplacebo/build.sh").read_text(encoding="utf-8")
         pkgconfig_build = (recipe / "scripts/pkg-config/build.sh").read_text(encoding="utf-8")
+        freetype_build = (recipe / "scripts/freetype/build.sh").read_text(encoding="utf-8")
         audio_default_options = ffmpeg_options.split(
             "audio_default_options = [", 1
         )[1].split("\n]", 1)[0]
@@ -169,6 +170,19 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn(
             'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"',
             pkgconfig_build,
+        )
+        self.assertIn("cd build/subprojects/libpng-1.6.40", freetype_build)
+        libpng_patch_command = (
+            'patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"'
+        )
+        self.assertIn(libpng_patch_command, freetype_build)
+        self.assertLess(
+            freetype_build.index("meson setup build"),
+            freetype_build.index(libpng_patch_command),
+        )
+        self.assertLess(
+            freetype_build.index(libpng_patch_command),
+            freetype_build.index("meson compile -C build"),
         )
         self.assertIn(
             "libplacebo-glad", (recipe / "downloads.lock").read_text(encoding="utf-8")

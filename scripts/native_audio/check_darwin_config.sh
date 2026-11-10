@@ -37,8 +37,9 @@ ffmpeg_build="$source_dir/scripts/ffmpeg/build.sh"
 mpv_build="$source_dir/scripts/mpv/build.sh"
 libplacebo_build="$source_dir/scripts/libplacebo/build.sh"
 pkgconfig_build="$source_dir/scripts/pkg-config/build.sh"
+freetype_build="$source_dir/scripts/freetype/build.sh"
 makefile="$source_dir/Makefile"
-[[ -f "$ffmpeg_options" && -f "$ffmpeg_build" && -f "$mpv_build" && -f "$libplacebo_build" && -f "$pkgconfig_build" ]] ||
+[[ -f "$ffmpeg_options" && -f "$ffmpeg_build" && -f "$mpv_build" && -f "$libplacebo_build" && -f "$pkgconfig_build" && -f "$freetype_build" ]] ||
     fail 'one or more pinned recipe files are missing'
 
 for package_version in \
@@ -79,6 +80,8 @@ cmp -s "$script_dir/darwin-libplacebo-charconv.patch" "$source_dir/patches/libpl
     fail 'libplacebo Darwin charconv patch differs from the checked patch'
 cmp -s "$script_dir/pkg-config-glib-atomics.patch" "$source_dir/patches/pkg-config-glib-atomics.patch" ||
     fail 'pkg-config bundled GLib atomic patch differs from the checked patch'
+cmp -s "$script_dir/libpng-macos-fp-header.patch" "$source_dir/patches/libpng-macos-fp-header.patch" ||
+    fail 'libpng macOS math-header patch differs from the checked patch'
 bash "$script_dir/apply_mpv_audio_controls.sh" --check-patch \
     "$script_dir/mpv-audio-controls.patch" ||
     fail 'MPV audio controls patch changed'
@@ -120,6 +123,15 @@ grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}"
     fail 'MPV audio controls patch is not applied by the pinned build script'
 grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"' "$pkgconfig_build" ||
     fail 'pkg-config bundled GLib atomic patch is not applied before configure'
+grep -Fq 'cd build/subprojects/libpng-1.6.40' "$freetype_build" ||
+    fail 'libpng fallback source directory is not patched'
+grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"' "$freetype_build" ||
+    fail 'libpng macOS math-header patch is not applied'
+setup_line=$(grep -Fn 'meson setup build \' "$freetype_build" | cut -d: -f1)
+libpng_patch_line=$(grep -Fn 'patch -p1 < "${PROJECT_DIR}/patches/libpng-macos-fp-header.patch"' "$freetype_build" | cut -d: -f1)
+compile_line=$(grep -Fn 'meson compile -C build' "$freetype_build" | cut -d: -f1)
+[[ "$setup_line" -lt "$libpng_patch_line" && "$libpng_patch_line" -lt "$compile_line" ]] ||
+    fail 'libpng fallback patch must run after Meson setup and before compilation'
 if grep -Eq 'mpv-(filter-command-target|audio-reinit|fix-missing-objc)\.patch' "$mpv_build"; then
     fail 'MPV build script still applies a patch already included in mpv 0.42.0'
 fi
