@@ -229,7 +229,6 @@ assert_git_source_commit fast_float "$FAST_FLOAT_COMMIT"
 assert_git_source_commit glad "$GLAD_COMMIT"
 assert_git_source_commit libdovi "$LIBDOVI_COMMIT"
 assert_git_source_commit libplacebo "$LIBPLACEBO_COMMIT"
-assert_git_source_commit openal-soft "$OPENAL_SOFT_COMMIT"
 assert_git_source_commit shaderc "$SHADERC_COMMIT"
 mapfile -t dev_dirs < <(find "$build_dir" -maxdepth 1 -mindepth 1 -type d -name 'mpv-dev-x86_64-*' -print)
 [[ "${#dev_dirs[@]}" == 1 ]] || fail "expected one mpv-dev output directory, found ${#dev_dirs[@]}"

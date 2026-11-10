@@ -5,6 +5,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$script_dir/windows.lock"
 source_dir=${1:?Usage: check_windows_config.sh <libmpv-win32-video-cmake source>}
 ffmpeg_config="$source_dir/packages/ffmpeg.cmake"
+libass_config="$source_dir/packages/libass.cmake"
 mpv_config="$source_dir/packages/mpv.cmake"
 opus_config="$source_dir/packages/opus.cmake"
 opus_dnn_config="$source_dir/packages/opus-dnn.cmake"
@@ -44,6 +45,11 @@ check_git_pin() {
 
 [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$RECIPE_COMMIT" ]] ||
     fail "recipe ref does not match $RECIPE_COMMIT"
+if grep -Fqx '        openal-soft' "$ffmpeg_config"; then
+    fail "FFmpeg must not build the unused OpenAL dependency"
+fi
+grep -Fqx '        --prefer-static' "$libass_config" ||
+    fail "libass must resolve static dependency requirements"
 grep -Fqx "    GIT_TAG $FFMPEG_COMMIT" "$ffmpeg_config" ||
     fail "FFmpeg source is not pinned to $FFMPEG_COMMIT"
 [[ -f "$source_dir/packages/ffmpeg-sendcmd-precision.patch" ]] ||
@@ -268,7 +274,6 @@ check_git_pin fast_float "$FAST_FLOAT_URL" "$FAST_FLOAT_COMMIT" "$source_dir/pac
 check_git_pin glad "$GLAD_URL" "$GLAD_COMMIT" "$source_dir/packages/glad.cmake"
 check_git_pin libdovi "$LIBDOVI_URL" "$LIBDOVI_COMMIT" "$source_dir/packages/libdovi.cmake"
 check_git_pin libplacebo "$LIBPLACEBO_URL" "$LIBPLACEBO_COMMIT" "$source_dir/packages/libplacebo.cmake"
-check_git_pin openal-soft "$OPENAL_SOFT_URL" "$OPENAL_SOFT_COMMIT" "$source_dir/packages/openal-soft.cmake"
 check_git_pin shaderc "$SHADERC_URL" "$SHADERC_COMMIT" "$source_dir/packages/shaderc.cmake"
 zstd_config="$source_dir/packages/zstd.cmake"
 grep -Fqx "    GIT_REPOSITORY $ZSTD_URL" "$zstd_config" ||

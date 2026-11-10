@@ -145,7 +145,5 @@ LIBDOVI_COMMIT=41dae646193c12de152333ff5dbc33579cb9ef4a
 LIBPLACEBO_URL=https://github.com/haasn/libplacebo.git
 LIBPLACEBO_COMMIT=9fabf6d5057c40089afb020017c6347002b07308
 # Immutable refs observed in Windows build log 42542031639.
-OPENAL_SOFT_URL=https://github.com/kcat/openal-soft.git
-OPENAL_SOFT_COMMIT=2fc99332b9be52a62c8d7525ce444c70c48e530a
 SHADERC_URL=https://github.com/google/shaderc.git
 SHADERC_COMMIT=4f0683ab2419ecbb9e18c9edfd4ffd70c2ba8cc6

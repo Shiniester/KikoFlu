@@ -304,14 +304,6 @@ index 9df683e..c16624f 100644
      GIT_REPOSITORY https://github.com/xiph/ogg.git
 +    GIT_TAG be05b13e98b048f0b5a0f5fa8ce514d56db5f822
      SOURCE_DIR ${SOURCE_LOCATION}
-diff --git a/packages/openal-soft.cmake b/packages/openal-soft.cmake
-index e173bc4..cfa73b1 100644
---- a/packages/openal-soft.cmake
-+++ b/packages/openal-soft.cmake
-@@ -4,2 +4,3 @@ ExternalProject_Add(openal-soft
-     GIT_REPOSITORY https://github.com/kcat/openal-soft.git
-+    GIT_TAG 2fc99332b9be52a62c8d7525ce444c70c48e530a
-     SOURCE_DIR ${SOURCE_LOCATION}
 diff --git a/packages/openssl.cmake b/packages/openssl.cmake
 index 261de64..6bfb540 100644
 --- a/packages/openssl.cmake

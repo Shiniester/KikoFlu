@@ -2,9 +2,9 @@ diff --git a/packages/ffmpeg.cmake b/packages/ffmpeg.cmake
 index ffbcbfc..bf5556e 100644
 --- a/packages/ffmpeg.cmake
 +++ b/packages/ffmpeg.cmake
-@@ -33,6 +33,7 @@ ExternalProject_Add(ffmpeg
+@@ -33,6 +33,6 @@ ExternalProject_Add(ffmpeg
          dav1d
-         openal-soft
+-        openal-soft
      GIT_REPOSITORY https://github.com/FFmpeg/FFmpeg.git
 +    GIT_TAG 8d940a07d19023a98689f353e4425a14688547e9
      SOURCE_DIR ${SOURCE_LOCATION}
@@ -16,7 +16,7 @@ index ffbcbfc..bf5556e 100644
 +            --verify <SOURCE_DIR> 8d940a07d19023a98689f353e4425a14688547e9 ${CMAKE_CURRENT_LIST_DIR}/ffmpeg-sendcmd-precision.patch
      UPDATE_COMMAND ""
      CONFIGURE_COMMAND ${EXEC} CONF=1 <SOURCE_DIR>/configure
-@@ -62,6 +65,30 @@ ExternalProject_Add(ffmpeg
+@@ -62,6 +64,30 @@ ExternalProject_Add(ffmpeg
          --disable-parsers
          --disable-protocols
          --disable-filters
@@ -47,6 +47,17 @@ index ffbcbfc..bf5556e 100644
          --disable-doc
          --disable-postproc
          --disable-programs
+diff --git a/packages/libass.cmake b/packages/libass.cmake
+--- a/packages/libass.cmake
++++ b/packages/libass.cmake
+@@ -16,6 +16,7 @@ ExternalProject_Add(libass
+         --cross-file=${MESON_CROSS}
+         --buildtype=release
+         --default-library=static
++        --prefer-static
+         -Dfontconfig=enabled
+         -Ddirectwrite=enabled
+         -Dasm=enabled
 diff --git a/packages/mpv.cmake b/packages/mpv.cmake
 index 1d9ea2e..c029a64 100644
 --- a/packages/mpv.cmake
