@@ -57,7 +57,7 @@ done
     fail 'FFmpeg download is not pinned to the common.lock commit'
 [[ "$(lock_value libplacebo url)" == "https://github.com/haasn/libplacebo/archive/$LIBPLACEBO_COMMIT.tar.gz" ]] ||
     fail 'libplacebo download is not pinned to the common.lock commit'
-for dependency in glad jinja markupsafe; do
+for dependency in glad jinja markupsafe vulkan-headers; do
     [[ -n "$(lock_value "libplacebo-$dependency" sha256)" ]] ||
         fail "libplacebo $dependency source archive is missing"
 done
@@ -67,6 +67,13 @@ done
     fail 'libplacebo fast_float archive is not pinned to its gitlink commit'
 [[ "$(lock_value libplacebo-fast_float sha256)" == "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801" ]] ||
     fail 'libplacebo fast_float archive SHA-256 differs from the pinned archive'
+vulkan_headers_commit=74d8a6cb930c68ef617b202c3ff3c59d919e086b
+[[ "$(lock_value libplacebo-vulkan-headers version)" == "$vulkan_headers_commit" ]] ||
+    fail 'libplacebo Vulkan-Headers archive does not match the pinned gitlink'
+[[ "$(lock_value libplacebo-vulkan-headers url)" == "https://github.com/KhronosGroup/Vulkan-Headers/archive/$vulkan_headers_commit.tar.gz" ]] ||
+    fail 'libplacebo Vulkan-Headers archive is not pinned to its gitlink commit'
+[[ "$(lock_value libplacebo-vulkan-headers sha256)" == "75967a8288ff16044a86d1af462b96d2e75c435937efb75f2bb4102ab0382f29" ]] ||
+    fail 'libplacebo Vulkan-Headers archive SHA-256 differs from the pinned archive'
 
 [[ -f "$source_dir/patches/mpv-audio-controls.patch" ]] ||
     fail 'MPV audio controls patch is missing from the recipe'
@@ -160,8 +167,12 @@ grep -Fq '${INTERMEDIATE_DIR}/libplacebo_$$(word 1,$$(subst -, ,$$*))-$$(word 2,
 for option in '-Dopengl=enabled' '-Dvulkan=disabled' '-Dglslang=disabled' '-Dshaderc=disabled' '-Ddefault_library=static'; do
     grep -Fq -- "$option" "$libplacebo_build" || fail "libplacebo build option is missing: $option"
 done
-grep -Fq 'for dependency in fast_float glad jinja markupsafe' "$libplacebo_build" ||
-    fail 'libplacebo build does not extract the fast_float gitlink archive'
+grep -Fq 'for dependency in fast_float glad jinja markupsafe vulkan-headers;' "$libplacebo_build" ||
+    fail 'libplacebo build does not extract all pinned gitlink archives'
+grep -Fq 'subproject=Vulkan-Headers' "$libplacebo_build" ||
+    fail 'libplacebo Vulkan-Headers archive is not extracted into the submodule path'
+grep -Fq -- '-Dvulkan=disabled' "$libplacebo_build" ||
+    fail 'libplacebo Vulkan backend must remain disabled'
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/libplacebo-darwin-charconv.patch"' "$libplacebo_build" ||
     fail 'libplacebo Darwin charconv fallback patch is not applied'
 for target in \

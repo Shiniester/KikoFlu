@@ -49,7 +49,7 @@ index b96190c..ff1a6b6 100644
 @@ -656,0 +697 @@ ${INTERMEDIATE_DIR}/mpv_%: \
 +	${INTERMEDIATE_DIR}/libplacebo_$$(word 1,$$(subst -, ,$$*))-$$(word 2,$$(subst -, ,$$*)) \
 diff --git a/downloads.lock b/downloads.lock
-index 3e3bd1e..9cae392 100644
+index 3e3bd1e..a06768a 100644
 --- a/downloads.lock
 +++ b/downloads.lock
 @@ -6,3 +6,3 @@ ffmpeg:
@@ -59,7 +59,7 @@ index 3e3bd1e..9cae392 100644
 +  version: 9.0.2
 +  url: https://github.com/FFmpeg/FFmpeg/archive/946fcce07b6dcd0331c8cc609192aeff5e1924f8.tar.gz
 +  sha256: 0aa2b1de2a5698b20a23e93d539a9a8e82ca0117496c5bdf05d198805f42bb3b
-@@ -24,0 +25,20 @@ harfbuzz:
+@@ -24,0 +25,24 @@ harfbuzz:
 +libplacebo:
 +  version: 7.387.0
 +  url: https://github.com/haasn/libplacebo/archive/275f7dea27924cdd34ab2e6c20e448b6bc4fab65.tar.gz
@@ -80,7 +80,11 @@ index 3e3bd1e..9cae392 100644
 +  version: 297fc8e356e6836a62087949245d09a28e9f1b13
 +  url: https://github.com/pallets/markupsafe/archive/297fc8e356e6836a62087949245d09a28e9f1b13.tar.gz
 +  sha256: da7c010c9c81a66ac73036558c1fcb6212b50482f43211cd1254035b94f82414
-@@ -54,3 +74,3 @@ mpv:
++libplacebo-vulkan-headers:
++  version: 74d8a6cb930c68ef617b202c3ff3c59d919e086b
++  url: https://github.com/KhronosGroup/Vulkan-Headers/archive/74d8a6cb930c68ef617b202c3ff3c59d919e086b.tar.gz
++  sha256: 75967a8288ff16044a86d1af462b96d2e75c435937efb75f2bb4102ab0382f29
+@@ -54,3 +78,3 @@ mpv:
 -  version: 0.36.0
 -  url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.36.0.tar.gz
 -  sha256: 29abc44f8ebee013bb2f9fe14d80b30db19b534c679056e4851ceadf5a5e8bf6
@@ -145,17 +149,17 @@ index 175ad59..2cd39f3 100644
 +)
 diff --git a/scripts/libplacebo/build.sh b/scripts/libplacebo/build.sh
 new file mode 100644
-index 0000000..3e9a7b8
+index 0000000..3a256c7
 --- /dev/null
 +++ b/scripts/libplacebo/build.sh
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,71 @@
 +#!/bin/sh
 +
 +set -e # exit immediately if a command exits with a non-zero status
 +set -u # treat unset variables as an error
 +
 +cd "${SRC_DIR}"
-+for dependency in fast_float glad jinja markupsafe; do
++for dependency in fast_float glad jinja markupsafe vulkan-headers; do
 +    archive=''
 +    for candidate in "${PROJECT_DIR}/${DOWNLOADS_DIR}/libplacebo-${dependency}-"*.tar.gz; do
 +        [ -f "${candidate}" ] || continue
@@ -163,8 +167,12 @@ index 0000000..3e9a7b8
 +        break
 +    done
 +    [ -n "${archive}" ]
-+    mkdir -p "3rdparty/${dependency}"
-+    tar -xzf "${archive}" --strip-components 1 -C "3rdparty/${dependency}"
++    subproject=${dependency}
++    if [ "${dependency}" = vulkan-headers ]; then
++        subproject=Vulkan-Headers
++    fi
++    mkdir -p "3rdparty/${subproject}"
++    tar -xzf "${archive}" --strip-components 1 -C "3rdparty/${subproject}"
 +done
 +
 +cross_file="${PROJECT_DIR}/cross-files/${OS}-${ARCH}.ini"

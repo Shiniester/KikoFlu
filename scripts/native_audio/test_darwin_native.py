@@ -140,6 +140,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         libplacebo_build = (recipe / "scripts/libplacebo/build.sh").read_text(encoding="utf-8")
         pkgconfig_build = (recipe / "scripts/pkg-config/build.sh").read_text(encoding="utf-8")
         freetype_build = (recipe / "scripts/freetype/build.sh").read_text(encoding="utf-8")
+        downloads_lock = (recipe / "downloads.lock").read_text(encoding="utf-8")
         audio_default_options = ffmpeg_options.split(
             "audio_default_options = [", 1
         )[1].split("\n]", 1)[0]
@@ -162,7 +163,12 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn("release_version=$(cat RELEASE)", ffmpeg_build)
         self.assertIn("${INTERMEDIATE_DIR}/libplacebo_", makefile)
         self.assertIn("-Dopengl=enabled", libplacebo_build)
-        self.assertIn("for dependency in fast_float glad jinja markupsafe", libplacebo_build)
+        self.assertIn(
+            "for dependency in fast_float glad jinja markupsafe vulkan-headers;",
+            libplacebo_build,
+        )
+        self.assertIn("subproject=Vulkan-Headers", libplacebo_build)
+        self.assertIn("-Dvulkan=disabled", libplacebo_build)
         self.assertIn("libplacebo-darwin-charconv.patch", libplacebo_build)
         self.assertIn("-mmacosx-version-min=10.15", libplacebo_build)
         self.assertIn("-miphoneos-version-min=13.0", libplacebo_build)
@@ -185,10 +191,19 @@ class DarwinRecipePatchTests(unittest.TestCase):
             freetype_build.index("meson compile -C build"),
         )
         self.assertIn(
-            "libplacebo-glad", (recipe / "downloads.lock").read_text(encoding="utf-8")
+            "libplacebo-glad", downloads_lock
         )
         self.assertIn(
-            "libplacebo-fast_float", (recipe / "downloads.lock").read_text(encoding="utf-8")
+            "libplacebo-fast_float",
+            downloads_lock,
+        )
+        self.assertIn(
+            "libplacebo-vulkan-headers:\n"
+            "  version: 74d8a6cb930c68ef617b202c3ff3c59d919e086b\n"
+            "  url: https://github.com/KhronosGroup/Vulkan-Headers/archive/"
+            "74d8a6cb930c68ef617b202c3ff3c59d919e086b.tar.gz\n"
+            "  sha256: 75967a8288ff16044a86d1af462b96d2e75c435937efb75f2bb4102ab0382f29",
+            downloads_lock,
         )
         simulator_arm64_cross_file = recipe / "cross-files/iossimulator-arm64.ini"
         simulator_arm64_contents = simulator_arm64_cross_file.read_text(encoding="utf-8")
@@ -319,6 +334,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
             not (mpv_root / "MPV_VERSION").is_file()
             or not (ffmpeg_root / "RELEASE").is_file()
             or not (libplacebo_root / "src/convert.cc").is_file()
+            or not (libplacebo_root / "src/vulkan/meson.build").is_file()
             or not (pkg_config_root / "glib/glib/gatomic.c").is_file()
         ):
             self.skipTest("the pinned native sources are available after download")
@@ -348,6 +364,15 @@ class DarwinRecipePatchTests(unittest.TestCase):
         ffmpeg_vp9 = (ffmpeg_root / "libavcodec/vp9.c").read_text(encoding="utf-8")
         ffmpeg_hls = (ffmpeg_root / "libavformat/hls.c").read_text(encoding="utf-8")
         ffmpeg_dash = (ffmpeg_root / "libavformat/dashdec.c").read_text(encoding="utf-8")
+        libplacebo_vulkan = (libplacebo_root / "src/vulkan/meson.build").read_text(
+            encoding="utf-8"
+        )
+        libplacebo_vulkan_stub = (libplacebo_root / "src/vulkan/stubs.c").read_text(
+            encoding="utf-8"
+        )
+        libplacebo_vulkan_header = (
+            libplacebo_root / "src/include/libplacebo/vulkan.h"
+        ).read_text(encoding="utf-8")
         reinit_audio = mpv_audio.split(
             "static int reinit_audio_filters_and_output", 1
         )[1].split("static bool ao_chain_init_decoder", 1)[0]
@@ -359,6 +384,20 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn("HWACCEL_VIDEOTOOLBOX(vp9)", ffmpeg_vp9)
         self.assertIn("pls->cur_init_section = NULL;", ffmpeg_hls)
         self.assertGreaterEqual(ffmpeg_dash.count("xmlEncodeSpecialChars(NULL,"), 2)
+        self.assertIn(
+            "vulkan_headers_dir = thirdparty/'Vulkan-Headers'", libplacebo_vulkan
+        )
+        self.assertIn(
+            "include_directories('../../3rdparty/Vulkan-Headers/include')",
+            libplacebo_vulkan,
+        )
+        self.assertIn("build_deps += vulkan_headers", libplacebo_vulkan)
+        self.assertIn("if vulkan_build.allowed()", libplacebo_vulkan)
+        self.assertIn(
+            "else\n  sources += 'vulkan/stubs.c'\nendif", libplacebo_vulkan
+        )
+        self.assertIn("#include <libplacebo/vulkan.h>", libplacebo_vulkan_stub)
+        self.assertIn("#include <vulkan/vulkan.h>", libplacebo_vulkan_header)
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
