@@ -47,6 +47,17 @@ index ffbcbfc..bf5556e 100644
          --disable-doc
          --disable-postproc
          --disable-programs
+diff --git a/packages/libarchive.cmake b/packages/libarchive.cmake
+--- a/packages/libarchive.cmake
++++ b/packages/libarchive.cmake
+@@ -11,6 +11,7 @@ ExternalProject_Add(libarchive
+     SOURCE_DIR ${SOURCE_LOCATION}
+     GIT_CLONE_FLAGS "--filter=tree:0"
+     UPDATE_COMMAND ""
++    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch
+     CONFIGURE_COMMAND ${EXEC} CONF=1 cmake -H<SOURCE_DIR> -B<BINARY_DIR>
+         -G Ninja
+         -DCMAKE_BUILD_TYPE=Release
 diff --git a/packages/libass.cmake b/packages/libass.cmake
 --- a/packages/libass.cmake
 +++ b/packages/libass.cmake

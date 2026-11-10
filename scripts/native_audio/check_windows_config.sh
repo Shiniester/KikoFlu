@@ -5,6 +5,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$script_dir/windows.lock"
 source_dir=${1:?Usage: check_windows_config.sh <libmpv-win32-video-cmake source>}
 ffmpeg_config="$source_dir/packages/ffmpeg.cmake"
+libarchive_config="$source_dir/packages/libarchive.cmake"
 libass_config="$source_dir/packages/libass.cmake"
 mpv_config="$source_dir/packages/mpv.cmake"
 opus_config="$source_dir/packages/opus.cmake"
@@ -50,6 +51,10 @@ if grep -Fqx '        openal-soft' "$ffmpeg_config"; then
 fi
 grep -Fqx '        --prefer-static' "$libass_config" ||
     fail "libass must resolve static dependency requirements"
+cmp -s "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libarchive-openssl-static.patch" ||
+    fail "libarchive OpenSSL patch differs from the checked patch"
+grep -Fqx '    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch' "$libarchive_config" ||
+    fail "libarchive OpenSSL patch is not applied during the source build"
 grep -Fqx "    GIT_TAG $FFMPEG_COMMIT" "$ffmpeg_config" ||
     fail "FFmpeg source is not pinned to $FFMPEG_COMMIT"
 [[ -f "$source_dir/packages/ffmpeg-sendcmd-precision.patch" ]] ||

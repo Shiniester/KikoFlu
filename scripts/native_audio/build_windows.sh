@@ -79,6 +79,7 @@ cp "$script_dir/mpv-audio-controls.patch" "$source_dir/packages/mpv-audio-contro
 cp "$script_dir/apply_mpv_audio_controls.sh" "$source_dir/packages/apply_mpv_audio_controls.sh"
 cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$source_dir/packages/ffmpeg-sendcmd-precision.patch"
 cp "$script_dir/apply_ffmpeg_sendcmd_precision.sh" "$source_dir/packages/apply_ffmpeg_sendcmd_precision.sh"
+cp "$script_dir/libarchive-openssl-static.patch" "$source_dir/packages/libarchive-openssl-static.patch"
 cp "$script_dir/vulkan-loader-static.patch" "$source_dir/packages/vulkan-loader-static.patch"
 git -C "$source_dir" apply --check "$script_dir/windows-mpv-audio-reinit.patch"
 git -C "$source_dir" apply "$script_dir/windows-mpv-audio-reinit.patch"
