@@ -38,9 +38,6 @@ index 434674b72..a5248ca83 100644
 @@ -1935 +1935 @@ out:
 -#if defined(_WIN32)
 +#if defined(LOADER_DYNAMIC_LIB)
-@@ -1973 +1973 @@ void loader_initialize(void) {
--#if defined(_WIN32)
-+#if defined(LOADER_DYNAMIC_LIB)
 @@ -2327,3 +2327,3 @@ void loader_initialize(void) {
 -#if defined(_WIN32)
 +#if defined(LOADER_DYNAMIC_LIB)

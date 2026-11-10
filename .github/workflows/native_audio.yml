@@ -201,6 +201,9 @@ jobs:
           name: native-audio-windows
           path: ${{ runner.temp }}\native-audio-windows
 
+      - name: Verify Vulkan loader initialization
+        run: '& "$env:RUNNER_TEMP\native-audio-windows\vulkan-smoke.exe"'
+
       - name: Probe actual PCM output
         run: python scripts/probe_audio_effects.py --libmpv "$env:RUNNER_TEMP\native-audio-windows\mpv-dev\libmpv-2.dll" --output "$env:RUNNER_TEMP\native-audio-windows-probe.json"
 

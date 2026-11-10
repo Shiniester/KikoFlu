@@ -242,6 +242,11 @@ fi
 
 mkdir -p "$output_dir/mpv-dev"
 cp -a "${dev_dirs[0]}/." "$output_dir/mpv-dev/"
+"$toolchain_dir/bin/$TARGET_ARCH-gcc" \
+    -I"$toolchain_dir/$TARGET_ARCH/include" \
+    "$script_dir/windows-vulkan-smoke.c" \
+    "$toolchain_dir/$TARGET_ARCH/lib/libvulkan.a" \
+    -lshlwapi -lcfgmgr32 -pthread -static -o "$output_dir/vulkan-smoke.exe"
 {
     printf 'recipe_url=%s\n' "$RECIPE_URL"
     printf 'recipe_ref=%s\n' "$RECIPE_COMMIT"
