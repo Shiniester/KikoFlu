@@ -77,10 +77,9 @@ void main() {
         final completed = player.stream.completed.firstWhere((done) => done);
         await player.play();
         await completed.timeout(const Duration(seconds: 15));
-        await player.stop();
+        final actual = await _finishPcmCapture(native, output);
         expect(statuses, contains(AudioEffectsStatus.ready));
         expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
-        final actual = audioEffectsPcm(await output.readAsBytes());
         expect(actual.length, frames.length);
         // Control changes slew over 20 ms. The final channel mapping must persist.
         for (var n = 4096; n < frames.length; n++) {
@@ -160,11 +159,8 @@ void main() {
           (playlist) => playlist.index == 1,
         );
         await player.open(Playlist([Media(a.path), Media(b.path)]));
-        await player.stream.position
-            .firstWhere(
-              (position) => position >= const Duration(milliseconds: 100),
-            )
-            .timeout(const Duration(seconds: 10));
+        await _waitForNativePosition(native, .1);
+        expect(await native.getProperty('playlist-playing-pos'), '0');
         await controller.configure(
           native,
           AudioEffectsSettings(
@@ -254,11 +250,8 @@ void main() {
             '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
           );
         });
-        final started = player.stream.position.firstWhere(
-          (position) => position >= const Duration(milliseconds: 500),
-        );
         await player.open(Media(source.path));
-        await started.timeout(const Duration(seconds: 10));
+        await _waitForNativePosition(native, .5);
         final graph = await native.getProperty('af');
         Future<void> waitForOutput(bool duplicated, int previousLength) async {
           final deadline = DateTime.now().add(const Duration(seconds: 10));
@@ -318,8 +311,7 @@ void main() {
           contains('volume@channel_mode=3'),
         );
         expect(loads, 1);
-        await player.stop();
-        final actual = audioEffectsPcm(await output.readAsBytes());
+        final actual = await _finishPcmCapture(native, output);
         await Directory('build/audio-effects-contract').create(recursive: true);
         await output.copy(
           'build/audio-effects-contract/native-seek-output.pcm',
@@ -377,13 +369,6 @@ void main() {
           final native = player.platform as NativePlayer;
           final statuses = <AudioEffectsStatus>[];
           final controller = NativeAudioEffects(statuses.add);
-          final rates = <int>[];
-          final params = player.stream.audioParams.listen((value) {
-            final rate = value.sampleRate;
-            if (rate != null && (rates.isEmpty || rates.last != rate)) {
-              rates.add(rate);
-            }
-          });
           final output = File('${directory.path}/${hot ? 'hot' : 'dry'}.pcm');
           var loads = 0;
           try {
@@ -413,20 +398,17 @@ void main() {
                 '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
               );
             });
-            final started = player.stream.position.firstWhere(
-              (position) => position >= const Duration(milliseconds: 300),
-            );
             final completed = player.stream.completed.firstWhere(
               (done) => done,
             );
             await player.open(Media(manifest.path));
-            await started.timeout(const Duration(seconds: 10));
+            await _waitForNativePosition(native, .3);
+            expect(
+              await native.getProperty('audio-params/samplerate'),
+              '44100',
+            );
             if (hot) {
               final graph = await native.getProperty('af');
-              expect(
-                await native.getProperty('audio-params/samplerate'),
-                '44100',
-              );
               await controller.configure(native, target, false);
               expect(await native.getProperty('af'), graph);
               expect(
@@ -435,7 +417,6 @@ void main() {
               );
             }
             await completed.timeout(const Duration(seconds: 30));
-            expect(rates.first, 44100);
             expect(
               await native.getProperty('audio-params/samplerate'),
               '96000',
@@ -446,10 +427,8 @@ void main() {
             );
             expect(loads, 1);
             expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
-            await player.stop();
-            return audioEffectsPcm(await output.readAsBytes());
+            return await _finishPcmCapture(native, output);
           } finally {
-            await params.cancel();
             await controller.dispose();
             await player.dispose();
           }
@@ -458,8 +437,8 @@ void main() {
         try {
           final dry = await capture(false);
           final hot = await capture(true);
+          expect(dry.length, 382405);
           expect(hot.length, dry.length);
-          expect(dry.length, greaterThan(2000));
           expect(dry.take(128).any((row) => row.$1 != row.$2), true);
           for (var n = hot.length - 2000; n < hot.length; n++) {
             expect(hot[n].$1, closeTo(binaural ? dry[n].$1 : dry[n].$2, 1e-6));
@@ -522,8 +501,7 @@ void main() {
           final completed = player.stream.completed.firstWhere((done) => done);
           await player.open(Media(source.path));
           await completed.timeout(const Duration(seconds: 10));
-          await player.stop();
-          final actual = audioEffectsPcm(await output.readAsBytes());
+          final actual = await _finishPcmCapture(native, output);
           expect(actual.length, frames.length);
           if (bypass) {
             expect(
@@ -550,6 +528,30 @@ void main() {
         ? 'Set KIKOFLU_AUDIO_LIBMPV to run real headless native output.'
         : false,
   );
+}
+
+Future<void> _waitForNativePosition(NativePlayer player, double seconds) async {
+  // The arealtime test filter can delay libmpv position notifications.
+  final elapsed = Stopwatch()..start();
+  while (true) {
+    final position = double.tryParse(await player.getProperty('time-pos'));
+    if (position != null && position >= seconds) return;
+    if (elapsed.elapsed >= const Duration(seconds: 10)) {
+      throw TimeoutException('Native playback did not reach $seconds seconds');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+Future<List<(double, double)>> _finishPcmCapture(
+  NativePlayer player,
+  File output,
+) async {
+  await player.stop();
+  // The stop reply can arrive before mpv closes the buffered PCM file.
+  await player.setProperty('ao', 'null');
+  expect(await player.getProperty('current-ao'), isNot('pcm'));
+  return audioEffectsPcm(await output.readAsBytes());
 }
 
 void _setNativeAf(NativePlayer player, String graph) {
