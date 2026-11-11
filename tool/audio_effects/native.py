@@ -35,7 +35,8 @@ def child(config_path):
     graph = config["graph"]
     actions = config.get("actions", [])
     observe_reconfigs = any(command[0] == "on-audio-reconfig" for _, command in actions)
-    if config["updates"] or actions:
+    pace_input = config.get("pace_input", False) or config["updates"] or actions
+    if pace_input:
         # Pace 128-sample frames, rather than whole decoder packets. Otherwise a
         # recursive graph can consume its control branch before queued commands
         # run, even while the outer decoder-packet pacer is still sleeping.
@@ -55,7 +56,7 @@ def child(config_path):
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     chain = config.get("af_chain")
-    if chain and (config["updates"] or actions):
+    if chain and pace_input:
         chain = chain.replace("format=channels=stereo,",
                               "format=channels=stereo,@clock:lavfi=o=[threads=1]:graph="
                               "[" + PACING_FILTERS + "],", 1)
@@ -232,7 +233,8 @@ def child(config_path):
 def run(directory, library, name, graph, frames, rate, updates=(), timeout=8,
         output_channels=2, update_target="volume@mono_amount", source_url=None,
         demuxer_format="wav", af_chain=None, actions=(), followup_frames=None,
-        start_position=None, actions_after_output=False, reconfig_actions=()):
+        start_position=None, actions_after_output=False, reconfig_actions=(),
+        pace_input=False):
     actions = tuple(actions) + tuple((0, ["on-audio-reconfig", str(trigger_rate), *command])
                                      for trigger_rate, command in reconfig_actions)
     source = directory / (name + ".wav")
@@ -252,6 +254,7 @@ def run(directory, library, name, graph, frames, rate, updates=(), timeout=8,
         "af_chain": af_chain, "actions": actions,
         "followup": str(followup) if followup_frames is not None else None,
         "start_position": start_position, "actions_after_output": actions_after_output,
+        "pace_input": pace_input,
     }), encoding="utf-8")
     try:
         process = subprocess.run(

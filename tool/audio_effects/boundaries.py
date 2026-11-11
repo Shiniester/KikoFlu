@@ -29,9 +29,10 @@ def add_boundary_cases(case, require):
     for name, graph in (("mono", mono), ("scene", scene)):
         # An exact seek decodes preroll before trimming. A physically sliced WAV
         # would start DSP history at a different point and is not this contract.
+        # Match the seek capture's test clock so both outputs have the same framing.
         case("boundary_" + name + "_start_reference", graph, frames, 48000,
              lambda a,r,name=name: record(name + "_start", a),
-             start_position=2, expect_full_input=False)
+             start_position=2, expect_full_input=False, pace_input=True)
 
     def actions_ok(report, count):
         actions = report.get("actions", [])

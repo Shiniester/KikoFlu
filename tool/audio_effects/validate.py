@@ -70,7 +70,7 @@ def main():
         def case(name, graph, frames, rate, assess, updates=(), output_channels=2,
                  update_target="volume@mono_amount", source_url=None, demuxer_format="wav",
                  af_chain=None, actions=(), followup_frames=None, start_position=None,
-                 expect_full_input=True, actions_after_output=False):
+                 expect_full_input=True, actions_after_output=False, pace_input=False):
             transport_options = {} if source_url is None else {
                 "source_url": source_url, "demuxer_format": demuxer_format,
             }
@@ -80,6 +80,8 @@ def main():
                 transport_options["actions"] = actions
             if actions_after_output:
                 transport_options["actions_after_output"] = True
+            if pace_input:
+                transport_options["pace_input"] = True
             if followup_frames is not None:
                 transport_options["followup_frames"] = followup_frames
             if start_position is not None:
