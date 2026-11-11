@@ -86,7 +86,7 @@ class CoverPreviewDialog extends StatefulWidget {
   final String? identifier;
 
   /// Hero标签（用于动画过渡）
-  final String? heroTag;
+  final Object? heroTag;
 
   /// 与列表、详情和保存操作共享的稳定原图缓存键。
   final String? cacheKey;
@@ -131,7 +131,7 @@ class CoverPreviewDialog extends StatefulWidget {
     String? localPath,
     Uint8List? imageBytes,
     String? identifier,
-    String? heroTag,
+    Object? heroTag,
     String? cacheKey,
     bool isJapaneseAsmr = false,
     Color backgroundColor = Colors.black,

@@ -22,7 +22,7 @@ The full-screen audio player uses `appAudioPlayerRouteSettings`. The Bottom Dock
 
 Covered ordinary pages retain their landscape browsing viewport during full-screen audio playback. This keeps browsing content in place and preserves its scroll position.
 
-Online and offline Work Details navigation continues to use `pushWorkDetailRoute`, which delegates to `pushBottomDockRoute`. Opening Work Details or a metadata search from the full-screen audio player uses the same handoff: close the player to the Mini Player, select Audio, and open the page in its browsing history. Automatic Work Details replacement uses a zero-duration entry without adding a return step. The original navigation Future waits for the final replacement page to close and finish its return transition. Repeated taps only push while the source route is still current.
+Online and offline Work Details navigation continues to use `pushWorkDetailRoute`, which delegates to `pushBottomDockRoute`. Opening Work Details or a metadata search from the full-screen audio player uses the same handoff: close the player to the Mini Player, select Audio, and open the page in its browsing history. If the current Work Details Screen already shows that work, closing the player returns to the existing screen instead. Automatic Work Details replacement uses a zero-duration entry without adding a return step. The original navigation Future waits for the final replacement page to close and finish its return transition. Repeated taps only push while the source route is still current.
 
 ## Consequences
 

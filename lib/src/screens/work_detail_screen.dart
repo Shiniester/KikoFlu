@@ -67,6 +67,7 @@ class WorkDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
+  final Object _coverHeroTag = Object();
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
   final _translationSourceLanguage = ValueNotifier<String?>(null);
@@ -150,8 +151,12 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     _hdPixelSize = size;
     final navigator = Navigator.maybeOf(context);
     final navigation = AppNavigationScope.maybeOf(context);
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      navigation?.registerWorkDetailRoute(route, widget.work.id);
+    }
     _routeReadiness.bind(
-      route: ModalRoute.of(context),
+      route: route,
       navigator: navigator,
       navigationMotion:
           identical(navigator, navigation?.tabNavigator(appAudioTabIndex))
@@ -1030,7 +1035,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     // 封面图片组件
     final coverUrl = work.getCoverImageUrl(host, token: token);
-    final coverHeroTag = 'work-detail-cover-${widget.work.id}';
     final displaySettings = ref.watch(workDetailDisplayProvider);
 
     // 信息内容组件
@@ -1078,7 +1082,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         return ListenableBuilder(
           listenable: _metadataChanges,
           builder: (context, _) => WorkCoverFrame(
-            heroTag: coverHeroTag,
+            heroTag: _coverHeroTag,
             showSubtitleBadge:
                 displaySettings.showSubtitleTag &&
                 _currentWork.hasSubtitle == true,
@@ -1087,7 +1091,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             onTap: () => CoverPreviewDialog.show(
               context,
               imageUrl: coverUrl,
-              heroTag: coverHeroTag,
+              heroTag: _coverHeroTag,
               identifier: widget.work.id.toString(),
               cacheKey: 'work_cover_${widget.work.id}',
               isJapaneseAsmr: widget.work.id < 0,

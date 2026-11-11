@@ -21,6 +21,7 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
@@ -29,6 +30,7 @@ import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dar
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
@@ -1620,6 +1622,227 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final (offline, inTabNavigator) in [(false, false), (true, true)]) {
+    testWidgets(
+      'track title closes over the same work detail (offline=$offline, tab=$inTabNavigator)',
+      (tester) async {
+        const work = Work(id: 42, title: 'Current work');
+        const track = AudioTrack(
+          id: 'current-work-track',
+          title: 'Open this work',
+          url: 'https://example.invalid/work.mp3',
+          workId: 42,
+          artworkUrl: 'file://assets/icons/app_icon_opaque.png',
+        );
+        final navigation = AppNavigationController();
+        addTearDown(navigation.dispose);
+        final api = _CountingProgressApiService();
+        var workDetailsLoads = 0;
+        final showDetail = ValueNotifier(true);
+        addTearDown(showDetail.dispose);
+        final detail = offline
+            ? const OfflineWorkDetailScreen(
+                work: work,
+                localCoverPath: 'assets/icons/app_icon_opaque.png',
+                localWorkDirPath: 'assets/icons',
+                fileTree: [],
+              )
+            : const WorkDetailScreen(work: work);
+        final detailPage = offline
+            ? ValueListenableBuilder<bool>(
+                valueListenable: showDetail,
+                builder: (context, visible, child) =>
+                    visible ? child! : const SizedBox.shrink(),
+                child: detail,
+              )
+            : detail;
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          pushedRoute: true,
+          track: track,
+          navigationController: navigation,
+          home: inTabNavigator
+              ? _tabNavigatorHome(navigation, detailPage)
+              : detailPage,
+          apiService: api,
+          onWorkDetailsLoad: () => workDetailsLoads++,
+          disableThemeArtwork: true,
+        );
+        final detailType = offline ? OfflineWorkDetailScreen : WorkDetailScreen;
+        final detailFinder = find.byType(detailType, skipOffstage: false);
+        expect(detailFinder, findsOneWidget);
+        final detailState = tester.state(detailFinder);
+        final apiLoadsBeforeTap = api.workLoads;
+        final detailLoadsBeforeTap = workDetailsLoads;
+
+        await tester.tap(
+          find.byKey(const ValueKey('player-track-title-button')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump();
+
+        expect(find.byType(AudioPlayerScreen), findsNothing);
+        expect(tester.state(detailFinder), same(detailState));
+        expect(api.workLoads, apiLoadsBeforeTap);
+        expect(workDetailsLoads, detailLoadsBeforeTap);
+        expect(tester.takeException(), isNull);
+        if (offline) {
+          showDetail.value = false;
+          await tester.pump();
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
+  }
+
+  testWidgets('different work detail keeps the existing title handoff', (
+    tester,
+  ) async {
+    const currentWork = Work(id: 99, title: 'Other work');
+    const targetTrack = AudioTrack(
+      id: 'target-work-track',
+      title: 'Open target work',
+      url: 'https://example.invalid/target.mp3',
+      workId: 42,
+    );
+    const targetWork = Work(id: 42, title: 'Target work');
+    const details = PlayerWorkDetailsData(
+      track: targetTrack,
+      work: targetWork,
+      fileTree: [],
+      variants: [],
+      fileTreeId: '42:test',
+    );
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      track: targetTrack,
+      workDetails: details,
+      navigationController: navigation,
+      home: _tabNavigatorHome(
+        navigation,
+        const WorkDetailScreen(work: currentWork),
+      ),
+      disableThemeArtwork: true,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('player-track-title-button')));
+    await tester.pump();
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    final detailWorks = tester
+        .widgetList<WorkDetailScreen>(
+          find.byType(WorkDetailScreen, skipOffstage: false),
+        )
+        .map((screen) => screen.work.id)
+        .toSet();
+    expect(detailWorks, {currentWork.id, targetWork.id});
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('track detail action closes over the same work before loading', (
+    tester,
+  ) async {
+    const work = Work(id: 42, title: 'Current work');
+    const track = AudioTrack(
+      id: 'current-work-track',
+      title: 'Open this work',
+      url: 'https://example.invalid/work.mp3',
+      workId: 42,
+    );
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    final api = _CountingProgressApiService();
+    var workDetailsLoads = 0;
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      track: track,
+      navigationController: navigation,
+      home: const WorkDetailScreen(work: work),
+      apiService: api,
+      onWorkDetailsLoad: () => workDetailsLoads++,
+      disableThemeArtwork: true,
+    );
+    final detailFinder = find.byType(WorkDetailScreen, skipOffstage: false);
+    final detailState = tester.state(detailFinder);
+    final apiLoadsBeforeTap = api.workLoads;
+    final detailLoadsBeforeTap = workDetailsLoads;
+    tester
+        .widget<PlayerControlsWidget>(find.byType(PlayerControlsWidget))
+        .onDetailPressed!();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.state(detailFinder), same(detailState));
+    expect(api.workLoads, apiLoadsBeforeTap);
+    expect(workDetailsLoads, detailLoadsBeforeTap);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('album card returns to the existing work detail', (tester) async {
+    const work = Work(id: 42, title: 'Current work');
+    const track = AudioTrack(
+      id: 'album-work-track',
+      title: 'Album track',
+      url: 'https://example.invalid/work.mp3',
+      workId: 42,
+    );
+    const details = PlayerWorkDetailsData(
+      track: track,
+      work: work,
+      fileTree: [],
+      variants: [],
+      fileTreeId: '42:album',
+    );
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      track: track,
+      workDetails: details,
+      navigationController: navigation,
+      home: _tabNavigatorHome(navigation, const WorkDetailScreen(work: work)),
+      disableThemeArtwork: true,
+    );
+    final detail = find.byType(WorkDetailScreen, skipOffstage: false);
+    final initialState = tester.state(detail);
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final album = find.byKey(const ValueKey('player-detail-album'));
+    expect(album.hitTestable(), findsOneWidget);
+    await tester.tap(album);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(detail, findsOneWidget);
+    expect(tester.state(detail), same(initialState));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('wide player places the title and cover left of controls', (
     tester,
   ) async {
@@ -1982,11 +2205,15 @@ void main() {
         of: list,
         matching: find.text(lyrics[10].text),
       );
-      expect(tester.getCenter(current).dy, closeTo(anchor, 2.1));
-      expect(
-        find.descendant(of: list, matching: find.text(lyrics[9].text)),
-        findsOneWidget,
+      final previous = find.descendant(
+        of: list,
+        matching: find.text(lyrics[9].text),
       );
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      expect(tester.getCenter(current).dy, closeTo(anchor, 2.1));
+      expect(tester.getRect(previous).overlaps(viewport), isTrue);
       positions.add(const Duration(seconds: 11));
       await tester.pump();
       await tester.pump();
@@ -1994,10 +2221,9 @@ void main() {
       for (var frame = 0; frame < 6; frame++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(
-        find.descendant(of: list, matching: find.text(lyrics[9].text)),
-        findsNothing,
-      );
+      if (previous.evaluate().isNotEmpty) {
+        expect(tester.getRect(previous).overlaps(viewport), isFalse);
+      }
       expect(tester.getCenter(current).dy, isNot(closeTo(before, 0.1)));
       final target = find.descendant(
         of: list,
@@ -4228,6 +4454,13 @@ void main() {
         await gesture.moveBy(const Offset(0, 300));
         await tester.pump();
         expect(verticalPages.controller!.page, lessThan(0.5));
+        final heldPage = verticalPages.controller!.page!;
+        final heldOffset = position.pixels;
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.pump(const Duration(milliseconds: 160));
+        expect(position.pixels, closeTo(heldOffset, 0.1));
+        expect(verticalPages.controller!.page, closeTo(heldPage, 0.001));
         await gesture.moveBy(const Offset(0, 260));
         await tester.pump();
         expect(verticalPages.controller!.page, closeTo(0, 0.001));
@@ -6690,6 +6923,8 @@ Future<void> _pumpPlayer(
   void Function(LoopMode mode)? onRepeatModeChanged,
   VoidCallback? onHostTap,
   bool mockArtworkSeed = false,
+  AppNavigationController? navigationController,
+  Widget? home,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -6771,6 +7006,9 @@ Future<void> _pumpPlayer(
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,
+        navigatorObservers: [
+          if (navigationController != null) navigationController,
+        ],
         theme: ThemeData.light(useMaterial3: true).copyWith(platform: platform),
         darkTheme: ThemeData.dark(
           useMaterial3: true,
@@ -6783,19 +7021,28 @@ Future<void> _pumpPlayer(
           data: MediaQuery.of(
             context,
           ).copyWith(textScaler: TextScaler.linear(textScale)),
-          child: child!,
-        ),
-        home: pushedRoute || miniPlayerEntry
-            ? Scaffold(
-                body: TextButton(
-                  onPressed: onHostTap,
-                  child: const Text('mini-player-host'),
+          child: navigationController == null
+              ? child!
+              : AppNavigationScope(
+                  controller: navigationController,
+                  mediaQuery: MediaQuery.of(context),
+                  navigationMotion: const AlwaysStoppedAnimation<double>(0),
+                  child: child!,
                 ),
-                bottomNavigationBar: miniPlayerEntry
-                    ? const MiniPlayer()
-                    : null,
-              )
-            : AudioPlayerScreen(initialSurface: initialSurface),
+        ),
+        home:
+            home ??
+            (pushedRoute || miniPlayerEntry
+                ? Scaffold(
+                    body: TextButton(
+                      onPressed: onHostTap,
+                      child: const Text('mini-player-host'),
+                    ),
+                    bottomNavigationBar: miniPlayerEntry
+                        ? const MiniPlayer()
+                        : null,
+                  )
+                : AudioPlayerScreen(initialSurface: initialSurface)),
       ),
     ),
   );
@@ -6814,6 +7061,13 @@ Future<void> _pumpPlayer(
   }
   if (settleEntry) await tester.pump(const Duration(milliseconds: 350));
 }
+
+Widget _tabNavigatorHome(AppNavigationController navigation, Widget detail) =>
+    Navigator(
+      key: navigation.tabNavigatorKey(0),
+      observers: [navigation.tabObserver(0), navigation.tabHeroController(0)],
+      onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => detail),
+    );
 
 class _RepeatModeAudioController extends AudioPlayerController {
   _RepeatModeAudioController(Ref ref, this.onRepeatModeChanged)

@@ -47,7 +47,7 @@ class WorkCoverFrame extends StatelessWidget {
   final bool showAgeRating;
   final String? age;
   final VoidCallback? onTap;
-  final String? heroTag;
+  final Object? heroTag;
 
   @override
   Widget build(BuildContext context) {

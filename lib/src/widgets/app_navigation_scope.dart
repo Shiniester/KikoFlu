@@ -47,6 +47,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   }
 
   final List<Route<dynamic>> _routes = [];
+  final Map<Route<dynamic>, int> _workDetailRoutes = {};
   final Map<
     PopupRoute<dynamic>,
     ({
@@ -97,6 +98,33 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     final playerIndex = _routes.indexOf(player);
     // A popped player still covers earlier routes until its exit finishes.
     return routeIndex >= 0 && (playerIndex < 0 || routeIndex < playerIndex);
+  }
+
+  void registerWorkDetailRoute(Route<dynamic> route, int workId) {
+    _workDetailRoutes[route] = workId;
+  }
+
+  bool isAudioPlayerDirectlyAboveWork(int workId) {
+    final player = _audioPlayerNavigationRoute;
+    if (player == null ||
+        !player.isCurrent ||
+        !identical(audioPlayerRoute, player)) {
+      return false;
+    }
+    final playerIndex = _routes.indexOf(player);
+    if (playerIndex <= 0) return false;
+    final rootPage = _routes
+        .take(playerIndex)
+        .whereType<PageRoute<dynamic>>()
+        .where((route) => !_isCoverPreviewRoute(route))
+        .lastOrNull;
+    if (rootPage != null) {
+      final rootWorkId = _workDetailRoutes[rootPage];
+      if (rootWorkId != null) return rootWorkId == workId;
+      if (!rootPage.isFirst) return false;
+    }
+    return _workDetailRoutes[_tabObservers[_selectedIndex].currentPage] ==
+        workId;
   }
 
   void setAudioPlayerLandscapeInsets(EdgeInsets insets) {
@@ -335,6 +363,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     _fullscreenRoutes.remove(route);
     _closingAudioPlayerRoutes.remove(route);
     _fullscreenTransitions.remove(route);
+    _workDetailRoutes.remove(route);
     if (identical(_audioPlayerNavigationRoute, route)) {
       _audioPlayerNavigationRoute = null;
       _audioPlayerLandscapeInsets = null;
