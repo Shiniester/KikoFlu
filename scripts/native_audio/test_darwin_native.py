@@ -156,6 +156,15 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertEqual(expected_filters, actual_filters)
         self.assertNotIn("--enable-filters", audio_default_options)
         self.assertIn("mpv-audio-controls.patch", mpv_build)
+        self.assertIn("MACOS_OPTIONS+=(-Dswift-build=enabled)", mpv_build)
+        self.assertNotIn("-Dswift-build=disabled", mpv_build)
+        self.assertIn('if [ "${ARCH}" == "amd64" ]; then', mpv_build)
+        self.assertIn(
+            '"-Dswift-flags=-target x86_64-apple-macosx10.15"', mpv_build
+        )
+        self.assertIn(
+            '"-Dswift-flags=-target arm64-apple-macosx11.0"', mpv_build
+        )
         self.assertNotIn("mpv-audio-reinit.patch", mpv_build)
         self.assertNotIn("mpv-filter-command-target.patch", mpv_build)
         self.assertIn("ffmpeg-sendcmd-precision.patch", ffmpeg_build)
@@ -376,6 +385,13 @@ class DarwinRecipePatchTests(unittest.TestCase):
         mpv_audio = (mpv_root / "player/audio.c").read_text(encoding="utf-8")
         mpv_command = (mpv_root / "player/command.c").read_text(encoding="utf-8")
         mpv_filter_header = (mpv_root / "filters/filter.h").read_text(encoding="utf-8")
+        mpv_meson = (mpv_root / "meson.build").read_text(encoding="utf-8")
+        mpv_mac_meson = (mpv_root / "osdep/mac/meson.build").read_text(
+            encoding="utf-8"
+        )
+        mpv_mac_clipboard = (mpv_root / "player/clipboard/clipboard-mac.m").read_text(
+            encoding="utf-8"
+        )
         ffmpeg_vp9 = (ffmpeg_root / "libavcodec/vp9.c").read_text(encoding="utf-8")
         ffmpeg_hls = (ffmpeg_root / "libavformat/hls.c").read_text(encoding="utf-8")
         ffmpeg_dash = (ffmpeg_root / "libavformat/dashdec.c").read_text(encoding="utf-8")
@@ -394,6 +410,12 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertNotIn("ao_is_playing(mpctx->ao)", reinit_audio)
         self.assertNotIn("Wait until all played", reinit_audio)
         self.assertIn("uninit_audio_out(mpctx);", reinit_audio)
+        self.assertIn("'player/clipboard/clipboard-mac.m'", mpv_meson)
+        self.assertIn("if features['cocoa'] and features['swift']", mpv_meson)
+        self.assertIn(
+            "output: ['swift.swiftmodule', 'swift.h', 'swift.o']", mpv_mac_meson
+        )
+        self.assertIn('#include "osdep/mac/swift.h"', mpv_mac_clipboard)
         self.assertIn(".target = cmd->args[3].v.s", mpv_command)
         self.assertIn("const char *target;", mpv_filter_header)
         self.assertIn("HWACCEL_VIDEOTOOLBOX(vp9)", ffmpeg_vp9)

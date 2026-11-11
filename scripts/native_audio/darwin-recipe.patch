@@ -259,7 +259,7 @@ index 0000000..3a256c7
 +meson compile -C build
 +meson install -C build
 diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
-index ce9ba20..54f6739 100644
+index ce9ba20..5685a92 100644
 --- a/scripts/mpv/build.sh
 +++ b/scripts/mpv/build.sh
 @@ -8 +8 @@ cd ${SRC_DIR}
@@ -288,6 +288,16 @@ index ce9ba20..54f6739 100644
 +    -Dmacos-11-features=disabled `# macOS 11 SDK Features`
 +    -Dmacos-11-3-features=disabled `# macOS 11.3 SDK Features`
 +    -Dmacos-12-features=disabled `# macOS 12 SDK Features`
+@@ -119,2 +112,0 @@
+-    -Dswift-build=disabled `# macOS Swift build tools`
+-    -Dswift-flags= `# Optional Swift compiler flags`
+@@ -153,0 +146,6 @@
++MACOS_OPTIONS+=(-Dswift-build=enabled)
++if [ "${ARCH}" == "amd64" ]; then
++    MACOS_OPTIONS+=("-Dswift-flags=-target x86_64-apple-macosx10.15")
++else
++    MACOS_OPTIONS+=("-Dswift-flags=-target arm64-apple-macosx11.0")
++fi
 diff --git a/scripts/pkg-config/build.sh b/scripts/pkg-config/build.sh
 index d63f487..630a599 100644
 --- a/scripts/pkg-config/build.sh
