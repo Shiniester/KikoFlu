@@ -544,9 +544,9 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       'file=${task.fileName}, hasMetadata=${task.workMetadata != null}',
     );
 
-    final loadedMetadata =
-        task.workMetadata ??
-        await DownloadService.instance.getWorkMetadata(workId);
+    final loadedMetadata = await DownloadService.instance.getWorkMetadata(
+      workId,
+    );
 
     if (!mounted) return;
 

@@ -585,31 +585,42 @@ class DownloadService implements DownloadTaskRepository {
 
   // 获取作品元数据（公共方法，优先从内存读取，否则从硬盘读取）
   Future<Map<String, dynamic>?> getWorkMetadata(int workId) async {
-    // 先尝试从任务中获取
-    final task = _tasks.firstWhere(
-      (t) => t.workId == workId && t.workMetadata != null,
-      orElse: () => DownloadTask(
-        id: '',
-        workId: 0,
-        workTitle: '',
-        fileName: '',
-        downloadUrl: '',
-        createdAt: DateTime.now(),
-      ),
-    );
+    DownloadTask? task;
+    for (final candidate in _tasks) {
+      if (candidate.workId != workId || candidate.workMetadata == null) continue;
+      task ??= candidate;
+      if (candidate.status == DownloadStatus.completed) {
+        task = candidate;
+        break;
+      }
+    }
 
-    if (task.id.isNotEmpty && task.workMetadata != null) {
+    Map<String, dynamic>? metadata;
+    if (task != null) {
       _log.debug(
         '从内存任务获取元数据: workId=$workId, task=${task.id}, '
         'metadataId=${task.workMetadata?['id']}, sourceId=${task.workMetadata?['source_id']}',
         tag: 'Download',
       );
-      return task.workMetadata;
+      metadata = task.workMetadata;
+    } else {
+      _log.info('内存任务无元数据，尝试从磁盘恢复: workId=$workId', tag: 'Download');
+      metadata = await _loadWorkMetadata(workId);
     }
 
-    // 如果内存中没有，从硬盘读取
-    _log.info('内存任务无元数据，尝试从磁盘恢复: workId=$workId', tag: 'Download');
-    return await _loadWorkMetadata(workId);
+    final chapters = _tasks.where(
+      (task) =>
+          task.workId == workId &&
+          task.status == DownloadStatus.completed &&
+          task.startTimeMs != null,
+    );
+    if (metadata == null || metadata['children'] is! List || chapters.isEmpty) {
+      return metadata;
+    }
+    final result = Map<String, dynamic>.from(metadata)
+      ..['children'] = jsonDecode(jsonEncode(metadata['children']));
+    mergeChapterMetadataPaths(metadata: result, workId: workId, tasks: chapters);
+    return result;
   }
 
   String _taskIdentity({
@@ -946,7 +957,6 @@ class DownloadService implements DownloadTaskRepository {
 
     // 确保父目录存在
     await file.parent.create(recursive: true);
-    final originalFileExisted = await file.exists();
 
     final latestTask = taskById(task.id);
     if (latestTask == null || latestTask.status != DownloadStatus.downloading) {
@@ -1080,39 +1090,38 @@ class DownloadService implements DownloadTaskRepository {
           totalBytes: downloadResult.bytes,
         );
         _updateTask(downloadedTask, immediate: true);
-        var metadataUpdated = false;
         if (downloadResult.usedOriginalFile ||
             outputFileName != task.fileName) {
-          metadataUpdated = await _updateChapterMetadataFileName(
+          final metadata = await _updateChapterMetadataFileName(
             task: downloadedTask,
             fileName: outputFileName,
             fileExtension: downloadResult.fileExtension,
-            previousFileName: task.fileName,
-            cancellation: cancelToken,
           );
-        }
-        Future<void> rollbackChapterReplacement() async {
-          if (metadataUpdated) {
-            await _updateChapterMetadataFileName(
-              task: downloadedTask,
-              fileName: task.fileName,
-              fileExtension: p.extension(task.fileName),
-              previousFileName: outputFileName,
-            );
+          final latestTask = taskById(task.id);
+          if (cancelToken.isCancelled ||
+              latestTask?.status != DownloadStatus.downloading) {
+            if (await outputFile.exists()) await outputFile.delete();
+            if (cancelToken.isCancelled) {
+              throw const HttpException(
+                'Japanese ASMR chapter download cancelled',
+              );
+            }
+            return;
           }
-          final currentTask = taskById(task.id);
-          if (currentTask != null && currentTask.fileName != task.fileName) {
+          if (metadata != null && latestTask != null) {
             _updateTask(
-              currentTask.copyWith(fileName: task.fileName),
+              latestTask.copyWith(workMetadata: metadata),
               immediate: true,
             );
           }
         }
-
-        var latestTask = taskById(task.id);
+        if (await file.exists() &&
+            !await FileSystemEntity.identical(file.path, outputFile.path)) {
+          await file.delete();
+        }
+        final latestTask = taskById(task.id);
         if (cancelToken.isCancelled ||
             latestTask?.status != DownloadStatus.downloading) {
-          await rollbackChapterReplacement();
           if (await outputFile.exists()) await outputFile.delete();
           if (cancelToken.isCancelled) {
             throw const HttpException(
@@ -1121,50 +1130,13 @@ class DownloadService implements DownloadTaskRepository {
           }
           return;
         }
-        if (await file.exists() &&
-            !await FileSystemEntity.identical(file.path, outputFile.path)) {
-          await file.delete();
-        }
-        latestTask = taskById(task.id);
-        if (cancelToken.isCancelled ||
-            latestTask?.status != DownloadStatus.downloading) {
-          final outputExists = await outputFile.exists();
-          final originalExists = await file.exists();
-          final sameFile = outputExists &&
-              originalExists &&
-              await FileSystemEntity.identical(file.path, outputFile.path);
-          if (outputExists &&
-              latestTask != null &&
-              originalFileExisted &&
-              (!originalExists || sameFile)) {
-            if (latestTask != null) {
-              _updateTask(
-                latestTask.copyWith(
-                  status: DownloadStatus.completed,
-                  completedAt: DateTime.now(),
-                ),
-                immediate: true,
-              );
-            }
-          } else {
-            await rollbackChapterReplacement();
-            if (outputExists) await outputFile.delete();
-            if (cancelToken.isCancelled) {
-              throw const HttpException(
-                'Japanese ASMR chapter download cancelled',
-              );
-            }
-            return;
-          }
-        } else {
-          _updateTask(
-            latestTask!.copyWith(
-              status: DownloadStatus.completed,
-              completedAt: DateTime.now(),
-            ),
-            immediate: true,
-          );
-        }
+        _updateTask(
+          latestTask!.copyWith(
+            status: DownloadStatus.completed,
+            completedAt: DateTime.now(),
+          ),
+          immediate: true,
+        );
         if (identical(_cancelTokens[task.id], cancelToken)) {
           _cancelTokens.remove(task.id);
         }
@@ -1339,31 +1311,21 @@ class DownloadService implements DownloadTaskRepository {
     }
   }
 
-  Future<bool> _updateChapterMetadataFileName({
+  Future<Map<String, dynamic>?> _updateChapterMetadataFileName({
     required DownloadTask task,
     required String fileName,
     required String fileExtension,
-    required String previousFileName,
-    RemoteAssetCancellation? cancellation,
   }) async {
     final hash = task.hash;
-    if (hash == null || hash.isEmpty) return false;
-    var updatedMetadata = false;
-    bool isCancelled() =>
-        cancellation != null &&
-        (cancellation.isCancelled ||
-            taskById(task.id)?.status != DownloadStatus.downloading);
-
+    if (hash == null || hash.isEmpty) return null;
+    Map<String, dynamic>? updatedMetadata;
     await _queueWorkMetadataWrite(task.workId, () async {
-      if (isCancelled()) return;
       final workDir = Directory(await _getWorkDownloadDirectory(task.workId));
-      if (isCancelled()) return;
       final metadata = await _loadWorkMetadata(
         task.workId,
         workDirectory: workDir,
       );
       if (metadata == null) return;
-      if (isCancelled()) return;
 
       final children = metadata['children'];
       final updated =
@@ -1382,29 +1344,10 @@ class DownloadService implements DownloadTaskRepository {
         ..[LocalWorkMetadataService.localWorkDirNameKey] = p.basename(
           workDir.path,
         );
-      if (isCancelled()) return;
       await _workMetadataFile(
         workDir,
       ).writeAsString(jsonEncode(metadataToSave), flush: true);
-      if (isCancelled()) {
-        _updateChapterMetadataNodes(
-          children as List<dynamic>,
-          hash: hash,
-          startTimeMs: task.startTimeMs,
-          fileName: previousFileName,
-          fileExtension: p.extension(previousFileName),
-        );
-        await _workMetadataFile(
-          workDir,
-        ).writeAsString(jsonEncode(metadataToSave), flush: true);
-        return;
-      }
-      for (final currentTask in _tasks.where(
-        (currentTask) => currentTask.workId == task.workId,
-      )) {
-        _updateTask(currentTask.copyWith(workMetadata: metadataToSave));
-      }
-      updatedMetadata = true;
+      updatedMetadata = metadataToSave;
     });
     return updatedMetadata;
   }
@@ -1645,7 +1588,6 @@ class DownloadService implements DownloadTaskRepository {
             t.fileName == relativePath &&
             t.status == DownloadStatus.completed,
       );
-      _rebuildTaskIndex();
 
       // 检查该作品是否还有其他文件
       final workDirObj = Directory(workDir);
@@ -1665,7 +1607,6 @@ class DownloadService implements DownloadTaskRepository {
           _log.info('作品文件夹已空，已删除: $workDir', tag: 'Download');
           // 删除所有相关任务
           _tasks.removeWhere((t) => t.workId == workId);
-          _rebuildTaskIndex();
         }
       }
 
@@ -2317,7 +2258,6 @@ class DownloadService implements DownloadTaskRepository {
       if (!await downloadDir.exists()) {
         _log.warning('下载目录不存在，清空所有已完成任务', tag: 'Download');
         _tasks.removeWhere((t) => t.status == DownloadStatus.completed);
-        _rebuildTaskIndex();
         _emitTaskReset();
         await _saveTasks();
         return;
@@ -2385,7 +2325,6 @@ class DownloadService implements DownloadTaskRepository {
       }
       if (tasksToRemove.isNotEmpty) {
         _tasks.removeWhere((task) => tasksToRemove.contains(task.id));
-        _rebuildTaskIndex();
         _log.info('删除了 ${tasksToRemove.length} 个不存在的任务', tag: 'Download');
       }
 
