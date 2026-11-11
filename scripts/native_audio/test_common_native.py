@@ -197,6 +197,97 @@ class CommonNativeSourceTests(unittest.TestCase):
         self.assertIn("--enable-openssl", config)
         self.assertIn("for protocol in https tls; do", config)
 
+    def test_windows_source_commit_checks_use_git_then_write_head_record(self) -> None:
+        bash = _bash_executable()
+        if bash is None:
+            self.skipTest("Bash is required to exercise Windows source commit checks")
+
+        builder = (SCRIPT_DIR / "build_windows.sh").read_text()
+        helpers = builder.split("source_commit() {", 1)[1].split(
+            "dump_external_project_logs() {", 1
+        )[0]
+        shell = """set -euo pipefail
+fail() { printf 'Windows native audio build: %s\\n' "$1" >&2; exit 1; }
+source_commit() {
+""" + helpers + """
+"""
+
+        def run_check(
+            source: Path, build: Path, revision: str = ""
+        ) -> subprocess.CompletedProcess[str]:
+            environment = os.environ | {
+                "sources_dir": str(source.parent),
+                "build_dir": str(build),
+            }
+            revision_arg = f" {revision!r}" if revision else ""
+            command = (
+                f'if actual=$(source_commit package{revision_arg}); then '
+                'printf \'%s\\n\' "$actual"; else exit $?; fi'
+            )
+            return subprocess.run(
+                [bash, "-c", shell + command],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=environment,
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            source = sources / "package"
+            source.mkdir(parents=True)
+            build = root / "build"
+
+            git_env = os.environ | {
+                "GIT_AUTHOR_NAME": "Native Audio Test",
+                "GIT_AUTHOR_EMAIL": "native-audio-test@example.invalid",
+                "GIT_COMMITTER_NAME": "Native Audio Test",
+                "GIT_COMMITTER_EMAIL": "native-audio-test@example.invalid",
+            }
+
+            def git(*args: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["git", *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                )
+
+            git("init", str(source))
+            fixture = source / "fixture.txt"
+            fixture.write_text("base\n")
+            git("-C", str(source), "add", "fixture.txt")
+            git("-C", str(source), "commit", "-m", "base")
+            base = git("-C", str(source), "rev-parse", "HEAD").stdout.strip()
+            fixture.write_text("patched\n")
+            git("-C", str(source), "commit", "-am", "patched")
+            head = git("-C", str(source), "rev-parse", "HEAD").stdout.strip()
+
+            head_check = run_check(source, build)
+            self.assertEqual(head, head_check.stdout.strip(), head_check.stderr)
+            base_check = run_check(source, build, "HEAD^")
+            self.assertEqual(base, base_check.stdout.strip(), base_check.stderr)
+
+            def remove_readonly(function, path, _error) -> None:
+                os.chmod(path, 0o700)
+                function(path)
+
+            shutil.rmtree(source / ".git", onerror=remove_readonly)
+            record = build / "packages/package-prefix/src/package-stamp/HEAD"
+            record.parent.mkdir(parents=True)
+            record.write_text(f"{base}\n")
+            head_check = run_check(source, build)
+            self.assertEqual(base, head_check.stdout.strip(), head_check.stderr)
+            base_check = run_check(source, build, "HEAD^")
+            self.assertEqual(base, base_check.stdout.strip(), base_check.stderr)
+
+            record.unlink()
+            missing = run_check(source, build)
+            self.assertNotEqual(0, missing.returncode)
+            self.assertIn("package has no ExternalProject write-head record", missing.stderr)
+
     def test_old_mpv_reinit_patch_is_not_reapplied(self) -> None:
         for name in (
             "build_android.sh",

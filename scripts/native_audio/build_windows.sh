@@ -21,7 +21,7 @@ assert_git_source_commit() {
     local package=$1
     local expected=$2
     local actual
-    actual=$(git -C "$sources_dir/$package" rev-parse HEAD)
+    actual=$(source_commit "$package")
     [[ "$actual" == "$expected" ]] || fail "$package built from $actual, expected $expected"
 }
 
@@ -29,8 +29,25 @@ assert_git_source_base_commit() {
     local package=$1
     local expected=$2
     local actual
-    actual=$(git -C "$sources_dir/$package" rev-parse HEAD^)
+    actual=$(source_commit "$package" 'HEAD^')
     [[ "$actual" == "$expected" ]] || fail "$package patch base is $actual, expected $expected"
+}
+
+source_commit() {
+    local package=$1
+    local revision=${2:-HEAD}
+    local source_dir="$sources_dir/$package"
+    local record="$build_dir/packages/${package}-prefix/src/${package}-stamp/HEAD"
+    local actual
+
+    if [[ -d "$source_dir/.git" || -f "$source_dir/.git" ]]; then
+        actual=$(git -C "$source_dir" rev-parse "$revision") || fail "$package Git $revision could not be read"
+    else
+        [[ -s "$record" ]] || fail "$package has no ExternalProject write-head record: $record"
+        actual=$(<"$record")
+        [[ -n "$actual" ]] || fail "$package has an empty ExternalProject write-head record: $record"
+    fi
+    printf '%s\n' "$actual"
 }
 dump_external_project_logs() {
     printf 'Checked out Windows dependency commits:\n'
@@ -153,22 +170,22 @@ if ! ninja -C "$build_dir" mpv; then
     fail "mpv build failed"
 fi
 
-actual_mpv_commit=$(git -C "$sources_dir/mpv" rev-parse HEAD)
-actual_ffmpeg_commit=$(git -C "$sources_dir/ffmpeg" rev-parse HEAD)
-actual_opus_commit=$(git -C "$sources_dir/opus" rev-parse HEAD)
-actual_libdvdcss_commit=$(git -C "$sources_dir/libdvdcss" rev-parse HEAD)
-actual_libdvdread_commit=$(git -C "$sources_dir/libdvdread" rev-parse HEAD)
-actual_libdvdnav_commit=$(git -C "$sources_dir/libdvdnav" rev-parse HEAD)
-actual_libbluray_commit=$(git -C "$sources_dir/libbluray" rev-parse HEAD)
-actual_libudfread_commit=$(git -C "$sources_dir/libudfread" rev-parse HEAD)
-actual_libzimg_commit=$(git -C "$sources_dir/libzimg" rev-parse HEAD)
-actual_graphengine_commit=$(git -C "$sources_dir/graphengine" rev-parse HEAD)
-actual_xxhash_commit=$(git -C "$sources_dir/xxhash" rev-parse HEAD)
-actual_fontconfig_commit=$(git -C "$sources_dir/fontconfig" rev-parse HEAD)
-actual_harfbuzz_commit=$(git -C "$sources_dir/harfbuzz" rev-parse HEAD)
-actual_zstd_commit=$(git -C "$sources_dir/zstd" rev-parse HEAD)
-actual_vulkan_commit=$(git -C "$sources_dir/vulkan" rev-parse HEAD)
-actual_vulkan_headers_commit=$(git -C "$sources_dir/vulkan-header" rev-parse HEAD)
+actual_mpv_commit=$(source_commit mpv)
+actual_ffmpeg_commit=$(source_commit ffmpeg)
+actual_opus_commit=$(source_commit opus)
+actual_libdvdcss_commit=$(source_commit libdvdcss)
+actual_libdvdread_commit=$(source_commit libdvdread)
+actual_libdvdnav_commit=$(source_commit libdvdnav)
+actual_libbluray_commit=$(source_commit libbluray)
+actual_libudfread_commit=$(source_commit libudfread)
+actual_libzimg_commit=$(source_commit libzimg)
+actual_graphengine_commit=$(source_commit graphengine)
+actual_xxhash_commit=$(source_commit xxhash)
+actual_fontconfig_commit=$(source_commit fontconfig)
+actual_harfbuzz_commit=$(source_commit harfbuzz)
+actual_zstd_commit=$(source_commit zstd)
+actual_vulkan_commit=$(source_commit vulkan)
+actual_vulkan_headers_commit=$(source_commit vulkan-header)
 [[ "$actual_mpv_commit" == "$MPV_COMMIT" ]] || fail "mpv built from $actual_mpv_commit"
 [[ "$actual_ffmpeg_commit" == "$FFMPEG_COMMIT" ]] || fail "FFmpeg built from $actual_ffmpeg_commit"
 [[ "$actual_opus_commit" == "$OPUS_COMMIT" ]] || fail "Opus built from $actual_opus_commit"
@@ -270,9 +287,9 @@ cp -a "${dev_dirs[0]}/." "$output_dir/mpv-dev/"
     printf 'compiler_url=%s\n' "$LLVM_MINGW_URL"
     printf 'compiler_bundle=%s\n' "$LLVM_MINGW_DIR"
     printf 'libbs2b_url=%s\n' "$LIBBS2B_URL"
-    printf 'libbs2b_base_commit=%s\n' "$(git -C "$sources_dir/libbs2b" rev-parse HEAD^)"
+    printf 'libbs2b_base_commit=%s\n' "$(source_commit libbs2b 'HEAD^')"
     printf 'spirv_cross_url=%s\n' "$SPIRV_CROSS_URL"
-    printf 'spirv_cross_base_commit=%s\n' "$(git -C "$sources_dir/spirv-cross" rev-parse HEAD^)"
+    printf 'spirv_cross_base_commit=%s\n' "$(source_commit spirv-cross 'HEAD^')"
     printf 'compiler=%s\n' "$("$toolchain_dir/bin/$TARGET_ARCH-gcc" --version | head -n 1)"
     printf 'compiler_resource_dir=%s\n' "$("$toolchain_dir/bin/$TARGET_ARCH-gcc" -print-resource-dir)"
     printf 'target_arch=%s\n' "$TARGET_ARCH"
