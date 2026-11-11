@@ -751,6 +751,16 @@ void main() {
         return visibleRows;
       }
 
+      final preceding = find.text('subtitle 12');
+      final entering = find.text('subtitle 13');
+      double enteringGap() =>
+          tester.getTopLeft(entering).dy - tester.getBottomLeft(preceding).dy;
+      final restingGap = enteringGap();
+      expect(
+        tester.getTopLeft(entering).dy,
+        greaterThanOrEqualTo(viewport.bottom),
+      );
+
       var previousVisibleRows = visibleLyricRows().keys.toSet();
       ({int index, int frame, Rect rect})? firstFutureEntry;
       var firstFutureEntryMovedUp = false;
@@ -763,6 +773,13 @@ void main() {
         final playbackIndex = playback.container.read(
           currentLyricIndexProvider,
         );
+        if (playbackIndex == 6) {
+          expect(
+            enteringGap(),
+            closeTo(restingGap, 0.5),
+            reason: 'the incoming subtitle keeps its spacing at frame $frame',
+          );
+        }
         final visibleRows = visibleLyricRows();
         frames.add((playbackIndex: playbackIndex, rows: visibleRows));
         for (final entry in visibleRows.entries) {
@@ -888,6 +905,62 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
+
+  for (final (description, height, nextIndex, incomingRows) in [
+    ('the text starts below the clip', 860.0, 6, [13]),
+    ('multiple rows enter together', 844.0, 8, [13, 14]),
+  ]) {
+    testWidgets(
+      'entering subtitles keep their spacing when $description',
+      (tester) async {
+        final playback = await _mount(
+          tester,
+          position: const Duration(seconds: 5),
+        );
+        await tester.binding.setSurfaceSize(Size(390, height));
+        final settings = playback.container.read(
+          playerLyricSettingsProvider.notifier,
+        );
+        await settings.updateFullActiveFontSize(26.1);
+        await settings.updateFullInactiveFontSize(16.8);
+        await settings.updateFullLineHeight(1.5);
+        await tester.pumpAndSettle();
+
+        final viewport = tester.getRect(
+          find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+        );
+        Finder row(int index) => find.text('spring $index');
+        double gap(int index) =>
+            tester.getTopLeft(row(index)).dy -
+            tester.getBottomLeft(row(index - 1)).dy;
+        final restingGap = gap(12);
+        expect(
+          tester.getTopLeft(row(13)).dy,
+          greaterThanOrEqualTo(viewport.bottom),
+        );
+
+        final entered = <int>{};
+        playback.positions.add(Duration(seconds: nextIndex));
+        for (var frame = 0; frame < 60; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          for (final index in incomingRows) {
+            final subtitle = row(index);
+            if (subtitle.evaluate().isEmpty) continue;
+            expect(
+              gap(index),
+              closeTo(restingGap, 0.5),
+              reason: 'subtitle $index at frame $frame',
+            );
+            if (tester.getTopLeft(subtitle).dy < viewport.bottom) {
+              entered.add(index);
+            }
+          }
+        }
+        expect(entered, unorderedEquals(incomingRows));
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
 
   testWidgets(
     'dragging during playback keeps later subtitles clear',
