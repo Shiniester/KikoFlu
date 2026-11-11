@@ -19,21 +19,34 @@ iOS 模拟器检查同源库的输出；设备版本检查构建、架构和最�
 这组信号的格式自动识别未纳入验收；视频测试仍使用自动识别。
 macOS 集成测试使用软件纹理，以适配没有加速 OpenGL 上下文的构建机。
 应用默认的加速纹理路径在无法创建 OpenGL 像素格式时会崩溃，目前没有自动回退。
+Android 预加载切到下一首后，启用“仅播放切片”可能先播放片段外音频。
+播放器随后才定位到切片。
+Windows 附加宿主测试曾在 10 秒内收不到跳转前的位置事件。
+一次超时时，原生位置为 9.72 秒，media_kit 位置仍为 0。
+一次 HLS 冷热采集分别输出 382,405 和 381,952 帧。
+另一次初始采样率读到 96 kHz，预期为 44.1 kHz。
+连续运行播放器宿主测试时，一轮进程提前退出，5 项测试未完成。
+这些失败的原因尚未确认。
 
 ### 已完成的验证
 
-[Linux 验证](https://github.com/Shiniester/KikoFlu/actions/runs/42945765817)通过 x64 和 ARM64 发布包构建、PCM 检查及各 7 项播放器集成测试。
+[跨平台流水线](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/attempts/2)通过，源码提交为 `dcbaaf17`。
+
+[Linux 验证](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828)通过 x64 和 ARM64 发布包构建、PCM 检查及各 7 项播放器集成测试。
 视频测试在两个架构上均观察到 1280×720 的纹理。
 
-[Windows 原生库产物](https://github.com/Shiniester/KikoFlu/actions/runs/42939738921/artifacts/13821054591)在本机通过 90 项 PCM 检查，包含 HTTP/HLS 和跳转边界。
+[Windows 原生库产物](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/artifacts/13838446526)在本机通过 90 项 PCM 检查，包含 HTTP/HLS 和跳转边界。
 跳转后的 48,017 帧与同一测试时钟下的冷启动基准逐样本相等。
-[Windows 播放器集成检查](https://github.com/Shiniester/KikoFlu/actions/runs/42945765817/job/130294175120)中的 7 项音效和视频测试通过。
+同一产物通过 HLS 输入采样率切换与实时参数恢复检查。
+输入依次切换为 44.1、96、44.1 和 96 kHz，冷启动与实时更新均输出 382,405 帧。
+[Windows 应用验证](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130397770649)通过发布包构建、7 项音效和视频测试及 14 项播放后端测试。
 
-[Apple 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42948392978)通过 iOS 和 macOS 的架构及最低系统版本检查。
-[iOS 模拟器验证](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130302229037)通过 7 项音效和视频测试，未签名设备应用也构建通过。
+[Apple 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130385632260)通过 iOS 和 macOS 的架构及最低系统版本检查。
+[iOS 模拟器验证](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130409302955)通过 7 项音效和视频测试，未签名设备应用也构建通过。
+[macOS 应用验证](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130394970194)通过 7 项音效和视频测试，并完成发布包构建；视频测试使用软件纹理。
 
-[Android 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130293290274)通过四个 ABI 的检查。
-[Android 应用验证](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130303800750)通过 APK 打包、7 项音效和视频测试及 14 项播放后端测试。
+[Android 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130385665562)通过四个 ABI 的检查。
+[Android 应用验证](https://github.com/Shiniester/KikoFlu/actions/runs/42979288828/job/130409303798)通过 APK 打包、7 项音效和视频测试及 14 项播放后端测试。
 
 ## 历史记录（2026-11-08 至 2026-11-09）
 

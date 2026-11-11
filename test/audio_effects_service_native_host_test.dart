@@ -179,6 +179,17 @@ void main() {
         await player.seek(null, index: 1);
         unawaited(player.play());
         await promoted.timeout(const Duration(seconds: 10));
+        // The adapter index can update before the native playlist switches.
+        final nativeReadyDeadline = DateTime.now().add(
+          const Duration(seconds: 10),
+        );
+        while (await native.getProperty('playlist-pos') != '1' ||
+            !(await native.getProperty('path')).endsWith('/B.wav')) {
+          if (DateTime.now().isAfter(nativeReadyDeadline)) {
+            throw TimeoutException('Native chapter did not become current');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
         await player.pause();
         expect(player.duration, const Duration(seconds: 16));
         expect(
@@ -239,6 +250,8 @@ void main() {
           initializations++;
           for (final entry in {
             'ao': 'pcm',
+            // EOF must wait for the PCM output to drain.
+            'gapless-audio': 'no',
             'ao-pcm-waveheader': 'no',
             'ao-pcm-file': output.path,
             'audio-format': 'float',
@@ -294,7 +307,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         await player.stop();
-        final actual = audioEffectsPcm(await output.readAsBytes());
+        final actual = await _readCompletePcm(output, frames.length);
         expect(actual.length, frames.length);
         for (var n = 4096; n < frames.length; n++) {
           expect(actual[n], (frames[n].$2 / 32768, frames[n].$2 / 32768));
@@ -335,7 +348,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         await player.stop();
-        final mono = audioEffectsPcm(await output.readAsBytes());
+        final mono = await _readCompletePcm(output, frames.length);
         expect(mono.length, frames.length);
         for (var n = 0; n < mono.length; n++) {
           expect(
@@ -401,6 +414,8 @@ void main() {
           native = value;
           for (final entry in {
             'ao': 'pcm',
+            // EOF must wait for the PCM output to drain.
+            'gapless-audio': 'no',
             'ao-pcm-waveheader': 'no',
             'ao-pcm-file': output.path,
             'audio-format': 'float',
@@ -475,4 +490,15 @@ void main() {
         ? 'Set KIKOFLU_AUDIO_LIBMPV to run real service/native output.'
         : false,
   );
+}
+
+Future<List<(double, double)>> _readCompletePcm(File output, int frames) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (await output.length() < frames * 8) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('PCM output did not reach $frames frames');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return audioEffectsPcm(await output.readAsBytes());
 }

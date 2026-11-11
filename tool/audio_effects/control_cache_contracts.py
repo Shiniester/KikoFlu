@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that Android mpv control values survive HLS input-rate changes."""
+"""Check that native mpv control values survive HLS input-rate changes."""
 
 import argparse
 import json
@@ -30,6 +30,8 @@ def make_playlist(output_dir):
                        if line.strip() and not line.startswith('#')]
     if listed_segments != list(segments):
         raise RuntimeError(f'HLS fixture must list {segments}, got {listed_segments}')
+    for name in segments:
+        (output_dir / f'control-cache-{name}').write_bytes((FIXTURE_DIR / name).read_bytes())
 
     playlist_segments = ('0.aac',) * 12 + ('1.aac', '0.aac', '1.aac')
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:1', '#EXT-X-MEDIA-SEQUENCE:0']
@@ -37,7 +39,7 @@ def make_playlist(output_dir):
     for name in playlist_segments:
         if previous is not None and name != previous:
             lines.append('#EXT-X-DISCONTINUITY')
-        lines.extend(('#EXTINF:0.5,', (FIXTURE_DIR / name).resolve().as_uri()))
+        lines.extend(('#EXTINF:0.5,', f'control-cache-{name}'))
         previous = name
     lines.append('#EXT-X-ENDLIST')
     playlist = output_dir / 'control-cache-fs-switch.m3u8'
