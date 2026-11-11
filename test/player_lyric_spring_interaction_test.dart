@@ -756,7 +756,7 @@ void main() {
       var firstFutureEntryMovedUp = false;
       var maxOverlap = 0.0;
       var overlapDetails = '';
-      final visibleRowsAtKeyFrames = <int, Map<int, List<Rect>>>{};
+      final frames = <({int playbackIndex, Map<int, List<Rect>> rows})>[];
       for (var frame = 0; frame < 150; frame++) {
         playback.positions.add(Duration(milliseconds: 5000 + (frame + 1) * 16));
         await tester.pump(const Duration(milliseconds: 16));
@@ -764,9 +764,7 @@ void main() {
           currentLyricIndexProvider,
         );
         final visibleRows = visibleLyricRows();
-        if (frame == 100 || frame == 120) {
-          visibleRowsAtKeyFrames[frame] = visibleRows;
-        }
+        frames.add((playbackIndex: playbackIndex, rows: visibleRows));
         for (final entry in visibleRows.entries) {
           if (entry.key > playbackIndex &&
               !previousVisibleRows.contains(entry.key)) {
@@ -805,14 +803,47 @@ void main() {
         previousVisibleRows = visibleRows.keys.toSet();
       }
 
+      double? centerY(int frame, int row) =>
+          frames[frame].rows[row]?.single.center.dy;
+      for (final activeIndex in [6, 7]) {
+        final cut = frames.indexWhere(
+          (frame) => frame.playbackIndex == activeIndex,
+        );
+        expect(cut, greaterThan(0));
+        final onsets = <int, int>{};
+        for (final offset in [-5, 2, 5, 6]) {
+          final row = activeIndex + offset;
+          final startY = centerY(cut - 1, row)!;
+          final firstMovingFrame = frames.indexWhere((frame) {
+            final y = frame.rows[row]?.single.center.dy;
+            return frame.playbackIndex == activeIndex &&
+                y != null &&
+                y < startY - 0.5;
+          }, cut);
+          expect(
+            firstMovingFrame,
+            greaterThanOrEqualTo(cut),
+            reason: 'subtitle $row did not move',
+          );
+          onsets[row] = firstMovingFrame;
+        }
+        final starts = onsets.values.toList()..sort();
+        expect(
+          starts.last - starts.first,
+          lessThanOrEqualTo(1),
+          reason:
+              'visible subtitles should start moving together at cut $activeIndex: $onsets',
+        );
+      }
       expect(maxOverlap, lessThanOrEqualTo(0.5), reason: overlapDetails);
       expect(
         firstFutureEntry,
         isNotNull,
         reason: 'a future subtitle must enter the viewport during playback',
       );
+      final entry = firstFutureEntry!;
       expect(
-        firstFutureEntry!.rect.bottom,
+        entry.rect.bottom,
         greaterThan(viewport.bottom),
         reason: 'the new subtitle should enter through the bottom edge',
       );
@@ -821,24 +852,38 @@ void main() {
         isTrue,
         reason: 'the new subtitle should continue moving up after it enters',
       );
-      final before = visibleRowsAtKeyFrames[100]!;
-      final after = visibleRowsAtKeyFrames[120]!;
-      double upwardTravel(int rowIndex) {
-        expect(before[rowIndex], hasLength(1));
-        expect(after[rowIndex], hasLength(1));
-        return before[rowIndex]!.single.center.dy -
-            after[rowIndex]!.single.center.dy;
+      const followWindow = 6;
+      final entryPlaybackIndex = frames[entry.frame].playbackIndex;
+      final precedingRow = entry.index - 1;
+      for (
+        var frame = entry.frame + followWindow;
+        frame < frames.length &&
+            frames[frame].playbackIndex == entryPlaybackIndex;
+        frame++
+      ) {
+        final before = frame - followWindow;
+        final precedingTravel =
+            centerY(before, precedingRow)! - centerY(frame, precedingRow)!;
+        if (precedingTravel <= 4) continue;
+        expect(
+          centerY(before, entry.index)! - centerY(frame, entry.index)!,
+          greaterThan(precedingTravel / 4),
+          reason:
+              'the entering subtitle should follow the preceding row through frame $frame',
+        );
       }
 
+      double interiorGap(Map<int, List<Rect>> rows) =>
+          rows[10]!.single.center.dy - rows[9]!.single.center.dy;
+      final startingGap = interiorGap(frames.first.rows);
       expect(
-        upwardTravel(13),
-        greaterThan(5),
-        reason: 'the entering subtitle keeps moving as the scroll settles',
-      );
-      expect(
-        (upwardTravel(9) - upwardTravel(10)).abs(),
-        greaterThan(8),
-        reason: 'interior subtitles keep their stagger',
+        frames.any(
+          (frame) =>
+              frame.playbackIndex == 6 &&
+              (interiorGap(frame.rows) - startingGap).abs() > 0.75,
+        ),
+        isTrue,
+        reason: 'interior subtitles should still travel at different rates',
       );
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),

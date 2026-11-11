@@ -66,7 +66,7 @@ class _LyricSpringMotion {
     required this.velocityY,
     required this.startAt,
     required this.delay,
-    required SpringDescription positionSpring,
+    required this.positionSpring,
   }) : startY = startY,
        positionSimulation = SpringSimulation(
          positionSpring,
@@ -80,6 +80,7 @@ class _LyricSpringMotion {
   final double velocityY;
   final double startAt;
   final double delay;
+  final SpringDescription positionSpring;
   final SpringSimulation positionSimulation;
 
   _LyricSpringSample sample(double now) {
@@ -2722,22 +2723,32 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _lyricMotionBaseY[row.index] = targetY;
       final previousSample = previousSamples[row.index];
       final startY = _startLyricPosition(row, previousSample);
-      final startDelay = !stagger || previousSample?.moving == true
+      final rowDelay = stagger ? delays[row.index] ?? 0.0 : 0.0;
+      final startDelay = isPlaybackFollow || previousSample?.moving == true
           ? 0.0
-          : delays[row.index] ?? 0.0;
+          : rowDelay;
       final velocityY = previousSample?.moving == true
           ? previousSample!.velocityY
           : 0.0;
       if ((startY - targetY).abs() < 0.01 && velocityY.abs() < 0.01) {
         continue;
       }
+      // Scale the spring duration so the cascade starts as a group.
+      final durationScale = 1 + rowDelay;
+      final rowSpring = isPlaybackFollow && rowDelay > 0
+          ? SpringDescription(
+              mass: spring.mass,
+              stiffness: spring.stiffness / (durationScale * durationScale),
+              damping: spring.damping / durationScale,
+            )
+          : spring;
       _lyricMotion[row.index] = _LyricSpringMotion(
         startY: startY,
         targetY: targetY,
         velocityY: velocityY,
         startAt: now,
         delay: startDelay,
-        positionSpring: spring,
+        positionSpring: rowSpring,
       );
     }
     _pendingLyricY.clear();
@@ -2934,7 +2945,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         startAt: startAt,
         delay: rowMotion?.delay ?? 0,
         velocity: velocity,
-        spring: spring,
+        spring: rowMotion?.positionSpring ?? spring,
       );
     }
     _lyricMotionFrame.value++;
