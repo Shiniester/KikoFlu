@@ -37,6 +37,7 @@ class DownloadService implements DownloadTaskRepository {
 
   final Map<String, RemoteAssetCancellation> _cancelTokens = {};
   final Map<String, Future<void>> _runningDownloads = {};
+  final Set<String> _finalizingChapterDownloads = {};
   // Prevent two rapid addTask calls for the same file from both passing the
   // duplicate check while either call is waiting on the cache/filesystem.
   final Map<String, Future<DownloadTask>> _pendingTaskAdds = {};
@@ -1064,6 +1065,8 @@ class DownloadService implements DownloadTaskRepository {
         if (cancelToken.isCancelled) {
           throw const HttpException('Japanese ASMR chapter download cancelled');
         }
+        // Finish replacing the file before pausing or deleting the task.
+        _finalizingChapterDownloads.add(task.id);
         final outputFileName =
             '${p.withoutExtension(task.fileName)}${downloadResult.fileExtension}';
         final outputPath = DownloadFilePathService.localPathForRelativePath(
@@ -1071,7 +1074,6 @@ class DownloadService implements DownloadTaskRepository {
           relativePath: outputFileName,
         );
         final outputFile = File(outputPath);
-        if (await outputFile.exists()) await outputFile.delete();
         await tempFile.rename(outputPath);
         final currentTask = taskById(task.id);
         if (cancelToken.isCancelled ||
@@ -1308,6 +1310,8 @@ class DownloadService implements DownloadTaskRepository {
       if (identical(_cancelTokens[task.id], cancelToken)) {
         _cancelTokens.remove(task.id);
       }
+    } finally {
+      _finalizingChapterDownloads.remove(task.id);
     }
   }
 
@@ -1415,6 +1419,10 @@ class DownloadService implements DownloadTaskRepository {
   }
 
   Future<void> pauseTask(String taskId) async {
+    if (_finalizingChapterDownloads.contains(taskId)) {
+      await _waitForRunningDownload(taskId);
+      return;
+    }
     final task = taskById(taskId);
     if (task == null ||
         (task.status != DownloadStatus.downloading &&
@@ -1433,8 +1441,10 @@ class DownloadService implements DownloadTaskRepository {
 
   Future<void> pauseTasks(Iterable<String> taskIds) async {
     final ids = taskIds.toSet();
+    final finalizingIds = ids.intersection(_finalizingChapterDownloads);
     var changed = false;
     for (final task in _tasks.where((task) => ids.contains(task.id)).toList()) {
+      if (finalizingIds.contains(task.id)) continue;
       if (task.status != DownloadStatus.downloading &&
           task.status != DownloadStatus.pending) {
         continue;
@@ -1451,6 +1461,7 @@ class DownloadService implements DownloadTaskRepository {
       _needsSave = false;
       await _saveTasks();
     }
+    await Future.wait(finalizingIds.map(_waitForRunningDownload));
   }
 
   Future<void> resumeTask(String taskId) async {
@@ -1507,6 +1518,9 @@ class DownloadService implements DownloadTaskRepository {
   }
 
   Future<void> deleteTask(String taskId) async {
+    if (_finalizingChapterDownloads.contains(taskId)) {
+      await _waitForRunningDownload(taskId);
+    }
     final task = taskById(taskId);
     if (task == null) return;
     final workId = task.workId;

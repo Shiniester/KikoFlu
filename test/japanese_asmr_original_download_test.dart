@@ -57,6 +57,14 @@ void main() {
               'title': '03_case.aac',
               'localRelativePath': 'disc/03_case.aac',
             },
+            {
+              'type': 'audio',
+              'hash': 'chapter-4',
+              'startTimeMs': 3000,
+              'endTimeMs': 4000,
+              'title': '04_delete.flac',
+              'localRelativePath': 'disc/04_delete.flac',
+            },
           ],
         }),
       );
@@ -99,12 +107,26 @@ void main() {
         status: DownloadStatus.paused,
         createdAt: DateTime.utc(2026),
       );
+      final deletedTask = DownloadTask(
+        id: '-7:hash:chapter-4',
+        workId: -7,
+        workTitle: 'ASMR',
+        fileName: 'disc/04_delete.flac',
+        hash: 'chapter-4',
+        downloadUrl: 'https://example.invalid/work.m3u8',
+        originalDownloadUrl: 'http://127.0.0.1:${server.port}/original',
+        startTimeMs: 3000,
+        endTimeMs: 4000,
+        status: DownloadStatus.paused,
+        createdAt: DateTime.utc(2026),
+      );
       SharedPreferences.setMockInitialValues({
         'custom_download_path': root.path,
         'download_tasks': jsonEncode([
           task.toJson(),
           secondTask.toJson(),
           caseAliasTask.toJson(),
+          deletedTask.toJson(),
         ]),
       });
       await StorageService.initCritical(
@@ -127,7 +149,17 @@ void main() {
             change.task?.id == task.id &&
             change.task?.status == DownloadStatus.completed,
       );
+      final updatingPath = service.taskChangesStream.firstWhere(
+        (change) =>
+            change.task?.id == task.id &&
+            change.task?.status == DownloadStatus.downloading &&
+            change.task?.fileName == 'disc/01_intro.flac',
+      );
       await service.resumeTask(task.id);
+      await updatingPath.timeout(const Duration(seconds: 15));
+      expect(service.taskById(task.id)?.status, DownloadStatus.downloading);
+      await service.pauseTask(task.id);
+      expect(service.taskById(task.id)?.status, DownloadStatus.completed);
       final result = await completed.timeout(const Duration(seconds: 15));
       expect(result.task!.fileName, 'disc/01_intro.flac');
       expect(result.task!.id, task.id);
@@ -142,13 +174,33 @@ void main() {
         (child) => child['hash'] == 'chapter-1',
       );
       expect(chapter['localRelativePath'], 'disc/01_intro.flac');
+      final secondOldFile = File('${workDir.path}/disc/02_outro.aac');
+      await secondOldFile.writeAsBytes([4, 5, 6]);
       final secondCompleted = service.taskChangesStream.firstWhere(
         (change) =>
             change.task?.id == secondTask.id &&
             change.task?.status == DownloadStatus.completed,
       );
+      final metadataUpdated = service.taskChangesStream.firstWhere(
+        (change) =>
+            change.task?.id == secondTask.id &&
+            change.task?.status == DownloadStatus.downloading &&
+            change.task?.workMetadata != null,
+      );
       await service.resumeTask(secondTask.id);
+      await metadataUpdated.timeout(const Duration(seconds: 15));
+      expect(
+        service.taskById(secondTask.id)?.status,
+        DownloadStatus.downloading,
+      );
+      await service.pauseTasks([secondTask.id]);
+      expect(service.taskById(secondTask.id)?.status, DownloadStatus.completed);
       await secondCompleted.timeout(const Duration(seconds: 15));
+      expect(await secondOldFile.exists(), isFalse);
+      expect(
+        await File('${workDir.path}/disc/02_outro.flac').readAsBytes(),
+        audio,
+      );
       final metadata = await service.getWorkMetadata(-7);
       final chapters = metadata!['children'] as List;
       expect(
@@ -176,7 +228,23 @@ void main() {
             change.task?.id == caseAliasTask.id &&
             change.task?.status == DownloadStatus.completed,
       );
+      final aliasUpdatingPath = service.taskChangesStream.firstWhere(
+        (change) =>
+            change.task?.id == caseAliasTask.id &&
+            change.task?.status == DownloadStatus.downloading &&
+            change.task?.fileName == 'disc/03_case.flac',
+      );
       await service.resumeTask(caseAliasTask.id);
+      await aliasUpdatingPath.timeout(const Duration(seconds: 15));
+      expect(
+        service.taskById(caseAliasTask.id)?.status,
+        DownloadStatus.downloading,
+      );
+      await service.pauseTask(caseAliasTask.id);
+      expect(
+        service.taskById(caseAliasTask.id)?.status,
+        DownloadStatus.completed,
+      );
       final aliasResult = await aliasCompleted.timeout(
         const Duration(seconds: 15),
       );
@@ -187,6 +255,26 @@ void main() {
         audio,
       );
       expect(requests, 3);
+
+      final deletedOldFile = File('${workDir.path}/disc/04_delete.flac');
+      await deletedOldFile.writeAsBytes([7, 8, 9]);
+      final deleteDuringFinalization = service.taskChangesStream.firstWhere(
+        (change) =>
+            change.task?.id == deletedTask.id &&
+            change.task?.status == DownloadStatus.downloading &&
+            change.task?.workMetadata != null,
+      );
+      await service.resumeTask(deletedTask.id);
+      await deleteDuringFinalization.timeout(const Duration(seconds: 15));
+      expect(
+        service.taskById(deletedTask.id)?.status,
+        DownloadStatus.downloading,
+      );
+      await service.deleteTask(deletedTask.id);
+      expect(service.taskById(deletedTask.id), isNull);
+      expect(await deletedOldFile.exists(), isFalse);
+      expect(await workDir.exists(), isTrue);
+      expect(requests, 4);
     },
   );
 }
