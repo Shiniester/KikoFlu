@@ -431,7 +431,9 @@ void main() {
         service = AudioPlayerService.forTesting(
           player,
           nativePlayerId: player.platformId,
-          nativePlayerInitializer: _configureWindowsNullAudioOutput,
+          nativePlayerInitializer: Platform.isWindows
+              ? _configureWindowsNullAudioOutput
+              : null,
           androidNativePreload: true,
           androidSeekRecovery: true,
         );
@@ -628,7 +630,9 @@ void main() {
       service = AudioPlayerService.forTesting(
         player,
         nativePlayerId: player.platformId,
-        nativePlayerInitializer: _configureWindowsNullAudioOutput,
+        nativePlayerInitializer: Platform.isWindows
+            ? _configureWindowsNullAudioOutput
+            : null,
         androidNativePreload: true,
         androidSeekRecovery: true,
       );
@@ -760,7 +764,9 @@ void main() {
       final service = AudioPlayerService.forTesting(
         player,
         nativePlayerId: player.platformId,
-        nativePlayerInitializer: _configureWindowsNullAudioOutput,
+        nativePlayerInitializer: Platform.isWindows
+            ? _configureWindowsNullAudioOutput
+            : null,
         androidNativePreload: true,
         androidSeekRecovery: true,
       );
@@ -869,7 +875,9 @@ void main() {
         final service = AudioPlayerService.forTesting(
           player,
           nativePlayerId: player.platformId,
-          nativePlayerInitializer: _configureWindowsNullAudioOutput,
+          nativePlayerInitializer: Platform.isWindows
+              ? _configureWindowsNullAudioOutput
+              : null,
           androidNativePreload: true,
           androidSeekRecovery: true,
         );
