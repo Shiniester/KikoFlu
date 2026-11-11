@@ -378,6 +378,14 @@ jobs:
           flutter test --no-pub -d macos integration_test/audio_apple_playback_test.dart
           flutter test --no-pub -d macos integration_test/audio_effects_production_test.dart
 
+      - name: Capture macOS crash diagnostics
+        if: failure()
+        run: |
+          log show --last 10m --style compact --predicate 'process == "Iroru" OR process == "ReportCrash"' | tail -n 500 || true
+          if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+            find "$HOME/Library/Logs/DiagnosticReports" -type f \( -name 'Iroru*.ips' -o -name 'Iroru*.crash' \) -mmin -20 -print -exec cat {} \;
+          fi
+
       - name: Build macOS Release
         run: flutter build macos --release
 

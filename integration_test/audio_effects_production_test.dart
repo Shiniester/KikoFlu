@@ -452,6 +452,8 @@ Future<List<(double, double)>> _captureProduction(
   try {
     for (final (key, value) in [
       ('cache-on-disk', 'no'),
+      // EOF must wait for the PCM AO to drain before capture stops it.
+      ('gapless-audio', 'no'),
       // Periodic synthetic WAV can otherwise be misdetected as MPEG-TS.
       ('demuxer-lavf-format', 'wav'),
       ('ao', 'pcm'),
