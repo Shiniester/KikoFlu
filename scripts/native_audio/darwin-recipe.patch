@@ -259,12 +259,13 @@ index 0000000..3a256c7
 +meson compile -C build
 +meson install -C build
 diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
-index ce9ba20..5685a92 100644
+index ce9ba20..fb21aad 100644
 --- a/scripts/mpv/build.sh
 +++ b/scripts/mpv/build.sh
-@@ -8 +8 @@ cd ${SRC_DIR}
+@@ -8 +8,2 @@ cd ${SRC_DIR}
 -patch -p1 <${PROJECT_DIR}/patches/mpv-fix-missing-objc.patch
 +git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-vulkan-metal-layer.patch"
 @@ -20 +19,0 @@ DISABLE_ALL_OPTIONS=(
 -    -Dta-leak-report=false `# enable ta leak report by default (development only)`
 @@ -36 +34,0 @@ DISABLE_ALL_OPTIONS=(

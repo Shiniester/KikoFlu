@@ -79,6 +79,10 @@ vulkan_headers_commit=74d8a6cb930c68ef617b202c3ff3c59d919e086b
     fail 'MPV audio controls patch is missing from the recipe'
 cmp -s "$script_dir/mpv-audio-controls.patch" "$source_dir/patches/mpv-audio-controls.patch" ||
     fail 'MPV audio controls patch differs from the checked patch'
+[[ -f "$source_dir/patches/mpv-vulkan-metal-layer.patch" ]] ||
+    fail 'MPV Vulkan Metal layer patch is missing from the recipe'
+cmp -s "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$source_dir/patches/mpv-vulkan-metal-layer.patch" ||
+    fail 'MPV Vulkan Metal layer patch differs from the checked patch'
 cmp -s "$script_dir/ffmpeg-sendcmd-precision.patch" "$source_dir/patches/ffmpeg-sendcmd-precision.patch" ||
     fail 'FFmpeg sendcmd precision patch differs from the checked patch'
 cmp -s "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$source_dir/patches/ffmpeg-fix-ios-hdr-texture.patch" ||
@@ -128,6 +132,8 @@ grep -Fq '> VERSION' "$ffmpeg_build" ||
     fail 'FFmpeg release version metadata is not written before configure'
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"' "$mpv_build" ||
     fail 'MPV audio controls patch is not applied by the pinned build script'
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-vulkan-metal-layer.patch"' "$mpv_build" ||
+    fail 'MPV Vulkan Metal layer patch is not applied by the pinned build script'
 grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"' "$pkgconfig_build" ||
     fail 'pkg-config bundled GLib atomic patch is not applied before configure'
 grep -Fq 'cd subprojects/libpng-1.6.40' "$freetype_build" ||

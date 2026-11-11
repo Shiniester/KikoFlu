@@ -156,6 +156,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertEqual(expected_filters, actual_filters)
         self.assertNotIn("--enable-filters", audio_default_options)
         self.assertIn("mpv-audio-controls.patch", mpv_build)
+        self.assertIn("mpv-vulkan-metal-layer.patch", mpv_build)
         self.assertIn("MACOS_OPTIONS+=(-Dswift-build=enabled)", mpv_build)
         self.assertNotIn("-Dswift-build=disabled", mpv_build)
         self.assertIn('if [ "${ARCH}" == "amd64" ]; then', mpv_build)
@@ -415,7 +416,16 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn(
             "output: ['swift.swiftmodule', 'swift.h', 'swift.o']", mpv_mac_meson
         )
+        self.assertIn(
+            "'HAVE_@0@'.format(feature.underscorify().to_upper())",
+            mpv_mac_meson,
+        )
         self.assertIn('#include "osdep/mac/swift.h"', mpv_mac_clipboard)
+        self.assertIn(
+            "if features['cocoa'] and features['vulkan'] and features['swift']",
+            mpv_meson,
+        )
+        self.assertIn("video/out/mac/metal_layer.swift", mpv_meson)
         self.assertIn(".target = cmd->args[3].v.s", mpv_command)
         self.assertIn("const char *target;", mpv_filter_header)
         self.assertIn("HWACCEL_VIDEOTOOLBOX(vp9)", ffmpeg_vp9)
@@ -443,6 +453,11 @@ class DarwinRecipePatchTests(unittest.TestCase):
                     "mpv-audio-controls.patch",
                     mpv_root,
                     ["filters/f_lavfi.c"],
+                ),
+                (
+                    "darwin-mpv-vulkan-metal-layer.patch",
+                    mpv_root,
+                    ["video/out/mac/view.swift"],
                 ),
                 (
                     "ffmpeg-sendcmd-precision.patch",
@@ -498,6 +513,17 @@ class DarwinRecipePatchTests(unittest.TestCase):
                             f"__atomic_fetch_{operation}", pointer_macros
                         )
                     self.assertNotIn("__sync_fetch_and_", pointer_macros)
+                if patch_name == "darwin-mpv-vulkan-metal-layer.patch":
+                    view = (case_root / "video/out/mac/view.swift").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertIn(
+                        "#if HAVE_VULKAN\n        if let metalLayer = layer as? MetalLayer {",
+                        view,
+                    )
+                    self.assertIn(
+                        "        }\n#endif\n\n        return true", view
+                    )
 
             patched_lavfi = (root / "mpv-audio-controls/filters/f_lavfi.c").read_text(
                 encoding="utf-8"
@@ -968,7 +994,7 @@ class DarwinProviderTests(unittest.TestCase):
             "ios_minimum=%s",
             "macos_minimum=%s",
             "filters=%s,overlay,equalizer",
-            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch",
+            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch",
             "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz",
             "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz",
             "pkg-config-glib-atomics.patch",
@@ -986,6 +1012,10 @@ class DarwinProviderTests(unittest.TestCase):
         )
         self.assertIn(
             'cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"',
+            builder,
+        )
+        self.assertIn(
+            'cp "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$recipe_dir/patches/mpv-vulkan-metal-layer.patch"',
             builder,
         )
         self.assertIn(

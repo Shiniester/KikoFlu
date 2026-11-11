@@ -84,6 +84,7 @@ cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$recipe_dir/patches/ffmpeg-send
 cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"
 cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"
 cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"
+cp "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$recipe_dir/patches/mpv-vulkan-metal-layer.patch"
 cp "$script_dir/pkg-config-glib-atomics.patch" "$recipe_dir/patches/pkg-config-glib-atomics.patch"
 bash "$script_dir/check_darwin_config.sh" "$recipe_dir"
 
@@ -160,7 +161,7 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
-    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,pkg-config-glib-atomics.patch\n'
+    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     printf '\nupstream_downloads.lock:\n'
     sed 's/^/  /' "$recipe_dir/downloads.lock"
