@@ -182,7 +182,6 @@ Future<void> _initializeCriticalServices({
   });
 
   await Future.wait<dynamic>([proxyFuture, storageFuture]);
-  if (!proxyInitialized) _configureNativeProxy();
   HttpOverrides.global = KikoFluHttpOverrides();
   CacheService.installImageCacheManager();
 

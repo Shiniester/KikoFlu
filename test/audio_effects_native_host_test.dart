@@ -1,6 +1,7 @@
 import 'package:ffi/ffi.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
@@ -47,15 +48,6 @@ void main() {
           await native.setProperty(entry.key, entry.value);
         }
         await controller.configure(native, AudioEffectsSettings(), false);
-        // PCM file output has no hardware clock; pace test input before production DSP.
-        native.onLoadHooks.add(() async {
-          final chain = await native.getProperty('af');
-          const clock = 'asetnsamples=n=128:p=0,arealtime';
-          await native.setProperty(
-            'af',
-            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
-          );
-        });
         await player.open(Media(source.path), play: false);
         await player.seek(Duration.zero);
         final path = await native.getProperty('path');
@@ -95,6 +87,150 @@ void main() {
     skip: library == null
         ? 'Set KIKOFLU_AUDIO_LIBMPV to run real headless native output.'
         : false,
+  );
+
+  test(
+    'a reverted effect setting takes effect before the first sample',
+    () async {
+      final frames = List.generate(4817, (n) => (1000 + n, -3000 - n));
+      final left = AudioEffectsSettings(
+        channelMode: AudioChannelMode.cloneLeft,
+      );
+      final capture = await _captureInitialEffects(
+        audioEffectsWav(frames, 48000),
+        left,
+        onLoad: (controller, native) async {
+          await controller.configure(
+            native,
+            left.copyWith(channelMode: AudioChannelMode.cloneRight),
+            false,
+          );
+          await controller.configure(native, left, false);
+        },
+      );
+      expect(
+        audioEffectsPcm(capture),
+        frames.map((row) => (row.$1 / 32768, row.$1 / 32768)),
+      );
+    },
+    skip: library == null,
+  );
+
+  test('neutral effects preserve all six channels of 5.1 PCM', () async {
+    const frameCount = 4817;
+    const channels = 6;
+    const samples = [0, 0, 0, 7000, 1000, -2000];
+    const wavHeaderBytes = 68;
+    final wav = Uint8List(wavHeaderBytes + frameCount * channels * 2);
+    final data = ByteData.sublistView(wav);
+    wav.setRange(0, 4, 'RIFF'.codeUnits);
+    wav.setRange(8, 16, 'WAVEfmt '.codeUnits);
+    wav.setRange(60, 64, 'data'.codeUnits);
+    data
+      ..setUint32(4, wav.length - 8, Endian.little)
+      ..setUint32(16, 40, Endian.little)
+      ..setUint16(20, 0xfffe, Endian.little) // WAVEFORMATEXTENSIBLE
+      ..setUint16(22, channels, Endian.little)
+      ..setUint32(24, 48000, Endian.little)
+      ..setUint32(28, 48000 * channels * 2, Endian.little)
+      ..setUint16(32, channels * 2, Endian.little)
+      ..setUint16(34, 16, Endian.little)
+      ..setUint16(36, 22, Endian.little)
+      ..setUint16(38, 16, Endian.little)
+      ..setUint32(40, 0x3f, Endian.little) // FL, FR, FC, LFE, BL, BR
+      ..setUint32(64, wav.length - wavHeaderBytes, Endian.little);
+    // PCM subformat GUID.
+    wav.setRange(44, 60, [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      16,
+      0,
+      128,
+      0,
+      0,
+      170,
+      0,
+      56,
+      155,
+      113,
+    ]);
+    for (var i = 0; i < frameCount * channels; i++) {
+      data.setInt16(
+        wavHeaderBytes + 2 * i,
+        samples[i % channels],
+        Endian.little,
+      );
+    }
+    final capture = ByteData.sublistView(
+      await _captureInitialEffects(
+        wav,
+        AudioEffectsSettings(sceneEnabled: true, sceneAmount: 0),
+        channels: '5.1',
+      ),
+    );
+    expect(capture.lengthInBytes, frameCount * channels * 4);
+    for (var i = 0; i < frameCount * channels; i++) {
+      expect(
+        capture.getFloat32(4 * i, Endian.little),
+        samples[i % channels] / 32768,
+      );
+    }
+  }, skip: library == null);
+
+  test(
+    'live scene switching passes through sample-identical neutral output',
+    () async {
+      const rate = 48000;
+      final frames = List.generate(
+        rate * 4 + 17,
+        (n) => (1000 + n * 7 % 19001, -3000 - n * 11 % 17003),
+      );
+      final muffled = AudioEffectsSettings(
+        sceneEnabled: true,
+        scene: AudioScene.muffled,
+        sceneAmount: 100,
+      );
+      final capture = await _captureInitialEffects(
+        audioEffectsWav(frames, rate),
+        muffled,
+        onLoad: (_, native) async {
+          final graph = await native.getProperty('af');
+          const clock = 'asetnsamples=n=128:p=0,arealtime';
+          _setNativeAf(
+            native,
+            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$graph',
+          );
+        },
+        duringPlayback: (controller, native) async {
+          await _waitForNativePosition(native, .3);
+          final graph = await native.getProperty('af');
+          await controller.configure(
+            native,
+            muffled.copyWith(scene: AudioScene.bathroom),
+            false,
+          );
+          expect(await native.getProperty('af'), graph);
+        },
+      );
+      final actual = audioEffectsPcm(capture);
+      expect(actual, hasLength(frames.length));
+      bool dry(int i) =>
+          actual[i] == (frames[i].$1 / 32768, frames[i].$2 / 32768);
+      expect(dry(rate ~/ 4), false);
+      expect(dry(frames.length - rate ~/ 4), false);
+      expect(
+        Iterable<int>.generate(
+          frames.length - rate ~/ 2,
+          (i) => i + rate ~/ 4,
+        ).any(dry),
+        true,
+      );
+    },
+    skip: library == null,
   );
 
   test(
@@ -240,7 +376,8 @@ void main() {
         }.entries) {
           await native.setProperty(entry.key, entry.value);
         }
-        await controller.configure(native, AudioEffectsSettings(), false);
+        final swap = AudioEffectsSettings(channelMode: AudioChannelMode.swap);
+        await controller.configure(native, swap, false);
         native.onLoadHooks.add(() async {
           loads++;
           final chain = await native.getProperty('af');
@@ -276,9 +413,9 @@ void main() {
         expect(await native.getProperty('af'), graph);
         await waitForOutput(true, onStart);
 
-        final offStart = await output.length();
-        await controller.configure(native, AudioEffectsSettings(), false);
-        await waitForOutput(false, offStart);
+        final swapStart = await output.length();
+        await controller.configure(native, swap, false);
+        await waitForOutput(false, swapStart);
         final reenableStart = await output.length();
         await controller.configure(
           native,
@@ -322,7 +459,7 @@ void main() {
           actual.take(128).toList(),
           frames
               .take(128)
-              .map((row) => (row.$1 / 32768, row.$2 / 32768))
+              .map((row) => (row.$2 / 32768, row.$1 / 32768))
               .toList(),
         );
         expect(
@@ -386,7 +523,11 @@ void main() {
             }
             await controller.configure(
               native,
-              !hot && binaural ? target : AudioEffectsSettings(),
+              hot
+                  ? AudioEffectsSettings(channelMode: AudioChannelMode.swap)
+                  : binaural
+                  ? target
+                  : AudioEffectsSettings(),
               false,
             );
             native.onLoadHooks.add(() async {
@@ -395,7 +536,10 @@ void main() {
               const clock = 'asetnsamples=n=128:p=0,arealtime';
               await native.setProperty(
                 'af',
-                '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
+                [
+                  '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock',
+                  if (chain.isNotEmpty) chain,
+                ].join(','),
               );
             });
             final completed = player.stream.completed.firstWhere(
@@ -530,6 +674,53 @@ void main() {
   );
 }
 
+Future<Uint8List> _captureInitialEffects(
+  Uint8List wav,
+  AudioEffectsSettings settings, {
+  String channels = 'stereo',
+  Future<void> Function(NativeAudioEffects, NativePlayer)? onLoad,
+  Future<void> Function(NativeAudioEffects, NativePlayer)? duringPlayback,
+}) async {
+  final ready = Completer<void>();
+  final player = Player(
+    configuration: PlayerConfiguration(ready: ready.complete),
+  );
+  final native = player.platform as NativePlayer;
+  final controller = NativeAudioEffects((_) {});
+  final directory = await Directory.systemTemp.createTemp('kiko-effects-load-');
+  try {
+    await ready.future.timeout(const Duration(seconds: 10));
+    final input = File('${directory.path}/input.wav');
+    final output = File('${directory.path}/output.pcm');
+    await input.writeAsBytes(wav);
+    for (final entry in {
+      'ao': 'pcm',
+      'ao-pcm-waveheader': 'no',
+      'ao-pcm-file': output.path,
+      'audio-format': 'float',
+      'audio-samplerate': '48000',
+      'audio-channels': channels,
+      'demuxer-lavf-format': 'wav',
+      'gapless-audio': 'no',
+    }.entries) {
+      await native.setProperty(entry.key, entry.value);
+    }
+    await controller.configure(native, settings, false);
+    if (onLoad != null) {
+      native.onLoadHooks.add(() => onLoad(controller, native));
+    }
+    final completed = player.stream.completed.firstWhere((value) => value);
+    await player.open(Media(input.path));
+    if (duringPlayback != null) await duringPlayback(controller, native);
+    await completed.timeout(const Duration(seconds: 10));
+    return await _finishPcmCaptureBytes(native, output);
+  } finally {
+    await controller.dispose();
+    await player.dispose();
+    await directory.delete(recursive: true);
+  }
+}
+
 Future<void> _waitForNativePosition(NativePlayer player, double seconds) async {
   // The arealtime test filter can delay libmpv position notifications.
   final elapsed = Stopwatch()..start();
@@ -546,12 +737,17 @@ Future<void> _waitForNativePosition(NativePlayer player, double seconds) async {
 Future<List<(double, double)>> _finishPcmCapture(
   NativePlayer player,
   File output,
+) async => audioEffectsPcm(await _finishPcmCaptureBytes(player, output));
+
+Future<Uint8List> _finishPcmCaptureBytes(
+  NativePlayer player,
+  File output,
 ) async {
   await player.stop();
   // The stop reply can arrive before mpv closes the buffered PCM file.
   await player.setProperty('ao', 'null');
   expect(await player.getProperty('current-ao'), isNot('pcm'));
-  return audioEffectsPcm(await output.readAsBytes());
+  return output.readAsBytes();
 }
 
 void _setNativeAf(NativePlayer player, String graph) {

@@ -104,14 +104,24 @@ iOS ユーザーは AltStore または SideStore に Iroru のソースを追加
 - Flutter SDK 3.0+
 - Dart SDK 3.0+
 
-Linux のビルドには libmpv 開発ライブラリとパッケージ作成ツールが必要です。
-Ubuntu では `sudo apt-get install libmpv-dev pax-utils patchelf binutils` を実行してください。
+Linux のビルドには固定バージョンのネイティブライブラリとパッケージ作成ツールが必要です。
+[Linux ネイティブ音声ライブラリのビルド手順](docs/development/linux-native-audio.md)を参照してください。
 
 ```bash
 git clone https://github.com/pa-jesusf/KikoFlu.git
 cd KikoFlu
 flutter pub get
 ```
+
+各プラットフォームのビルドには `build/native-audio/` の固定バージョンのネイティブライブラリが必要です。
+このディレクトリは Git の管理対象外です。アプリをビルドする前に、次の成果物を用意してください。
+
+- Android：Linux 環境で `bash scripts/native_audio/build_android.sh all` を実行します。
+- Windows：Linux 環境で `bash scripts/native_audio/build_windows.sh` を実行し、成果物があるチェックアウトからアプリをビルドします。
+- iOS、macOS：Xcode 16.4 を使う macOS 環境で `bash scripts/native_audio/build_darwin.sh` を実行します。
+- Linux：[Linux ネイティブ音声ライブラリのビルド手順](docs/development/linux-native-audio.md)を参照してください。
+
+`flutter clean` は `build/native-audio/` を削除します。実行後は対応するビルドスクリプトを再実行してください。
 
 ### ビルドコマンド
 

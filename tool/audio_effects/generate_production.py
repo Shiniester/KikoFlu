@@ -2,6 +2,7 @@
 from pathlib import Path
 from adaptive_eq import equalizer_auto_graph
 from adaptive_fs import scene_auto_graph
+from graphs import scene_selector_graph
 from runtime_graphs import channel_mode_graph
 
 from binaural import binaural_graph, binaural_guard_graph
@@ -17,10 +18,12 @@ def templates(native_rc):
     channel = channel_mode_graph().replace('volume@channel_mode=0:', 'volume@channel_mode=__MODE__:')
     graphs = {'eq': eq, 'channel': channel,
               'binaural': binaural_graph().replace('volume@stereo_amount=0:', 'volume@stereo_amount=__STEREO__:').replace('volume@mono_amount=0:', 'volume@mono_amount=__MONO__:'),
-              'guard': binaural_guard_graph().replace('volume@guard_mix=0:', 'volume@guard_mix=__GUARD__:')}
-    for name in ('bathroom', 'through_wall', 'telephone'):
-        graphs[name] = scene_auto_graph(name, 0, dynamic=True, native_rc=native_rc).replace(
-            'volume@scene_amount=0:', 'volume@scene_amount=__AMOUNT__:')
+              'guard': binaural_guard_graph().replace('volume@guard_mix=0:', 'volume@guard_mix=__GUARD__:'),
+              'scene': scene_selector_graph()}
+    scenes = ('bathroom', 'through_wall', 'telephone')
+    for index, name in enumerate(scenes):
+        graphs[name] = scene_auto_graph(name, 0, dynamic=True, native_rc=native_rc,
+                                        selector=(index, index < len(scenes) - 1))
     return graphs
 
 

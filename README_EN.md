@@ -104,14 +104,24 @@ iOS users can add the Iroru source to AltStore or SideStore to install and updat
 - Flutter SDK 3.0+
 - Dart SDK 3.0+
 
-Linux builds require the libmpv development library and packaging tools. On
-Ubuntu, run `sudo apt-get install libmpv-dev pax-utils patchelf binutils`.
+Linux builds require pinned native libraries and packaging tools. Follow the
+[Linux native audio build guide](docs/development/linux-native-audio.md).
 
 ```bash
 git clone https://github.com/pa-jesusf/KikoFlu.git
 cd KikoFlu
 flutter pub get
 ```
+
+Platform builds require pinned native libraries under `build/native-audio/`.
+This directory is ignored by Git. Prepare the artifacts before building:
+
+- Android: run `bash scripts/native_audio/build_android.sh all` on Linux.
+- Windows: run `bash scripts/native_audio/build_windows.sh` on Linux, then build the app from the checkout that contains the output directory.
+- iOS and macOS: run `bash scripts/native_audio/build_darwin.sh` on macOS with Xcode 16.4.
+- Linux: follow [the Linux native audio build guide](docs/development/linux-native-audio.md).
+
+`flutter clean` removes `build/native-audio/`. Run the matching builder again after cleaning.
 
 ### Build Commands
 

@@ -51,6 +51,7 @@ class JustAudioMediaKit extends JustAudioPlatform {
     'file',
     'http',
     'https',
+    'httpproxy',
     'crypto',
   ];
 

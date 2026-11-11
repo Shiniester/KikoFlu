@@ -171,6 +171,8 @@ class AudioPlayer {
   ///
   /// The player will automatically pause/duck and resume/unduck when audio
   /// interruptions occur (e.g. a phone call) or when headphones are unplugged.
+  /// Supply [onDuckEnd] to restore an application-managed output level when a
+  /// duck interruption ends.
   /// If you wish to handle audio interruptions manually, set
   /// [handleInterruptions] to `false` and interface directly with the audio
   /// session via the [audio_session](https://pub.dev/packages/audio_session)
@@ -185,6 +187,7 @@ class AudioPlayer {
   AudioPlayer({
     String? userAgent,
     bool handleInterruptions = true,
+    Future<void> Function()? onDuckEnd,
     bool androidApplyAudioAttributes = true,
     bool handleAudioSessionActivation = true,
     AudioLoadConfiguration? audioLoadConfiguration,
@@ -330,7 +333,11 @@ class AudioPlayer {
             switch (event.type) {
               case AudioInterruptionType.duck:
                 assert(_isAndroid());
-                setVolume(min(1.0, volume * 2));
+                if (onDuckEnd == null) {
+                  setVolume(min(1.0, volume * 2));
+                } else {
+                  unawaited(onDuckEnd());
+                }
                 _playInterrupted = false;
                 break;
               case AudioInterruptionType.pause:
@@ -814,8 +821,17 @@ class AudioPlayer {
     if (_active) {
       final initialSeekValues = _initialSeekValues;
       _initialSeekValues = null;
-      return await _load(await _platform, _audioSource!,
-          initialSeekValues: initialSeekValues);
+      final activationNumber = _activationCount;
+      try {
+        return await _load(await _platform, _audioSource!,
+            initialSeekValues: initialSeekValues);
+      } on PlayerException {
+        if (_activationCount == activationNumber) {
+          await _setPlatformActive(false)
+              ?.catchError((dynamic e) async => null);
+        }
+        rethrow;
+      }
     } else {
       // This will implicitly load the current audio source.
       return await _setPlatformActive(true);

@@ -112,7 +112,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         if (_waitingForNextIndex) return;
         if (_currentMedia?.extras?['overrideDuration'] != null) return;
 
-        if (_setPosition != null && duration.inSeconds > 0) {
+        if (_setPosition != null && duration > Duration.zero) {
           unawaited(_player
               .seek(_setPosition! + (_currentMedia?.start ?? Duration.zero)));
           _setPosition = null;
@@ -215,14 +215,17 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.error.listen((error) {
         final errorUri = RegExp(r'Failed to open (.*)\.').firstMatch(error)?[1];
-        if (errorUri == null || errorUri == _currentMedia?.uri) {
+        final pendingLoad = _loadCompleter;
+        if (pendingLoad != null) {
+          // An idle event would dispose the player before the load can fail.
+          pendingLoad.fail(error);
+        } else if (errorUri == null || errorUri == _currentMedia?.uri) {
           _mediaOpened = false;
           _processingState = ProcessingStateMessage.idle;
           _errorCode = kErrorCode;
           _errorMessage = error;
           _updatePlaybackEvent();
         }
-        _loadCompleter?.fail(error);
         _logger.severe('ERROR OCCURRED: $error');
       }),
       _player.stream.playlist.listen((playlist) {
@@ -401,6 +404,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     ++_loadGeneration;
     _waitingForNextIndex = false;
     _mediaOpened = false;
+    _setPosition = null;
     final pendingLoad = MediaKitPendingLoad();
     _loadCompleter = pendingLoad;
     _currentIndex = request.initialIndex ?? 0;
@@ -412,29 +416,32 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     _errorMessage = null;
     _updatePlaybackEvent();
 
-    if (request.audioSourceMessage is ConcatenatingAudioSourceMessage) {
-      final audioSource =
-          request.audioSourceMessage as ConcatenatingAudioSourceMessage;
-      final playable = Playlist(
-          audioSource.children.map(_convertAudioSourceIntoMediaKit).toList(),
-          index: _currentIndex);
+    try {
+      if (request.audioSourceMessage is ConcatenatingAudioSourceMessage) {
+        final audioSource =
+            request.audioSourceMessage as ConcatenatingAudioSourceMessage;
+        final playable = Playlist(
+            audioSource.children.map(_convertAudioSourceIntoMediaKit).toList(),
+            index: _currentIndex);
 
-      await _player.open(playable, play: _playing);
-    } else {
-      final playable =
-          _convertAudioSourceIntoMediaKit(request.audioSourceMessage);
-      _logger.finest('playable is ${playable.toString()}');
-      await _player.open(playable, play: _playing);
+        await _player.open(playable, play: _playing);
+      } else {
+        final playable =
+            _convertAudioSourceIntoMediaKit(request.audioSourceMessage);
+        _logger.finest('playable is ${playable.toString()}');
+        await _player.open(playable, play: _playing);
+      }
+      _mediaOpened = true;
+
+      if (request.initialPosition != null) {
+        _setPosition = _position = request.initialPosition!;
+      }
+
+      _updatePlaybackEvent();
+      return LoadResponse(duration: await pendingLoad.future);
+    } finally {
+      if (identical(_loadCompleter, pendingLoad)) _loadCompleter = null;
     }
-    _mediaOpened = true;
-
-    if (request.initialPosition != null) {
-      _setPosition = _position = request.initialPosition!;
-    }
-
-    _updatePlaybackEvent();
-    final duration = await pendingLoad.future;
-    return LoadResponse(duration: duration);
   }
 
   @override
@@ -548,7 +555,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       final start = _currentMedia?.start;
       var nativePosition = position;
       if (start != null) nativePosition += start;
-      if (_player.state.duration.inSeconds > 0) {
+      if (_player.state.duration > Duration.zero) {
         await _player.seek(nativePosition);
       } else {
         _setPosition = position;

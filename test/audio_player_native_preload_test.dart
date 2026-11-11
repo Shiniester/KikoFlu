@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +27,6 @@ void main() {
   late _ControlledAudioSliceStore sliceStore;
   late SharedPreferencesPlaybackSessionStore sessionStore;
   late AudioPlayerService service;
-  late StreamController<AudioInterruptionEvent> interruptionEvents;
   const a = AudioTrack(
     id: 'a',
     title: 'a.wav',
@@ -58,9 +56,6 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
-    interruptionEvents = StreamController<AudioInterruptionEvent>.broadcast(
-      sync: true,
-    );
     root = await Directory.systemTemp.createTemp('kiko-native-next-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -79,13 +74,11 @@ void main() {
       androidNativePreload: true,
       seekRecoveryTimeout: const Duration(milliseconds: 100),
       cacheDownloader: downloader,
-      interruptionEvents: interruptionEvents.stream,
     );
   });
 
   tearDown(() async {
     await service.dispose();
-    await interruptionEvents.close();
     SpeculativeTransferCoordinator.instance.resetForTest();
     debugDefaultTargetPlatformOverride = null;
     await root.delete(recursive: true);
@@ -582,30 +575,6 @@ void main() {
       debugDefaultTargetPlatformOverride = TargetPlatform.windows;
       await service.setVolume(0.125);
       expect(player.volumes.last, closeTo(0.1573657, 1e-7));
-    },
-  );
-
-  test(
-    'duck end restores gain above normal volume at the current user level',
-    () async {
-      await service.setVolume(0.5);
-      await service.updateAudioGain(12);
-      const expected = 1.257930560485005;
-      expect(player.volumes.last, closeTo(expected, 1e-9));
-      final volumeUpdatesBeforeDuck = player.volumes.length;
-      interruptionEvents.add(
-        AudioInterruptionEvent(true, AudioInterruptionType.duck),
-      );
-      expect(player.volumes, hasLength(volumeUpdatesBeforeDuck));
-
-      // just_audio clamps its duck-end volume restoration to 1.0.
-      await player.setVolume(1.0);
-      interruptionEvents.add(
-        AudioInterruptionEvent(false, AudioInterruptionType.duck),
-      );
-
-      await until(() => player.volumes.last > 1.0);
-      expect(player.volumes.last, closeTo(expected, 1e-9));
     },
   );
 }

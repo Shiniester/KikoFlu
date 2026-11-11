@@ -16,6 +16,13 @@ case "$(uname -m)" in
         ;;
 esac
 
+NATIVE_AUDIO_PREFIX="build/native-audio/linux-output"
+if [[ ! -s "$NATIVE_AUDIO_PREFIX/lib/pkgconfig/mpv.pc" ]]; then
+    echo "Missing pinned Linux native audio libraries: $NATIVE_AUDIO_PREFIX" >&2
+    echo "Build them once with: bash scripts/native_audio/build_linux.sh" >&2
+    exit 1
+fi
+
 for tool in lddtree patchelf readelf; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "Missing $tool. Install Linux packaging tools with: sudo apt-get install pax-utils patchelf binutils" >&2
@@ -23,7 +30,8 @@ for tool in lddtree patchelf readelf; do
     fi
 done
 
-flutter clean
+# Keep build/native-audio intact; only remove this architecture's Flutter output.
+rm -rf "build/linux/$LINUX_ARCH"
 flutter pub get
 flutter build linux --release
 

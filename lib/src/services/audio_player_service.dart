@@ -26,6 +26,7 @@ import 'audio_haptics_service.dart';
 import 'log_service.dart';
 import 'playback_history_service.dart';
 import 'playback_session_store.dart';
+import 'proxy_config.dart';
 import 'audio_slice_store.dart';
 import 'download_path_service.dart';
 import 'storage_service.dart';
@@ -205,10 +206,10 @@ class AudioPlayerService {
     _player = AudioPlayer(
       useProxyForRequestHeaders: !Platform.isAndroid,
       androidApplyAudioAttributes: false,
+      onDuckEnd: _applyOutputLevel,
     );
     _nativePlayerId = _player.platformId;
     unawaited(_refreshNativePlayerConfiguration());
-    _listenForDuckEndFromAudioSession();
     _audioCacheDownloader = _createAudioCacheDownloader();
     _listenForPlaybackErrors();
     _startHistoricalQueueLoad();
@@ -231,7 +232,6 @@ class AudioPlayerService {
     bool androidNativePreload = false,
     Duration seekRecoveryTimeout = const Duration(seconds: 8),
     AudioCacheDownloader? cacheDownloader,
-    Stream<AudioInterruptionEvent>? interruptionEvents,
   }) {
     _player = player;
     _nativePlayerId = nativePlayerId;
@@ -243,9 +243,6 @@ class AudioPlayerService {
     _androidSeekRecovery = androidSeekRecovery;
     _androidNativePreload = androidNativePreload;
     _seekRecoveryTimeout = seekRecoveryTimeout;
-    if (interruptionEvents != null) {
-      _subscribeForDuckEnd(interruptionEvents);
-    }
     _audioCacheDownloader = cacheDownloader ?? _createAudioCacheDownloader();
     _listenForPlaybackErrors();
     _setupPlayerListeners();
@@ -316,7 +313,6 @@ class AudioPlayerService {
   Completer<void>? _nativeWindowError;
   int? _seekRecoveryGeneration;
   StreamSubscription<PlaybackEvent>? _playbackErrorSubscription;
-  StreamSubscription<AudioInterruptionEvent>? _duckEndSubscription;
   AudioSource? _failedSeekSource;
   Duration? _failedSeekPosition;
   Duration _seekRecoveryTimeout = const Duration(seconds: 8);
@@ -414,6 +410,7 @@ class AudioPlayerService {
     }
   });
   NativePlayer? _configuredNativePlayer;
+  String? _nativeHttpProxy;
   Future<void> Function(NativePlayer)? _nativePlayerInitializer;
   bool? _configuredPassthrough;
 
@@ -433,6 +430,18 @@ class AudioPlayerService {
     final passthrough = _audioPassthroughEnabled;
     if (!identical(_configuredNativePlayer, player)) {
       await _nativePlayerInitializer?.call(player);
+      if (_androidNativePreload) {
+        _nativeHttpProxy = null;
+        player.onLoadHooks.add(() async {
+          final uri = Uri.tryParse(await player.getProperty('path'));
+          final proxy = uri == null
+              ? ''
+              : await ProxyConfig.resolveNativeHttpProxy(uri);
+          if (player.disposed || proxy == _nativeHttpProxy) return;
+          await player.setProperty('http-proxy', proxy);
+          _nativeHttpProxy = proxy;
+        });
+      }
     }
     if (!identical(_configuredNativePlayer, player) ||
         _configuredPassthrough != passthrough) {
@@ -2410,16 +2419,32 @@ class AudioPlayerService {
       if (window.children.length > 1) await _removeNativeNext(window);
       return;
     }
+    final capturedCurrentId = current.id;
+    final capturedNextId = next.id;
+    final capturedIntent = _intentRevision;
+    final capturedGeneration = _trackLoadGeneration;
+    if (_nativeHttpProxy != null) {
+      // mpv opens a prefetched entry before running its on_load hook.
+      final nextProxy = await ProxyConfig.resolveNativeHttpProxy(uri);
+      if (!_canPrepareNativeNext(
+        capturedCurrentId,
+        capturedNextId,
+        capturedIntent,
+        capturedGeneration,
+      )) {
+        return;
+      }
+      if (nextProxy != _nativeHttpProxy) {
+        if (window.children.length > 1) await _removeNativeNext(window);
+        return;
+      }
+    }
     if (_nativePreparedTrackId == next.id ||
         _nativePreparingTrackId == next.id) {
       return;
     }
     if (window.children.length > 1) await _removeNativeNext(window);
 
-    final capturedCurrentId = current.id;
-    final capturedNextId = next.id;
-    final capturedIntent = _intentRevision;
-    final capturedGeneration = _trackLoadGeneration;
     final hash = next.hash;
     if (hash != null && hash.isNotEmpty) {
       try {
@@ -4193,6 +4218,7 @@ class AudioPlayerService {
   }
 
   Future<void> _applyOutputLevel() async {
+    if (_disposed) return;
     final gainDecibels = _audioPassthroughEnabled
         ? AudioGainSettings.defaultDecibels
         : _audioGainDecibels;
@@ -4210,27 +4236,6 @@ class AudioPlayerService {
     final effectiveVolume =
         baseVolume * math.pow(10, gainDecibels / 60).toDouble();
     await _player.setVolume(effectiveVolume);
-  }
-
-  void _listenForDuckEndFromAudioSession() {
-    unawaited(
-      AudioSession.instance.then((session) {
-        if (_disposed) return;
-        _subscribeForDuckEnd(session.interruptionEventStream);
-      }),
-    );
-  }
-
-  void _subscribeForDuckEnd(Stream<AudioInterruptionEvent> events) {
-    if (_duckEndSubscription != null) return;
-    _duckEndSubscription = events.listen((event) {
-      if (_disposed ||
-          event.begin ||
-          event.type != AudioInterruptionType.duck) {
-        return;
-      }
-      unawaited(_applyOutputLevel());
-    });
   }
 
   Future<void> setSpeed(double speed) async {
@@ -4293,7 +4298,6 @@ class AudioPlayerService {
     if (_disposed) return;
     _disposed = true;
     _desiredPlaying = false;
-    await _duckEndSubscription?.cancel();
     await _playbackErrorSubscription?.cancel();
     await _currentIndexSubscription?.cancel();
     ++_intentRevision;

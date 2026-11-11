@@ -90,19 +90,58 @@ def scene_graph(name, amount, rate=48000, chunk=128):
     return graph
 
 
-def scene_dynamic_graph(name, rate=48000, diagnostic=False):
+def scene_selector_graph():
+    # The control is twice the scene index plus its amount (0..1).
+    # Keep the outgoing scene selected until its amount reaches zero.
+    selection = (
+        "if(eq(n,0),st(4,1/(s*.02)));"
+        "st(2,floor(val(2)/2));st(3,val(2)-2*ld(2));"
+        "if(eq(ld(0),0),st(1,ld(2)));"
+        "st(0,ld(0)+clip(if(eq(ld(1),ld(2)),ld(3),0)-ld(0),-ld(4),ld(4)));"
+        "2*ld(1)+ld(0)"
+    )
+    return (
+        "[in]aformat=sample_fmts=dblp:channel_layouts=stereo,asplit=2[audio][control];"
+        "[control]aeval=1:c=mono,volume@scene_amount=__SCENE__:precision=double,"
+        "aformat=sample_fmts=dblp:channel_layouts=mono[target];"
+        "[audio][target]join=inputs=2:channel_layout=3.0:map=0.0-FL|0.1-FR|1.0-FC,"
+        f"aeval='val(0)|val(1)|{selection}':c=3.0,aformat=channel_layouts=3.0[out]"
+    )
+
+
+def scene_dynamic_graph(name, rate=48000, diagnostic=False, selector=None):
     profile = SCENES[name]
     taps = profile["taps"]
     control_outputs = ["pre", "mix"] + (["feedback"] if taps else []) + (["observe"] if diagnostic else [])
-    graph = (
-        "[in]aformat=sample_fmts=dblp:channel_layouts=stereo,"
-        # Pad only the processing loop; the unpadded dry input bounds final output.
-        "asplit=2[dry][work];[work]asetnsamples=n=128:p=1,"
-        "asetpts=N/SR/TB,asplit=2[raw][control];"
+    audio = "[in]aformat=sample_fmts=dblp:channel_layouts=stereo,"
+    work = "asetpts=N/SR/TB,asplit=2[raw][control];"
+    control = (
         "[control]aeval=1:c=mono,volume@scene_amount=0:precision=double,"
         "aformat=sample_fmts=dblp:channel_layouts=mono,"
         "aeval='st(0,ld(0)+clip(val(0)-ld(0),-1/(s*.02),1/(s*.02)));ld(0)':c=mono,"
-        "aformat=sample_fmts=dblp:channel_layouts=mono,"
+    )
+    retain_selector = False
+    if selector is not None:
+        index, retain_selector = selector
+        audio = (
+            "[in]aformat=sample_fmts=dblp:channel_layouts=3.0,asplit=2[audio][selector];"
+            "[audio]pan=stereo|c0=c0|c1=c1,"
+        )
+        work = "asetpts=N/SR/TB[raw];"
+        control = "[selector]pan=mono|c0=c2,"
+        if retain_selector:
+            control += "asplit=2[retained][level];[level]"
+        control += (
+            "asetnsamples=n=128:p=1,asetpts=N/SR/TB,"
+            f"aeval='if(eq(floor(val(0)/2),{index}),val(0)-{2*index},0)':c=mono,"
+        )
+    graph = (
+        audio
+        # Pad only the processing loop; the unpadded dry input bounds final output.
+        + "asplit=2[dry][work];[work]asetnsamples=n=128:p=1,"
+        + work
+        + control
+        + "aformat=sample_fmts=dblp:channel_layouts=mono,"
         f"asplit={len(control_outputs)}" + "".join(f"[i_{label}]" for label in control_outputs) + ";"
         "[raw][i_pre]join=inputs=2:channel_layout=3.0:map=0.0-FL|0.1-FR|1.0-FC[pre];"
     )
@@ -168,6 +207,12 @@ def scene_dynamic_graph(name, rate=48000, diagnostic=False):
     if diagnostic:
         graph += ",aformat=sample_fmts=dblp:channel_layouts=stereo[effect];[effect][i_observe]join=inputs=2:channel_layout=3.0:"
         graph += "map=0.0-FL|0.1-FR|1.0-FC,aformat=channel_layouts=3.0[out]"
+    elif retain_selector:
+        graph += (
+            ",aformat=sample_fmts=dblp:channel_layouts=stereo[effect];"
+            "[retained][effect]join=inputs=2:channel_layout=3.0:map=1.0-FL|1.1-FR|0.0-FC,"
+            "aformat=channel_layouts=3.0[out]"
+        )
     else:
         graph += ",aformat=channel_layouts=stereo[out]"
     return graph

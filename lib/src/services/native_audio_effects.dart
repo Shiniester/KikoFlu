@@ -13,6 +13,12 @@ enum AudioEffectsStatus { waiting, ready, passthrough, unavailable }
 class AudioEffectsGraph {
   static const sceneNames = ['bathroom', 'through_wall', 'telephone'];
 
+  // One native target carries the mode and amount into the same audio sample.
+  static double _sceneTarget(AudioEffectsSettings settings) =>
+      settings.sceneEnabled && settings.sceneAmount > 0
+      ? 2.0 * settings.scene.index + settings.sceneAmount / 100
+      : 0;
+
   static bool supportsFilterGraph(String? choices, String? version) {
     final parts = RegExp(r'(\d+)\.(\d+)').firstMatch(version ?? '');
     if (parts != null) {
@@ -63,13 +69,11 @@ class AudioEffectsGraph {
         '__GUARD__',
         settings.needsGuard ? '1' : '0',
       ),
-      for (var i = 0; i < sceneNames.length; i++)
-        sceneNames[i]: templates[sceneNames[i]]!.replaceAll(
-          '__AMOUNT__',
-          settings.sceneEnabled && settings.scene.index == i
-              ? '${settings.sceneAmount / 100}'
-              : '0',
-        ),
+      'scene': templates['scene']!.replaceAll(
+        '__SCENE__',
+        '${_sceneTarget(settings)}',
+      ),
+      for (final name in sceneNames) name: templates[name]!,
     };
     return 'format=channels=stereo,${graphs.entries.map((e) => '@kiko_${e.key}:lavfi=o=[threads=1]:graph=%${e.value.length}%${e.value}').join(',')}';
   }
@@ -80,10 +84,7 @@ class AudioEffectsGraph {
   }) {
     final gains = settings.effectiveGains;
     final oldGains = previous?.effectiveGains;
-    double sceneAmount(AudioEffectsSettings value, int index) =>
-        value.sceneEnabled && value.scene.index == index
-        ? value.sceneAmount / 100
-        : 0;
+    final sceneTarget = _sceneTarget(settings);
     final binauralTargets = [
       (
         settings.effectiveStereoAmount,
@@ -128,16 +129,14 @@ class AudioEffectsGraph {
       for (final (amount, oldAmount, target) in binauralTargets)
         if (amount > 0 && amount != oldAmount)
           ['af-command', 'kiko_binaural', 'volume', '$amount', target],
-      for (var i = 0; i < sceneNames.length; i++)
-        if (previous == null ||
-            sceneAmount(previous, i) != sceneAmount(settings, i))
-          [
-            'af-command',
-            'kiko_${sceneNames[i]}',
-            'volume',
-            '${sceneAmount(settings, i)}',
-            'volume@scene_amount',
-          ],
+      if (previous == null || sceneTarget != _sceneTarget(previous))
+        [
+          'af-command',
+          'kiko_scene',
+          'volume',
+          '$sceneTarget',
+          'volume@scene_amount',
+        ],
       if (!settings.needsGuard && previous?.needsGuard != false)
         ['af-command', 'kiko_guard', 'volume', '0', 'volume@guard_mix'],
     ];
@@ -151,6 +150,7 @@ class NativeAudioEffects {
   NativePlayer? _player;
   AudioEffectsSettings _settings = AudioEffectsSettings();
   AudioEffectsSettings? _appliedSettings;
+  bool _graphInstalled = false;
   bool _passthrough = false;
   bool _failed = false;
   bool _pendingControls = false;
@@ -205,10 +205,10 @@ class NativeAudioEffects {
   }
 
   void resetHistory() {
-    if (!_failed) _install();
+    if (!_failed && _graphInstalled) _install(mayReuseFilters: true);
   }
 
-  void _install() {
+  void _install({bool mayReuseFilters = false}) {
     final player = _player;
     if (player == null || player.disposed) return;
     // Reject incomplete filter lists before loading the first track.
@@ -221,16 +221,29 @@ class NativeAudioEffects {
       _markUnavailable();
       return;
     }
+    // The stereo DSP chain changes the layout of a neutral multichannel source.
+    final installGraph = !_passthrough && _settings.isActive;
+    // mpv reuses filters with matching options, including their cached commands.
+    final resetCachedControls =
+        mayReuseFilters &&
+        _graphInstalled &&
+        installGraph &&
+        !identical(_appliedSettings, _settings);
+    if (resetCachedControls && _setAf(player, '') < 0) {
+      _markUnavailable();
+      return;
+    }
     final result = _setAf(
       player,
-      _passthrough
-          ? ''
-          : AudioEffectsGraph.render(_settings, systemLibrary: false),
+      installGraph
+          ? AudioEffectsGraph.render(_settings, systemLibrary: false)
+          : '',
     );
     if (result < 0) {
       _markUnavailable();
     } else {
-      _appliedSettings ??= _settings;
+      _graphInstalled = installGraph;
+      _appliedSettings = _settings;
       _pendingControls = !_passthrough;
       onStatus(
         _passthrough
@@ -258,10 +271,13 @@ class NativeAudioEffects {
   void _apply({bool allowInitialSnapshot = false}) {
     final player = _player;
     if (player == null || player.disposed || _passthrough || _failed) return;
-    final controls = AudioEffectsGraph.controls(
-      _settings,
-      previous: _appliedSettings,
-    );
+    if (_settings.isActive != _graphInstalled) {
+      _install();
+      return;
+    }
+    final controls = _graphInstalled
+        ? AudioEffectsGraph.controls(_settings, previous: _appliedSettings)
+        : const <List<String>>[];
     if (controls.isEmpty && !_hasAudioOutput(player)) {
       _pendingControls = true;
       return;
@@ -277,8 +293,11 @@ class NativeAudioEffects {
       if (result < 0) {
         // Targets can be absent while loading, seeking, or reconfiguring output.
         if (result == -12) {
+          _appliedSettings = null;
           _pendingControls = true;
-          if (allowInitialSnapshot && !_hasAudioOutput(player)) _install();
+          if (allowInitialSnapshot && !_hasAudioOutput(player)) {
+            _install(mayReuseFilters: true);
+          }
           return;
         }
         _markUnavailable();
@@ -293,15 +312,17 @@ class NativeAudioEffects {
   void _markUnavailable() {
     if (_failed || _passthrough) return;
     _failed = true;
+    _graphInstalled = false;
+    _appliedSettings = null;
     _pendingControls = false;
     final player = _player;
     if (player != null && !player.disposed) _setAf(player, '');
     onStatus(AudioEffectsStatus.unavailable);
   }
 
-  bool _hasAudioOutput(NativePlayer player) {
-    return _property(player, 'audio-out-params') != null;
-  }
+  bool _hasAudioOutput(NativePlayer player) =>
+      _property(player, 'audio-params') != null &&
+      _property(player, 'audio-out-params') != null;
 
   String? _property(NativePlayer player, String property) {
     final name = property.toNativeUtf8();
@@ -342,6 +363,7 @@ class NativeAudioEffects {
     _logs = null;
     await _position?.cancel();
     _position = null;
+    _graphInstalled = false;
     _appliedSettings = null;
     _pendingControls = false;
     final player = _player;

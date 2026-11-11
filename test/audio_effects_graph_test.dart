@@ -25,6 +25,16 @@ void main() {
       final disable = AudioEffectsGraph.controls(dry, previous: cut);
       expect(disable.last[1], 'kiko_guard');
       expect(disable.last[3], '0');
+
+      final muffled = dry.copyWith(
+        sceneEnabled: true,
+        scene: AudioScene.muffled,
+        sceneAmount: 75,
+      );
+      final bathroom = muffled.copyWith(scene: AudioScene.bathroom);
+      expect(AudioEffectsGraph.controls(bathroom, previous: muffled), [
+        ['af-command', 'kiko_scene', 'volume', '0.75', 'volume@scene_amount'],
+      ]);
     },
   );
   test(
@@ -170,10 +180,14 @@ void main() {
           );
           expect(
             graph.indexOf('@kiko_guard'),
+            lessThan(graph.indexOf('@kiko_scene')),
+          );
+          expect(
+            graph.indexOf('@kiko_scene'),
             lessThan(graph.indexOf('@kiko_bathroom')),
           );
           expect(graph, contains('t=o:w=1:g=9.0'));
-          expect(graph, contains('volume@scene_amount=0.75'));
+          expect(graph, contains('volume@scene_amount=2.75'));
           final controls = AudioEffectsGraph.controls(settings);
           expect(
             controls.every(

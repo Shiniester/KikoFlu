@@ -105,8 +105,8 @@ iOS 用户可通过 AltStore 或 SideStore 添加 Iroru 软件源，以安装和
 - Flutter SDK 3.44.1+
 - Dart SDK 3.12.1+
 
-Linux 构建需要 libmpv 开发库和打包工具。Ubuntu 用户可运行
-`sudo apt-get install libmpv-dev pax-utils patchelf binutils`。
+Linux 构建需要锁定的原生库和打包工具。
+Ubuntu 22.04 环境按 [Linux 原生播放库构建](docs/development/linux-native-audio.md)准备。
 
 Windows 上进行 Android 开发时，请按
 [Windows Android 开发环境](docs/development/windows-android.md)配置项目锁定的
@@ -120,6 +120,16 @@ flutter pub get
 
 `tool/performance/setup_android_toolchain.ps1` 创建的 `build/toolchains` 仅供
 可复现的 Android 性能测试使用，不是日常 Android Studio 开发环境。
+
+各平台需要 `build/native-audio/` 中的锁定原生库。
+该目录未纳入 Git，构建应用前须先准备：
+
+- Android：在 Linux 环境运行 `bash scripts/native_audio/build_android.sh all`。
+- Windows：在 Linux 环境运行 `bash scripts/native_audio/build_windows.sh`，再从包含该目录的检出目录构建应用。
+- iOS、macOS：在使用 Xcode 16.4 的 macOS 环境运行 `bash scripts/native_audio/build_darwin.sh`。
+- Linux：按 [Linux 原生播放库构建](docs/development/linux-native-audio.md) 准备。
+
+`flutter clean` 会删除 `build/native-audio/`；清理后须重新运行对应脚本。
 
 ### 构建命令
 

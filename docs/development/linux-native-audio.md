@@ -30,6 +30,9 @@ flutter pub get
 flutter build linux --release
 ```
 
+`build_linux.sh` 检查原生库后，只清理当前架构的 Flutter 构建目录。
+该脚本不会删除 `build/native-audio/`。
+
 原生库安装到 `build/native-audio/linux-output/`。
 CMake 从该目录读取头文件和库，再将运行时依赖复制到应用包。
 源码版本记录在该目录的 `source-provenance.txt`。
@@ -37,7 +40,8 @@ CMake 从该目录读取头文件和库，再将运行时依赖复制到应用�
 脚本拒绝覆盖已有工作目录和输出目录。
 重新构建前，清理上次生成的 `build/native-audio-linux/` 和 `build/native-audio/linux-output/`。
 CI 的工作目录位于 `$RUNNER_TEMP/native-audio-linux/`。
-`flutter clean` 会删除原生库输出；清理后须重新构建原生库。
+手动运行 `flutter clean` 会删除原生库输出。
+清理后须重新运行 `bash scripts/native_audio/build_linux.sh`。
 
 ## 验证
 

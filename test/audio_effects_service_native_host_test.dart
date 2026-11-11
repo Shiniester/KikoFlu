@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart' as model;
 import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
 import '../integration_test/audio_effects_native_helpers.dart';
@@ -26,6 +27,89 @@ void main() {
       JustAudioMediaKit.ensureInitialized(windows: true, libmpv: library);
     }
   });
+
+  test(
+    'native Android routing uses the discovered proxy and keeps LAN direct',
+    () async {
+      SharedPreferences.setMockInitialValues({'proxy_mode': 'system'});
+      final preferences = await SharedPreferences.getInstance();
+      await StorageService.initCritical(preferences: preferences);
+      await ProxyConfig.init(
+        preferences: preferences,
+        refreshSystemProxy: false,
+      );
+      final wav = gzip.decode(base64Decode(audioBackendWavGzipBase64));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final requests = <(String, Uri)>[];
+      server.listen((request) async {
+        requests.add((request.method, request.uri));
+        if (request.method == 'CONNECT') {
+          request.response.statusCode = HttpStatus.forbidden;
+        } else {
+          request.response.headers.contentType = ContentType('audio', 'wav');
+          request.response.contentLength = wav.length;
+          request.response.add(wav);
+        }
+        await request.response.close();
+      });
+      const proxyChannel = MethodChannel(
+        'com.meteor.kikoeruflutter/system_proxy',
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        proxyChannel,
+        (_) async => '127.0.0.1:${server.port}',
+      );
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(proxyChannel, null);
+        ProxyConfig.mode = ProxyMode.direct;
+      });
+
+      final player = audio.AudioPlayer(
+        androidApplyAudioAttributes: false,
+        useProxyForRequestHeaders: false,
+        handleInterruptions: false,
+        handleAudioSessionActivation: false,
+      );
+      final service = AudioPlayerService.forTesting(
+        player,
+        nativePlayerId: player.platformId,
+        sessionStore: MemorySessionStore(),
+        androidNativePreload: true,
+        nativePlayerInitializer: (native) => native.setProperty('ao', 'null'),
+      );
+      addTearDown(service.dispose);
+
+      Future<void> load(String url) => service
+          .updateQueue([
+            model.AudioTrack(id: url, title: 'audio', url: url),
+          ], autoplay: false)
+          .timeout(const Duration(seconds: 10));
+
+      const public = 'http://native-proxy.invalid/track.wav';
+      await load(public);
+      expect(player.duration, const Duration(seconds: 24));
+      expect(requests, contains(('GET', Uri.parse(public))));
+
+      final local = 'http://127.0.0.1:${server.port}/local.wav';
+      await load(local);
+      expect(player.duration, const Duration(seconds: 24));
+      expect(requests, contains(('GET', Uri.parse('/local.wav'))));
+      expect(requests, isNot(contains(('GET', Uri.parse(local)))));
+
+      await expectLater(
+        load('https://native-proxy.invalid/track.wav'),
+        throwsA(isA<audio.PlayerException>()),
+      );
+      expect(requests.any((request) => request.$1 == 'CONNECT'), isTrue);
+    },
+    skip: library == null
+        ? 'Set KIKOFLU_AUDIO_LIBMPV for native proxy routing.'
+        : false,
+  );
+
   for (final clipped in [true, false]) {
     test(
       'native adapter restores ${clipped ? 'chapter' : 'whole source'} initial positions',

@@ -205,7 +205,8 @@ def _cache_scene_parameters(graph, profile):
                   lambda _: "[final]aeval='"+'|'.join(final)+"'", graph)
 
 
-def scene_auto_graph(name, amount, dynamic=False, diagnostic=False, native_rc=False):
+def scene_auto_graph(name, amount, dynamic=False, diagnostic=False, native_rc=False,
+                     selector=None):
     """Eara scene, amount 0..100, optionally with a runtime volume control.
 
     Dynamic initial amount fills scene_amount with amount/100; after reconfigure
@@ -214,12 +215,14 @@ def scene_auto_graph(name, amount, dynamic=False, diagnostic=False, native_rc=Fa
     Keep dynamic=True for resident targets even at zero; static zero is anull.
     native_rc=True requires asendcmd %.17g, with no automatic precision fallback.
     """
-    base = scene_dynamic_graph(name, diagnostic=diagnostic) if dynamic else scene_graph(name, amount)
+    base = (scene_dynamic_graph(name, diagnostic=diagnostic, selector=selector)
+            if dynamic else scene_graph(name, amount))
     if amount == 0 and not dynamic:
         return base
     profile = SCENES[name]
     if dynamic:
-        base = base.replace('volume@scene_amount=0:', f'volume@scene_amount={amount/100:.17g}:', 1)
+        if selector is None:
+            base = base.replace('volume@scene_amount=0:', f'volume@scene_amount={amount/100:.17g}:', 1)
         base = _cache_scene_parameters(base, profile)
     base = base.replace('[seed][fb]concat=n=2:v=0:a=1[delayed]',
         '[seed][fb]concat=n=2:v=0:a=1,asetnsamples=n=128:p=0[delayed]')

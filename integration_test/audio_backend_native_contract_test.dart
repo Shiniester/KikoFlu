@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:audio_session/audio_session.dart';
@@ -279,6 +280,52 @@ void main() {
       });
     },
     skip: !supported,
+  );
+
+  testWidgets(
+    'Android duck end restores the app output level without clamping gain',
+    (tester) async {
+      await _nativeContract(() async {
+        const channel = MethodChannel('com.ryanheise.android_audio_manager');
+        final messenger = tester.binding.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (_) async => true);
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.music());
+        const outputLevel = 1.25;
+        final restored = Completer<void>();
+        late final AudioPlayer player;
+        player = AudioPlayer(
+          androidApplyAudioAttributes: false,
+          onDuckEnd: () async {
+            await player.setVolume(outputLevel);
+            restored.complete();
+          },
+        );
+
+        Future<void> focusChanged(AndroidAudioFocus focus) =>
+            messenger.handlePlatformMessage(
+              channel.name,
+              channel.codec.encodeMethodCall(
+                MethodCall('onAudioFocusChanged', [focus.index]),
+              ),
+              (_) {},
+            );
+
+        try {
+          expect(await session.setActive(true), isTrue);
+          await player.setVolume(0.7);
+          await focusChanged(AndroidAudioFocus.lossTransientCanDuck);
+          await focusChanged(AndroidAudioFocus.gain);
+          await restored.future.timeout(const Duration(seconds: 5));
+          expect(player.volume, outputLevel);
+        } finally {
+          await player.dispose();
+          await session.setActive(false);
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+    },
+    skip: !Platform.isAndroid,
   );
 
   testWidgets(

@@ -199,15 +199,13 @@ void main() {
   ) async {
     const rate = 48000;
     final frames = _productionFixture(rate, rate * 3);
-    final settings = AudioEffectsSettings(
-      channelMode: AudioChannelMode.cloneLeft,
-    );
+    final settings = AudioEffectsSettings(channelMode: AudioChannelMode.swap);
     var framesBeforeUpdate = 0;
     var framesAfterUpdate = 0;
     final output = await _captureProduction(
       frames,
       rate,
-      AudioEffectsSettings(),
+      AudioEffectsSettings(channelMode: AudioChannelMode.cloneLeft),
       realtime: true,
       duringPlayback: (player, native, effects, pcm) async {
         framesBeforeUpdate = await _waitForPcmFrames(pcm, rate ~/ 4);
@@ -220,49 +218,49 @@ void main() {
         framesAfterUpdate = await _waitForPcmFrames(pcm, rate ~/ 2);
       },
     );
-    var maxLeftError = 0.0;
-    var maxLeftErrorFrame = 0;
+    var maxRightError = 0.0;
+    var maxRightErrorFrame = 0;
     for (var n = 0; n < output.length; n++) {
-      final error = (output[n].$1 - frames[n].$1 / 32768).abs();
-      if (error > maxLeftError) {
-        maxLeftError = error;
-        maxLeftErrorFrame = n;
+      final error = (output[n].$2 - frames[n].$1 / 32768).abs();
+      if (error > maxRightError) {
+        maxRightError = error;
+        maxRightErrorFrame = n;
       }
     }
     expect(
-      maxLeftError,
+      maxRightError,
       lessThan(1e-6),
       reason:
-          'clone-left must preserve left PCM continuously at frame $maxLeftErrorFrame',
+          'both modes must copy the left source continuously at frame $maxRightErrorFrame',
     );
 
-    var maxBeforeUpdateRightError = 0.0;
+    var maxBeforeUpdateLeftError = 0.0;
     for (var n = 0; n < framesBeforeUpdate; n++) {
-      maxBeforeUpdateRightError = math.max(
-        maxBeforeUpdateRightError,
-        (output[n].$2 - frames[n].$2 / 32768).abs(),
+      maxBeforeUpdateLeftError = math.max(
+        maxBeforeUpdateLeftError,
+        (output[n].$1 - frames[n].$1 / 32768).abs(),
       );
     }
     expect(
-      maxBeforeUpdateRightError,
+      maxBeforeUpdateLeftError,
       lessThan(1e-6),
-      reason: 'the right channel must retain its source before the update',
+      reason: 'the left channel must retain its source before the update',
     );
 
     final settledStart = framesAfterUpdate + rate ~/ 10;
     final settledEnd = settledStart + rate ~/ 20;
     expect(settledEnd, lessThanOrEqualTo(output.length));
-    var maxAfterUpdateRightError = 0.0;
+    var maxAfterUpdateLeftError = 0.0;
     for (var n = settledStart; n < settledEnd; n++) {
-      maxAfterUpdateRightError = math.max(
-        maxAfterUpdateRightError,
-        (output[n].$2 - frames[n].$1 / 32768).abs(),
+      maxAfterUpdateLeftError = math.max(
+        maxAfterUpdateLeftError,
+        (output[n].$1 - frames[n].$2 / 32768).abs(),
       );
     }
     expect(
-      maxAfterUpdateRightError,
+      maxAfterUpdateLeftError,
       lessThan(1e-6),
-      reason: 'the right channel must settle to the source left after update',
+      reason: 'the left channel must settle to the source right after update',
     );
   });
 
@@ -557,17 +555,22 @@ Future<List<(double, double)>> _captureProduction(
     );
 
     final installedGraph = await native.getProperty('af');
-    for (final target in [
-      '@kiko_eq',
-      '@kiko_channel',
-      '@kiko_binaural',
-      '@kiko_guard',
-      '@kiko_bathroom',
-      '@kiko_through_wall',
-      '@kiko_telephone',
-    ]) {
-      expect(graph, contains(target));
-      expect(installedGraph, contains(target));
+    if (settings.isActive) {
+      for (final target in [
+        '@kiko_eq',
+        '@kiko_channel',
+        '@kiko_binaural',
+        '@kiko_guard',
+        '@kiko_scene',
+        '@kiko_bathroom',
+        '@kiko_through_wall',
+        '@kiko_telephone',
+      ]) {
+        expect(graph, contains(target));
+        expect(installedGraph, contains(target));
+      }
+    } else {
+      expect(installedGraph, isEmpty);
     }
 
     final output = audioEffectsPcm(await pcm.readAsBytes());

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/providers/proxy_provider.dart';
@@ -207,5 +209,44 @@ void main() {
     );
     expect(ProxyConfig.httpProxyUrl, 'http://http-proxy.example:8080');
     expect(ProxyConfig.httpsProxyUrl, 'http://https-proxy.example:8443');
+  });
+
+  test('first native load waits for deferred system proxy discovery', () async {
+    const channel = MethodChannel('com.meteor.kikoeruflutter/system_proxy');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final lookupStarted = Completer<void>();
+    final lookupResult = Completer<String>();
+    var lookupCount = 0;
+    messenger.setMockMethodCallHandler(channel, (call) {
+      expect(call.method, 'getSystemProxy');
+      if (++lookupCount == 1) lookupStarted.complete();
+      return lookupResult.future;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await ProxyConfig.init(refreshSystemProxy: false);
+
+    expect(
+      await ProxyConfig.resolveNativeHttpProxy(Uri.parse('http://192.168.1.1')),
+      isEmpty,
+    );
+    expect(lookupCount, 0);
+
+    final backgroundRefresh = ProxyConfig.refreshSystemProxy();
+    await lookupStarted.future;
+    final http = ProxyConfig.resolveNativeHttpProxy(
+      Uri.parse('http://audio.example/track.wav'),
+    );
+    final https = ProxyConfig.resolveNativeHttpProxy(
+      Uri.parse('https://audio.example/track.wav'),
+    );
+    lookupResult.complete(
+      'http=http-proxy.example:8080;https=https-proxy.example:8443',
+    );
+
+    expect(await http, 'http://http-proxy.example:8080');
+    expect(await https, 'http://https-proxy.example:8443');
+    await backgroundRefresh;
+    expect(lookupCount, 1);
   });
 }
