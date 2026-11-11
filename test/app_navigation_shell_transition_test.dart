@@ -655,6 +655,76 @@ void main() {
     }
   }
 
+  for (final offline in [false, true]) {
+    testWidgets(
+      'separate ${offline ? 'offline' : 'online'} detail pages do not share a cover Hero',
+      (tester) async {
+        const work = Work(id: 42, title: 'Cover preview work');
+        final navigation = await _pumpShell(
+          tester,
+          fakeTagSearch: true,
+          offline: offline,
+        );
+        Widget buildDetail() => offline
+            ? const OfflineWorkDetailScreen(
+                work: work,
+                localCoverPath: 'assets/icons/app_icon_opaque.png',
+                localWorkDirPath: 'assets/icons',
+                fileTree: [],
+              )
+            : const WorkDetailScreen(work: work);
+
+        unawaited(
+          navigation.navigator!.push(
+            MaterialPageRoute<void>(builder: (_) => buildDetail()),
+          ),
+        );
+        for (var frame = 0; frame < 6; frame++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        final firstCover = find
+            .byType(WorkCoverFrame, skipOffstage: false)
+            .first;
+        final firstHero = find.descendant(
+          of: firstCover,
+          matching: find.byType(Hero),
+        );
+        final firstTag = tester.widget<Hero>(firstHero).tag;
+
+        unawaited(
+          navigation.navigator!.push(
+            MaterialPageRoute<void>(builder: (_) => buildDetail()),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final covers = find.byType(WorkCoverFrame, skipOffstage: false);
+        final secondHero = find.descendant(
+          of: covers.last,
+          matching: find.byType(Hero),
+        );
+        expect(tester.widget<Hero>(secondHero).tag, isNot(firstTag));
+        expect(
+          find.byKey(const ValueKey('player-cover-preview-flight-frame')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+        if (offline) {
+          for (var page = 0; page < 2; page++) {
+            navigation.navigator!.pop();
+            for (var frame = 0; frame < 6; frame++) {
+              await tester.pump(const Duration(milliseconds: 100));
+            }
+          }
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final reducedMotion in [false, true]) {
     testWidgets('tab cover preview retains its modal presentation '
         '(reduced motion=$reducedMotion)', (tester) async {

@@ -247,7 +247,8 @@ _避免_：低愿力标签、低票数标签
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 Opening a Work Details Screen from the full-screen audio player closes the
-full-screen player, shows the Mini Player, and switches to Audio.
+player and shows the Mini Player. If the current screen already shows that work,
+it retains its state. Otherwise, the app switches to Audio and opens the screen.
 Returning from a Work Details Screen to a search started in the player preserves
 the search's filters, page, and scroll position.
 _Avoid_: Player details page, audio details page

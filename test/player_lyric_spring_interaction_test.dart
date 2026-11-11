@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
@@ -690,6 +692,132 @@ void main() {
     expect(samples.any((alpha) => alpha > 0.35 && alpha < 0.99), isTrue);
     expect(_visibleLyricAlpha(tester, next), closeTo(1, 0.001));
   });
+
+  testWidgets(
+    'continuous playback keeps a multiline lyric clear of its bottom neighbor',
+    (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
+
+      final longSubtitle = List.filled(6, 'wrapped subtitle words').join(' ');
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 5),
+        lyrics: List.generate(
+          32,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: index == 11 ? 'subtitle 11 $longSubtitle' : 'subtitle $index',
+          ),
+        ),
+      );
+      final settings = playback.container.read(
+        playerLyricSettingsProvider.notifier,
+      );
+      await settings.updateFullActiveFontSize(26.1);
+      await settings.updateFullInactiveFontSize(16.8);
+      await settings.updateFullLineHeight(1.5);
+      await tester.pumpAndSettle();
+
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      final lyricList = find.byKey(const ValueKey('full-lyric-list'));
+      final textPrefix = RegExp(r'^subtitle (\d+)');
+      String? firstOverlap;
+      Map<int, List<Rect>> visibleLyricRows() {
+        final visibleRows = <int, List<Rect>>{};
+        for (final element
+            in find
+                .descendant(
+                  of: lyricList,
+                  matching: find.byWidgetPredicate(
+                    (widget) => widget is RichText,
+                  ),
+                )
+                .evaluate()) {
+          final richText = element.widget as RichText;
+          final text = richText.text.toPlainText();
+          final match = textPrefix.firstMatch(text);
+          if (match == null) continue;
+          final index = int.parse(match.group(1)!);
+          final paragraph = element.renderObject! as RenderParagraph;
+          final boxes = paragraph.getBoxesForSelection(
+            TextSelection(baseOffset: 0, extentOffset: text.length),
+          );
+          for (final box in boxes) {
+            final textRect = Rect.fromPoints(
+              paragraph.localToGlobal(Offset(box.left, box.top)),
+              paragraph.localToGlobal(Offset(box.right, box.bottom)),
+            );
+            final visibleRect = textRect.intersect(viewport);
+            if (visibleRect.isEmpty) continue;
+            visibleRows.putIfAbsent(index, () => []).add(visibleRect);
+          }
+        }
+        return visibleRows;
+      }
+
+      var previousVisibleRows = visibleLyricRows().keys.toSet();
+      int? firstFutureEntryIndex;
+      int? firstFutureEntryFrame;
+      double? firstFutureEntryCenter;
+      for (var frame = 0; frame < 150; frame++) {
+        playback.positions.add(Duration(milliseconds: 5000 + (frame + 1) * 16));
+        await tester.pump(const Duration(milliseconds: 16));
+        final playbackIndex = playback.container.read(
+          currentLyricIndexProvider,
+        );
+        final visibleRows = visibleLyricRows();
+        for (final entry in visibleRows.entries) {
+          if (entry.key > playbackIndex &&
+              !previousVisibleRows.contains(entry.key) &&
+              firstFutureEntryIndex == null) {
+            firstFutureEntryIndex = entry.key;
+            firstFutureEntryFrame = frame;
+            firstFutureEntryCenter = entry.value.first.center.dy;
+          }
+        }
+        for (final entry in visibleRows.entries) {
+          final nextRow = visibleRows[entry.key + 1];
+          if (nextRow == null) continue;
+          for (final currentRect in entry.value) {
+            for (final nextRect in nextRow) {
+              final overlap = currentRect.intersect(nextRect);
+              if (overlap.width > 0.5 &&
+                  overlap.height > 0.5 &&
+                  overlap.center.dy >= viewport.top + 0.6 * viewport.height) {
+                firstOverlap ??=
+                    'frame $frame: subtitles ${entry.key} and ${entry.key + 1} '
+                    'overlap by ${overlap.height.toStringAsFixed(2)} px at '
+                    'y=${overlap.center.dy.toStringAsFixed(2)}; first future '
+                    'entry was subtitle $firstFutureEntryIndex at frame '
+                    '$firstFutureEntryFrame, center $firstFutureEntryCenter';
+              }
+            }
+          }
+        }
+        previousVisibleRows = visibleRows.keys.toSet();
+      }
+
+      expect(firstOverlap, isNull, reason: firstOverlap ?? '');
+      expect(
+        firstFutureEntryIndex,
+        isNotNull,
+        reason: 'a future subtitle must enter the viewport during playback',
+      );
+      expect(
+        firstFutureEntryCenter,
+        greaterThanOrEqualTo(viewport.top + 0.6 * viewport.height),
+        reason:
+            'subtitle $firstFutureEntryIndex must enter from the visible bottom; '
+            'it first became visible at frame $firstFutureEntryFrame with center '
+            '$firstFutureEntryCenter',
+      );
+    },
+  );
 
   testWidgets('emphasis stays at its target after a spring overshoots', (
     tester,

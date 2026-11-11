@@ -32,6 +32,7 @@ import '../widgets/work_detail/work_extra_sections.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/work_detail/work_detail_responsive_layout.dart';
 import '../widgets/work_detail_route_readiness.dart';
+import '../widgets/app_navigation_scope.dart';
 
 /// 离线作品详情页 - 使用下载时保存的元数据展示作品信息
 /// 不依赖网络请求，完全离线可用
@@ -60,6 +61,7 @@ class OfflineWorkDetailScreen extends ConsumerStatefulWidget {
 
 class _OfflineWorkDetailScreenState
     extends ConsumerState<OfflineWorkDetailScreen> {
+  final Object _coverHeroTag = Object();
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
   bool _deferredContentScheduled = false;
@@ -68,10 +70,12 @@ class _OfflineWorkDetailScreenState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _routeReadiness.bind(
-      route: ModalRoute.of(context),
-      navigator: Navigator.maybeOf(context),
-    );
+    final navigation = AppNavigationScope.maybeOf(context);
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      navigation?.registerWorkDetailRoute(route, widget.work.id);
+    }
+    _routeReadiness.bind(route: route, navigator: Navigator.maybeOf(context));
     if (!_deferredContentScheduled) {
       _deferredContentScheduled = true;
       unawaited(_showDeferredContentWhenIdle());
@@ -441,7 +445,6 @@ class _OfflineWorkDetailScreenState
 
     // 封面图片组件
     final coverUrl = work.getCoverImageUrl(host, token: token);
-    final coverHeroTag = 'offline-work-detail-cover-${work.id}';
     final hasLocalCover =
         widget.localCoverPath != null &&
         File(widget.localCoverPath!).existsSync();
@@ -512,13 +515,13 @@ class _OfflineWorkDetailScreenState
     return WorkDetailResponsiveLayout(
       coverBuilder: (context, _) {
         return WorkCoverFrame(
-          heroTag: coverHeroTag,
+          heroTag: _coverHeroTag,
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
           onTap: () => CoverPreviewDialog.show(
             context,
             imageUrl: coverUrl,
-            heroTag: coverHeroTag,
+            heroTag: _coverHeroTag,
             localPath: hasLocalCover ? widget.localCoverPath : null,
             identifier: work.id.toString(),
             cacheKey: 'work_cover_${work.id}',

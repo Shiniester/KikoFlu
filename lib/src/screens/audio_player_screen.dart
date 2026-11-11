@@ -40,6 +40,7 @@ import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import '../providers/automatic_work_marking_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/cover_preview_dialog.dart';
 import '../widgets/responsive_dialog.dart';
 import '../widgets/lyric_translation_confirmation.dart';
@@ -2720,8 +2721,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final workId = track.workId;
     if (workId == null || _openingWorkDetail) return;
     _openingWorkDetail = true;
-    _releaseTextInputFocus();
     try {
+      if (_dismissPlayerForVisibleWork(context, workId)) return;
+      _releaseTextInputFocus();
       PlayerWorkDetailsData? details = ref
           .read(playerWorkDetailsProvider)
           .valueOrNull;
@@ -2748,6 +2750,17 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     Widget builder(BuildContext context) =>
         WorkDetailScreen(work: work, initialCoverImageProvider: initialCover);
     return pushAudioPlayerHandoffRoute(context, builder: builder);
+  }
+
+  bool _dismissPlayerForVisibleWork(BuildContext context, int workId) {
+    if (AppNavigationScope.maybeOf(
+          context,
+        )?.isAudioPlayerDirectlyAboveWork(workId) !=
+        true) {
+      return false;
+    }
+    Navigator.of(context).pop();
+    return true;
   }
 
   ImageProvider<Object>? _initialWorkDetailCover(Work work) {
@@ -3507,6 +3520,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   }
 
   Future<void> _navigateToWorkDetail(BuildContext context, int workId) async {
+    if (_dismissPlayerForVisibleWork(context, workId)) return;
     try {
       if (context.mounted) {
         showDialog(
