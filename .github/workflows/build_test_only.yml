@@ -214,7 +214,7 @@ jobs:
             entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
             printf 'Native libraries in %s:\n%s\n' "$apk" "${entries:-<none>}"
             for abi in "$@"; do
-              for library in libmpv.so libmediakitandroidhelper.so; do
+              for library in libmpv.so libmediakitandroidhelper.so libc++_shared.so; do
                 if ! grep -Fxq "lib/$abi/$library" <<< "$entries"; then
                   echo "::error::Missing lib/$abi/$library in $apk."
                   return 1

@@ -23,14 +23,6 @@ void main() {
   const library = String.fromEnvironment('KIKOFLU_AUDIO_LIBMPV');
 
   setUpAll(() {
-    if (Platform.isAndroid) {
-      try {
-        DynamicLibrary.open('libmpv.so');
-      } catch (error, stackTrace) {
-        debugPrint('ANDROID_LIBMPV_OPEN_ERROR $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
-    }
     MediaKit.ensureInitialized(libmpv: library.isEmpty ? null : library);
   });
 
