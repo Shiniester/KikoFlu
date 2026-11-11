@@ -306,7 +306,15 @@ void main() {
         videoPlayer = _newPlayer();
         final nativeVideo = videoPlayer.platform as NativePlayer;
         await nativeVideo.setProperty('ao', 'null');
-        final controller = VideoController(videoPlayer);
+        // shortcut: macOS CI lacks accelerated OpenGL; verify hardware rendering on a GPU runner.
+        final controller = VideoController(
+          videoPlayer,
+          configuration: Platform.isMacOS
+              ? const VideoControllerConfiguration(
+                  enableHardwareAcceleration: false,
+                )
+              : const VideoControllerConfiguration(),
+        );
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(

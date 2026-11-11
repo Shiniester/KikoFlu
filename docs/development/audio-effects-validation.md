@@ -1,5 +1,44 @@
 # 播放音效验证
 
+## 统一版本（2026-11-11）
+
+Android、iOS、macOS、Windows 和 Linux 的原生库使用相同的源码版本：
+
+| 组件 | 版本 | 源码提交 |
+| --- | --- | --- |
+| mpv | 0.42.0 | `b0841e8c4d156b8403dc1876c4cbd9011eb583f3` |
+| FFmpeg | 9.0.2 | `946fcce07b6dcd0331c8cc609192aeff5e1924f8` |
+| libplacebo | 7.387.0 | `275f7dea27924cdd34ab2e6c20e448b6bc4fab65` |
+
+验收使用应用打包的原生库，检查实际 PCM 输出、播放中参数更新和视频播放。
+旁路和零强度输出要求与输入逐样本相同，其他音效沿用已有数值误差范围。
+iOS 模拟器检查同源库的输出；设备版本检查构建、架构和最低系统版本。
+本轮不执行真机测试或耳机试听。
+
+固定 PCM 测试信号使用 WAV 格式，并显式指定 WAV 解复用器。
+这组信号的格式自动识别未纳入验收；视频测试仍使用自动识别。
+macOS 集成测试使用软件纹理，以适配没有加速 OpenGL 上下文的构建机。
+应用默认的加速纹理路径在无法创建 OpenGL 像素格式时会崩溃，目前没有自动回退。
+
+### 已完成的验证
+
+[Linux 验证](https://github.com/Shiniester/KikoFlu/actions/runs/42945765817)通过 x64 和 ARM64 发布包构建、PCM 检查及各 7 项播放器集成测试。
+视频测试在两个架构上均观察到 1280×720 的纹理。
+
+[Windows 原生库产物](https://github.com/Shiniester/KikoFlu/actions/runs/42939738921/artifacts/13821054591)在本机通过 90 项 PCM 检查，包含 HTTP/HLS 和跳转边界。
+跳转后的 48,017 帧与同一测试时钟下的冷启动基准逐样本相等。
+[Windows 播放器集成检查](https://github.com/Shiniester/KikoFlu/actions/runs/42945765817/job/130294175120)中的 7 项音效和视频测试通过。
+
+[Apple 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42948392978)通过 iOS 和 macOS 的架构及最低系统版本检查。
+[iOS 模拟器验证](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130302229037)通过 7 项音效和视频测试，未签名设备应用也构建通过。
+
+[Android 原生库构建](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130293290274)通过四个 ABI 的检查。
+[Android 应用验证](https://github.com/Shiniester/KikoFlu/actions/runs/42950454018/job/130303800750)通过 APK 打包、7 项音效和视频测试及 14 项播放后端测试。
+
+## 历史记录（2026-11-08 至 2026-11-09）
+
+以下记录对应当时的构建与验收范围，不代表统一版本的验证结果。
+
 按 2026-11-09 的确认，不再执行真机验证。
 本轮优先保证 Android，其他平台的检查不阻塞交付。
 统一音声后端、基础音效和两种双耳扩宽均已合入。
@@ -15,7 +54,7 @@ Android 旧版自建库的 90 项实际 PCM 检查单独保留。
 及任务 #36～#39。
 未完成的设备检查和耳机试听保留为未验证状态。
 
-## Windows 原锁定库
+### Windows 原锁定库
 
 原型通过 libmpv 客户端接口处理固定信号，并采集 PCM 文件。
 运行库来自项目锁定的 `media_kit_libs_windows_video` 1.0.11。
@@ -52,7 +91,7 @@ Eara 场景基准、HTTP/HLS 音效输出和参数实时更新尚未验证。
 [原库契约记录](audio-backend-windows-current.json)来自 Flutter tester 和真实 FFI。
 平台应用插件、后台播放、系统控制和耳机试听仍待验证。
 
-## Android 原锁定库
+### Android 原锁定库
 
 首次验证时尚未准备 Android SDK 和连接设备。
 原锁定库未执行设备上的 PCM 检查。
@@ -65,7 +104,7 @@ Eara 场景基准、HTTP/HLS 音效输出和参数实时更新尚未验证。
 `aresample`、`aeval`、`aiir` 和 `allpass` 未在脚本中启用。
 这是构建配置证据，不能替代 Android 实际加载和输出结果。
 
-## 自建原生库
+### 自建原生库
 
 原生构建脚本位于 `scripts/native_audio/`。
 构建保留原有滤镜禁用策略，仅补充明确需要的滤镜。
@@ -79,7 +118,7 @@ Android 全 ABI 产物来自[构建 42559176909](https://github.com/Shiniester/K
 该轮包含重初始化、命令精度和效果参数恢复补丁。
 这些补丁未执行设备复测。
 
-### Android 参数恢复
+#### Android 参数恢复
 
 [参数恢复记录](audio-effects-android-control-cache.json)通过全部断言。
 主机库使用 Android 固定的 mpv 源码和相同的两项补丁。
@@ -98,7 +137,7 @@ HLS 输入依次切换 44.1、96、44.1、96 kHz。
 滤镜图重新配置后，原生缓存先恢复参数，再接收音频。
 Dart 不依赖格式通知补发参数。
 
-### 应用处理链
+#### 应用处理链
 
 [应用处理链记录](audio-effects-production-pcm.json)保留 158 项通过结果。
 基础音效通过 53 项，双耳扩宽通过 105 项。
@@ -131,7 +170,7 @@ Windows 参考库的服务采集仍出现过 `47,616/48,017` 帧缺口。
 修复后，93 项受影响的回归和 3 项原生章节契约通过。
 结果见[双轴评审](audio-effects-review.md)。
 
-### Android APK
+#### Android APK
 
 通用 APK 和 ARM64 APK 均通过最终流水线。
 通用包包含 ARMv7、ARM64 和 x86_64。
@@ -143,7 +182,7 @@ Flutter 3.44.7 的 Android 应用构建不再提供 x86 目标。
 包内 mpv 库与本轮 JAR 去除调试符号后的产物逐字节一致。
 3 个 ABI 的应用产物均已包含最终评审修复。
 
-### Android 实际输出
+#### Android 实际输出
 
 自建 ARM64 库已在 OPD2405 的 Android 16 设备上运行。
 设备为 API 36，页大小为 4,096 字节。
@@ -204,7 +243,7 @@ FFmpeg 6 的处理链使用以下兼容约束：
 现有服务与设置的 171 个单元和界面基线也已通过。
 这些基线不替代迁移后的队列、预加载和系统控制验证。
 
-### 自适应采样率原型
+#### 自适应采样率原型
 
 [自适应图记录](../../tool/audio_effects/fixtures/adaptive-fs-android.json)来自新增 `aselect` 的 Android 自建库。
 57 项信号检查全部通过，包含 44.1、48、96 kHz 和非整块末尾。
@@ -221,7 +260,7 @@ Windows 自建库尚未完成该输入的复测。
 本轮构建见 [原生构建记录](https://github.com/Shiniester/KikoFlu/actions/runs/42529641501)。
 原型说明与复现入口见[自适应采样率原型](../../tool/audio_effects/ADAPTIVE_FS.md)。
 
-### 适配器契约原型
+#### 适配器契约原型
 
 [参考库记录](audio-backend-reference.json)包含 11 项真实原生契约和 4 项加载单测。
 位置快照修复后的 15 项均已通过。
@@ -247,7 +286,7 @@ Windows 自建库尚未完成该输入的复测。
 缓存查询不能跨加载、跳转或销毁回写状态。
 旧缓冲事件也不能覆盖最新的就绪状态。
 
-### 后端迁移回归
+#### 后端迁移回归
 
 后端迁移已合入 `364e47db`，使用同一音声实例配置输出和增益。
 Windows 参考库的 14 项真实契约检查已通过。
@@ -265,7 +304,7 @@ Android 调试包已通过本机 Gradle 构建。
 两阶段音效的本机发布构建已通过。
 该本机包使用较早的原生库，不作为最终原生补丁的打包证据。
 
-### Windows 自建库
+#### Windows 自建库
 
 Windows 构建采用固定的 llvm-mingw 工具链和上游构建配方。
 ExternalProject 模块和模板已固定到内层补丁对应的版本。
@@ -278,7 +317,7 @@ Windows 的 62 个构建 Git 输入已固定到提交。
 最近一次[Windows 构建](https://github.com/Shiniester/KikoFlu/actions/runs/42547713301)失败于 libass 的 `checkasm` 工具。
 尚无 Windows 自建库的实际输出通过结果。
 
-## 其余平台
+### 其余平台
 
 iOS、macOS 和 Linux 的实际运行尚未验证。
 iOS 和 macOS 的锁定库使用 `libmpv-darwin-build` v0.6.0。
@@ -288,7 +327,7 @@ Apple 自建配方已补齐滤镜，最低应用版本保持不变。
 最近一次 [Apple 构建](https://github.com/Shiniester/KikoFlu/actions/runs/42546217679)失败于 libpng 的旧头文件。
 SDK 路径和头文件修复已合入，修复后尚未重新编译。
 
-## 未验证项
+### 未验证项
 
 本轮按确认后的 Android 范围交付。
 未执行的检查包括设备上的后台与系统控制、实时性能和耳机试听。
@@ -297,9 +336,9 @@ Windows 和 Apple 自建库尚未编译通过。
 Linux 应用打包和运行尚未验证。
 这些缺口不计作通过结果。
 
-## 复现
+### 复现
 
-### Android 实际 PCM
+#### Android 实际 PCM
 
 以下为已有设备证据的复现方法，本次不再执行。
 
@@ -324,7 +363,7 @@ ADB 不在 `PATH` 时，使用 `--adb <adb路径>`。
 HTTP/HLS 的本机测试服务器通过临时 `adb reverse` 映射访问。
 原生检查不替代 Flutter 播放器和系统控制验收。
 
-### Windows 原锁定库
+#### Windows 原锁定库
 
 使用项目锁定构建中的 `libmpv-2.dll` 运行原型：
 
