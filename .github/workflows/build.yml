@@ -578,8 +578,9 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/x64/release/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/x64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
 
       - name: Upload Linux native audio evidence
         if: always()
@@ -677,8 +678,9 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/arm64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
 
       - name: Upload Linux native audio evidence
         if: always()

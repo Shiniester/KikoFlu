@@ -207,6 +207,25 @@ jobs:
           universal_apk="dist/Iroru-android-universe-test.apk"
           arm64_apk="dist/Iroru-android-arm64-v8a-test.apk"
 
+          check_native_libraries() {
+            local apk=$1
+            shift
+            local entries
+            entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
+            printf 'Native libraries in %s:\n%s\n' "$apk" "${entries:-<none>}"
+            for abi in "$@"; do
+              for library in libmpv.so libmediakitandroidhelper.so; do
+                if ! grep -Fxq "lib/$abi/$library" <<< "$entries"; then
+                  echo "::error::Missing lib/$abi/$library in $apk."
+                  return 1
+                fi
+              done
+            done
+          }
+
+          check_native_libraries "$universal_apk" armeabi-v7a arm64-v8a x86_64
+          check_native_libraries "$arm64_apk" arm64-v8a
+
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
               echo "::error::Required Android build tool not found: $tool"
@@ -511,8 +530,9 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/x64/release/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/x64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
 
       - name: Upload Linux native audio evidence
         if: always()
@@ -602,8 +622,9 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |
           set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$bundle/lib/libmpv.so"
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/arm64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
 
       - name: Upload Linux native audio evidence
         if: always()
