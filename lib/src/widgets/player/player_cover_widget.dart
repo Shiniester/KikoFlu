@@ -598,7 +598,10 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
       child: RepaintBoundary(
         key: ValueKey('player-cover-$role-layer'),
         child: ExcludeSemantics(
-          child: _buildArtworkContent(layer.value, radius),
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: _buildArtworkContent(layer.value, radius),
+          ),
         ),
       ),
     );

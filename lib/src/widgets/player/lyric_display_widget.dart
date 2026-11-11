@@ -929,6 +929,8 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       return;
     }
 
+    // Catch-up rows must use the same spring to avoid overtaking visible rows.
+    final cascadeRows = stagger && (target - start).abs() <= itemExtent;
     final now = _scrollMotionSeconds;
     final previousScrollMotion = _scrollMotion;
     final scrollVelocity = previousScrollMotion?.sample(now).velocity ?? 0;
@@ -994,7 +996,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       final startY = previousSample?.y ?? contentCenter - start;
       final startDelay = previousSample?.moving == true
           ? 0.0
-          : (stagger ? delays[index] ?? 0.0 : 0.0);
+          : (cascadeRows ? delays[index] ?? 0.0 : 0.0);
       final velocityY = previousSample?.moving == true
           ? previousSample!.velocityY
           : 0.0;
@@ -2912,7 +2914,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     required bool stagger,
     int? previousIndex,
     int? previousEmphasisIndex,
-    bool clampToBounds = false,
     bool isPlaybackFollow = false,
     int? request,
   }) {
@@ -2958,7 +2959,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final target = _layoutTargetForLine(
       index,
       widget.visibleBottomInset,
-      clampToBounds: clampToBounds,
+      clampToBounds: false,
     );
     if (target == null) {
       startEmphasisOnly();
@@ -4642,7 +4643,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               stagger: false,
               previousIndex: previous,
               previousEmphasisIndex: previous,
-              clampToBounds: canSpring,
               isPlaybackFollow: _scrollSpringIsPlaybackFollow == true,
               request: motionRequest,
             );
@@ -4655,7 +4655,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               stagger: true,
               previousIndex: previous,
               request: motionRequest,
-              clampToBounds: true,
               isPlaybackFollow: true,
             );
           } else {

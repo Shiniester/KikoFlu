@@ -3011,6 +3011,33 @@ void main() {
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
+  testWidgets('playback follow reaches a target past a tall first subtitle', (
+    tester,
+  ) async {
+    final target = List.filled(160, 'next subtitle').join('\n');
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: List.filled(65, 'earlier subtitle').join('\n'),
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: target,
+        ),
+      ],
+    );
+    expect(find.text(target), findsNothing);
+
+    playback.positions.add(const Duration(seconds: 1));
+    await _frames(tester, 110);
+
+    _expectAnchor(tester, target);
+  });
+
   testWidgets('empty and inner replacement discard moving or queued lyrics', (
     tester,
   ) async {

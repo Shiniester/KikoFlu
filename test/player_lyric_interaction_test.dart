@@ -301,6 +301,73 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('five-line preview keeps rows apart when playback skips lines', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 8));
+    final previewLyrics = List.generate(
+      20,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'compact lyric $index',
+      ),
+    );
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: previewLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 334,
+                height: 200,
+                child: ThreeLineLyricDisplay(
+                  lineCount: 5,
+                  onSeekRequested: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    positions.add(const Duration(seconds: 12));
+    await tester.pump();
+    await tester.pump();
+    final earlier = find.text('compact lyric 10');
+    final later = find.text('compact lyric 12');
+    var comparedFrames = 0;
+    for (var frame = 0; frame < 100; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (earlier.evaluate().isEmpty || later.evaluate().isEmpty) continue;
+      expect(
+        tester.getRect(earlier).bottom,
+        lessThanOrEqualTo(tester.getRect(later).top + 0.5),
+        reason: 'Text boxes overlapped on frame $frame',
+      );
+      comparedFrames++;
+    }
+    expect(comparedFrames, greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   for (final feedback in [false, true]) {
     for (final cancel in [false, true]) {
       testWidgets('holding a moving preview pauses until release, '

@@ -2225,7 +2225,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           ? _wideVerticalPageController
                           : _compactVerticalPageController] ==
                       0 &&
-                  _queueReturnState?.rightPane == PlayerRightPane.lyrics,
+                  (_queueReturnState?.rightPane ?? _rightPane) ==
+                      PlayerRightPane.lyrics,
               seekingPosition: _seekingPosition,
               seekingPositionListenable: _seekPreview,
               onTogglePlayback: _togglePlayback,
@@ -2745,11 +2746,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     }
   }
 
-  Future<void> _openKnownWork(Work work) {
+  Future<void> _openKnownWork(Work work) async {
+    if (_dismissPlayerForVisibleWork(context, work.id)) return;
     final initialCover = _initialWorkDetailCover(work);
     Widget builder(BuildContext context) =>
         WorkDetailScreen(work: work, initialCoverImageProvider: initialCover);
-    return pushAudioPlayerHandoffRoute(context, builder: builder);
+    await pushAudioPlayerHandoffRoute(context, builder: builder);
   }
 
   bool _dismissPlayerForVisibleWork(BuildContext context, int workId) {

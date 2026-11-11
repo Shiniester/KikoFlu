@@ -280,6 +280,75 @@ void main() {
     );
   });
 
+  testWidgets('missing cover fades in over the cover surface color', (
+    tester,
+  ) async {
+    const first = AudioTrack(
+      id: 'backdrop-first',
+      title: 'First',
+      url: 'first.mp3',
+    );
+    const second = AudioTrack(
+      id: 'backdrop-empty',
+      title: 'No artwork',
+      url: 'second.mp3',
+    );
+    final firstProvider = MemoryImage(
+      File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<AudioTrack>(
+              valueListenable: track,
+              builder: (context, value, _) => PlayerCoverWidget(
+                track: value,
+                animateTrackChanges: true,
+                imageProviderOverride: value.id == first.id
+                    ? firstProvider
+                    : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    track.value = second;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final incomingOpacity = find.byKey(
+      const ValueKey('player-cover-incoming-opacity'),
+    );
+    final backdrop = find.descendant(
+      of: incomingOpacity,
+      matching: find.byType(ColoredBox),
+    );
+    expect(backdrop, findsOneWidget);
+    expect(
+      tester.widget<ColoredBox>(backdrop).color,
+      Theme.of(
+        tester.element(find.byType(PlayerCoverWidget)),
+      ).colorScheme.surfaceContainerHighest,
+    );
+    expect(
+      tester.widget<FadeTransition>(incomingOpacity).opacity.value,
+      inExclusiveRange(0, 1),
+    );
+    expect(
+      tester.getSize(backdrop),
+      tester.getSize(
+        find.byKey(const ValueKey('player-cover-transition-clip')),
+      ),
+    );
+  });
+
   testWidgets('tracks from the same work update without a cover transition', (
     tester,
   ) async {

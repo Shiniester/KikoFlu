@@ -1796,6 +1796,53 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('album card returns to the existing work detail', (tester) async {
+    const work = Work(id: 42, title: 'Current work');
+    const track = AudioTrack(
+      id: 'album-work-track',
+      title: 'Album track',
+      url: 'https://example.invalid/work.mp3',
+      workId: 42,
+    );
+    const details = PlayerWorkDetailsData(
+      track: track,
+      work: work,
+      fileTree: [],
+      variants: [],
+      fileTreeId: '42:album',
+    );
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      track: track,
+      workDetails: details,
+      navigationController: navigation,
+      home: _tabNavigatorHome(navigation, const WorkDetailScreen(work: work)),
+      disableThemeArtwork: true,
+    );
+    final detail = find.byType(WorkDetailScreen, skipOffstage: false);
+    final initialState = tester.state(detail);
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final album = find.byKey(const ValueKey('player-detail-album'));
+    expect(album.hitTestable(), findsOneWidget);
+    await tester.tap(album);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(detail, findsOneWidget);
+    expect(tester.state(detail), same(initialState));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('wide player places the title and cover left of controls', (
     tester,
   ) async {
@@ -2158,11 +2205,15 @@ void main() {
         of: list,
         matching: find.text(lyrics[10].text),
       );
-      expect(tester.getCenter(current).dy, closeTo(anchor, 2.1));
-      expect(
-        find.descendant(of: list, matching: find.text(lyrics[9].text)),
-        findsOneWidget,
+      final previous = find.descendant(
+        of: list,
+        matching: find.text(lyrics[9].text),
       );
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      expect(tester.getCenter(current).dy, closeTo(anchor, 2.1));
+      expect(tester.getRect(previous).overlaps(viewport), isTrue);
       positions.add(const Duration(seconds: 11));
       await tester.pump();
       await tester.pump();
@@ -2170,10 +2221,9 @@ void main() {
       for (var frame = 0; frame < 6; frame++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(
-        find.descendant(of: list, matching: find.text(lyrics[9].text)),
-        findsNothing,
-      );
+      if (previous.evaluate().isNotEmpty) {
+        expect(tester.getRect(previous).overlaps(viewport), isFalse);
+      }
       expect(tester.getCenter(current).dy, isNot(closeTo(before, 0.1)));
       final target = find.descendant(
         of: list,
@@ -4404,6 +4454,13 @@ void main() {
         await gesture.moveBy(const Offset(0, 300));
         await tester.pump();
         expect(verticalPages.controller!.page, lessThan(0.5));
+        final heldPage = verticalPages.controller!.page!;
+        final heldOffset = position.pixels;
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.pump(const Duration(milliseconds: 160));
+        expect(position.pixels, closeTo(heldOffset, 0.1));
+        expect(verticalPages.controller!.page, closeTo(heldPage, 0.001));
         await gesture.moveBy(const Offset(0, 260));
         await tester.pump();
         expect(verticalPages.controller!.page, closeTo(0, 0.001));
