@@ -756,6 +756,7 @@ void main() {
       var firstFutureEntryMovedUp = false;
       var maxOverlap = 0.0;
       var overlapDetails = '';
+      final visibleRowsAtKeyFrames = <int, Map<int, List<Rect>>>{};
       for (var frame = 0; frame < 150; frame++) {
         playback.positions.add(Duration(milliseconds: 5000 + (frame + 1) * 16));
         await tester.pump(const Duration(milliseconds: 16));
@@ -763,6 +764,9 @@ void main() {
           currentLyricIndexProvider,
         );
         final visibleRows = visibleLyricRows();
+        if (frame == 100 || frame == 120) {
+          visibleRowsAtKeyFrames[frame] = visibleRows;
+        }
         for (final entry in visibleRows.entries) {
           if (entry.key > playbackIndex &&
               !previousVisibleRows.contains(entry.key)) {
@@ -816,6 +820,25 @@ void main() {
         firstFutureEntryMovedUp,
         isTrue,
         reason: 'the new subtitle should continue moving up after it enters',
+      );
+      final before = visibleRowsAtKeyFrames[100]!;
+      final after = visibleRowsAtKeyFrames[120]!;
+      double upwardTravel(int rowIndex) {
+        expect(before[rowIndex], hasLength(1));
+        expect(after[rowIndex], hasLength(1));
+        return before[rowIndex]!.single.center.dy -
+            after[rowIndex]!.single.center.dy;
+      }
+
+      expect(
+        upwardTravel(13),
+        greaterThan(5),
+        reason: 'the entering subtitle keeps moving as the scroll settles',
+      );
+      expect(
+        (upwardTravel(9) - upwardTravel(10)).abs(),
+        greaterThan(8),
+        reason: 'interior subtitles keep their stagger',
       );
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),

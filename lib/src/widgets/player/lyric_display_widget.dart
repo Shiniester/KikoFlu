@@ -2973,7 +2973,38 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final sample = _lyricMotion[index]?.sample(_lyricMotionSeconds);
     final frozen = _frozenLyricMotion[index];
     final baseY = _lyricMotionBaseY[index];
-    final retained = _retainedScrollSpringRows.contains(index) && baseY != null;
+    final isRetained = _retainedScrollSpringRows.contains(index);
+    final direction = _scrollSpringLagDirection ?? 0;
+    final previousIndex = index - direction;
+    if (direction != 0 &&
+        !isRetained &&
+        pendingY == null &&
+        _retainedScrollSpringRows.contains(previousIndex)) {
+      final layout = _layoutIndex!;
+      double extentFor(int rowIndex) => layout.extentFor(
+        rowIndex,
+        currentIndex: _layoutCurrentIndex,
+        selectedMatch: _layoutSelectedMatch,
+      );
+      final centerGap = (extentFor(index) + extentFor(previousIndex)) / 2;
+      final previousContentCenter = contentCenter - direction * centerGap;
+      final previousCenter = _lyricMotionCenter(
+        previousIndex,
+        previousContentCenter,
+      );
+      final previousLag =
+          previousCenter - (previousContentCenter - position.pixels);
+      // Preserve the entry timing by blending in the lag inside the viewport.
+      final inside = direction > 0
+          ? _visibleViewportHeight(widget.visibleBottomInset) - naturalY
+          : naturalY;
+      final weight = (inside / _LyricLayoutIndex.itemVerticalPadding).clamp(
+        0.0,
+        1.0,
+      );
+      return naturalY + previousLag * weight / 2;
+    }
+    final retained = isRetained && baseY != null;
     if (pendingY == null && sample == null && frozen == null && !retained) {
       return naturalY;
     }
