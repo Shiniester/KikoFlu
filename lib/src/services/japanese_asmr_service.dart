@@ -1,51 +1,25 @@
-import 'dart:async';
-import 'dart:math' as math;
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/services.dart';
-import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
 import '../models/japanese_asmr_browse.dart';
 import '../models/search_query.dart';
 import '../models/search_type.dart';
 import '../models/sort_options.dart';
-import 'proxy_config.dart';
+import '../models/work.dart';
 
-class JapaneseAsmrVerificationRequiredException implements Exception {
-  const JapaneseAsmrVerificationRequiredException();
-
-  static const marker = '[jp-asmr-verification-required]';
-
-  @override
-  String toString() => marker;
-}
-
-class _JapaneseAsmrChapter {
-  const _JapaneseAsmrChapter({required this.title, required this.startTimeMs});
-
-  final String title;
-  final int startTimeMs;
-}
-
-/// The public Japanese ASMR catalog is HTML, independent of Kikoeru accounts.
 class JapaneseAsmrService {
   static final instance = JapaneseAsmrService();
-  static final website = Uri.parse('https://japaneseasmr.com/');
-  static const _verificationChannel = MethodChannel(
-    'com.meteor.kikoeruflutter/japanese_asmr',
-  );
-  static const _sitePageSize = 14;
-  static Future<void>? _browserQueue;
-  static int _nextBrowserRequestId = 0;
+  static final _apiBase = Uri.parse('https://earaasmr.com/api/jp-asmr/');
+
   final Dio _dio;
-  Uri? _verificationUri;
-  bool _browserVerified = false;
-  Response<String>? _verifiedPage;
-  (ProxyMode, String?)? _verifiedProxy;
-  int? _lastPostId;
-  Document? _lastDetail;
-  DateTime? _lastRead;
+  final Map<int, String> _sourceIdsByPostId = {};
+  final Map<int, String> _titlesByPostId = {};
+  final Map<String, Map<String, dynamic>> _tagsByName = {};
+  final Map<String, Map<String, dynamic>> _vasByName = {};
+  final Map<String, Map<String, dynamic>> _circlesByName = {};
+  bool _suggestionsLoaded = false;
 
   JapaneseAsmrService({Dio? dio}) : _dio = dio ?? Dio() {
     _dio.options.connectTimeout = const Duration(seconds: 20);
@@ -63,210 +37,28 @@ class JapaneseAsmrService {
     );
   }
 
-  Future<Response<String>> _get(
-    Uri uri, {
-    Map<String, dynamic>? headers,
-    CancelToken? cancelToken,
-  }) async {
-    try {
-      final useBrowser = _browserVerified && _isSiteUri(uri);
-      final response = useBrowser
-          ? await Future.any<Response<String>>([
-              _withBrowser(() => _readBrowser(uri, cancelToken)),
-              if (cancelToken != null)
-                cancelToken.whenCancel.then((error) => throw error),
-            ])
-          : await _dio.get<String>(
-              uri.toString(),
-              options: Options(
-                responseType: ResponseType.plain,
-                headers: headers,
-              ),
-              cancelToken: cancelToken,
-            );
-      if (_isCloudflareChallenge(response.headers, response.data)) {
-        _requireVerification(uri);
-      }
-      if (useBrowser &&
-          (response.statusCode! < 200 || response.statusCode! >= 300)) {
-        throw DioException.badResponse(
-          statusCode: response.statusCode!,
-          requestOptions: response.requestOptions,
-          response: response,
-        );
-      }
-      return response;
-    } on DioException catch (error) {
-      final response = error.response;
-      if (response != null &&
-          _isCloudflareChallenge(response.headers, response.data)) {
-        _requireVerification(uri);
-      }
-      rethrow;
+  void registerWork(Work work) {
+    if (!work.isJapaneseAsmr) return;
+    final title = work.title.trim();
+    if (title.isNotEmpty) _titlesByPostId[work.id.abs()] = title;
+    final sourceId = _sourceId(work.sourceId);
+    if (sourceId != null) _sourceIdsByPostId[work.id.abs()] = sourceId;
+    for (final tag in work.tags ?? const <Tag>[]) {
+      _remember(_tagsByName, tag.toJson());
+    }
+    for (final va in work.vas ?? const <Va>[]) {
+      _remember(_vasByName, {'id': va.id, 'name': va.name});
+    }
+    final circle = _optionalString(work.name);
+    if (circle != null) {
+      _remember(_circlesByName, {'id': circle, 'name': circle});
     }
   }
 
-  static bool _isSiteUri(Uri uri) =>
-      uri.scheme == website.scheme &&
-      uri.host == website.host &&
-      uri.port == website.port &&
-      uri.userInfo.isEmpty;
-
-  static Future<T> _withBrowser<T>(Future<T> Function() action) async {
-    final previous = _browserQueue;
-    final done = Completer<void>();
-    _browserQueue = done.future;
-    try {
-      if (previous != null) await previous;
-      return await action();
-    } finally {
-      if (identical(_browserQueue, done.future)) _browserQueue = null;
-      done.complete();
-    }
-  }
-
-  Response<String> _browserResponse(Map<dynamic, dynamic>? result) {
-    final data = result?['data'];
-    final urlValue = result?['url'];
-    final url = urlValue is String ? Uri.tryParse(urlValue) : null;
-    final status = result?['statusCode'];
-    final headers = result?['headers'];
-    if (data is! String ||
-        url == null ||
-        !url.hasScheme ||
-        !_isSiteUri(url) ||
-        status is! int ||
-        status < 200 ||
-        status > 599 ||
-        headers is! Map ||
-        headers.entries.any(
-          (entry) => entry.key is! String || entry.value is! String,
-        )) {
-      throw PlatformException(
-        code: 'invalid_response',
-        message: 'Invalid site browser response.',
-      );
-    }
-    return Response<String>(
-      data: data,
-      statusCode: status,
-      headers: Headers.fromMap(
-        headers.map((key, value) => MapEntry(key as String, [value as String])),
-      ),
-      requestOptions: RequestOptions(path: url.toString()),
-    );
-  }
-
-  Future<Response<String>> _readBrowser(
-    Uri uri,
-    CancelToken? cancelToken,
-  ) async {
-    if (cancelToken?.cancelError case final error?) throw error;
-    final verifiedPage = _verifiedPage;
-    if (_verifiedProxy != (ProxyConfig.mode, ProxyConfig.httpsProxyUrl)) {
-      _verifiedPage = null;
-    } else if (verifiedPage?.requestOptions.uri == uri) {
-      _verifiedPage = null;
-      return verifiedPage!;
-    }
-
-    final id = _nextBrowserRequestId++;
-    var finished = false;
-    unawaited(
-      cancelToken?.whenCancel.then((_) async {
-        if (!finished) {
-          try {
-            await _verificationChannel.invokeMethod<void>('cancel', {'id': id});
-          } on PlatformException {
-            // The read can finish while cancellation is being delivered.
-          }
-        }
-      }),
-    );
-    try {
-      final result = await _verificationChannel
-          .invokeMapMethod<String, dynamic>('read', {
-            'id': id,
-            'url': uri.toString(),
-            'proxyMode': ProxyConfig.mode.name,
-            'proxyAddress': ProxyConfig.httpsProxyUrl,
-          });
-      if (cancelToken?.cancelError case final error?) throw error;
-      return _browserResponse(result);
-    } on PlatformException catch (error) {
-      if (cancelToken?.cancelError case final cancellation?) throw cancellation;
-      if (error.code == 'verification_required') _requireVerification(uri);
-      throw DioException(
-        requestOptions: RequestOptions(path: uri.toString()),
-        type: error.code == 'timeout'
-            ? DioExceptionType.receiveTimeout
-            : DioExceptionType.connectionError,
-        error: error,
-        message: error.message,
-      );
-    } finally {
-      finished = true;
-    }
-  }
-
-  Never _requireVerification(Uri uri) {
-    if (_isSiteUri(uri)) {
-      _verificationUri = uri;
-    }
-    throw const JapaneseAsmrVerificationRequiredException();
-  }
-
-  bool _isCloudflareChallenge(Headers headers, Object? data) =>
-      headers.value('cf-mitigated')?.trim().toLowerCase() == 'challenge' ||
-      (data is String &&
-          (data.contains('window._cf_chl_opt') ||
-              data.contains('/orchestrate/chl_page/')));
-
-  Future<bool> verifyAccess({
-    required String title,
-    required String closeLabel,
-    String? message,
-    int? backgroundColor,
-    int? foregroundColor,
-    int? primaryColor,
-  }) => _withBrowser(() async {
-    final uri = _verificationUri ?? website;
-    final proxy = (ProxyConfig.mode, ProxyConfig.httpsProxyUrl);
-    final result = await _verificationChannel
-        .invokeMapMethod<String, dynamic>('verify', {
-          'url': uri.toString(),
-          'proxyMode': proxy.$1.name,
-          'proxyAddress': proxy.$2,
-          'title': title,
-          'closeLabel': closeLabel,
-          if (message != null) 'message': message,
-          if (backgroundColor != null) 'backgroundColor': backgroundColor,
-          if (foregroundColor != null) 'foregroundColor': foregroundColor,
-          if (primaryColor != null) 'primaryColor': primaryColor,
-        });
-    if (result == null) return false;
-    final cookie = result['cookie'];
-    final userAgent = result['userAgent'];
-    if (cookie is! String ||
-        userAgent is! String ||
-        userAgent.trim().isEmpty ||
-        !RegExp(r'^cf_clearance=[^;\r\n]+$').hasMatch(cookie)) {
-      return false;
-    }
-    final response = _browserResponse(result);
-    if (response.statusCode != 200 ||
-        _isCloudflareChallenge(response.headers, response.data)) {
-      throw PlatformException(
-        code: 'verification_failed',
-        message: 'Site browser access is still challenged.',
-      );
-    }
-    _browserVerified = true;
-    _verifiedPage = response;
-    _verifiedProxy = proxy;
-    _verificationUri = null;
-    return true;
-  });
+  bool hasRegisteredWork(int postId) =>
+      postId > 0 &&
+      (_sourceIdsByPostId.containsKey(postId) ||
+          _titlesByPostId.containsKey(postId));
 
   Future<Map<String, dynamic>> getWorks({
     required int page,
@@ -278,73 +70,48 @@ class JapaneseAsmrService {
     int? archiveYear,
     int? archiveMonth,
     CancelToken? cancelToken,
-  }) => _list(
-    page: page,
-    pageSize: pageSize,
-    ageRating: ageRating,
-    sort: sort,
-    direction: direction,
-    period: period,
-    archiveYear: archiveYear,
-    archiveMonth: archiveMonth,
-    cancelToken: cancelToken,
-  );
+  }) async {
+    if ((ageRating != AgeRating.all && ageRating != AgeRating.general) ||
+        (sort != null && sort != JapaneseAsmrSortOption.date) ||
+        direction != SortDirection.desc ||
+        period != JapaneseAsmrPeriod.week ||
+        archiveYear != null ||
+        archiveMonth != null) {
+      throw UnsupportedError('Eara supports release-sorted JP-ASMR works only');
+    }
+    return _loadPage(
+      query: '',
+      page: page,
+      pageSize: pageSize,
+      allAges: ageRating == AgeRating.general,
+      cancelToken: cancelToken,
+    );
+  }
 
   Future<Map<String, dynamic>> searchWorks({
     required String keyword,
     required int page,
     required int pageSize,
     List<SearchCondition> conditions = const [],
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
-    final filters = conditions
-        .where(
-          (condition) =>
-              condition.type == SearchType.tag ||
-              condition.type == SearchType.va ||
-              condition.type == SearchType.circle,
-        )
-        .toList();
-    for (final filter in filters) {
-      final path = _catalogPath(filter.sourcePath);
-      if (path.pathSegments.first !=
-          (filter.type == SearchType.circle ? 'category' : 'tag')) {
-        throw ArgumentError('Japanese ASMR catalog type does not match path');
-      }
+    if (ageRating != AgeRating.all && ageRating != AgeRating.general) {
+      throw UnsupportedError('Eara supports all-ages filtering only');
     }
-    if (filters.isEmpty) {
-      return _list(
-        page: page,
-        pageSize: pageSize,
-        keyword: keyword,
-        cancelToken: cancelToken,
-      );
+    if (conditions.any(
+      (condition) =>
+          condition.isExclude ||
+          (condition.type != SearchType.keyword &&
+              condition.type != SearchType.rjNumber),
+    )) {
+      throw UnsupportedError('Eara supports keyword search only');
     }
-    if (keyword.trim().isEmpty &&
-        filters.every((filter) => !filter.isExclude) &&
-        (filters.length == 1 ||
-            filters.every((filter) => filter.type != SearchType.circle))) {
-      final prefix = filters.first.type == SearchType.circle
-          ? 'category'
-          : 'tag';
-      // Only the separator is literal: percent-encoding '+' breaks the archive.
-      final slugs = filters.map(
-        (filter) => Uri.encodeComponent(
-          _catalogPath(filter.sourcePath).pathSegments[1],
-        ),
-      );
-      return _list(
-        page: page,
-        pageSize: pageSize,
-        archivePath: '/$prefix/${slugs.join('+')}/',
-        cancelToken: cancelToken,
-      );
-    }
-    return _filteredList(
-      keyword: keyword,
-      filters: filters,
+    return _loadPage(
+      query: keyword.trim(),
       page: page,
       pageSize: pageSize,
+      allAges: ageRating == AgeRating.general,
       cancelToken: cancelToken,
     );
   }
@@ -353,331 +120,111 @@ class JapaneseAsmrService {
     SearchType type, {
     CancelToken? cancelToken,
   }) async {
-    final directory = switch (type) {
-      SearchType.tag => 'tags',
-      SearchType.va => 'cv',
-      SearchType.circle => 'circles',
-      _ => throw ArgumentError.value(type, 'type'),
-    };
-    final document = html.parse(
-      (await _get(
-        website.resolve('/$directory/'),
-        cancelToken: cancelToken,
-      )).data,
-    );
-    final entries = <String, Map<String, dynamic>>{};
-    for (final link in document.querySelectorAll(
-      '.entry-content .tag-groups-tag a[href]',
-    )) {
-      final uri = website.resolve(link.attributes['href']!);
-      final name = link.querySelector('.tag-groups-label')?.text.trim();
-      if (uri.scheme != website.scheme ||
-          uri.host != website.host ||
-          name == null ||
-          name.isEmpty) {
-        continue;
-      }
-      final path = uri.path;
-      final expected = type == SearchType.circle ? 'category' : 'tag';
-      if (uri.pathSegments.length != 3 ||
-          uri.pathSegments.first != expected ||
-          uri.pathSegments[1].isEmpty ||
-          uri.pathSegments.last.isNotEmpty ||
-          uri.hasQuery ||
-          uri.hasFragment) {
-        continue;
-      }
-      final count = int.tryParse(
-        (link.attributes['title'] ?? '').replaceAll(RegExp(r'[^0-9]'), ''),
-      );
-      entries[path] = {
-        'name': name,
-        'sourcePath': path,
-        if (count != null) 'count': count,
-      };
+    if (type != SearchType.tag &&
+        type != SearchType.va &&
+        type != SearchType.circle) {
+      return const [];
     }
-    if (entries.isEmpty) {
-      throw const FormatException(
-        'Japanese ASMR search catalog is unavailable',
-      );
-    }
-    return entries.values.toList()..sort(
-      (a, b) =>
-          ((b['count'] as int?) ?? 0).compareTo((a['count'] as int?) ?? 0),
-    );
-  }
-
-  static Uri _catalogPath(String? value) {
-    final uri = value == null ? null : Uri.tryParse(value);
-    if (uri == null ||
-        uri.hasScheme ||
-        uri.hasAuthority ||
-        uri.hasQuery ||
-        uri.hasFragment ||
-        !value!.startsWith('/') ||
-        uri.pathSegments.length != 3 ||
-        !const ['tag', 'category'].contains(uri.pathSegments.first) ||
-        uri.pathSegments[1].isEmpty ||
-        uri.pathSegments[1].contains('/') ||
-        uri.pathSegments.last.isNotEmpty) {
-      throw ArgumentError.value(
-        value,
-        'sourcePath',
-        'Invalid Japanese ASMR catalog path',
-      );
-    }
-    return uri;
-  }
-
-  Uri _listUri(
-    int page, {
-    String? keyword,
-    String? archivePath,
-    Map<String, String>? queryParameters,
-  }) {
-    final uri = keyword != null && keyword.isNotEmpty
-        ? website.replace(
-            pathSegments: [
-              'search',
-              keyword,
-              if (page > 1) ...['page', '$page'],
-              '',
-            ],
-          )
-        : website.resolve(
-            '${archivePath ?? '/'}${page > 1 ? 'page/$page/' : ''}',
-          );
-    return queryParameters == null || queryParameters.isEmpty
-        ? uri
-        : uri.replace(queryParameters: queryParameters);
-  }
-
-  int _lastPage(Document document) => document
-      .querySelectorAll('.page-numbers')
-      .map(
-        (number) => int.tryParse(number.text.replaceAll(',', '').trim()) ?? 1,
-      )
-      .fold(1, math.max);
-
-  List<Element> _cards(Document document) {
-    final cards = document.querySelectorAll('li.site-archive-post');
-    if (cards.isEmpty &&
-        document.querySelector('#site-main, .site-main') == null) {
-      throw const FormatException('Japanese ASMR catalog is unavailable');
-    }
-    return cards;
-  }
-
-  Future<Map<String, dynamic>> _filteredList({
-    required String keyword,
-    required List<SearchCondition> filters,
-    required int page,
-    required int pageSize,
-    CancelToken? cancelToken,
-  }) async {
-    if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
-    final documents = <Uri, Document>{};
-    Future<Document> read(Uri uri) async => documents[uri] ??= html.parse(
-      (await _get(uri, cancelToken: cancelToken)).data,
-    );
-    final identities = <String>[];
-    String? seedPath;
-    var seedPages = 1 << 30;
-    for (final filter in filters) {
-      final uri = website.resolve(filter.sourcePath!);
-      final document = await read(uri);
-      final prefix = filter.type == SearchType.circle ? 'category-' : 'tag-';
-      final identity = document.body?.classes.where(
-        (name) => name.startsWith(prefix),
-      );
-      if (identity == null || identity.isEmpty) {
-        throw const FormatException(
-          'Japanese ASMR classification is unavailable',
+    if (type != SearchType.circle && !_suggestionsLoaded) {
+      try {
+        final response = await _getJson(
+          _apiBase.resolve('../search-suggestions'),
+          queryParameters: const {},
+          cancelToken: cancelToken,
         );
-      }
-      identities.add(identity.first);
-      if (!filter.isExclude && _lastPage(document) < seedPages) {
-        seedPath = filter.sourcePath;
-        seedPages = _lastPage(document);
-      }
-    }
-    final start = (page - 1) * pageSize;
-    final matches = <Map<String, dynamic>>[];
-    var matchedCount = 0;
-    var sitePage = 1;
-    var hasNext = true;
-    while (hasNext && matchedCount <= start + pageSize) {
-      final uri = _listUri(sitePage, keyword: keyword, archivePath: seedPath);
-      final document =
-          documents.remove(uri) ??
-          html.parse((await _get(uri, cancelToken: cancelToken)).data);
-      for (final card in _cards(document)) {
-        if (!Iterable<int>.generate(filters.length).every(
-          (index) =>
-              card.classes.contains(identities[index]) !=
-              filters[index].isExclude,
-        )) {
-          continue;
-        }
-        final link = card.querySelector('h2.entry-title a[href]');
-        final id = link == null
-            ? null
-            : _postId(website.resolve(link.attributes['href']!));
-        if (id != null && link!.text.trim().isNotEmpty) {
-          if (matchedCount >= start && matches.length < pageSize) {
-            matches.add(_work(card, id, link.text.trim()));
+        for (final item in response['hotTags'] as List? ?? const []) {
+          if (item is! Map) continue;
+          final name = _optionalString(item['value']);
+          if (name == null) continue;
+          for (final tag in _tagValues([name], item['tagDetails'])) {
+            _remember(_tagsByName, {...tag, 'count': item['count'] ?? 0});
           }
-          matchedCount++;
+        }
+        for (final item in response['hotCvs'] as List? ?? const []) {
+          if (item is! Map) continue;
+          final name = _optionalString(item['value']);
+          if (name != null) {
+            _remember(_vasByName, {
+              'id': name,
+              'name': name,
+              'count': item['count'] ?? 0,
+            });
+          }
+        }
+        _suggestionsLoaded = true;
+      } catch (error) {
+        if (error is! DioException ||
+            CancelToken.isCancel(error) ||
+            (type == SearchType.tag ? _tagsByName : _vasByName).isEmpty) {
+          rethrow;
         }
       }
-      hasNext = document.querySelector('a.next.page-numbers') != null;
-      sitePage++;
     }
-    return {
-      'works': matches,
-      'pagination': {
-        'currentPage': page,
-        'pageSize': pageSize,
-        'totalCount': hasNext ? null : matchedCount,
-        'hasMore': hasNext || matchedCount > start + pageSize,
-      },
+    final catalog = switch (type) {
+      SearchType.tag => _tagsByName,
+      SearchType.va => _vasByName,
+      _ => _circlesByName,
+    };
+    return catalog.values
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  static void _remember(
+    Map<String, Map<String, dynamic>> catalog,
+    Map<String, dynamic> item,
+  ) {
+    final name = item['name'] as String;
+    final previous = catalog[name];
+    catalog[name] = {
+      ...?previous,
+      ...item,
+      if (previous?['names'] is Map || item['names'] is Map)
+        'names': {...?previous?['names'] as Map?, ...?item['names'] as Map?},
     };
   }
 
-  Future<Map<String, dynamic>> _list({
+  Future<Map<String, dynamic>> _loadPage({
+    required String query,
     required int page,
     required int pageSize,
-    String? keyword,
-    String? archivePath,
-    AgeRating ageRating = AgeRating.all,
-    JapaneseAsmrSortOption? sort,
-    SortDirection direction = SortDirection.desc,
-    JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
-    int? archiveYear,
-    int? archiveMonth,
+    bool allAges = false,
     CancelToken? cancelToken,
   }) async {
     if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
-    if ((period == JapaneseAsmrPeriod.archiveYear ||
-            period == JapaneseAsmrPeriod.archiveMonth) &&
-        archiveYear == null) {
-      throw ArgumentError('Archive period requires a year');
+    final offset = (page - 1) * pageSize;
+    final response = await _getJson(
+      _apiBase.resolve('search'),
+      queryParameters: {
+        'q': query,
+        'limit': pageSize,
+        'offset': offset,
+        'sort': 'release',
+        if (allAges) 'allAges': true,
+      },
+      cancelToken: cancelToken,
+    );
+    final rawItems = response['items'];
+    if (rawItems is! List) {
+      throw const FormatException('Eara search response has no items list');
     }
-    if (period == JapaneseAsmrPeriod.archiveMonth &&
-        (archiveMonth == null || archiveMonth < 1 || archiveMonth > 12)) {
-      throw ArgumentError('Archive month must be between 1 and 12');
-    }
-    final periodArchive = switch (period) {
-      JapaneseAsmrPeriod.archiveYear => '/date/$archiveYear/',
-      JapaneseAsmrPeriod.archiveMonth =>
-        '/date/$archiveYear/${archiveMonth!.toString().padLeft(2, '0')}/',
-      _ => null,
-    };
-    final ratingArchive = switch (ageRating) {
-      AgeRating.all => null,
-      AgeRating.general => '/category/rating/sfw/',
-      AgeRating.r15 => '/category/rating/r-15/',
-      AgeRating.adult => '/category/rating/maniax/',
-    };
-    final queryParameters = <String, String>{};
-    if (sort != null) {
-      queryParameters.addAll({
-        'order': sort == JapaneseAsmrSortOption.popular
-            ? SortDirection.desc.value
-            : direction.value,
-        'orderby': switch (sort) {
-          JapaneseAsmrSortOption.date => 'date',
-          JapaneseAsmrSortOption.title => 'title',
-          JapaneseAsmrSortOption.comments => 'comment_count',
-          JapaneseAsmrSortOption.popular => 'post_views',
-        },
-      });
-      if ((sort == JapaneseAsmrSortOption.popular ||
-              sort == JapaneseAsmrSortOption.comments) &&
-          period.date != null) {
-        queryParameters['date'] = period.date!;
-      }
-    }
-    if (periodArchive != null) {
-      queryParameters
-        ..clear()
-        ..addAll({'order': 'desc', 'orderby': 'post_views'});
-    }
-    final start = (page - 1) * pageSize;
-    final first = start ~/ _sitePageSize + 1;
-    final last = (start + pageSize - 1) ~/ _sitePageSize + 1;
     final works = <Map<String, dynamic>>[];
-    var total = 0;
-    var sitePage = first;
-    while (true) {
-      final uri = _listUri(
-        sitePage,
-        keyword: keyword,
-        archivePath: periodArchive ?? archivePath ?? ratingArchive,
-        queryParameters: queryParameters,
-      );
-      final document = html.parse(
-        (await _get(uri, cancelToken: cancelToken)).data,
-      );
-      final cards = _cards(document);
-      final batch = <Map<String, dynamic>>[];
-      for (final card in cards) {
-        final link = card.querySelector('h2.entry-title a');
-        final href = link?.attributes['href'];
-        if (href == null) continue;
-        final id = _postId(website.resolve(href));
-        if (id == null || link!.text.trim().isEmpty) continue;
-        batch.add(_work(card, id, link.text.trim()));
+    for (final rawItem in rawItems) {
+      if (rawItem is! Map) {
+        throw const FormatException('Eara search item is not an object');
       }
-      if (sitePage <= last) works.addAll(batch);
-      var lastPage = sitePage;
-      for (final number in document.querySelectorAll('.page-numbers')) {
-        final value = int.tryParse(number.text.replaceAll(',', '').trim());
-        if (value != null) lastPage = math.max(lastPage, value);
-      }
-      final hasNext = document.querySelector('a.next.page-numbers') != null;
-      if (!hasNext) {
-        total = (sitePage - 1) * _sitePageSize + batch.length;
-        break;
-      }
-      // Count actual tail items instead of assuming the last page is full.
-      sitePage = sitePage < last
-          ? sitePage + 1
-          : math.max(lastPage, sitePage + 1);
+      works.add(_workJson(Map<String, dynamic>.from(rawItem)));
     }
-    final offset = start % _sitePageSize;
+    final total = _requiredInt(response['total'], 'total');
     return {
-      'works': works.skip(offset).take(pageSize).toList(),
+      'works': works,
       'pagination': {
         'currentPage': page,
         'pageSize': pageSize,
         'totalCount': total,
+        'hasMore': offset + works.length < total,
       },
     };
-  }
-
-  Future<Document> _detail(
-    int postId,
-    bool forceRefresh, {
-    CancelToken? cancelToken,
-  }) async {
-    if (postId <= 0) throw ArgumentError.value(postId, 'postId');
-    if (!forceRefresh &&
-        _lastPostId == postId &&
-        _lastDetail != null &&
-        DateTime.now().difference(_lastRead!) < const Duration(minutes: 1)) {
-      return _lastDetail!;
-    }
-    final document = html.parse(
-      (await _get(website.resolve('/$postId/'), cancelToken: cancelToken)).data,
-    );
-    if (document.querySelector('h1.page-title') == null) {
-      throw const FormatException('Japanese ASMR work is unavailable');
-    }
-    _lastPostId = postId;
-    _lastDetail = document;
-    _lastRead = DateTime.now();
-    return document;
   }
 
   Future<Map<String, dynamic>> getWork(
@@ -685,156 +232,123 @@ class JapaneseAsmrService {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async {
-    final document = await _detail(
-      postId,
-      forceRefresh,
-      cancelToken: cancelToken,
-    );
-    final root =
-        document.querySelector('#site-main, .site-main') ?? document.body!;
-    return _work(
-      root,
-      postId,
-      document.querySelector('h1.page-title')!.text.trim(),
-    );
-  }
-
-  Map<String, dynamic> _work(Element root, int postId, String title) {
-    final productId = RegExp(r'\b(?:RJ|BJ|VJ)\d+\b', caseSensitive: false)
-        .firstMatch(root.querySelector('#work_title_jp')?.text ?? root.text)
-        ?.group(0)
-        ?.toUpperCase();
-    final cover =
-        root.querySelector('#img_cover')?.attributes['href'] ??
-        _image(root.querySelector('.op-square img'));
-    final images = root
-        .querySelectorAll('.fotorama a[href]')
-        .map((e) => _url(e.attributes['href']))
-        .whereType<String>()
-        .toSet()
-        .toList();
-    final categories = root.querySelectorAll(
-      '.entry-tagline a[rel="category tag"]',
-    );
-    final circle = categories.where((e) {
-      final href = e.attributes['href'] ?? '';
-      return !href.contains('/rating/') && !href.contains('/requested/');
-    });
-    final voice =
-        root.querySelector('#voice_actors')?.text ??
-        RegExp(r'CV:\s*([^\n\r]+)').firstMatch(root.text)?.group(1);
-    final tags = root.querySelectorAll('a[rel="tag"]');
-    return {
-      // Negative page IDs preserve legacy integer-keyed history and downloads.
-      'id': -postId,
-      'title': title,
-      'source_id': productId ?? 'JP-$postId',
-      'source_url': website.resolve('/$postId/').toString(),
-      'cover_url': _url(cover),
-      'name': circle.isEmpty ? null : circle.first.text.trim(),
-      'release': root.querySelector('time[datetime]')?.attributes['datetime'],
-      'vas': [
-        if (voice != null)
-          for (final name
-              in voice.replaceFirst(RegExp(r'^CV:\s*'), '').split(','))
-            if (name.trim().isNotEmpty)
-              {'id': name.trim(), 'name': name.trim()},
-      ],
-      'tags': [
-        // ASMR.ONE tag translations use positive IDs.
-        for (var i = 0; i < tags.length; i++)
-          {'id': -(i + 1), 'name': tags[i].text.trim()},
-      ],
-      'images': images,
-      'description': root.querySelector('#jp-desc, #japaneseDesc')?.text.trim(),
-    };
+    final item = await _lookupWork(postId, cancelToken: cancelToken);
+    return _workJson(item, expectedPostId: postId);
   }
 
   Future<List<dynamic>> getWorkTracks(
     int postId, {
     bool forceRefresh = false,
   }) async {
-    final document = await _detail(postId, forceRefresh);
-    final source =
-        document.querySelector('#cleanp_audio source[src]') ??
-        document.querySelector('#audio[src]');
-    final stream = _url(source?.attributes['src']);
-    if (stream == null) {
-      throw const FormatException('Japanese ASMR audio source is unavailable');
+    final item = await _lookupWork(postId);
+    final sourceId = _sourceId(item['rj'])!;
+    final response = await _getJson(
+      _apiBase.resolve('tracks'),
+      queryParameters: {'rj': sourceId},
+    );
+    if (_sourceId(response['rj']) != sourceId ||
+        _requiredInt(response['workId'], 'workId') != postId) {
+      throw const FormatException(
+        'Eara track response does not match the work',
+      );
     }
-    final work = await getWork(postId);
-    final productId = work['source_id'] as String;
-    final download = document.querySelector('#downloadlink a[href]');
-    final downloadUrl = _url(download?.attributes['href']);
-    final images = work['images'] as List<String>;
-    final chapters = _chapters(document);
-    return [
-      if (chapters.isEmpty)
-        {
-          'type': 'audio',
-          'title': '$productId.m4a',
-          'hash': 'jp-$postId-main',
-          'mediaStreamUrl': stream,
-          if (downloadUrl != null) 'mediaDownloadUrl': downloadUrl,
-        }
-      else
-        for (var i = 0; i < chapters.length; i++)
-          {
-            'type': 'audio',
-            'title': _chapterFileName(chapters[i].title, i + 1),
-            'hash': 'jp-$postId-chapter-${chapters[i].startTimeMs}',
-            'mediaStreamUrl': stream,
-            'mediaDownloadUrl': stream,
-            'startTimeMs': chapters[i].startTimeMs,
-            'endTimeMs': i + 1 < chapters.length
-                ? chapters[i + 1].startTimeMs
-                : null,
-            if (i + 1 < chapters.length)
-              'duration':
-                  (chapters[i + 1].startTimeMs - chapters[i].startTimeMs) /
-                  1000,
-          },
-      for (var i = 0; i < images.length; i++)
-        {
-          'type': 'image',
-          'title': Uri.decodeComponent(Uri.parse(images[i]).pathSegments.last),
-          'hash': 'jp-$postId-image-$i',
-          'mediaStreamUrl': images[i],
-          'mediaDownloadUrl': images[i],
-        },
-    ];
+    final rawTree = response['trackTree'];
+    if (rawTree is! List) {
+      throw const FormatException('Eara track response has no track tree');
+    }
+    final audioIndex = [0];
+    return _mapTrackTree(rawTree, postId: postId, audioIndex: audioIndex);
   }
 
-  static List<_JapaneseAsmrChapter> _chapters(Document document) {
-    final playlist =
-        document.querySelector('#plyr-chapter-playlist') ??
-        document.querySelector('#basic-chapter-playlist');
-    if (playlist == null) return const [];
-
-    final chapters = <_JapaneseAsmrChapter>[];
-    int? previousStartTimeMs;
-    for (final link in playlist.querySelectorAll(
-      'tr .chapter_title a[data-track-title][data-value]',
-    )) {
-      final title = link.attributes['data-track-title']?.trim();
-      final seconds = num.tryParse(link.attributes['data-value']?.trim() ?? '');
-      if (title == null ||
-          title.isEmpty ||
-          seconds == null ||
-          !seconds.isFinite ||
-          seconds < 0) {
-        continue;
+  List<dynamic> _mapTrackTree(
+    List<dynamic> rawNodes, {
+    required int postId,
+    required List<int> audioIndex,
+  }) {
+    final nodes = <Map<String, dynamic>>[];
+    for (final rawNode in rawNodes) {
+      if (rawNode is! Map) {
+        throw const FormatException('Eara track node is not an object');
       }
-      final startTimeMs = (seconds * 1000).round();
-      if (previousStartTimeMs != null && startTimeMs <= previousStartTimeMs) {
-        continue;
+      final node = Map<String, dynamic>.from(rawNode);
+      final type = node['type'];
+      final title = _requiredString(node['title'], 'title');
+      if (type == 'folder') {
+        final children = node['children'];
+        if (children is! List) {
+          throw const FormatException('Eara folder has no children list');
+        }
+        nodes.add({
+          'type': 'folder',
+          'title': title,
+          'children': _mapTrackTree(
+            children,
+            postId: postId,
+            audioIndex: audioIndex,
+          ),
+        });
+      } else if (type == 'audio') {
+        audioIndex[0]++;
+        nodes.add(_mapAudioTrack(node, title, postId, audioIndex[0]));
+      } else {
+        throw FormatException('Unsupported Eara track type: $type');
       }
-      chapters.add(
-        _JapaneseAsmrChapter(title: title, startTimeMs: startTimeMs),
-      );
-      previousStartTimeMs = startTimeMs;
     }
-    return chapters;
+    return nodes;
+  }
+
+  Map<String, dynamic> _mapAudioTrack(
+    Map<String, dynamic> node,
+    String title,
+    int postId,
+    int audioIndex,
+  ) {
+    final directDownloadUrl = _optionalHttpsUrl(node['mediaDownloadUrl']);
+    final streamUrl = _optionalHttpsUrl(node['streamUrl']) ?? directDownloadUrl;
+    if (streamUrl == null) {
+      throw const FormatException('Eara audio has no valid media URL');
+    }
+    final streamUri = Uri.parse(streamUrl);
+    final fragmentParameters = Uri.splitQueryString(streamUri.fragment);
+    final chapter = fragmentParameters['eara-chapter'];
+    final cleanStreamUrl = streamUri.removeFragment().toString();
+    final isHls = streamUri.path.toLowerCase().endsWith('.m3u8');
+    int? startTimeMs;
+    int? endTimeMs;
+    if (chapter != null) {
+      final range = _chapterRange(chapter);
+      if (isHls) {
+        startTimeMs = range.$1;
+        endTimeMs = range.$2;
+      } else if (range.$1 != 0 || range.$2 != null) {
+        throw const FormatException(
+          'Non-HLS Eara chapter ranges are unsupported',
+        );
+      }
+    }
+
+    final hash = startTimeMs != null
+        ? 'jp-$postId-chapter-$startTimeMs'
+        : 'jp-$postId${audioIndex == 1 ? '-main' : '-file-$audioIndex'}';
+    return {
+      'type': 'audio',
+      'title': startTimeMs == null
+          ? title
+          : _chapterFileName(title, audioIndex),
+      'hash': hash,
+      'mediaStreamUrl': cleanStreamUrl,
+      if (startTimeMs != null) ...{
+        'mediaDownloadUrl': cleanStreamUrl,
+        if (directDownloadUrl != null) 'originalDownloadUrl': directDownloadUrl,
+        'startTimeMs': startTimeMs,
+        'endTimeMs': endTimeMs,
+      } else if (directDownloadUrl != null)
+        'mediaDownloadUrl': directDownloadUrl
+      else if (!isHls)
+        'mediaDownloadUrl': cleanStreamUrl,
+      if (node['duration'] is num) 'duration': node['duration'],
+      if (node['size'] is num) 'size': (node['size'] as num).toInt(),
+    };
   }
 
   static String _chapterFileName(String title, int chapterNumber) {
@@ -845,123 +359,377 @@ class JapaneseAsmrService {
     return '${chapterNumber}_$stem.aac';
   }
 
-  Future<List<dynamic>> getRelatedWorks(int postId) async {
-    final document = await _detail(postId, false);
-    final seen = <int>{postId};
-    final works = <Map<String, dynamic>>[];
-    for (final item in document.querySelectorAll('.yarpp-related ul li')) {
-      final link = item.querySelector('a[href]');
-      final href = link?.attributes['href'];
-      final title = link?.querySelector('.crp_title')?.text.trim();
-      if (href == null || title == null || title.isEmpty) continue;
-      final relatedId = _postId(website.resolve(href));
-      if (relatedId == null || !seen.add(relatedId)) continue;
-
-      final cover = _url(_image(link?.querySelector('img.crp_thumb')));
-      final fileName = cover == null
-          ? null
-          : Uri.parse(cover).pathSegments.last;
-      final sourceId = fileName == null
-          ? null
-          : RegExp(
-              r'^((?:RJ|BJ|VJ)\d+)(?:_|\.|$)',
-              caseSensitive: false,
-            ).firstMatch(fileName)?.group(1)?.toUpperCase();
-      works.add({
-        'id': -relatedId,
-        'title': title,
-        'source_id': sourceId ?? 'JP-$relatedId',
-        'source_url': website.resolve('/$relatedId/').toString(),
-        'cover_url': cover,
-      });
+  static (int, int?) _chapterRange(String value) {
+    final times = value.split(',');
+    if (times.length != 2) {
+      throw const FormatException('Invalid Eara chapter interval');
     }
-    return works;
+    final startTimeMs = int.tryParse(times[0]);
+    final rawEnd = times[1];
+    final endTimeMs = rawEnd.isEmpty ? null : int.tryParse(rawEnd);
+    if (startTimeMs == null ||
+        startTimeMs < 0 ||
+        (rawEnd.isNotEmpty && endTimeMs == null) ||
+        (endTimeMs != null && endTimeMs <= startTimeMs)) {
+      throw const FormatException('Invalid Eara chapter interval');
+    }
+    return (startTimeMs, endTimeMs);
   }
 
-  /// Resolves the site's download index and the host's public download button.
-  /// Signed download addresses are resolved for each attempt, never persisted.
+  Future<List<dynamic>> getRelatedWorks(int postId) async {
+    throw UnsupportedError('Eara does not provide related works');
+  }
+
   Future<String> resolveDownloadUrl(
     String url, {
     CancelToken? cancelToken,
   }) async {
-    var uri = Uri.parse(url);
-    if (uri.host == website.host && uri.path == '/dlc.php') {
-      final document = html.parse(
-        (await _get(uri, cancelToken: cancelToken)).data,
-      );
-      final productId = uri.queryParameters['f'];
-      final audioLinks = document
-          .querySelectorAll('a[href]')
-          .where(
-            (e) => RegExp(
-              r'\.(m4a|mp3|flac|opus)$',
-              caseSensitive: false,
-            ).hasMatch(e.text.trim()),
-          )
-          .toList();
-      final fullWork = audioLinks.where(
-        (e) =>
-            e.text.trim().split('.').first.toUpperCase() ==
-            productId?.toUpperCase(),
-      );
-      final link = fullWork.isNotEmpty
-          ? fullWork.first
-          : audioLinks.length == 1
-          ? audioLinks.single
-          : null;
-      final href = link?.attributes['href'];
-      if (href == null) {
-        throw const FormatException(
-          'Japanese ASMR full audio download is unavailable',
-        );
-      }
-      uri = uri.resolve(href);
+    if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+    var uri = Uri.tryParse(url);
+    if (uri == null ||
+        !uri.hasAuthority ||
+        !const ['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw const FormatException('Invalid JP-ASMR download URL');
     }
-    if (uri.host == 'buzzheavier.com' ||
-        uri.host.endsWith('.buzzheavier.com')) {
-      final page = await _get(uri, cancelToken: cancelToken);
-      final document = html.parse(page.data);
-      final path = document
+    if (_isJapaneseAsmrHost(uri) && uri.path == '/dlc.php') {
+      uri = await _resolveLegacyFullWorkDownload(uri, cancelToken);
+    }
+    if (_isJapaneseAsmrHost(uri)) {
+      throw const FormatException('Source-site download URLs are unsupported');
+    }
+    final isDirectBuzzheavierUrl =
+        uri.host.endsWith('.buzzheavier.com') && uri.path.startsWith('/d/');
+    if (!isDirectBuzzheavierUrl &&
+        (uri.host == 'buzzheavier.com' ||
+            uri.host.endsWith('.buzzheavier.com'))) {
+      final page = await _getText(uri, cancelToken: cancelToken);
+      final path = html
+          .parse(page.data)
           .querySelector('a.download-btn[hx-get]')
           ?.attributes['hx-get'];
       if (path == null) {
         throw const FormatException('Audio host download is unavailable');
       }
       final target = page.realUri.resolve(path);
-      final response = await _get(
+      final response = await _getText(
         target,
         headers: {'HX-Request': 'true', 'Referer': page.realUri.toString()},
         cancelToken: cancelToken,
       );
       final redirect = response.headers.value('HX-Redirect');
-      if (redirect == null || _url(redirect) == null) {
+      final targetUrl = redirect == null ? null : target.resolve(redirect);
+      if (targetUrl == null || !_isDownloadUri(targetUrl)) {
         throw const FormatException('Audio host did not provide a download');
       }
-      return target.resolve(redirect).toString();
+      return targetUrl.toString();
     }
-    if (_url(uri.toString()) == null || uri.path.endsWith('.m3u8')) {
-      throw const FormatException('Not a downloadable audio file');
+    if (uri.path.toLowerCase().endsWith('.m3u8')) {
+      throw const FormatException('JP-ASMR playlist is not a download URL');
     }
     return uri.toString();
   }
 
-  static int? _postId(Uri uri) {
-    if (uri.host != website.host ||
-        uri.pathSegments.where((s) => s.isNotEmpty).length != 1) {
-      return null;
+  Future<Uri> _resolveLegacyFullWorkDownload(
+    Uri sourceUri,
+    CancelToken? cancelToken,
+  ) async {
+    final sourceId = _sourceId(sourceUri.queryParameters['f']);
+    if (sourceId == null) {
+      throw const FormatException('Legacy full-work URL has no source ID');
     }
-    final id = int.tryParse(uri.pathSegments.first);
-    return id != null && id > 0 ? id : null;
+    final response = await _getJson(
+      _apiBase.resolve('tracks'),
+      queryParameters: {'rj': sourceId},
+      cancelToken: cancelToken,
+    );
+    if (_sourceId(response['rj']) != sourceId ||
+        response['trackTree'] is! List) {
+      throw const FormatException(
+        'Eara track response does not match the work',
+      );
+    }
+    final fullAudio = _audioNodes(response['trackTree'] as List).where((node) {
+      final title = _optionalString(node['title']);
+      final downloadUrl = _optionalHttpsUrl(node['mediaDownloadUrl']);
+      if (title == null || downloadUrl == null) return false;
+      final streamUrl = _optionalHttpsUrl(node['streamUrl']);
+      if (streamUrl != null) {
+        final chapter = Uri.splitQueryString(
+          Uri.parse(streamUrl).fragment,
+        )['eara-chapter'];
+        if (chapter != null) {
+          try {
+            final range = _chapterRange(chapter);
+            if (range.$1 != 0 || range.$2 != null) return false;
+          } on FormatException {
+            return false;
+          }
+        }
+      }
+      final fileName = title.replaceAll('\\', '/').split('/').last;
+      final extension = fileName.lastIndexOf('.');
+      final stem = extension < 0 ? fileName : fileName.substring(0, extension);
+      return stem.toUpperCase() == sourceId;
+    }).toList();
+    if (fullAudio.length != 1) {
+      throw const FormatException(
+        'Eara does not provide one confirmed full-work download',
+      );
+    }
+    return Uri.parse(
+      _httpsUrl(fullAudio.single['mediaDownloadUrl'], 'mediaDownloadUrl'),
+    );
   }
 
-  static String? _image(Element? element) =>
-      element?.attributes['data-src'] ?? element?.attributes['src'];
+  List<Map<String, dynamic>> _audioNodes(List<dynamic> tree) {
+    final audio = <Map<String, dynamic>>[];
+    for (final rawNode in tree) {
+      if (rawNode is! Map) continue;
+      final node = Map<String, dynamic>.from(rawNode);
+      if (node['type'] == 'audio') {
+        audio.add(node);
+      } else if (node['type'] == 'folder' && node['children'] is List) {
+        audio.addAll(_audioNodes(node['children'] as List));
+      }
+    }
+    return audio;
+  }
 
-  static String? _url(String? value) {
-    if (value == null || value.trim().isEmpty) return null;
-    final uri = website.resolve(value.trim());
-    return const ['http', 'https'].contains(uri.scheme) && uri.host.isNotEmpty
-        ? uri.toString()
+  Future<Response<String>> _getText(
+    Uri uri, {
+    Map<String, dynamic>? headers,
+    CancelToken? cancelToken,
+  }) => _dio.get<String>(
+    uri.toString(),
+    options: Options(responseType: ResponseType.plain, headers: headers),
+    cancelToken: cancelToken,
+  );
+
+  static bool _isDownloadUri(Uri uri) =>
+      const ['http', 'https'].contains(uri.scheme) &&
+      uri.host.isNotEmpty &&
+      uri.userInfo.isEmpty &&
+      !uri.path.toLowerCase().endsWith('.m3u8');
+
+  static bool _isJapaneseAsmrHost(Uri uri) =>
+      uri.host == 'japaneseasmr.com' || uri.host.endsWith('.japaneseasmr.com');
+
+  Future<Map<String, dynamic>> _getJson(
+    Uri uri, {
+    required Map<String, dynamic> queryParameters,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.get<dynamic>(
+      uri.toString(),
+      queryParameters: queryParameters,
+      cancelToken: cancelToken,
+      options: Options(
+        responseType: ResponseType.json,
+        headers: const {'Accept': 'application/json'},
+      ),
+    );
+    final statusCode = response.statusCode;
+    if (statusCode == null || statusCode < 200 || statusCode >= 300) {
+      if (statusCode == null) {
+        throw const FormatException('Eara returned no HTTP status');
+      }
+      throw DioException.badResponse(
+        statusCode: statusCode,
+        requestOptions: response.requestOptions,
+        response: response,
+      );
+    }
+    final data = response.data;
+    final decoded = data is String ? jsonDecode(data) : data;
+    if (decoded is! Map) {
+      throw const FormatException('Eara response is not a JSON object');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  Future<Map<String, dynamic>> _lookupWork(
+    int postId, {
+    CancelToken? cancelToken,
+  }) async {
+    final sourceId = _sourceIdsByPostId[postId];
+    final title = _titlesByPostId[postId];
+    if (postId <= 0 || (sourceId == null && title == null)) {
+      throw FormatException(
+        'JP-ASMR page $postId has no registered source ID or title',
+      );
+    }
+    final query = sourceId ?? title!;
+    final response = await _getJson(
+      _apiBase.resolve('search'),
+      queryParameters: {
+        'q': query,
+        'limit': 20,
+        'offset': 0,
+        'sort': 'release',
+      },
+      cancelToken: cancelToken,
+    );
+    final rawItems = response['items'];
+    if (rawItems is! List) {
+      throw const FormatException('Eara search response has no items list');
+    }
+    for (final rawItem in rawItems) {
+      if (rawItem is! Map) continue;
+      final item = Map<String, dynamic>.from(rawItem);
+      final itemPostId = _requiredInt(item['workId'], 'workId');
+      final itemSourceId = _sourceId(item['rj']);
+      if (sourceId != null && itemSourceId != sourceId) continue;
+      if (sourceId == null && itemPostId != postId) continue;
+      if (itemPostId != postId || itemSourceId == null) continue;
+      _sourceIdsByPostId[postId] = itemSourceId;
+      return item;
+    }
+    throw FormatException('Eara work not found for page $postId');
+  }
+
+  Map<String, dynamic> _workJson(
+    Map<String, dynamic> item, {
+    int? expectedPostId,
+  }) {
+    final postId = _requiredInt(item['workId'], 'workId');
+    if (postId <= 0 || (expectedPostId != null && expectedPostId != postId)) {
+      throw const FormatException('Eara work ID does not match the page ID');
+    }
+    final sourceId = _sourceId(item['rj']);
+    if (sourceId == null) {
+      throw const FormatException('Eara work has no valid source ID');
+    }
+    final title = _requiredString(item['title'], 'title');
+    _sourceIdsByPostId[postId] = sourceId;
+
+    final work = <String, dynamic>{
+      'id': -postId,
+      'title': title,
+      'source_id': sourceId,
+    };
+    final circle = _optionalString(item['circle']);
+    if (circle != null) work['name'] = circle;
+    final pageUrl = _optionalHttpsUrl(item['pageUrl']);
+    if (pageUrl != null) work['source_url'] = pageUrl;
+    final coverUrl = _optionalHttpsUrl(item['mainCoverUrl']);
+    if (coverUrl != null) work['cover_url'] = coverUrl;
+    final release =
+        _optionalString(item['releaseDate']) ??
+        _optionalString(item['publishedAt']);
+    if (release != null) work['release'] = release;
+    if (item['allAges'] == true) work['age'] = 'general';
+    work['vas'] = _namedValues(item['cvs'], tags: false);
+    final tags = item['tags'];
+    work['tags'] = _tagValues(
+      tags is List && tags.isNotEmpty ? tags : item['tagDetails'],
+      item['tagDetails'],
+    );
+    registerWork(Work.fromJson(work));
+    return work;
+  }
+
+  static List<Map<String, dynamic>> _tagValues(
+    dynamic rawTags,
+    dynamic details,
+  ) {
+    final tags = _namedValues(rawTags, tags: true);
+    if (details is! List) return tags;
+    for (final tag in tags) {
+      final names = <String, String>{};
+      final conflicts = <String>{};
+      for (final detail in details.whereType<Map>()) {
+        final localized = detail['names'];
+        if (localized is! Map ||
+            (detail['originalName'] != tag['name'] &&
+                !localized.values.contains(tag['name']))) {
+          continue;
+        }
+        for (final entry in localized.entries) {
+          final language = _optionalString(entry.key);
+          final name = _optionalString(entry.value);
+          if (language == null || name == null) continue;
+          if (names.containsKey(language) && names[language] != name) {
+            conflicts.add(language);
+          } else {
+            names[language] = name;
+          }
+        }
+      }
+      names.removeWhere((key, _) => conflicts.contains(key));
+      tag['names'] = names;
+    }
+    return tags;
+  }
+
+  static List<Map<String, dynamic>> _namedValues(
+    dynamic rawValues, {
+    required bool tags,
+  }) {
+    if (rawValues is! List) return const [];
+    final values = <Map<String, dynamic>>[];
+    for (final raw in rawValues) {
+      final name = raw is String
+          ? raw.trim()
+          : raw is Map
+          ? _optionalString(
+              raw['name'] ??
+                  raw['label'] ??
+                  raw['title'] ??
+                  raw['originalName'],
+            )
+          : null;
+      if (name == null || name.isEmpty) continue;
+      values.add({'id': tags ? -(values.length + 1) : name, 'name': name});
+    }
+    return values;
+  }
+
+  static String _httpsUrl(dynamic value, String field) {
+    final url = _optionalHttpsUrl(value);
+    if (url == null) throw FormatException('Eara has no valid $field');
+    return url;
+  }
+
+  static String? _optionalHttpsUrl(dynamic value) {
+    if (value is! String || value.trim().isEmpty) return null;
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    return uri.toString();
+  }
+
+  static String _requiredString(dynamic value, String field) {
+    final string = _optionalString(value);
+    if (string == null || string.isEmpty) {
+      throw FormatException('Eara has no valid $field');
+    }
+    return string;
+  }
+
+  static String? _optionalString(dynamic value) {
+    if (value is! String) return null;
+    final string = value.trim();
+    return string.isEmpty ? null : string;
+  }
+
+  static int _requiredInt(dynamic value, String field) {
+    if (value is num && value.isFinite && value == value.toInt()) {
+      return value.toInt();
+    }
+    throw FormatException('Eara has no valid $field');
+  }
+
+  static String? _sourceId(dynamic value) {
+    if (value is! String) return null;
+    final normalized = value.trim().toUpperCase();
+    return RegExp(r'^(?:RJ|BJ|VJ|UND|UN)\d+$').hasMatch(normalized)
+        ? normalized
         : null;
   }
 }

@@ -5,6 +5,26 @@ import 'package:kikoeru_flutter/src/services/work_track_file_builder.dart';
 import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 
 void main() {
+  test('keeps the Japanese ASMR download URL for bulk downloads', () {
+    const builder = WorkTrackFileBuilder(host: '', token: '');
+    final work = builder.withTracks(
+      work: const Work(id: -42, title: 'Work'),
+      files: [
+        {
+          'type': 'audio',
+          'title': 'track.mp3',
+          'mediaStreamUrl': 'https://media.example/work.m3u8',
+          'mediaDownloadUrl': 'https://media.example/track.mp3',
+        },
+      ],
+    );
+
+    expect(
+      work.children!.single.mediaDownloadUrl,
+      'https://media.example/track.mp3',
+    );
+  });
+
   test('keeps chapter bounds through bulk-download and offline metadata', () {
     const builder = WorkTrackFileBuilder(host: '', token: '');
     final chapter = builder.toAudioFiles([
@@ -13,6 +33,7 @@ void main() {
         'title': 'Chapter 2.aac',
         'hash': 'jp-151514-chapter-425000',
         'mediaStreamUrl': 'https://v.weeab0o.xyz/RJ01737373.m3u8',
+        'originalDownloadUrl': 'https://files.example/chapter.flac',
         'startTimeMs': 425000,
         'endTimeMs': 1313000,
         'duration': 888,
@@ -24,11 +45,13 @@ void main() {
     expect(restored.isAudio, isTrue);
     expect(restored.mediaDownloadUrl, 'https://v.weeab0o.xyz/RJ01737373.m3u8');
     expect(restored.duration, 888);
+    expect(restored.originalDownloadUrl, 'https://files.example/chapter.flac');
     final offlineMetadata =
         DownloadFilePathService.annotateFileTreeWithLocalPaths([chapter]);
     final offlineChapter = AudioFile.fromJson(offlineMetadata.single);
     expect(FileTreeUtils.property(offlineChapter, 'startTimeMs'), 425000);
     expect(FileTreeUtils.property(offlineChapter, 'endTimeMs'), 1313000);
+    expect(offlineChapter.originalDownloadUrl, 'https://files.example/chapter.flac');
     expect(AudioFile.fromJson(const {'title': 'old.mp3'}).startTimeMs, isNull);
   });
 
@@ -87,11 +110,7 @@ void main() {
     );
 
     final audioFiles = absoluteHostBuilder.toAudioFiles([
-      {
-        'type': 'audio',
-        'title': 'track.wav',
-        'hash': 'hash-3',
-      },
+      {'type': 'audio', 'title': 'track.wav', 'hash': 'hash-3'},
     ]);
 
     expect(
@@ -101,11 +120,7 @@ void main() {
 
     const emptyHostBuilder = WorkTrackFileBuilder(host: '', token: 'token-3');
     final offlineFiles = emptyHostBuilder.toAudioFiles([
-      {
-        'type': 'audio',
-        'title': 'track.wav',
-        'hash': 'hash-4',
-      },
+      {'type': 'audio', 'title': 'track.wav', 'hash': 'hash-4'},
     ]);
 
     expect(offlineFiles.single.mediaDownloadUrl, isNull);
@@ -136,11 +151,7 @@ void main() {
     final result = builder.withTracks(
       work: work,
       files: [
-        {
-          'type': 'audio',
-          'title': 'track.flac',
-          'hash': 'hash-5',
-        },
+        {'type': 'audio', 'title': 'track.flac', 'hash': 'hash-5'},
       ],
     );
 

@@ -357,6 +357,7 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
           workTitle: widget.work.title,
           fileName: localFileName ?? fullFileName, // 使用包含路径的本地文件名
           downloadUrl: downloadUrl,
+          originalDownloadUrl: file.originalDownloadUrl,
           hash: file.hash,
           startTimeMs: file.startTimeMs,
           endTimeMs: file.endTimeMs,

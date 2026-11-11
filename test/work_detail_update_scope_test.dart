@@ -1195,6 +1195,59 @@ void main() {
     );
   }
 
+  testWidgets('Japanese metadata refresh keeps saved description and images', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    final api = _Api();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authProvider.overrideWith((ref) => _EmptyAuth()),
+          kikoeruApiServiceProvider.overrideWithValue(api),
+          currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: WorkDetailScreen(
+            work: Work(
+              id: -321,
+              title: 'Saved title',
+              sourceId: 'RJ000321',
+              description: 'Saved description',
+              images: ['https://example.invalid/image.jpg'],
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(
+      tester,
+      () => find.byType(FileExplorerWidget).evaluate().isNotEmpty,
+    );
+    api.metadata.complete({'id': -321, 'title': 'Eara title'});
+    await _pumpUntil(
+      tester,
+      () =>
+          tester
+              .widget<FileExplorerWidget>(find.byType(FileExplorerWidget))
+              .currentWork!()
+              .title ==
+          'Eara title',
+    );
+    final work = tester
+        .widget<FileExplorerWidget>(find.byType(FileExplorerWidget))
+        .currentWork!();
+    expect(work.title, 'Eara title');
+    expect(work.description, 'Saved description');
+    expect(work.images, ['https://example.invalid/image.jpg']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('metadata completion leaves the page and explorer intact', (
     tester,
   ) async {

@@ -16,7 +16,6 @@ class MainActivity : AudioServiceActivity() {
     private var floatingLyricPlugin: FloatingLyricPlugin? = null
     private var audioHapticsBridge: AudioHapticsBridge? = null
     private var subtitleDirectoryPicker: SubtitleDirectoryPicker? = null
-    private var japaneseAsmrVerification: JapaneseAsmrVerification? = null
     private var missavBrowserBridge: MissavBrowserBridge? = null
     private var jableBrowserBridge: JableBrowserBridge? = null
     private var videoPlayerBridge: VideoPlayerBridge? = null
@@ -48,11 +47,6 @@ class MainActivity : AudioServiceActivity() {
         subtitleDirectoryPicker = SubtitleDirectoryPicker(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger
-        )
-        japaneseAsmrVerification = JapaneseAsmrVerification(
-            activity = this,
-            messenger = flutterEngine.dartExecutor.binaryMessenger,
-            proxyCoordinator = webViewProxyCoordinator
         )
         missavBrowserBridge = MissavBrowserBridge(
             activity = this,
@@ -196,8 +190,6 @@ class MainActivity : AudioServiceActivity() {
         missavBrowserBridge = null
         jableBrowserBridge?.dispose()
         jableBrowserBridge = null
-        japaneseAsmrVerification?.dispose()
-        japaneseAsmrVerification = null
         super.onDestroy()
     }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
+import '../../models/audio_source.dart';
 import '../circle_chip.dart';
 import '../tag_chip.dart';
 import '../va_chip.dart';
@@ -15,11 +16,7 @@ const _chipFontSize = 12.0;
 const _chipFontWeight = FontWeight.w500;
 
 class WorkCreatorChipsSection extends StatelessWidget {
-  const WorkCreatorChipsSection({
-    super.key,
-    required this.work,
-    this.onCopy,
-  });
+  const WorkCreatorChipsSection({super.key, required this.work, this.onCopy});
 
   final Work work;
   final MetadataCopyCallback? onCopy;
@@ -51,6 +48,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
                   padding: _chipPadding,
                   borderRadius: _chipBorderRadius,
                   fontWeight: _chipFontWeight,
+                  source: work.audioSource,
                   onLongPress: onCopy == null
                       ? null
                       : () => onCopy!(work.name!, l10n.circleLabel),
@@ -66,6 +64,7 @@ class WorkCreatorChipsSection extends StatelessWidget {
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,
                     fontWeight: _chipFontWeight,
+                    source: work.audioSource,
                     onLongPress: onCopy == null
                         ? null
                         : () => onCopy!(va.name, l10n.vaLabel),
@@ -87,12 +86,16 @@ class WorkTagChipsSection extends StatelessWidget {
     this.onTagLongPress,
     this.onTagSecondaryTap,
     this.onAddTag,
+    this.searchEnabled = true,
+    this.source,
   });
 
   final List<Tag>? tags;
   final ValueChanged<Tag>? onTagLongPress;
   final ValueChanged<Tag>? onTagSecondaryTap;
   final VoidCallback? onAddTag;
+  final bool searchEnabled;
+  final AudioSource? source;
 
   bool get _hasTags => tags != null && tags!.isNotEmpty;
 
@@ -126,17 +129,21 @@ class WorkTagChipsSection extends StatelessWidget {
           children: [
             ...tags!.map(
               (tag) => MouseRegion(
-                cursor: SystemMouseCursors.click,
+                cursor: searchEnabled
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
                 child: GestureDetector(
                   onSecondaryTapDown: onTagSecondaryTap == null
                       ? null
                       : (_) => onTagSecondaryTap!(tag),
                   child: TagChip(
                     tag: tag,
+                    source: source,
                     fontSize: _chipFontSize,
                     padding: _chipPadding,
                     borderRadius: _chipBorderRadius,
                     fontWeight: _chipFontWeight,
+                    searchEnabled: searchEnabled,
                     onLongPress: onTagLongPress == null
                         ? null
                         : () => onTagLongPress!(tag),
@@ -144,10 +151,7 @@ class WorkTagChipsSection extends StatelessWidget {
                 ),
               ),
             ),
-            if (onAddTag != null)
-              _AddTagChip(
-                onTap: onAddTag!,
-              ),
+            if (onAddTag != null) _AddTagChip(onTap: onAddTag!),
           ],
         ),
         const SizedBox(height: 16),
@@ -157,11 +161,7 @@ class WorkTagChipsSection extends StatelessWidget {
 }
 
 class _AddTagChip extends StatelessWidget {
-  const _AddTagChip({
-    required this.onTap,
-    this.label,
-    this.showLabel = false,
-  });
+  const _AddTagChip({required this.onTap, this.label, this.showLabel = false});
 
   final VoidCallback onTap;
   final String? label;
@@ -173,11 +173,7 @@ class _AddTagChip extends StatelessWidget {
     final child = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          Icons.add,
-          size: 16,
-          color: colorScheme.primary,
-        ),
+        Icon(Icons.add, size: 16, color: colorScheme.primary),
         if (showLabel && label != null) ...[
           const SizedBox(width: 4),
           Text(

@@ -60,6 +60,7 @@ class SortOptionsDialog<T> extends StatefulWidget {
     this.confirmChanges = false,
     this.autoClose = true,
     this.filledSelection = false,
+    this.showSortOptions = true,
   });
 
   final T currentOption;
@@ -74,6 +75,7 @@ class SortOptionsDialog<T> extends StatefulWidget {
   final bool confirmChanges;
   final bool autoClose;
   final bool filledSelection;
+  final bool showSortOptions;
 
   @override
   State<SortOptionsDialog<T>> createState() => _SortOptionsDialogState<T>();
@@ -187,7 +189,9 @@ class _SortOptionsDialogState<T> extends State<SortOptionsDialog<T>> {
       ),
       content: SizedBox(
         width: useColumns ? 600 : 360,
-        child: useColumns
+        child: !widget.showSortOptions
+            ? ageRatingSection ?? const SizedBox.shrink()
+            : useColumns
             ? IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

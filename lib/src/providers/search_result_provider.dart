@@ -224,9 +224,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       final serverSubtitleParam = SubtitleFilterMode.fromValue(
         state.subtitleFilter,
       ).value;
-      final source = state.searchParams?['source'] == AudioSource.jpAsmr.name
-          ? AudioSource.jpAsmr
-          : _ref.read(audioSourceProvider);
+      final source = _sourceForActiveQuery;
 
       if (source == AudioSource.jpAsmr) {
         result = await _apiService.searchWorks(
@@ -235,6 +233,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           pageSize: state.pageSize,
           source: source,
           conditions: _japaneseConditions(),
+          ageRating: _japaneseAgeRating,
           cancelToken: requestToken.cancelToken,
         );
       } else if (state.searchParams?.containsKey('vaId') == true) {
@@ -339,7 +338,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
 
   void onSourceChanged() {
     if (!hasActiveQuery) return;
-    if (_isPinnedJapaneseQuery) return;
+    if (_isPinnedSource) return;
     state = state.copyWith(currentPage: 1);
     loadResults(targetPage: 1, supersede: true);
   }
@@ -396,24 +395,53 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   bool get isSubtitleFilterActive =>
       SubtitleFilterMode.fromValue(state.subtitleFilter).isActive;
 
-  bool get _isPinnedJapaneseQuery =>
-      state.searchParams?['source'] == AudioSource.jpAsmr.name;
+  AudioSource? get _pinnedSource {
+    final sourceName = state.searchParams?['source'];
+    for (final source in AudioSource.values) {
+      if (source.name == sourceName) return source;
+    }
+    return null;
+  }
 
-  AudioSource get _sourceForActiveQuery => _isPinnedJapaneseQuery
-      ? AudioSource.jpAsmr
-      : _ref.read(audioSourceProvider);
+  bool get _isPinnedSource => _pinnedSource != null;
+  bool get _isPinnedJapaneseQuery => _pinnedSource == AudioSource.jpAsmr;
+
+  AudioSource get _sourceForActiveQuery =>
+      _pinnedSource ?? _ref.read(audioSourceProvider);
+
+  AgeRating get _japaneseAgeRating {
+    final ageValue =
+        state.searchParams?['ageRatingValue']?.toString() ??
+        state.searchParams?['ageRating']?.toString();
+    return ageValue == AgeRating.general.value ||
+            ageValue == AgeRating.general.label
+        ? AgeRating.general
+        : AgeRating.all;
+  }
 
   List<SearchCondition> _japaneseConditions() {
-    final conditions = state.searchParams?['conditions'];
+    final params = state.searchParams;
+    if (params != null &&
+        const ['tagId', 'vaId', 'circleId'].any(params.containsKey)) {
+      throw UnsupportedError('JP-ASMR category filters are unavailable');
+    }
+    final conditions = params?['conditions'];
     if (conditions is! List) return const [];
     return [
-      for (var index = 0; index < conditions.length; index++)
-        if (conditions[index] is Map)
-          _conditionFromSearchParams(
-            Map<String, dynamic>.from(conditions[index] as Map),
-            index,
-          ),
-    ].where((condition) => condition.sourcePath != null).toList();
+          for (var index = 0; index < conditions.length; index++)
+            if (conditions[index] is Map)
+              _conditionFromSearchParams(
+                Map<String, dynamic>.from(conditions[index] as Map),
+                index,
+              ),
+        ]
+        .where(
+          (condition) =>
+              condition.isExclude ||
+              (condition.type != SearchType.keyword &&
+                  condition.type != SearchType.rjNumber),
+        )
+        .toList();
   }
 
   SearchCondition _conditionFromSearchParams(

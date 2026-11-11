@@ -163,6 +163,7 @@ class _PlayerAudioDetailsPanelState
                                 child: Align(
                                   alignment: AlignmentDirectional.centerStart,
                                   child: CircleChip(
+                                    source: work.audioSource,
                                     circleId: work.circleId ?? 0,
                                     circleName: work.name!.trim(),
                                     compact: true,
@@ -206,6 +207,7 @@ class _PlayerAudioDetailsPanelState
                           for (final va in work.vas!)
                             VaChip(
                               va: va,
+                              source: work.audioSource,
                               compact: true,
                               fontSize: 11.5,
                               padding: const EdgeInsets.symmetric(
@@ -231,6 +233,7 @@ class _PlayerAudioDetailsPanelState
                           for (final tag in work.tags!)
                             TagChip(
                               tag: tag,
+                              source: work.audioSource,
                               compact: true,
                               fontSize: 11,
                               padding: const EdgeInsets.symmetric(

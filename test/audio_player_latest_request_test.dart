@@ -995,6 +995,38 @@ void main() {
     expect(player.position, const Duration(seconds: 24));
   });
 
+  test('restoring a Japanese ASMR track keeps its media credentials', () async {
+    await StorageService.setString('auth_token', 'account-token');
+    const japaneseTrack = AudioTrack(
+      id: 'jp',
+      title: 'Japanese work',
+      url: 'https://media.example/audio.m4a?token=media-token',
+      artworkUrl: 'https://media.example/cover.jpg?token=cover-token',
+      lyricUrl: 'https://media.example/subtitle.vtt?token=lyric-token',
+      workId: -42,
+    );
+    const accountTrack = AudioTrack(
+      id: 'account',
+      title: 'Account work',
+      url: 'https://example.invalid/audio?token=old-token',
+      workId: 42,
+    );
+    sessions.snapshot = const PlaybackSessionSnapshot(
+      queue: [japaneseTrack, accountTrack],
+      currentIndex: 0,
+      position: Duration.zero,
+      ownerKey: 'https://example.invalid\ntester',
+    );
+
+    await service.restorePlaybackSession();
+
+    expect(service.queue.first, japaneseTrack);
+    expect(
+      service.queue.last.url,
+      'https://example.invalid/audio?token=account-token',
+    );
+  });
+
   test('a newer track cancels a hanging restore position correction', () async {
     sessions.snapshot = PlaybackSessionSnapshot(
       queue: [tracks[0]],

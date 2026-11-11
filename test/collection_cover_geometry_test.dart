@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/playlist.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
@@ -320,6 +321,37 @@ void main() {
     expect(listWrap.runSpacing, gridWrap.runSpacing);
     expect(listWrap.spacing, 3);
     expect(listWrap.runSpacing, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Japanese audio card metadata chips search the Japanese source', (
+    tester,
+  ) async {
+    const work = Work(
+      id: -12345,
+      title: 'Japanese audio card',
+      vas: [Va(id: 'va-1', name: 'Voice actor')],
+      tags: [Tag(id: 21, name: 'Healing')],
+    );
+
+    await tester.pumpWidget(
+      _testApp(
+        const EnhancedWorkCard(
+          work: work,
+          crossAxisCount: 1,
+          isListLayout: true,
+        ),
+        contentWidth: 320,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final tagChip = tester.widget<TagChip>(find.byType(TagChip));
+    final vaChip = tester.widget<VaChip>(find.byType(VaChip));
+    expect(tagChip.searchEnabled, isTrue);
+    expect(vaChip.searchEnabled, isTrue);
+    expect(tagChip.source, AudioSource.jpAsmr);
+    expect(vaChip.source, AudioSource.jpAsmr);
     expect(tester.takeException(), isNull);
   });
 

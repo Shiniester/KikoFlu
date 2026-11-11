@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../models/audio_source.dart';
 import '../screens/search_screen.dart';
 import 'app_bottom_dock_transition.dart';
 import 'global_audio_player_wrapper.dart';
 
-enum MetadataChipTone {
-  primary,
-  secondary,
-  tertiary,
-}
+enum MetadataChipTone { primary, secondary, tertiary }
 
 class MetadataSearchChip extends StatelessWidget {
   final String label;
@@ -28,10 +25,12 @@ class MetadataSearchChip extends StatelessWidget {
   final bool muted;
   final bool outlined;
   final bool shrinkWrapTapTarget;
+  final bool searchEnabled;
   final double deleteIconSize;
   final double? compactFontSize;
   final String? logName;
   final Object? logId;
+  final AudioSource? source;
 
   const MetadataSearchChip({
     super.key,
@@ -52,10 +51,12 @@ class MetadataSearchChip extends StatelessWidget {
     this.muted = false,
     this.outlined = false,
     this.shrinkWrapTapTarget = false,
+    this.searchEnabled = true,
     this.deleteIconSize = 18,
     this.compactFontSize = 10,
     this.logName,
     this.logId,
+    this.source,
   });
 
   bool get _usesCustomStyle =>
@@ -63,7 +64,9 @@ class MetadataSearchChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveOnTap = onTap ?? () => _openSearchResult(context);
+    final effectiveOnTap = searchEnabled
+        ? onTap ?? () => _openSearchResult(context)
+        : null;
 
     if (_usesCustomStyle) {
       final colors = _colorsFor(context, customTone ?? chipTone);
@@ -100,10 +103,12 @@ class MetadataSearchChip extends StatelessWidget {
       fontSize: compact ? compactFontSize : null,
       color: _labelColor(colors.onContainer),
     );
-    final effectivePadding =
-        compact ? const EdgeInsets.symmetric(horizontal: 4, vertical: 0) : null;
-    final tapTargetSize =
-        shrinkWrapTapTarget ? MaterialTapTargetSize.shrinkWrap : null;
+    final effectivePadding = compact
+        ? const EdgeInsets.symmetric(horizontal: 4, vertical: 0)
+        : null;
+    final tapTargetSize = shrinkWrapTapTarget
+        ? MaterialTapTargetSize.shrinkWrap
+        : null;
 
     if (onDeleted != null) {
       return InputChip(
@@ -133,24 +138,21 @@ class MetadataSearchChip extends StatelessWidget {
     );
   }
 
-  _MetadataChipColors _colorsFor(
-    BuildContext context,
-    MetadataChipTone tone,
-  ) {
+  _MetadataChipColors _colorsFor(BuildContext context, MetadataChipTone tone) {
     final colorScheme = Theme.of(context).colorScheme;
     return switch (tone) {
       MetadataChipTone.primary => _MetadataChipColors(
-          colorScheme.primaryContainer,
-          colorScheme.onPrimaryContainer,
-        ),
+        colorScheme.primaryContainer,
+        colorScheme.onPrimaryContainer,
+      ),
       MetadataChipTone.secondary => _MetadataChipColors(
-          colorScheme.secondaryContainer,
-          colorScheme.onSecondaryContainer,
-        ),
+        colorScheme.secondaryContainer,
+        colorScheme.onSecondaryContainer,
+      ),
       MetadataChipTone.tertiary => _MetadataChipColors(
-          colorScheme.tertiaryContainer,
-          colorScheme.onTertiaryContainer,
-        ),
+        colorScheme.tertiaryContainer,
+        colorScheme.onTertiaryContainer,
+      ),
     };
   }
 
@@ -170,8 +172,12 @@ class MetadataSearchChip extends StatelessWidget {
       builder: (context) => GlobalAudioPlayerWrapper(
         child: SearchScreen(
           showBackButton: true,
+          source: source,
           initialKeyword: searchKeyword,
-          initialSearchParams: searchParams,
+          initialSearchParams: {
+            ...searchParams,
+            if (source != null) 'source': source!.name,
+          },
         ),
       ),
     );

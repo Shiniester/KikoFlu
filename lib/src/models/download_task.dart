@@ -14,6 +14,7 @@ class DownloadTask extends Equatable {
   final String workTitle;
   final String fileName;
   final String downloadUrl;
+  final String? originalDownloadUrl;
   final String? hash;
   final int? totalBytes;
   final int downloadedBytes;
@@ -31,6 +32,7 @@ class DownloadTask extends Equatable {
     required this.workTitle,
     required this.fileName,
     required this.downloadUrl,
+    this.originalDownloadUrl,
     this.hash,
     this.totalBytes,
     this.downloadedBytes = 0,
@@ -66,6 +68,7 @@ class DownloadTask extends Equatable {
     String? workTitle,
     String? fileName,
     String? downloadUrl,
+    String? originalDownloadUrl,
     String? hash,
     int? totalBytes,
     int? downloadedBytes,
@@ -83,6 +86,7 @@ class DownloadTask extends Equatable {
       workTitle: workTitle ?? this.workTitle,
       fileName: fileName ?? this.fileName,
       downloadUrl: downloadUrl ?? this.downloadUrl,
+      originalDownloadUrl: originalDownloadUrl ?? this.originalDownloadUrl,
       hash: hash ?? this.hash,
       totalBytes: totalBytes ?? this.totalBytes,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
@@ -103,6 +107,7 @@ class DownloadTask extends Equatable {
       'workTitle': workTitle,
       'fileName': fileName,
       'downloadUrl': downloadUrl,
+      'originalDownloadUrl': originalDownloadUrl,
       'hash': hash,
       'totalBytes': totalBytes,
       'downloadedBytes': downloadedBytes,
@@ -126,6 +131,7 @@ class DownloadTask extends Equatable {
       workTitle: json['workTitle'] as String,
       fileName: fileName,
       downloadUrl: json['downloadUrl'] as String,
+      originalDownloadUrl: json['originalDownloadUrl'] as String?,
       hash: hash,
       totalBytes: json['totalBytes'] as int?,
       downloadedBytes: json['downloadedBytes'] as int? ?? 0,
@@ -152,6 +158,7 @@ class DownloadTask extends Equatable {
         workTitle,
         fileName,
         downloadUrl,
+        originalDownloadUrl,
         hash,
         totalBytes,
         downloadedBytes,

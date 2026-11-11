@@ -76,6 +76,12 @@ void main() {
       workId: 42,
       subtitleWorkDirPath: 'C:/Library/RJ42',
     );
+    const japaneseTrack = AudioTrack(
+      id: 'jp',
+      title: 'Japanese track',
+      url: 'https://media.example/work.m3u8',
+      workId: -42,
+    );
 
     expect(
       canLoadPlayerWorkFileTree(
@@ -96,6 +102,14 @@ void main() {
     expect(
       canLoadPlayerWorkFileTree(
         track: offlineTrack,
+        isLoggedIn: false,
+        host: null,
+      ),
+      isTrue,
+    );
+    expect(
+      canLoadPlayerWorkFileTree(
+        track: japaneseTrack,
         isLoggedIn: false,
         host: null,
       ),

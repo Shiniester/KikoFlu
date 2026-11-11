@@ -78,6 +78,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     setState(() => _loadingProgress = true);
     try {
       final api = ref.read(kikoeruApiServiceProvider);
+      api.registerJapaneseAsmrWork(widget.work);
       final json = await api.getWork(widget.work.id);
       final detailed = Work.fromJson(json);
       setState(() {
@@ -941,6 +942,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         children: tags.map((tag) {
           return TagChip(
             tag: tag,
+            source: widget.work.audioSource,
             fontSize: fontSize,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             borderRadius: 6,
@@ -963,6 +965,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
         children: widget.work.vas!.map((va) {
           return VaChip(
             va: va,
+            source: widget.work.audioSource,
             fontSize: fontSize,
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             borderRadius: 6,

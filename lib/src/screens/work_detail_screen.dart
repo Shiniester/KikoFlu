@@ -130,6 +130,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void initState() {
     super.initState();
+    ref.read(kikoeruApiServiceProvider).registerJapaneseAsmrWork(widget.work);
     _translationSourceLanguage.value = TranslationService.sourceLanguageForWork(
       widget.work.lang,
     );
@@ -861,6 +862,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       vas: response.containsKey('vas') ? null : currentWork.vas,
       tags: response.containsKey('tags') ? null : currentWork.tags,
       release: response.containsKey('release') ? null : currentWork.release,
+      images: currentWork.isJapaneseAsmr && !response.containsKey('images')
+          ? currentWork.images
+          : null,
+      description:
+          currentWork.isJapaneseAsmr && !response.containsKey('description')
+          ? currentWork.description
+          : null,
       lang: hasLanguageMetadata ? responseWork.lang ?? '' : currentWork.lang,
       otherLanguageEditions:
           response.containsKey('other_language_editions_in_db')
@@ -1173,6 +1181,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
         WorkTagChipsSection(
           tags: work.tags,
+          source: work.audioSource,
           onTagLongPress: work.isJapaneseAsmr ? null : _showTagInfo,
           onTagSecondaryTap: work.isJapaneseAsmr ? null : _showTagInfo,
           onAddTag: work.isJapaneseAsmr ? null : _showAddTagDialog,

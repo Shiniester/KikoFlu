@@ -476,6 +476,7 @@ class _OfflineWorkDetailScreenState
                   WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
                   WorkTagChipsSection(
                     tags: work.tags,
+                    source: work.audioSource,
                     onTagLongPress: (tag) =>
                         _copyToClipboard(tag.name, S.of(context).tagLabel),
                   ),

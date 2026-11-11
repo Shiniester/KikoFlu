@@ -14,6 +14,7 @@ import '../services/audio_file_url_resolver.dart';
 import '../services/audio_track_queue_builder.dart';
 import '../screens/work_detail_screen.dart';
 import '../utils/string_utils.dart';
+import '../utils/file_tree_utils.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/snackbar_util.dart';
 import '../providers/lyric_provider.dart';
@@ -372,6 +373,7 @@ class HistoryWorkCard extends ConsumerWidget {
 
     // 1. Get all files
     final apiService = ref.read(kikoeruApiServiceProvider);
+    apiService.registerJapaneseAsmrWork(work);
     List<dynamic> allFiles = [];
     try {
       allFiles = await apiService.getWorkTracks(work.id);
@@ -451,12 +453,11 @@ class HistoryWorkCard extends ConsumerWidget {
 
       // Helper to extract audio files from a list
       List<dynamic> extractAudioFiles(List<dynamic> list) {
-        return list.where((file) {
-          if (file['type'] == 'folder') return false;
-          final name = file['title'] ?? file['name'] ?? '';
-          final ext = name.split('.').last.toLowerCase();
-          return ['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg'].contains(ext);
-        }).toList();
+        return list
+            .where(
+              (file) => file['type'] != 'folder' && FileTreeUtils.isAudio(file),
+            )
+            .toList();
       }
 
       // Recursive search
@@ -495,12 +496,8 @@ class HistoryWorkCard extends ConsumerWidget {
             if (file['children'] != null) {
               result.addAll(flattenAudioFiles(file['children']));
             }
-          } else {
-            final name = file['title'] ?? file['name'] ?? '';
-            final ext = name.split('.').last.toLowerCase();
-            if (['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg'].contains(ext)) {
-              result.add(file);
-            }
+          } else if (FileTreeUtils.isAudio(file)) {
+            result.add(file);
           }
         }
         return result;

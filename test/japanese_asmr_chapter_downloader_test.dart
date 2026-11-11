@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_chapter_downloader.dart';
+import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
+import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
 import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 
 void main() {
@@ -183,7 +185,311 @@ void main() {
     );
     expect(await output.exists(), isFalse);
   });
+
+  test('downloads a valid original file without requesting HLS', () async {
+    final originalTransport = _ResponseTransport(
+      contentLength: _flacAudio.length,
+      stream: Stream.value(_flacAudio),
+    );
+    final hlsRequests = <RequestOptions>[];
+    dio = _dioFor(
+      hlsRequests,
+      segments: [_transportSegment(126000)],
+      segmentCount: 1,
+    );
+    final output = File('${tempDirectory.path}/chapter.aac.downloading');
+    await output.writeAsBytes(_adtsFrame(99));
+    const resolvedUrl = 'https://media.example/signed-original';
+
+    var requestedOriginalUrl = '';
+    final result =
+        await JapaneseAsmrChapterDownloader(
+          dio: dio,
+          fileTransfer: ResumableFileTransfer(transport: originalTransport),
+        ).downloadPreferred(
+          playlistUrl: 'https://media.example/work.m3u8',
+          originalDownloadUrl: 'https://media.example/original',
+          startTimeMs: 0,
+          endTimeMs: null,
+          outputFile: output,
+          cancellation: RemoteAssetCancellation(),
+          resolveOriginalDownloadUrl: (url) async {
+            requestedOriginalUrl = url;
+            return resolvedUrl;
+          },
+        );
+
+    expect(result.fileExtension, '.flac');
+    expect(result.bytes, _flacAudio.length);
+    expect(result.usedOriginalFile, isTrue);
+    expect(originalTransport.requests, 1);
+    expect(
+      originalTransport.requestHeaders.single.containsKey('Range'),
+      isFalse,
+    );
+    expect(requestedOriginalUrl, 'https://media.example/original');
+    expect(originalTransport.requestUris.single, Uri.parse(resolvedUrl));
+    expect(hlsRequests, isEmpty);
+    expect(await output.readAsBytes(), _flacAudio);
+  });
+
+  test(
+    'downloads a direct Buzzheavier original without requesting HLS',
+    () async {
+      final originalTransport = _ResponseTransport(
+        contentLength: _flacAudio.length,
+        stream: Stream.value(_flacAudio),
+      );
+      final hlsRequests = <RequestOptions>[];
+      dio = _dioFor(
+        hlsRequests,
+        segments: [_transportSegment(126000)],
+        segmentCount: 1,
+      );
+      final service = JapaneseAsmrService(dio: dio);
+      const originalUrl = 'https://ts.buzzheavier.com/d/full-file?token=fresh';
+      final output = File('${tempDirectory.path}/direct.aac.downloading');
+
+      final result =
+          await JapaneseAsmrChapterDownloader(
+            dio: dio,
+            fileTransfer: ResumableFileTransfer(transport: originalTransport),
+          ).downloadPreferred(
+            playlistUrl: 'https://media.example/work.m3u8',
+            originalDownloadUrl: originalUrl,
+            startTimeMs: 0,
+            endTimeMs: null,
+            outputFile: output,
+            cancellation: RemoteAssetCancellation(),
+            resolveOriginalDownloadUrl: (url) =>
+                service.resolveDownloadUrl(url),
+          );
+
+      expect(result.usedOriginalFile, isTrue);
+      expect(result.fileExtension, '.flac');
+      expect(originalTransport.requestUris, [Uri.parse(originalUrl)]);
+      expect(hlsRequests, isEmpty);
+      expect(await output.readAsBytes(), _flacAudio);
+    },
+  );
+
+  test('falls back to HLS when the original endpoint fails', () async {
+    final originalTransport = _ResponseTransport(
+      statusCode: HttpStatus.serviceUnavailable,
+      contentLength: 0,
+      stream: const Stream<List<int>>.empty(),
+    );
+    final hlsRequests = <RequestOptions>[];
+    dio = _dioFor(
+      hlsRequests,
+      segments: [_transportSegment(126000)],
+      segmentCount: 1,
+    );
+    final output = File('${tempDirectory.path}/chapter.aac.downloading');
+
+    final result =
+        await JapaneseAsmrChapterDownloader(
+          dio: dio,
+          fileTransfer: ResumableFileTransfer(transport: originalTransport),
+        ).downloadPreferred(
+          playlistUrl: 'https://media.example/work.m3u8',
+          originalDownloadUrl: 'https://media.example/original',
+          startTimeMs: 0,
+          endTimeMs: null,
+          outputFile: output,
+          cancellation: RemoteAssetCancellation(),
+        );
+
+    expect(result.fileExtension, '.aac');
+    expect(result.usedOriginalFile, isFalse);
+    expect(result.bytes, greaterThan(0));
+    expect(hlsRequests.map((request) => request.uri.path), [
+      '/work.m3u8',
+      '/segment-0.ts',
+    ]);
+  });
+
+  test(
+    'falls back to HLS when the original URL resolver has a network error',
+    () async {
+      final originalTransport = _ResponseTransport(
+        contentLength: _flacAudio.length,
+        stream: Stream.value(_flacAudio),
+      );
+      final hlsRequests = <RequestOptions>[];
+      dio = _dioFor(
+        hlsRequests,
+        segments: [_transportSegment(126000)],
+        segmentCount: 1,
+      );
+
+      final result =
+          await JapaneseAsmrChapterDownloader(
+            dio: dio,
+            fileTransfer: ResumableFileTransfer(transport: originalTransport),
+          ).downloadPreferred(
+            playlistUrl: 'https://media.example/work.m3u8',
+            originalDownloadUrl: 'https://buzzheavier.com/file',
+            startTimeMs: 0,
+            endTimeMs: null,
+            outputFile: File(
+              '${tempDirectory.path}/resolver-error.aac.downloading',
+            ),
+            cancellation: RemoteAssetCancellation(),
+            resolveOriginalDownloadUrl: (_) async => throw DioException(
+              requestOptions: RequestOptions(path: '/resolve'),
+              type: DioExceptionType.connectionTimeout,
+            ),
+          );
+
+      expect(result.fileExtension, '.aac');
+      expect(result.usedOriginalFile, isFalse);
+      expect(originalTransport.requests, 0);
+      expect(hlsRequests, isNotEmpty);
+    },
+  );
+
+  test('falls back to HLS when the original response is not audio', () async {
+    final invalidAudio = Uint8List.fromList('{"error":"missing"}'.codeUnits);
+    final originalTransport = _ResponseTransport(
+      contentLength: invalidAudio.length,
+      stream: Stream.value(invalidAudio),
+    );
+    final hlsRequests = <RequestOptions>[];
+    dio = _dioFor(
+      hlsRequests,
+      segments: [_transportSegment(126000)],
+      segmentCount: 1,
+    );
+
+    final result =
+        await JapaneseAsmrChapterDownloader(
+          dio: dio,
+          fileTransfer: ResumableFileTransfer(transport: originalTransport),
+        ).downloadPreferred(
+          playlistUrl: 'https://media.example/work.m3u8',
+          originalDownloadUrl: 'https://media.example/original',
+          startTimeMs: 0,
+          endTimeMs: null,
+          outputFile: File('${tempDirectory.path}/invalid.aac.downloading'),
+          cancellation: RemoteAssetCancellation(),
+        );
+
+    expect(result.fileExtension, '.aac');
+    expect(result.usedOriginalFile, isFalse);
+    expect(hlsRequests, isNotEmpty);
+  });
+
+  test(
+    'does not fall back after cancellation or a local filesystem error',
+    () async {
+      final cancellation = RemoteAssetCancellation();
+      final cancelTransport = _ResponseTransport(
+        contentLength: _flacAudio.length,
+        stream: Stream<List<int>>.fromIterable([_flacAudio, _flacAudio]),
+      );
+      final cancelHlsRequests = <RequestOptions>[];
+      dio = _dioFor(
+        cancelHlsRequests,
+        segments: [_transportSegment(126000)],
+        segmentCount: 1,
+      );
+      final cancelOutput = File(
+        '${tempDirectory.path}/cancelled.aac.downloading',
+      );
+      await expectLater(
+        JapaneseAsmrChapterDownloader(
+          dio: dio,
+          fileTransfer: ResumableFileTransfer(transport: cancelTransport),
+        ).downloadPreferred(
+          playlistUrl: 'https://media.example/work.m3u8',
+          originalDownloadUrl: 'https://media.example/original',
+          startTimeMs: 0,
+          endTimeMs: null,
+          outputFile: cancelOutput,
+          cancellation: cancellation,
+          onProgress: (_, _) => cancellation.cancel(),
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(cancelHlsRequests, isEmpty);
+      expect(await cancelOutput.exists(), isFalse);
+
+      dio.close(force: true);
+      final blocker = File('${tempDirectory.path}/not_a_directory');
+      await blocker.writeAsString('x');
+      final diskHlsRequests = <RequestOptions>[];
+      dio = _dioFor(
+        diskHlsRequests,
+        segments: [_transportSegment(126000)],
+        segmentCount: 1,
+      );
+      await expectLater(
+        JapaneseAsmrChapterDownloader(
+          dio: dio,
+          fileTransfer: ResumableFileTransfer(
+            transport: _ResponseTransport(
+              contentLength: _flacAudio.length,
+              stream: Stream.value(_flacAudio),
+            ),
+          ),
+        ).downloadPreferred(
+          playlistUrl: 'https://media.example/work.m3u8',
+          originalDownloadUrl: 'https://media.example/original',
+          startTimeMs: 0,
+          endTimeMs: null,
+          outputFile: File('${blocker.path}/chapter.aac.downloading'),
+          cancellation: RemoteAssetCancellation(),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(diskHlsRequests, isEmpty);
+    },
+  );
 }
+
+class _ResponseTransport implements RemoteAssetTransport {
+  _ResponseTransport({
+    this.statusCode = HttpStatus.ok,
+    required this.stream,
+    this.contentLength,
+  });
+
+  final int statusCode;
+  final Stream<List<int>> stream;
+  final int? contentLength;
+  int requests = 0;
+  final requestHeaders = <Map<String, String>>[];
+  final requestUris = <Uri>[];
+
+  @override
+  Future<RemoteAssetResponse> open(RemoteAssetTransportRequest request) async {
+    requests++;
+    requestHeaders.add(request.headers);
+    requestUris.add(request.uri);
+    return RemoteAssetResponse(
+      statusCode: statusCode,
+      contentLength: contentLength,
+      headers: const {},
+      stream: stream,
+    );
+  }
+}
+
+final _flacAudio = Uint8List.fromList([
+  0x66,
+  0x4c,
+  0x61,
+  0x43,
+  0,
+  0,
+  0,
+  34,
+  0,
+  0,
+  0,
+  0,
+]);
 
 Dio _dioFor(
   List<RequestOptions> requests, {

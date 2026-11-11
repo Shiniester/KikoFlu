@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 import 'package:equatable/equatable.dart';
 import '../utils/string_utils.dart';
+import 'audio_source.dart';
 
 part 'work.g.dart';
 
@@ -173,6 +174,8 @@ class Work extends Equatable {
   String get circleTitle => name ?? '';
 
   bool get isJapaneseAsmr => id < 0;
+  AudioSource get audioSource =>
+      isJapaneseAsmr ? AudioSource.jpAsmr : AudioSource.asmrOne;
 
   String get sourceLabel => isJapaneseAsmr ? 'JP-ASMR' : 'ASMR.ONE';
 
@@ -430,6 +433,7 @@ class Va extends Equatable {
 class Tag extends Equatable {
   final int id;
   final String name;
+  final Map<String, String> names;
   final int? upvote; // 支持投票数量
   final int? downvote; // 反对投票数量
 
@@ -442,6 +446,7 @@ class Tag extends Equatable {
   const Tag({
     required this.id,
     required this.name,
+    this.names = const {},
     this.upvote,
     this.downvote,
     this.myVote,
@@ -456,7 +461,15 @@ class Tag extends Equatable {
   Map<String, dynamic> toJson() => _$TagToJson(this);
 
   @override
-  List<Object?> get props => [id, name, upvote, downvote, myVote, voteStatus];
+  List<Object?> get props => [
+    id,
+    name,
+    names,
+    upvote,
+    downvote,
+    myVote,
+    voteStatus,
+  ];
 }
 
 @JsonSerializable()
@@ -468,6 +481,7 @@ class AudioFile extends Equatable {
 
   @JsonKey(name: 'mediaDownloadUrl')
   final String? mediaDownloadUrl;
+  final String? originalDownloadUrl;
 
   final int? size;
   final dynamic duration; // 时长（秒），可能是 int 或 double
@@ -480,6 +494,7 @@ class AudioFile extends Equatable {
     this.hash,
     this.children,
     this.mediaDownloadUrl,
+    this.originalDownloadUrl,
     this.size,
     this.duration,
     this.startTimeMs,
@@ -538,6 +553,7 @@ class AudioFile extends Equatable {
     hash,
     children,
     mediaDownloadUrl,
+    originalDownloadUrl,
     size,
     duration,
     startTimeMs,

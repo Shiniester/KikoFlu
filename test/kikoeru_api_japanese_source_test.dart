@@ -20,8 +20,12 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
   int? archiveYear;
   int? archiveMonth;
   AgeRating? ageRating;
+  AgeRating? searchAgeRating;
   List<SearchCondition> searchConditions = const [];
   final relatedWorkIds = <int>[];
+
+  @override
+  bool hasRegisteredWork(int postId) => true;
 
   @override
   Future<Map<String, dynamic>> getWorks({
@@ -51,10 +55,12 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
     required int page,
     required int pageSize,
     List<SearchCondition> conditions = const [],
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     searchCancelToken = cancelToken;
     searchConditions = conditions;
+    searchAgeRating = ageRating;
     return {'works': <dynamic>[], 'pagination': <String, dynamic>{}};
   }
 
@@ -97,6 +103,24 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
 }
 
 void main() {
+  test('a cancelled Japanese work request stops before lookup', () async {
+    final japanese = _JapaneseAsmrService();
+    final api = KikoeruApiService(japaneseAsmrService: japanese);
+    final cancelToken = CancelToken()..cancel();
+
+    await expectLater(
+      api.getWork(-1726738, cancelToken: cancelToken),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+    expect(japanese.workId, isNull);
+  });
+
   test(
     'facade routes explicit Japanese requests and negative work IDs',
     () async {
@@ -127,6 +151,7 @@ void main() {
         keyword: 'RJ01726738',
         source: AudioSource.jpAsmr,
         conditions: [category],
+        ageRating: AgeRating.general,
         cancelToken: cancelToken,
       );
       final work = await api.getWork(-1726738, cancelToken: cancelToken);
@@ -143,6 +168,7 @@ void main() {
       expect(japanese.ageRating, AgeRating.r15);
       expect(japanese.searchCancelToken, same(cancelToken));
       expect(japanese.searchConditions, [category]);
+      expect(japanese.searchAgeRating, AgeRating.general);
       expect(japanese.catalogType, SearchType.va);
       expect(japanese.catalogCancelToken, same(cancelToken));
       expect(work['id'], -1726738);

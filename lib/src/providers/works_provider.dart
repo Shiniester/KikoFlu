@@ -387,33 +387,17 @@ class WorksNotifier extends StateNotifier<WorksState> {
       ).value;
 
       if (source == AudioSource.jpAsmr) {
+        if (mode != DisplayMode.all) {
+          throw UnsupportedError('Eara does not provide this works feed');
+        }
         response = await _apiService.getWorks(
           page: page,
           pageSize: pageSize,
           source: source,
-          japaneseAsmrSort: mode == DisplayMode.popular
-              ? JapaneseAsmrSortOption.popular
-              : state.japaneseAsmrSortOption,
-          japaneseAsmrDirection: state.japaneseAsmrDirection,
-          japaneseAsmrAgeRating: mode == DisplayMode.all
-              ? state.japaneseAsmrAgeRating
+          japaneseAsmrAgeRating:
+              state.japaneseAsmrAgeRating == AgeRating.general
+              ? AgeRating.general
               : AgeRating.all,
-          japaneseAsmrPeriod: mode == DisplayMode.popular
-              ? state.japaneseAsmrPopularPeriod
-              : (state.japaneseAsmrSortOption == JapaneseAsmrSortOption.comments
-                    ? state.japaneseAsmrCommentsPeriod
-                    : JapaneseAsmrPeriod.week),
-          japaneseAsmrArchiveYear:
-              mode == DisplayMode.popular &&
-                  state.japaneseAsmrArchiveDate != null
-              ? state.japaneseAsmrArchiveDate!.year
-              : null,
-          japaneseAsmrArchiveMonth:
-              mode == DisplayMode.popular &&
-                  state.japaneseAsmrPopularPeriod ==
-                      JapaneseAsmrPeriod.archiveMonth
-              ? state.japaneseAsmrArchiveDate?.month
-              : null,
           cancelToken: requestToken.cancelToken,
         );
       } else if (mode == DisplayMode.popular) {

@@ -28,12 +28,12 @@ import '../widgets/floating_feed_toolbar.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/search_condition_chip.dart';
 import '../widgets/async_state_view.dart';
-import '../widgets/japanese_asmr_access_prompt.dart';
 
 class SearchResultScreen extends StatelessWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final AudioSource? source;
   final bool embedded;
   final int queryRevision;
   final SortOrder? initialSortOption;
@@ -51,6 +51,7 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
     this.embedded = false,
     this.queryRevision = 0,
     this.initialSortOption,
@@ -69,6 +70,7 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
   }) : embedded = false,
        queryRevision = 0,
        initialSortOption = null,
@@ -81,6 +83,10 @@ class SearchResultScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return ProviderScope(
       overrides: [
+        if (source != null)
+          audioSourceProvider.overrideWith(
+            (ref) => _PinnedAudioSourceNotifier(source!),
+          ),
         searchResultProvider.overrideWith((ref) {
           final apiService = ref.watch(kikoeruApiServiceProvider);
           final pageSize = ref.read(pageSizeProvider);
@@ -120,6 +126,7 @@ class SearchResultScreen extends StatelessWidget {
         keyword: keyword,
         searchTypeLabel: searchTypeLabel,
         searchParams: searchParams,
+        source: source,
         restored: _initialState != null,
         initialScrollOffset: _initialScrollOffset,
         pendingPage: _pendingPage,
@@ -139,6 +146,7 @@ class _SearchResultContent extends ConsumerStatefulWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final AudioSource? source;
   final bool restored;
   final double initialScrollOffset;
   final int? pendingPage;
@@ -155,6 +163,7 @@ class _SearchResultContent extends ConsumerStatefulWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.source,
     required this.restored,
     required this.initialScrollOffset,
     required this.pendingPage,
@@ -290,6 +299,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             keyword: widget.keyword,
             searchTypeLabel: widget.searchTypeLabel,
             searchParams: widget.searchParams,
+            source: widget.source,
           ),
         ),
       );
@@ -334,6 +344,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   }
 
   bool get _isJapaneseQuery =>
+      widget.source == AudioSource.jpAsmr ||
       widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
       ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
@@ -372,6 +383,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     final layoutType = ref.watch(audioLayoutProvider);
     final currentSource = ref.watch(audioSourceProvider);
     final isJapaneseAsmr =
+        widget.source == AudioSource.jpAsmr ||
         widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
         currentSource == AudioSource.jpAsmr;
 
@@ -616,20 +628,6 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
   Widget _buildBody(SearchResultState searchState, LayoutType layoutType) {
     if (searchState.error != null && searchState.works.isEmpty) {
-      final error = searchState.error!;
-      if (error.contains('[jp-asmr-verification-required]') &&
-          _isJapaneseQuery) {
-        void refreshForJapaneseAsmr() {
-          if (mounted && _isJapaneseQuery) {
-            ref.read(searchResultProvider.notifier).refresh();
-          }
-        }
-
-        return JapaneseAsmrAccessPrompt(
-          onRetry: refreshForJapaneseAsmr,
-          onVerified: refreshForJapaneseAsmr,
-        );
-      }
       return AsyncStateView(
         icon: Icon(
           Icons.error_outline,
@@ -729,7 +727,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             ),
           ),
         if (searchState.error != null && searchState.works.isNotEmpty)
-          SliverToBoxAdapter(child: _buildUpdateError(searchState.error!)),
+          SliverToBoxAdapter(child: _buildUpdateError()),
         if (!widget.embedded ||
             (searchState.totalCountKnown && searchState.totalCount > 0))
           SliverToBoxAdapter(
@@ -756,13 +754,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     );
   }
 
-  Widget _buildUpdateError(String error) {
-    if (error.contains('[jp-asmr-verification-required]') && _isJapaneseQuery) {
-      return JapaneseAsmrAccessPrompt(
-        onRetry: () => ref.read(searchResultProvider.notifier).refresh(),
-        onVerified: () => ref.read(searchResultProvider.notifier).refresh(),
-      );
-    }
+  Widget _buildUpdateError() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
@@ -786,5 +778,11 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     // type is a localized label, so we match by checking common patterns
     // This is a best-effort fallback; the main UI uses SearchType enum directly
     return Icons.search;
+  }
+}
+
+class _PinnedAudioSourceNotifier extends AudioSourceNotifier {
+  _PinnedAudioSourceNotifier(AudioSource source) {
+    state = source;
   }
 }

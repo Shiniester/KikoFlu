@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../models/audio_source.dart';
 import 'metadata_search_chip.dart';
 
 class CircleChip extends StatelessWidget {
@@ -9,11 +10,13 @@ class CircleChip extends StatelessWidget {
   final VoidCallback? onDeleted;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final bool searchEnabled;
   final bool compact;
   final double? fontSize;
   final EdgeInsetsGeometry? padding;
   final double? borderRadius;
   final FontWeight? fontWeight;
+  final AudioSource? source;
 
   const CircleChip({
     super.key,
@@ -22,11 +25,13 @@ class CircleChip extends StatelessWidget {
     this.onDeleted,
     this.onTap,
     this.onLongPress,
+    this.searchEnabled = true,
     this.compact = false,
     this.fontSize,
     this.padding,
     this.borderRadius,
     this.fontWeight,
+    this.source,
   });
 
   @override
@@ -35,11 +40,14 @@ class CircleChip extends StatelessWidget {
       label: circleName,
       searchKeyword: circleName,
       searchTypeLabel: S.of(context).searchTypeCircle,
-      searchParams: {'circleId': circleId, 'circleName': circleName},
+      searchParams: source == AudioSource.jpAsmr
+          ? const {}
+          : {'circleId': circleId, 'circleName': circleName},
       chipTone: MetadataChipTone.secondary,
       onDeleted: onDeleted,
       onTap: onTap,
       onLongPress: onLongPress,
+      searchEnabled: searchEnabled,
       compact: compact,
       compactFontSize: null,
       fontSize: fontSize,
@@ -51,6 +59,7 @@ class CircleChip extends StatelessWidget {
       deleteIconSize: 16,
       logName: 'circle',
       logId: circleId,
+      source: source,
     );
   }
 }

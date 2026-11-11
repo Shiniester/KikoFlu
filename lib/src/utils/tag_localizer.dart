@@ -12,7 +12,21 @@ class TagLocalizer {
   /// [tagId] - the tag's numeric ID
   /// [defaultName] - the original name to fall back to
   /// [locale] - the current app locale
-  static String localize(int tagId, String defaultName, Locale locale) {
+  static String localize(
+    int tagId,
+    String defaultName,
+    Locale locale, {
+    Map<String, String> names = const {},
+  }) {
+    if (names.isNotEmpty || tagId < 0) {
+      final language = _tagLanguage(locale.toLanguageTag());
+      final matches = names.entries
+          .where((entry) => _tagLanguage(entry.key) == language)
+          .map((entry) => entry.value.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      return matches.length == 1 ? matches.single : defaultName;
+    }
     final translations = tagTranslations[tagId];
     if (translations == null) return defaultName;
 
@@ -20,10 +34,25 @@ class TagLocalizer {
     return translations[key] ?? translations['zh'] ?? defaultName;
   }
 
+  static String _tagLanguage(String locale) {
+    final tag = locale.replaceAll('_', '-').toLowerCase();
+    if (tag.startsWith('zh')) {
+      return tag.contains('hant') ||
+              tag.startsWith('zh-tw') ||
+              tag.startsWith('zh-hk') ||
+              tag.startsWith('zh-mo')
+          ? 'zh-Hant'
+          : 'zh-Hans';
+    }
+    return tag.split('-').first;
+  }
+
   /// Get the localized name for a tag, looking up by original name if ID is unknown.
   static String localizeByName(String name, Locale locale) {
     final key = _localeKey(locale);
-    if (key == 'zh') return name; // Already in Simplified Chinese, no lookup needed
+    if (key == 'zh') {
+      return name; // Already in Simplified Chinese, no lookup needed
+    }
 
     // Find tag ID by name
     final id = tagNameToId[name.toLowerCase()];

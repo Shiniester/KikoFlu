@@ -11,6 +11,7 @@ import '../utils/server_utils.dart';
 import '../services/storage_service.dart';
 import 'cache_service.dart';
 import 'conditional_get_cache.dart';
+import 'history_database.dart';
 import 'japanese_asmr_service.dart';
 import 'log_service.dart';
 
@@ -959,12 +960,25 @@ class KikoeruApiService {
     );
   }
 
+  void registerJapaneseAsmrWork(Work work) {
+    if (work.isJapaneseAsmr) _japaneseAsmrService.registerWork(work);
+  }
+
+  Future<void> _restoreJapaneseAsmrWork(int workId) async {
+    if (_japaneseAsmrService.hasRegisteredWork(workId.abs())) return;
+    final record = await HistoryDatabase.instance.getHistoryByWorkId(workId);
+    if (record != null) registerJapaneseAsmrWork(record.work);
+  }
+
   Future<Map<String, dynamic>> getWork(
     int workId, {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async {
     if (workId < 0) {
+      if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+      await _restoreJapaneseAsmrWork(workId);
+      if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
       return _japaneseAsmrService.getWork(
         workId.abs(),
         forceRefresh: forceRefresh,
@@ -1207,6 +1221,7 @@ class KikoeruApiService {
     int? subtitle,
     int? seed,
     bool includeTranslationWorks = true,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     if (source == AudioSource.jpAsmr) {
@@ -1215,6 +1230,7 @@ class KikoeruApiService {
         page: page,
         pageSize: pageSize,
         conditions: conditions,
+        ageRating: ageRating,
         cancelToken: cancelToken,
       );
     }
@@ -1539,6 +1555,7 @@ class KikoeruApiService {
     bool forceRefresh = false,
   }) async {
     if (workId < 0) {
+      await _restoreJapaneseAsmrWork(workId);
       return _japaneseAsmrService.getWorkTracks(
         workId.abs(),
         forceRefresh: forceRefresh,

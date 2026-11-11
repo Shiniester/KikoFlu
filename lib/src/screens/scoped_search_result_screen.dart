@@ -230,6 +230,7 @@ class _ScopedSearchResultScreenState
       Map<String, dynamic> detailJson;
       try {
         final api = ref.read(kikoeruApiServiceProvider);
+        api.registerJapaneseAsmrWork(current.work);
         detailJson = await api.getWork(
           current.work.id,
           forceRefresh: forceRefresh,
