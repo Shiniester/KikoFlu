@@ -136,11 +136,13 @@ index 0000000..1a36e72
 +ninja -C "$build" -j"$cores"
 +DESTDIR="$prefix_dir" ninja -C "$build" install
 diff --git a/buildscripts/scripts/mpv.sh b/buildscripts/scripts/mpv.sh
-index 7e4ea4e..4eddf4a 100755
+index 7e4ea4e..d58f7a1 100755
 --- a/buildscripts/scripts/mpv.sh
 +++ b/buildscripts/scripts/mpv.sh
-@@ -23,0 +24,2 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
+@@ -17,0 +18 @@ unset CC CXX # meson wants these unset
++export LDFLAGS="${LDFLAGS:-} -Wl,--no-as-needed -lc++_shared -Wl,--as-needed"
+@@ -23,0 +25,2 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
 +	-Dgl=enabled \
 +	-Degl-android=enabled \
-@@ -28 +29,0 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
+@@ -28 +30,0 @@ meson setup $build --cross-file "$prefix_dir"/crossfile.txt \
 -   	-Dlibplacebo=disabled \

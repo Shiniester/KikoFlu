@@ -28,6 +28,40 @@ assert_source_commit() {
     [[ "$actual_commit" == "$expected_commit" ]] || fail "$name source is $actual_commit, expected $expected_commit"
 }
 
+check_cxx_runtime_symbols() {
+    local library=$1
+    local runtime=$2
+    local abi=$3
+    local missing_symbols
+
+    [[ -s "$runtime" ]] || fail "NDK libc++ runtime is missing for $abi"
+    readelf -W -d "$library" | grep -Fq 'Shared library: [libc++_shared.so]' ||
+        fail "libmpv.so does not depend on libc++_shared.so for $abi"
+
+    missing_symbols=$(
+        LC_ALL=C comm -23 \
+            <(readelf -W --dyn-syms "$library" | awk '
+                $7 == "UND" {
+                    symbol = $8
+                    sub(/@.*/, "", symbol)
+                    if ((symbol ~ /^_Z/ || symbol ~ /^__gxx_/ || symbol ~ /^__cxa_/) &&
+                        symbol != "__cxa_atexit" &&
+                        symbol != "__cxa_finalize" &&
+                        symbol != "__cxa_thread_atexit_impl") print symbol
+                }
+            ' | LC_ALL=C sort -u) \
+            <(readelf -W --dyn-syms "$runtime" | awk '
+                $7 != "UND" && ($5 == "GLOBAL" || $5 == "WEAK") && $6 == "DEFAULT" {
+                    symbol = $8
+                    sub(/@.*/, "", symbol)
+                    if (symbol ~ /^_Z/ || symbol ~ /^__gxx_/ || symbol ~ /^__cxa_/) print symbol
+                }
+            ' | LC_ALL=C sort -u)
+    ) || fail "could not inspect libmpv.so C++ symbols for $abi"
+    [[ -z "$missing_symbols" ]] ||
+        fail "libmpv.so imports C++ symbols missing from libc++_shared.so for $abi: $missing_symbols"
+}
+
 [[ "$mode" == arm64 || "$mode" == all ]] || fail "mode must be arm64 or all"
 [[ ! -e "$work_dir" ]] || fail "work directory already exists: $work_dir"
 if [[ -d "$output_dir" ]] && [[ -n "$(find "$output_dir" -mindepth 1 -print -quit)" ]]; then
@@ -120,10 +154,10 @@ grep -Fq -- '-Wl,-z,max-page-size=16384' "$helper_cmake_source/CMakeLists.txt" |
 
 for arch in "${arches[@]}"; do
     case "$arch" in
-        arm64) abi=arm64-v8a; expected_machine='AArch64' ;;
-        armv7l) abi=armeabi-v7a; expected_machine='ARM' ;;
-        x86) abi=x86; expected_machine='Intel 80386' ;;
-        x86_64) abi=x86_64; expected_machine='Advanced Micro Devices X86-64' ;;
+        arm64) abi=arm64-v8a; expected_machine='AArch64'; cxx_runtime_arch=aarch64-linux-android ;;
+        armv7l) abi=armeabi-v7a; expected_machine='ARM'; cxx_runtime_arch=arm-linux-androideabi ;;
+        x86) abi=x86; expected_machine='Intel 80386'; cxx_runtime_arch=i686-linux-android ;;
+        x86_64) abi=x86_64; expected_machine='Advanced Micro Devices X86-64'; cxx_runtime_arch=x86_64-linux-android ;;
         *) fail "unsupported Android architecture: $arch" ;;
     esac
 
@@ -151,6 +185,8 @@ for arch in "${arches[@]}"; do
     [[ -s "$library" ]] || fail "libmpv.so was not produced for $abi"
     readelf -h "$library" | grep -Eq "Machine:[[:space:]]+$expected_machine" ||
         fail "libmpv.so has the wrong ELF machine for $abi"
+    cxx_runtime="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/$cxx_runtime_arch/libc++_shared.so"
+    check_cxx_runtime_symbols "$library" "$cxx_runtime" "$abi"
 
     mkdir -p "$output_dir/$abi" "$work_dir/jar/$abi/lib/$abi"
     cp "$library" "$output_dir/$abi/libmpv.so"
@@ -186,6 +222,7 @@ done
     printf 'android_sdk_tools=%s\n' "$ANDROID_SDK_TOOLS"
     printf 'android_build_tools=%s\n' "$ANDROID_BUILD_TOOLS"
     printf 'android_ndk=%s\n' "$ANDROID_NDK"
+    printf 'cxx_runtime=libc++_shared.so\n'
     printf 'meson=%s\n' "$(meson --version)"
     printf 'ninja=%s\n' "$(ninja --version)"
     printf 'architectures=%s\n' "${arches[*]}"
