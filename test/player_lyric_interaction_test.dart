@@ -26,6 +26,50 @@ import 'package:kikoeru_flutter/src/widgets/player/player_slice_controls.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_seek_preview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+({
+  List<int> visibleCharacterOffsets,
+  bool didExceedMaxLines,
+  int? maxLines,
+  double scale,
+  double opacity,
+  double fontSize,
+  FontWeight? fontWeight,
+})
+_compactLyricVisualState(WidgetTester tester, String text) {
+  final textFinder = find.text(text);
+  final paragraph = tester.renderObject<RenderParagraph>(textFinder);
+  final visibleCharacterOffsets = [
+    for (var offset = 0; offset < text.length; offset++)
+      if (paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: offset, extentOffset: offset + 1),
+          )
+          .isNotEmpty)
+        offset,
+  ];
+  final scaleTransform = tester.widget<Transform>(
+    find.ancestor(of: textFinder, matching: find.byType(Transform)).first,
+  );
+  final textWidget = tester.widget<Text>(textFinder);
+  return (
+    visibleCharacterOffsets: visibleCharacterOffsets,
+    didExceedMaxLines: paragraph.didExceedMaxLines,
+    maxLines: textWidget.maxLines,
+    scale: scaleTransform.transform.storage[0],
+    opacity: textWidget.style!.color!.a,
+    fontSize: textWidget.style!.fontSize!,
+    fontWeight: textWidget.style!.fontWeight,
+  );
+}
+
+class _MutableLyricController extends LyricController {
+  _MutableLyricController(super.ref, {super.initialState});
+
+  void replaceLyrics(List<LyricLine> lyrics) {
+    state = state.copyWith(lyrics: lyrics);
+  }
+}
+
 void main() {
   final lyrics = List.generate(
     12,
@@ -1633,6 +1677,552 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'compact lyric emphasis preserves truncated text while springing',
+    (tester) async {
+      for (final compact in [false, true]) {
+        final positions = StreamController<Duration>();
+        addTearDown(positions.close);
+        final longText = List.filled(80, 'M').join();
+        final previewLyrics = [
+          LyricLine(
+            startTime: Duration.zero,
+            endTime: const Duration(seconds: 1),
+            text: 'first lyric',
+          ),
+          LyricLine(
+            startTime: const Duration(seconds: 1),
+            endTime: const Duration(seconds: 2),
+            text: longText,
+          ),
+          LyricLine(
+            startTime: const Duration(seconds: 2),
+            endTime: const Duration(seconds: 3),
+            text: 'last lyric',
+          ),
+        ];
+        positions.add(Duration.zero);
+        await tester.pumpWidget(
+          ProviderScope(
+            key: ValueKey(compact),
+            overrides: [
+              positionProvider.overrideWith((ref) => positions.stream),
+              lyricControllerProvider.overrideWith(
+                (ref) => LyricController(
+                  ref,
+                  initialState: LyricState(lyrics: previewLyrics),
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.25)),
+                child: child!,
+              ),
+              theme: ThemeData.dark(useMaterial3: true),
+              home: Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 220,
+                    height: 180,
+                    child: ThreeLineLyricDisplay(
+                      compact: compact,
+                      onSeekRequested: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final initial = _compactLyricVisualState(tester, longText);
+        expect(initial.didExceedMaxLines, isTrue);
+        expect(initial.maxLines, 1);
+        expect(initial.visibleCharacterOffsets, isNotEmpty);
+
+        positions.add(const Duration(seconds: 1));
+        await tester.pump();
+        await tester.pump();
+        final beforeMotion = _compactLyricVisualState(tester, longText);
+        expect(beforeMotion.scale, closeTo(initial.scale, 0.001));
+        expect(beforeMotion.opacity, closeTo(initial.opacity, 0.001));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 140));
+        final entering = _compactLyricVisualState(tester, longText);
+        expect(
+          entering.visibleCharacterOffsets,
+          initial.visibleCharacterOffsets,
+        );
+        expect(entering.didExceedMaxLines, isTrue);
+        expect(entering.maxLines, 1);
+        expect(entering.fontSize, initial.fontSize);
+        expect(entering.fontWeight, initial.fontWeight);
+        expect(entering.scale, greaterThan(initial.scale));
+        expect(entering.opacity, greaterThan(initial.opacity));
+        expect(entering.opacity, lessThan(1));
+
+        await tester.pumpAndSettle();
+        final active = _compactLyricVisualState(tester, longText);
+        expect(active.visibleCharacterOffsets, initial.visibleCharacterOffsets);
+        expect(active.fontSize, initial.fontSize);
+        expect(active.fontWeight, initial.fontWeight);
+        expect(active.scale, greaterThan(entering.scale));
+        expect(active.opacity, 1);
+        final display = find.byType(ThreeLineLyricDisplay);
+        final settings = ProviderScope.containerOf(
+          tester.element(display),
+          listen: false,
+        ).read(playerLyricSettingsProvider);
+        final textScaler = MediaQuery.textScalerOf(tester.element(display));
+        expect(
+          active.scale,
+          closeTo(
+            textScaler.scale(settings.fullActiveFontSize) /
+                textScaler.scale(settings.fullInactiveFontSize),
+            0.001,
+          ),
+        );
+
+        positions.add(const Duration(seconds: 2));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 140));
+        final leaving = _compactLyricVisualState(tester, longText);
+        expect(
+          leaving.visibleCharacterOffsets,
+          initial.visibleCharacterOffsets,
+        );
+        expect(leaving.fontSize, initial.fontSize);
+        expect(leaving.fontWeight, initial.fontWeight);
+        expect(leaving.scale, lessThan(active.scale));
+        expect(leaving.scale, greaterThan(initial.scale));
+        expect(leaving.opacity, lessThan(active.opacity));
+        expect(leaving.opacity, greaterThan(0.24));
+
+        await tester.pumpAndSettle();
+        final inactive = _compactLyricVisualState(tester, longText);
+        expect(
+          inactive.visibleCharacterOffsets,
+          initial.visibleCharacterOffsets,
+        );
+        expect(inactive.fontSize, initial.fontSize);
+        expect(inactive.fontWeight, initial.fontWeight);
+        expect(inactive.scale, closeTo(0.97, 0.001));
+        expect(inactive.opacity, closeTo(0.24, 0.001));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
+  testWidgets('compact lyric emphasis snaps when animations are disabled', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    final longText = List.filled(80, 'W').join();
+    final previewLyrics = [
+      LyricLine(
+        startTime: Duration.zero,
+        endTime: const Duration(seconds: 1),
+        text: 'first lyric',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text: longText,
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 2),
+        endTime: const Duration(seconds: 3),
+        text: 'last lyric',
+      ),
+    ];
+    positions.add(Duration.zero);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: previewLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations: true,
+              textScaler: const TextScaler.linear(1.25),
+            ),
+            child: child!,
+          ),
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 220,
+                height: 180,
+                child: ThreeLineLyricDisplay(
+                  compact: true,
+                  onSeekRequested: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final initial = _compactLyricVisualState(tester, longText);
+    expect(initial.scale, 1);
+    positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump();
+    final active = _compactLyricVisualState(tester, longText);
+    expect(active.visibleCharacterOffsets, initial.visibleCharacterOffsets);
+    expect(active.fontSize, initial.fontSize);
+    expect(active.scale, greaterThan(initial.scale));
+    expect(active.opacity, 1);
+
+    positions.add(const Duration(seconds: 2));
+    await tester.pump();
+    await tester.pump();
+    final inactive = _compactLyricVisualState(tester, longText);
+    expect(inactive.visibleCharacterOffsets, initial.visibleCharacterOffsets);
+    expect(inactive.fontSize, initial.fontSize);
+    expect(inactive.scale, 1);
+    expect(inactive.opacity, closeTo(0.24, 0.001));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'compact lyric emphasis resumes at the latest line after hiding',
+    (tester) async {
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      final tickerEnabled = ValueNotifier(true);
+      addTearDown(tickerEnabled.dispose);
+      final previewLyrics = List.generate(
+        3,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'hidden lyric $index',
+        ),
+      );
+      positions.add(Duration.zero);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: previewLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: Scaffold(
+              body: ValueListenableBuilder<bool>(
+                valueListenable: tickerEnabled,
+                builder: (context, enabled, child) =>
+                    TickerMode(enabled: enabled, child: child!),
+                child: Center(
+                  child: SizedBox(
+                    width: 220,
+                    height: 180,
+                    child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      positions.add(const Duration(seconds: 1));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 140));
+      final transitioning = _compactLyricVisualState(tester, 'hidden lyric 1');
+      expect(transitioning.scale, greaterThan(0.97));
+      expect(transitioning.opacity, lessThan(1));
+
+      tickerEnabled.value = false;
+      await tester.pump();
+      positions.add(const Duration(seconds: 2));
+      await tester.pump();
+      await tester.pump();
+
+      tickerEnabled.value = true;
+      await tester.pump();
+      final inactive = _compactLyricVisualState(tester, 'hidden lyric 1');
+      final active = _compactLyricVisualState(tester, 'hidden lyric 2');
+      expect(inactive.scale, closeTo(0.97, 0.001));
+      expect(inactive.opacity, closeTo(0.24, 0.001));
+      expect(active.scale, greaterThan(1));
+      expect(active.opacity, 1);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('compact lyric emphasis clears before the first lyric', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    final previewLyrics = [
+      LyricLine(
+        startTime: const Duration(seconds: 2),
+        endTime: const Duration(seconds: 3),
+        text: 'pre-roll lyric 0',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 3),
+        endTime: const Duration(seconds: 4),
+        text: 'pre-roll lyric 1',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 4),
+        endTime: const Duration(seconds: 5),
+        text: 'pre-roll lyric 2',
+      ),
+    ];
+    positions.add(const Duration(seconds: 3));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: previewLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 220,
+                height: 180,
+                child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final active = _compactLyricVisualState(tester, 'pre-roll lyric 1');
+    expect(active.scale, greaterThan(1));
+    expect(active.opacity, 1);
+
+    positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    final beforeFirstLyric = _compactLyricVisualState(
+      tester,
+      'pre-roll lyric 1',
+    );
+    expect(beforeFirstLyric.scale, closeTo(0.97, 0.001));
+    expect(beforeFirstLyric.opacity, closeTo(0.34, 0.001));
+    final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    final previousOffset = scrollable.position.pixels;
+    expect(previousOffset, greaterThan(0));
+
+    positions.add(const Duration(seconds: 2));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(scrollable.position.pixels, lessThan(previousOffset));
+    expect(scrollable.position.pixels, greaterThan(0));
+    await tester.pumpAndSettle();
+    final firstLyric = _compactLyricVisualState(tester, 'pre-roll lyric 0');
+    expect(firstLyric.scale, greaterThan(1));
+    expect(firstLyric.opacity, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('compact lyric emphasis animates during manual browsing', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    final previewLyrics = List.generate(
+      5,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'browse emphasis $index',
+      ),
+    );
+    positions.add(const Duration(seconds: 1));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: previewLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 220,
+                height: 180,
+                child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+    await tester.drag(list, const Offset(0, -24));
+    await tester.pumpAndSettle();
+    final scrollPosition = tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        )
+        .position;
+    final browsedOffset = scrollPosition.pixels;
+    expect(browsedOffset, greaterThan(0));
+    final inactive = _compactLyricVisualState(tester, 'browse emphasis 2');
+    expect(inactive.scale, closeTo(0.97, 0.001));
+    expect(inactive.opacity, closeTo(0.34, 0.001));
+
+    positions.add(const Duration(seconds: 2));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 140));
+    final transitioning = _compactLyricVisualState(tester, 'browse emphasis 2');
+    expect(transitioning.scale, greaterThan(inactive.scale));
+    expect(transitioning.opacity, greaterThan(inactive.opacity));
+    expect(transitioning.opacity, lessThan(1));
+    expect(scrollPosition.pixels, closeTo(browsedOffset, 0.01));
+
+    await tester.pumpAndSettle();
+    final active = _compactLyricVisualState(tester, 'browse emphasis 2');
+    expect(active.scale, greaterThan(1));
+    expect(active.opacity, 1);
+    expect(scrollPosition.pixels, closeTo(browsedOffset, 0.01));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('compact lyric source changes clear emphasis by index', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    final previousText = List.filled(80, 'M').join();
+    final replacementText = List.filled(80, 'W').join();
+    final lyrics = [
+      LyricLine(
+        startTime: Duration.zero,
+        endTime: const Duration(seconds: 1),
+        text: 'first lyric',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text: previousText,
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 2),
+        endTime: const Duration(seconds: 3),
+        text: 'last lyric',
+      ),
+    ];
+    late _MutableLyricController lyricController;
+    positions.add(Duration.zero);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => lyricController = _MutableLyricController(
+              ref,
+              initialState: LyricState(lyrics: lyrics, trackKey: 'track'),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 220,
+                height: 180,
+                child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 140));
+    final transitioning = _compactLyricVisualState(tester, previousText);
+    expect(transitioning.scale, greaterThan(0.97));
+    expect(transitioning.opacity, lessThan(1));
+
+    lyricController.replaceLyrics([
+      lyrics.first,
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text: replacementText,
+      ),
+      lyrics.last,
+    ]);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text(previousText), findsNothing);
+    final replacement = _compactLyricVisualState(tester, replacementText);
+    expect(replacement.opacity, 1);
+    expect(replacement.scale, greaterThan(transitioning.scale));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('compact lyric rows seek, fade edges, and resume following', (
     tester,
