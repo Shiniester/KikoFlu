@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +14,7 @@ import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
@@ -47,6 +49,18 @@ class _CatalogApi extends KikoeruApiService {
   List<Map<String, dynamic>> asmrTags = [
     {'id': 999999, 'name': '耳かき', 'count': 5},
   ];
+  final japaneseTags = <Map<String, dynamic>>[
+    {
+      'id': -77,
+      'name': '耳かき',
+      'names': {
+        'ja': '耳かき',
+        'en': 'Ear Cleaning',
+        'fr': 'Nettoyage oreilles',
+      },
+      'count': 5,
+    },
+  ];
   final tagCatalogGate = Completer<List<dynamic>>();
   bool holdTagCatalog = false;
   final searchCalls = <_SearchCall>[];
@@ -64,18 +78,7 @@ class _CatalogApi extends KikoeruApiService {
     CancelToken? cancelToken,
   }) async {
     catalogTypes.add(type);
-    return [
-      {
-        'id': -77,
-        'name': '耳かき',
-        'names': {
-          'ja': '耳かき',
-          'en': 'Ear Cleaning',
-          'fr': 'Nettoyage oreilles',
-        },
-        'count': 5,
-      },
-    ];
+    return japaneseTags;
   }
 
   @override
@@ -244,9 +247,11 @@ void main() {
 
     final field = find.byType(TextField).first;
     await tester.tap(field);
-    await tester.enterText(field, 'Nettoyage oreilles');
+    await tester.enterText(field, 'Nettoyage');
     await tester.pumpAndSettle();
     expect(find.text('Ear Cleaning (5)'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
@@ -304,6 +309,80 @@ void main() {
     expect(api.searchCalls.single.keyword, 'unknown term');
     expect(api.searchCalls.single.conditions, isEmpty);
     expect(api.searchCalls.single.ageRating, AgeRating.all);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('JP keyboard candidate updates an existing search once', (
+    tester,
+  ) async {
+    final api = _CatalogApi();
+    await _pumpSearchScreen(
+      tester,
+      api: api,
+      sourceNotifier: _JapaneseSourceNotifier(),
+      locale: const Locale('en'),
+    );
+    await _selectTag(tester, locale: const Locale('en'));
+
+    final field = find.byType(TextField).first;
+    await tester.tap(field);
+    await tester.enterText(field, 'initial query');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(api.searchCalls, hasLength(1));
+
+    await tester.tap(field);
+    await tester.enterText(field, 'Nettoyage');
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(api.searchCalls, hasLength(2));
+    expect(api.searchCalls.last.keyword, contains('initial query'));
+    expect(api.searchCalls.last.keyword, contains('耳かき'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SearchScreen)),
+    );
+    final history = container.read(unifiedSearchHistoryProvider).itemsFor(
+      const UnifiedSearchHistoryContext(
+        contentType: 'audio',
+        entryScope: 'global-works',
+        source: 'jpAsmr',
+      ),
+    );
+    expect(history, hasLength(2));
+    expect(history.map((entry) => entry.payload['keyword']), [
+      'initial query 耳かき',
+      'initial query',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('JP keyboard selects a highlighted candidate with empty input', (
+    tester,
+  ) async {
+    final api = _CatalogApi()
+      ..japaneseTags.add({'id': -78, 'name': '寝息', 'count': 3});
+    await _pumpSearchScreen(
+      tester,
+      api: api,
+      sourceNotifier: _JapaneseSourceNotifier(),
+      locale: const Locale('en'),
+    );
+    await _selectTag(tester, locale: const Locale('en'));
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Ear Cleaning (5)'), findsOneWidget);
+    expect(find.text('寝息 (3)'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(api.searchCalls.single.keyword, '寝息');
     expect(tester.takeException(), isNull);
   });
 

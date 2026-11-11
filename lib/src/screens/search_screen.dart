@@ -83,6 +83,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   int _activeSubtitleFilter = 0;
   int _searchRevision = 0;
   bool _hasSubmittedSearch = false;
+  bool _isSubmittingHighlightedSuggestion = false;
   bool _showHistory = false;
   bool _didRestoreInitialQuery = false;
 
@@ -1423,9 +1424,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                       ),
                     );
                   },
-                  onSelected: (suggestion) =>
-                      _addSearchCondition(suggestion: suggestion),
-                  fieldViewBuilder: (context, controller, focusNode, _) {
+                  onSelected: (suggestion) => _addSearchCondition(
+                    suggestion: suggestion,
+                    submit: _isSubmittingHighlightedSuggestion,
+                  ),
+                  fieldViewBuilder: (
+                    context,
+                    controller,
+                    focusNode,
+                    onFieldSubmitted,
+                  ) {
                     if (controller.text != _searchController.text) {
                       controller.value = _searchController.value;
                     }
@@ -1458,10 +1466,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                             _performSearch(manual: true);
                             return;
                           }
-                          if (_searchController.text.trim().isNotEmpty) {
-                            _addSearchCondition(submit: true);
-                          } else {
-                            _performSearch(manual: true);
+                          final conditionCount = _searchConditions.length;
+                          _isSubmittingHighlightedSuggestion = true;
+                          try {
+                            onFieldSubmitted();
+                          } finally {
+                            _isSubmittingHighlightedSuggestion = false;
+                          }
+                          if (_searchConditions.length == conditionCount) {
+                            if (_searchController.text.trim().isNotEmpty) {
+                              _addSearchCondition(submit: true);
+                            } else {
+                              _performSearch(manual: true);
+                            }
                           }
                         },
                       ),
