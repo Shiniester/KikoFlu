@@ -63,7 +63,7 @@ void main() {
       expect(_emptySeekTable(bytes), isTrue);
       final source = File('${directory.path}/empty-seektable.flac');
       await source.writeAsBytes(bytes);
-      final player = _player();
+      final player = await _configuredPlayer();
       final errors = <Object>[];
       final subscription = player.playbackEventStream.listen(
         (_) {},
@@ -123,7 +123,7 @@ void main() {
           final server = await _serveAuthenticatedAudio(requests);
           final savedBuffer = JustAudioMediaKit.bufferSize;
           JustAudioMediaKit.bufferSize = 8 * 1024;
-          final player = _player();
+          final player = await _configuredPlayer();
           final errors = <Object>[];
           final states = <String>[];
           final subscription = player.playbackEventStream.listen((event) {
@@ -261,6 +261,9 @@ void main() {
           gzip.decode(base64Decode(audioBackendWavGzipBase64)),
         );
         final player = AudioPlayer(androidApplyAudioAttributes: false);
+        if (Platform.isWindows) {
+          await _configureNativePlayer(player.platformId, (_) async {});
+        }
         try {
           expect(
             await player
@@ -302,16 +305,16 @@ void main() {
         final releaseRefresh = Completer<void>();
         var forgottenIdInitialized = false;
         try {
-          await JustAudioMediaKit.configurePlayer(firstId, (native) async {
+          await _configureNativePlayer(firstId, (native) async {
             initialCalls++;
             await native.setProperty('volume-max', '200');
           });
-          await JustAudioMediaKit.configurePlayer(firstId, (native) async {
+          await _configureNativePlayer(firstId, (native) async {
             latestCalls++;
             firstNative = native;
             await native.setProperty('volume-max', '250');
           });
-          await JustAudioMediaKit.configurePlayer(secondId, (native) async {
+          await _configureNativePlayer(secondId, (native) async {
             secondNative = native;
             await native.setProperty('volume-max', '300');
           });
@@ -329,7 +332,7 @@ void main() {
             300,
           );
 
-          final earlierRefresh = JustAudioMediaKit.configurePlayer(firstId, (
+          final earlierRefresh = _configureNativePlayer(firstId, (
             native,
           ) async {
             activeCallbacks++;
@@ -342,9 +345,7 @@ void main() {
             activeCallbacks--;
           });
           await refreshStarted.future.timeout(const Duration(seconds: 5));
-          final latestRefresh = JustAudioMediaKit.configurePlayer(firstId, (
-            native,
-          ) async {
+          final latestRefresh = _configureNativePlayer(firstId, (native) async {
             activeCallbacks++;
             if (activeCallbacks > maxActiveCallbacks) {
               maxActiveCallbacks = activeCallbacks;
@@ -406,7 +407,7 @@ void main() {
       await _nativeContract(() async {
         final savedPrefetch = JustAudioMediaKit.prefetchPlaylist;
         JustAudioMediaKit.prefetchPlaylist = true;
-        final player = _player();
+        final player = await _configuredPlayer();
         late AudioPlayerService service;
         final requests = <Map<String, Object>>[];
         final server = await _serveQueue(
@@ -602,7 +603,7 @@ void main() {
     await _nativeContract(() async {
       final savedPrefetch = JustAudioMediaKit.prefetchPlaylist;
       JustAudioMediaKit.prefetchPlaylist = false;
-      final player = _player();
+      final player = await _configuredPlayer();
       late AudioPlayerService service;
       final requests = <Map<String, Object>>[];
       final server = await _serveQueue(
@@ -730,7 +731,7 @@ void main() {
     tester,
   ) async {
     await _nativeContract(() async {
-      final player = _player();
+      final player = await _configuredPlayer();
       final requests = <Map<String, Object>>[];
       final bRequested = Completer<void>();
       final releaseB = Completer<void>();
@@ -838,7 +839,7 @@ void main() {
         reason:
             'Run this contract with --dart-define=KIKOFLU_PERFORMANCE=true to observe service failure diagnostics.',
       );
-      final player = _player();
+      final player = await _configuredPlayer();
       final requests = <Map<String, Object>>[];
       final server = await _serveQueue(
         requests,
@@ -957,6 +958,22 @@ AudioPlayer _player() => AudioPlayer(
   handleAudioSessionActivation: false,
   androidApplyAudioAttributes: false,
 );
+
+Future<AudioPlayer> _configuredPlayer() async {
+  final player = _player();
+  if (Platform.isWindows) {
+    await _configureNativePlayer(player.platformId, (_) async {});
+  }
+  return player;
+}
+
+Future<void> _configureNativePlayer(
+  String id,
+  NativePlayerConfiguration configure,
+) => JustAudioMediaKit.configurePlayer(id, (native) async {
+  await configure(native);
+  if (Platform.isWindows) await native.setProperty('ao', 'null');
+});
 
 bool _emptySeekTable(Uint8List bytes) {
   var offset = 4;
