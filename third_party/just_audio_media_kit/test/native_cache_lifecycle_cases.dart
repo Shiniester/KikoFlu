@@ -46,6 +46,7 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await response.close();
             });
             final player = MediaKitPlayer('cache-lifecycle',
+                nativePlayerConfiguration: _nativePlayerConfiguration(),
                 nativePropertyReader: (native, name) async {
               if (name != 'demuxer-cache-state') {
                 return native.getProperty(name);
@@ -135,6 +136,7 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await request.response.close();
             });
             final player = MediaKitPlayer('retired-cache-read',
+                nativePlayerConfiguration: _nativePlayerConfiguration(),
                 nativePropertyReader: (native, name) async {
               if (name != 'demuxer-cache-state') {
                 return native.getProperty(name);
@@ -205,6 +207,7 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await request.response.close();
             });
             final player = MediaKitPlayer('late-buffering',
+                nativePlayerConfiguration: _nativePlayerConfiguration(),
                 nativePropertyReader: (native, name) async {
               nativePlayer = native;
               final raw = await native.getProperty(name);
@@ -305,6 +308,7 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await request.response.close();
             });
             final player = MediaKitPlayer('seek-cache-range',
+                nativePlayerConfiguration: _nativePlayerConfiguration(),
                 nativePropertyReader: (native, name) async {
               nativePlayer = native;
               if (!configured) {
@@ -416,6 +420,7 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await response.close();
             });
             final player = MediaKitPlayer('boundary-cache',
+                nativePlayerConfiguration: _nativePlayerConfiguration(),
                 nativePropertyReader: (native, name) async {
               nativePlayer = native;
               final raw = await native.getProperty(name);
@@ -491,4 +496,13 @@ void registerNativeCacheLifecycleCases(List<int> wav,
               await server.close(force: true);
             }
           }));
+}
+
+NativePlayerConfiguration? _nativePlayerConfiguration() {
+  if (!Platform.isWindows) return null;
+  return (native) async {
+    await native.setProperty('ao', 'null');
+    await native.setProperty('audio-exclusive', 'no');
+    expect(await native.getProperty('options/ao'), 'null');
+  };
 }

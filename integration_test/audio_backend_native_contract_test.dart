@@ -9,6 +9,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:media_kit/media_kit.dart' show NativePlayer;
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
 import 'package:kikoeru_flutter/src/performance/performance_build_guard.dart';
@@ -407,7 +408,7 @@ void main() {
       await _nativeContract(() async {
         final savedPrefetch = JustAudioMediaKit.prefetchPlaylist;
         JustAudioMediaKit.prefetchPlaylist = true;
-        final player = await _configuredPlayer();
+        final player = _player();
         late AudioPlayerService service;
         final requests = <Map<String, Object>>[];
         final server = await _serveQueue(
@@ -430,6 +431,7 @@ void main() {
         service = AudioPlayerService.forTesting(
           player,
           nativePlayerId: player.platformId,
+          nativePlayerInitializer: _configureWindowsNullAudioOutput,
           androidNativePreload: true,
           androidSeekRecovery: true,
         );
@@ -603,7 +605,7 @@ void main() {
     await _nativeContract(() async {
       final savedPrefetch = JustAudioMediaKit.prefetchPlaylist;
       JustAudioMediaKit.prefetchPlaylist = false;
-      final player = await _configuredPlayer();
+      final player = _player();
       late AudioPlayerService service;
       final requests = <Map<String, Object>>[];
       final server = await _serveQueue(
@@ -626,6 +628,7 @@ void main() {
       service = AudioPlayerService.forTesting(
         player,
         nativePlayerId: player.platformId,
+        nativePlayerInitializer: _configureWindowsNullAudioOutput,
         androidNativePreload: true,
         androidSeekRecovery: true,
       );
@@ -731,7 +734,7 @@ void main() {
     tester,
   ) async {
     await _nativeContract(() async {
-      final player = await _configuredPlayer();
+      final player = _player();
       final requests = <Map<String, Object>>[];
       final bRequested = Completer<void>();
       final releaseB = Completer<void>();
@@ -757,6 +760,7 @@ void main() {
       final service = AudioPlayerService.forTesting(
         player,
         nativePlayerId: player.platformId,
+        nativePlayerInitializer: _configureWindowsNullAudioOutput,
         androidNativePreload: true,
         androidSeekRecovery: true,
       );
@@ -839,7 +843,7 @@ void main() {
         reason:
             'Run this contract with --dart-define=KIKOFLU_PERFORMANCE=true to observe service failure diagnostics.',
       );
-      final player = await _configuredPlayer();
+      final player = _player();
       final requests = <Map<String, Object>>[];
       final server = await _serveQueue(
         requests,
@@ -865,6 +869,7 @@ void main() {
         final service = AudioPlayerService.forTesting(
           player,
           nativePlayerId: player.platformId,
+          nativePlayerInitializer: _configureWindowsNullAudioOutput,
           androidNativePreload: true,
           androidSeekRecovery: true,
         );
@@ -972,8 +977,15 @@ Future<void> _configureNativePlayer(
   NativePlayerConfiguration configure,
 ) => JustAudioMediaKit.configurePlayer(id, (native) async {
   await configure(native);
-  if (Platform.isWindows) await native.setProperty('ao', 'null');
+  await _configureWindowsNullAudioOutput(native);
 });
+
+Future<void> _configureWindowsNullAudioOutput(NativePlayer native) async {
+  if (!Platform.isWindows) return;
+  await native.setProperty('ao', 'null');
+  await native.setProperty('audio-exclusive', 'no');
+  expect(await native.getProperty('options/ao'), 'null');
+}
 
 bool _emptySeekTable(Uint8List bytes) {
   var offset = 4;
