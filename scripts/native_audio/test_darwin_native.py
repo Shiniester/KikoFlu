@@ -161,6 +161,21 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn("ffmpeg-sendcmd-precision.patch", ffmpeg_build)
         self.assertIn("ffmpeg-fix-ios-hdr-texture.patch", ffmpeg_build)
         self.assertIn("release_version=$(cat RELEASE)", ffmpeg_build)
+        self.assertIn("pkg_config = find_program('pkg-config')", ffmpeg_options)
+        self.assertNotIn("pkg_config = find_program('pkgconfig')", ffmpeg_options)
+        for cross_file_name in (
+            "ios-arm64.ini",
+            "iossimulator-amd64.ini",
+            "iossimulator-arm64.ini",
+            "macos-amd64.ini",
+            "macos-arm64.ini",
+        ):
+            cross_file = (recipe / "cross-files" / cross_file_name).read_text(
+                encoding="utf-8"
+            )
+            with self.subTest(cross_file=cross_file_name):
+                self.assertIn("pkg-config = ['pkg-config']", cross_file)
+                self.assertNotIn("pkgconfig = ['pkg-config']", cross_file)
         self.assertIn("${INTERMEDIATE_DIR}/libplacebo_", makefile)
         self.assertIn("-Dopengl=enabled", libplacebo_build)
         self.assertIn(

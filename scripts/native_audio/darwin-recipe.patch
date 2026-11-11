@@ -110,9 +110,13 @@ index cb14b05..785cc37 100644
 -patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-dash-base-url-escape.patch
 +git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"
 diff --git a/scripts/ffmpeg/meson.build b/scripts/ffmpeg/meson.build
-index aa3831e..3fb8c59 100644
+index aa3831e..6dcfd1f 100644
 --- a/scripts/ffmpeg/meson.build
 +++ b/scripts/ffmpeg/meson.build
+@@ -13,2 +13,2 @@ strip = find_program('strip')
+ strip = find_program('strip')
+-pkg_config = find_program('pkgconfig')
++pkg_config = find_program('pkg-config')
 @@ -168,0 +169,24 @@ audio_default_options = [
 +    '--enable-filter=aformat',
 +    '--enable-filter=aresample',
@@ -138,6 +142,36 @@ index aa3831e..3fb8c59 100644
 +    '--enable-filter=arealtime',
 +    '--enable-filter=asendcmd',
 +    '--enable-filter=apad',
+diff --git a/cross-files/ios-arm64.ini b/cross-files/ios-arm64.ini
+--- a/cross-files/ios-arm64.ini
++++ b/cross-files/ios-arm64.ini
+@@ -15 +15 @@
+-pkgconfig = ['pkg-config']
++pkg-config = ['pkg-config']
+diff --git a/cross-files/iossimulator-amd64.ini b/cross-files/iossimulator-amd64.ini
+--- a/cross-files/iossimulator-amd64.ini
++++ b/cross-files/iossimulator-amd64.ini
+@@ -15 +15 @@
+-pkgconfig = ['pkg-config']
++pkg-config = ['pkg-config']
+diff --git a/cross-files/iossimulator-arm64.ini b/cross-files/iossimulator-arm64.ini
+--- a/cross-files/iossimulator-arm64.ini
++++ b/cross-files/iossimulator-arm64.ini
+@@ -15 +15 @@
+-pkgconfig = ['pkg-config']
++pkg-config = ['pkg-config']
+diff --git a/cross-files/macos-amd64.ini b/cross-files/macos-amd64.ini
+--- a/cross-files/macos-amd64.ini
++++ b/cross-files/macos-amd64.ini
+@@ -15 +15 @@
+-pkgconfig = ['pkg-config']
++pkg-config = ['pkg-config']
+diff --git a/cross-files/macos-arm64.ini b/cross-files/macos-arm64.ini
+--- a/cross-files/macos-arm64.ini
++++ b/cross-files/macos-arm64.ini
+@@ -15 +15 @@
+-pkgconfig = ['pkg-config']
++pkg-config = ['pkg-config']
 diff --git a/scripts/freetype/build.sh b/scripts/freetype/build.sh
 index 175ad59..2cd39f3 100644
 --- a/scripts/freetype/build.sh
