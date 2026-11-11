@@ -2,8 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/widgets/circle_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
@@ -66,7 +68,7 @@ void main() {
     expect(copied.map((value) => value.split(':').last), ['Circle', 'VA']);
   });
 
-  testWidgets('Japanese metadata chips disable search and keep long presses', (
+  testWidgets('Japanese metadata chips search and keep long presses', (
     tester,
   ) async {
     final copied = <String>[];
@@ -83,7 +85,7 @@ void main() {
             ),
             WorkTagChipsSection(
               tags: _japaneseWork.tags,
-              searchEnabled: !_japaneseWork.isJapaneseAsmr,
+              source: _japaneseWork.audioSource,
               onTagLongPress: (tag) => tagActions.add('long:${tag.name}'),
               onTagSecondaryTap: (tag) =>
                   tagActions.add('secondary:${tag.name}'),
@@ -96,14 +98,22 @@ void main() {
     final circleFinder = find.byType(CircleChip);
     final vaFinder = find.byType(VaChip);
     final tagFinder = find.byType(TagChip);
-    expect(tester.widget<CircleChip>(circleFinder).searchEnabled, isFalse);
-    expect(tester.widget<VaChip>(vaFinder).searchEnabled, isFalse);
-    expect(tester.widget<TagChip>(tagFinder).searchEnabled, isFalse);
-
-    await tester.tap(find.text('Japanese circle'));
-    await tester.tap(find.text('Japanese VA'));
-    await tester.tap(find.text('Japanese Tag'));
-    expect(tester.takeException(), isNull);
+    expect(tester.widget<CircleChip>(circleFinder).searchEnabled, isTrue);
+    expect(tester.widget<VaChip>(vaFinder).searchEnabled, isTrue);
+    expect(tester.widget<TagChip>(tagFinder).searchEnabled, isTrue);
+    final searchChips = tester.widgetList<MetadataSearchChip>(
+      find.byType(MetadataSearchChip),
+    );
+    expect(
+      searchChips.map((chip) => chip.source),
+      everyElement(AudioSource.jpAsmr),
+    );
+    expect(searchChips.map((chip) => chip.searchParams), everyElement(isEmpty));
+    expect(searchChips.map((chip) => chip.searchKeyword), [
+      'Japanese circle',
+      'Japanese VA',
+      'Japanese Tag',
+    ]);
 
     await tester.longPress(find.text('Japanese circle'));
     await tester.longPress(find.text('Japanese VA'));

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/playlist.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
@@ -323,7 +324,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Japanese audio card metadata chips are not searchable', (
+  testWidgets('Japanese audio card metadata chips search the Japanese source', (
     tester,
   ) async {
     const work = Work(
@@ -345,8 +346,12 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(tester.widget<TagChip>(find.byType(TagChip)).searchEnabled, isFalse);
-    expect(tester.widget<VaChip>(find.byType(VaChip)).searchEnabled, isFalse);
+    final tagChip = tester.widget<TagChip>(find.byType(TagChip));
+    final vaChip = tester.widget<VaChip>(find.byType(VaChip));
+    expect(tagChip.searchEnabled, isTrue);
+    expect(vaChip.searchEnabled, isTrue);
+    expect(tagChip.source, AudioSource.jpAsmr);
+    expect(vaChip.source, AudioSource.jpAsmr);
     expect(tester.takeException(), isNull);
   });
 
