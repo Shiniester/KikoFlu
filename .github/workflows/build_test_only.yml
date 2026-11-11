@@ -327,10 +327,19 @@ jobs:
         run: |
           set -euo pipefail
           simulator=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, items in devices.items() if ".iOS-" in runtime for device in items if device.get("isAvailable") and device["name"].startswith("iPhone")))')
-          trap 'xcrun simctl shutdown "$simulator" || true' EXIT
+          log=$(mktemp)
+          trap 'xcrun simctl shutdown "$simulator" || true; rm -f "$log"' EXIT
           xcrun simctl bootstatus "$simulator" -b
-          flutter test --no-pub -d "$simulator" integration_test/audio_apple_playback_test.dart
-          flutter test --no-pub -d "$simulator" integration_test/audio_effects_production_test.dart
+          for test_file in integration_test/audio_apple_playback_test.dart integration_test/audio_effects_production_test.dart; do
+            if flutter test --no-pub -d "$simulator" "$test_file" 2>&1 | tee "$log"; then
+              continue
+            else
+              status=$?
+            fi
+            grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log" || exit "$status"
+            printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
+            flutter --verbose test --no-pub -d "$simulator" "$test_file"
+          done
 
       - name: Build iOS App (Unsigned)
         run: flutter build ios --release --no-codesign
@@ -487,8 +496,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install Linux Dependencies
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
+          # Start with Ubuntu's HTTPS mirrors to avoid Azure mirror DNS failures.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get -o Acquire::Languages=none update --error-on=any
           sudo apt-get install -y \
             clang cmake ninja-build pkg-config \
             libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \

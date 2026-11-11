@@ -82,12 +82,13 @@ jobs:
           ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Install build tools
+        timeout-minutes: 8
         run: |
           # Start with Ubuntu's HTTPS mirrors to avoid Azure mirror DNS failures.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
           fi
-          sudo apt-get update --error-on=any
+          sudo apt-get -o Acquire::Languages=none update --error-on=any
           sudo apt-get install -y \
             autoconf automake autopoint bison build-essential ca-certificates curl flex \
             gettext gperf git libgmp-dev libmpc-dev libmpfr-dev libtool make nasm pkgconf \
