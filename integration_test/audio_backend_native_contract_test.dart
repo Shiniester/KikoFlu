@@ -712,9 +712,6 @@ void main() {
           reason:
               'Promoting the prepared child must not start a second service load',
         );
-        debugPrint(
-          'AUDIO_BACKEND_CHAPTER_PROMOTION ${jsonEncode({'duration_ms': player.duration?.inMilliseconds, 'position_ms': player.position.inMilliseconds, 'service_load_started': serviceLoadStarts.map((event) => event.trackKey).toList(), 'requests': requests.where((request) => request['route'] == '/queue/B.wav').toList()})}',
-        );
         await player.pause();
         final nativeVolumeUpdate = player.volumeStream.skip(2).first;
         await player.setVolume(4);
@@ -725,6 +722,9 @@ void main() {
         );
         await player.setVolume(1);
       } finally {
+        debugPrint(
+          'AUDIO_BACKEND_CHAPTER_PROMOTION ${jsonEncode({'duration_ms': player.duration?.inMilliseconds, 'position_ms': player.position.inMilliseconds, 'service_load_started': serviceLoadStarts.map((event) => event.trackKey).toList(), 'requests': requests.where((request) => request['route'] == '/queue/B.wav').toList(), 'native_load_logs': LogService.instance.logs.where((entry) => entry.message.contains('Prepared next') || entry.message.contains('Native next')).map((entry) => entry.message).toList()})}',
+        );
         await service.dispose();
         await diagnosticSubscription.cancel();
         await errorSubscription.cancel();
