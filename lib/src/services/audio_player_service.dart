@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:audio_service/audio_service.dart';
@@ -430,6 +431,20 @@ class AudioPlayerService {
     final passthrough = _audioPassthroughEnabled;
     if (!identical(_configuredNativePlayer, player)) {
       await _nativePlayerInitializer?.call(player);
+      if (Platform.isAndroid) {
+        try {
+          const channel = MethodChannel(
+            'com.meteor.kikoeruflutter/native_audio',
+          );
+          final caFile = await channel.invokeMethod<String>('getCaFile');
+          if (caFile == null) throw StateError('Missing Android CA file path');
+          await player.setProperty('tls-ca-file', caFile);
+        } catch (error) {
+          _log.captureOutput(
+            '[AudioPlayerService] Failed to configure Android TLS CA file: $error',
+          );
+        }
+      }
       if (_androidNativePreload) {
         _nativeHttpProxy = null;
         player.onLoadHooks.add(() async {

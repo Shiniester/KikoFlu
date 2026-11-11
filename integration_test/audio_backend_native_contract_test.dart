@@ -52,6 +52,53 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Android configures trusted CAs before the first native load',
+    (tester) async {
+      await _nativeContract(() async {
+        final directory = await Directory.systemTemp.createTemp(
+          'kiko-backend-tls-',
+        );
+        final player = _player();
+        final tlsAtLoad = Completer<(String, String)>();
+        final service = AudioPlayerService.forTesting(
+          player,
+          nativePlayerId: player.platformId,
+          nativePlayerInitializer: (native) async {
+            native.onLoadHooks.add(() async {
+              if (tlsAtLoad.isCompleted) return;
+              tlsAtLoad.complete((
+                await native.getProperty('tls-verify'),
+                await native.getProperty('tls-ca-file'),
+              ));
+            });
+          },
+        );
+        try {
+          final source = File('${directory.path}/first.wav');
+          await source.writeAsBytes(
+            gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+          );
+          await player
+              .setFilePath(source.path)
+              .timeout(const Duration(seconds: 10));
+
+          final (verify, caFile) = await tlsAtLoad.future.timeout(
+            const Duration(seconds: 10),
+          );
+          expect(verify, 'yes');
+          expect(caFile, isNotEmpty);
+          final bundle = await File(caFile).readAsString();
+          expect(bundle.startsWith('-----BEGIN CERTIFICATE-----\n'), isTrue);
+        } finally {
+          await service.dispose();
+          await directory.delete(recursive: true);
+        }
+      });
+    },
+    skip: !Platform.isAndroid,
+  );
+
   testWidgets('native adapter seeks FLAC with an empty SEEKTABLE', (
     tester,
   ) async {
