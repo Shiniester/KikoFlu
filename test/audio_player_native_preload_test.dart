@@ -98,8 +98,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  Future<void> warm() async {
-    await service.updateQueue([a, b, c], autoplay: true);
+  Future<void> warm([List<AudioTrack> queue = const [a, b, c]]) async {
+    await service.updateQueue(queue, autoplay: true);
     player.position = const Duration(minutes: 4, seconds: 10);
     await buffer(20);
     await until(() => player.window.children.length == 2);
@@ -248,6 +248,25 @@ void main() {
       expect(player.position, const Duration(milliseconds: 10000));
     },
   );
+
+  test('Only Slices starts a pending native next within its slice', () async {
+    await warm([a, b]);
+    await sliceStore.write(audioSliceTrackKey(b), const [
+      AudioSlice(startMs: 10000, endMs: 20000),
+    ]);
+    player.deferIndexWhileSeeking = true;
+    player.holdNextSeek = true;
+    final switching = service.skipToNext();
+    await until(() => player.pendingSeek != null);
+
+    service.setOnlySlices(true);
+    player.finishSeek();
+    await switching;
+
+    expect(service.currentTrack, b);
+    expect(player.firstPlaybackPositions[b.url], const Duration(seconds: 10));
+    expect(player.loaded, [a.url]);
+  });
 
   test('automatic transition waits for ready and preserves a pause', () async {
     await warm();
@@ -639,10 +658,12 @@ class _WindowPlayer extends ControlledPlayer {
   final indices = StreamController<int?>.broadcast(sync: true);
   final errors = StreamController<PlaybackEvent>.broadcast(sync: true);
   final indexedSeeks = <int>[];
+  final firstPlaybackPositions = <String?, Duration>{};
   final volumes = <double>[];
   bool advancePositionOnRead = false;
   int _positionReadOffsetMicros = 0;
   AudioSource? activeChild;
+  bool deferIndexWhileSeeking = false;
   bool reportStaleIndex = false;
   bool failIndexedSeek = false;
   ConcatenatingAudioSource get window =>
@@ -667,6 +688,7 @@ class _WindowPlayer extends ControlledPlayer {
   @override
   int get currentIndex {
     if (reportStaleIndex) return 1;
+    if (deferIndexWhileSeeking && pendingSeek != null) return 0;
     final source = loadedAudioSource;
     if (source is! ConcatenatingAudioSource) return 0;
     final index = source.children.indexOf(activeChild!);
@@ -684,6 +706,15 @@ class _WindowPlayer extends ControlledPlayer {
 
   @override
   Future<void> setShuffleModeEnabled(bool enabled) async {}
+
+  @override
+  void emitPlayerState() {
+    if (playing && processingState == ProcessingState.ready) {
+      firstPlaybackPositions.putIfAbsent(source, () => super.position);
+    }
+    super.emitPlayerState();
+  }
+
   @override
   Future<Duration?> setAudioSource(
     AudioSource source, {

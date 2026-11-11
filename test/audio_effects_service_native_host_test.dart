@@ -170,26 +170,25 @@ void main() {
           reason: 'B must be requested while native playback still owns A.',
         );
         await player.pause();
+        final playingDuringSeek = <bool>[];
+        final playingSubscription = native.stream.playing.listen(
+          playingDuringSeek.add,
+        );
+        await player.seek(null, index: 1);
+        expect(player.processingState, audio.ProcessingState.ready);
+        expect(player.duration, const Duration(seconds: 16));
+        expect(await native.getProperty('path'), endsWith('/B.wav'));
+        expect(await native.getProperty('pause'), 'yes');
+        await playingSubscription.cancel();
+        expect(playingDuringSeek, isNot(contains(true)));
         final promoted = player.playbackEventStream.firstWhere(
           (event) =>
               event.currentIndex == 1 &&
               event.duration == const Duration(seconds: 16) &&
               event.updatePosition >= const Duration(milliseconds: 500),
         );
-        await player.seek(null, index: 1);
         unawaited(player.play());
         await promoted.timeout(const Duration(seconds: 10));
-        // The adapter index can update before the native playlist switches.
-        final nativeReadyDeadline = DateTime.now().add(
-          const Duration(seconds: 10),
-        );
-        while (await native.getProperty('playlist-pos') != '1' ||
-            !(await native.getProperty('path')).endsWith('/B.wav')) {
-          if (DateTime.now().isAfter(nativeReadyDeadline)) {
-            throw TimeoutException('Native chapter did not become current');
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
         await player.pause();
         expect(player.duration, const Duration(seconds: 16));
         expect(

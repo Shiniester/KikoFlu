@@ -497,17 +497,47 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   @override
   Future<SeekResponse> seek(SeekRequest request) async {
     _logger.finest('seek(${request.toMap()})');
-    ++_loadGeneration;
+    final generation = ++_loadGeneration;
     _waitingForNextIndex = false;
-    if (request.index != null) {
-      if (_currentIndex != request.index) {
-        _currentIndex = request.index!;
-        _waitingForNextIndex = false;
+    final index = request.index;
+    final native = _nativePlayer;
+    if (index != null && !_playing && native != null) {
+      if (_currentIndex != index) {
+        _waitingForNextIndex = true;
+        _processingState = ProcessingStateMessage.buffering;
+        _updatePlaybackEvent();
+        try {
+          // jump resumes playback before selecting the item.
+          await NativePlayer.lock.synchronized(() async {
+            if (_loadGeneration == generation) {
+              await native.setProperty('playlist-pos', index.toString());
+            }
+          });
+          if (_loadGeneration != generation) return SeekResponse();
+          if (_currentIndex != index ||
+              _processingState != ProcessingStateMessage.ready) {
+            await _eventController.stream
+                .where((event) =>
+                    event.currentIndex == index &&
+                    event.processingState == ProcessingStateMessage.ready)
+                .timeout(const Duration(seconds: 3))
+                .first;
+            // Leave the synchronous event dispatch before publishing the seek.
+            await Future<void>.microtask(() {});
+          }
+        } finally {
+          if (_loadGeneration == generation) _waitingForNextIndex = false;
+        }
+        if (_loadGeneration != generation) return SeekResponse();
+      }
+    } else if (index != null) {
+      if (_currentIndex != index) {
+        _currentIndex = index;
         _position = _bufferedPosition = Duration.zero;
         _processingState = ProcessingStateMessage.buffering;
         _updatePlaybackEvent();
       }
-      await _player.jump(request.index!);
+      await _player.jump(index);
       if (!_playing) await _player.pause();
     }
 

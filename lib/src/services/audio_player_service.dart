@@ -1353,6 +1353,11 @@ class AudioPlayerService {
         _ensureCurrentTrackLoad(request);
         _nativeLoadCancelIssued = false;
         _nativeLoadCancel = null;
+        if (request.nativeWindowIndex != null && _player.playing) {
+          // A prepared child can start before the slice mode is applied.
+          await _player.pause();
+          _ensureCurrentTrackLoad(request);
+        }
         final sliceState = await _loadAudioSliceState(request.track);
         _ensureCurrentTrackLoad(request);
         _normalizeTrackLoadInitialPosition(request, sliceState);
@@ -2340,7 +2345,7 @@ class AudioPlayerService {
     }
     final pendingPromotion = _latestTrackLoad ?? _activeTrackLoad;
     if (pendingPromotion != null &&
-        !_sliceState.onlySlices &&
+        (!_sliceState.onlySlices || !_player.playing) &&
         !pendingPromotion.superseded &&
         pendingPromotion.generation == _trackLoadGeneration &&
         pendingPromotion.nativeWindowIndex == 1 &&
