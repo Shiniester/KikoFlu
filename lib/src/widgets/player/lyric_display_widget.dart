@@ -1868,6 +1868,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   _LyricScrollMotion? _lyricScrollMotion;
   int? _scrollSpringTargetIndex;
   int? _scrollSpringOriginIndex;
+  bool? _scrollSpringIsPlaybackFollow;
+  int? _scrollSpringLagDirection;
   final Set<int> _pendingScrollSpringRows = {};
   final Set<int> _retainedScrollSpringRows = {};
   final ValueNotifier<int> _retainedScrollSpringRowsFrame = ValueNotifier(0);
@@ -2131,6 +2133,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             index,
             stagger: false,
             previousIndex: _scrollSpringOriginIndex,
+            isPlaybackFollow: _scrollSpringIsPlaybackFollow == true,
             request: request,
           );
         }
@@ -2224,6 +2227,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         _lyricScrollMotion = null;
         _scrollSpringTargetIndex = null;
         _scrollSpringOriginIndex = null;
+        _scrollSpringIsPlaybackFollow = null;
+        _scrollSpringLagDirection = null;
         _pendingScrollSpringRows.clear();
       } else {
         final sample = scrollMotion.sample(now);
@@ -2261,6 +2266,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         _lyricEmphasisMotion.isEmpty) {
       _scrollSpringTargetIndex = null;
       _scrollSpringOriginIndex = null;
+      _scrollSpringIsPlaybackFollow = null;
+      _scrollSpringLagDirection = null;
       _pendingScrollSpringRows.clear();
       if (_frozenLyricMotion.isEmpty) _setRetainedScrollSpringRows(const {});
       _lyricMotionTicker.stop();
@@ -2305,6 +2312,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _lyricScrollMotion = null;
     _scrollSpringTargetIndex = null;
     _scrollSpringOriginIndex = null;
+    _scrollSpringIsPlaybackFollow = null;
+    _scrollSpringLagDirection = null;
     _pendingScrollSpringRows.clear();
     _lyricMotion.clear();
     if (!preserveEmphasis) _lyricEmphasisMotion.clear();
@@ -2333,15 +2342,22 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       ..._retainedScrollSpringRows,
       ..._pendingLyricY.keys,
     };
-    for (final index in indices) {
-      final contentCenter = _lyricContentCenter(index);
-      final visibleY = _lyricMotionCenter(index, contentCenter);
-      if (_scrollController.hasClients) {
-        _lyricMotionBaseY[index] =
-            contentCenter - _scrollController.position.pixels;
+    final contentCenters = <int, double>{
+      for (final index in indices) index: _lyricContentCenter(index),
+    };
+    final visibleCenters = <int, double>{
+      for (final index in indices)
+        index: _lyricMotionCenter(index, contentCenters[index]!),
+    };
+    if (_scrollController.hasClients) {
+      final scrollPosition = _scrollController.position.pixels;
+      for (final index in indices) {
+        _lyricMotionBaseY[index] = contentCenters[index]! - scrollPosition;
       }
+    }
+    for (final index in indices) {
       _frozenLyricMotion[index] = (
-        y: visibleY,
+        y: visibleCenters[index]!,
         velocityY: 0,
         moving: false,
         done: true,
@@ -2350,6 +2366,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _lyricScrollMotion = null;
     _scrollSpringTargetIndex = null;
     _scrollSpringOriginIndex = null;
+    _scrollSpringIsPlaybackFollow = null;
+    _scrollSpringLagDirection = null;
     _pendingScrollSpringRows.clear();
     _lyricMotion.clear();
     _pendingLyricY.clear();
@@ -2543,188 +2561,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _startLyricMotionTicker();
   }
 
-  void _startLyricSpringFollow({
-    required int index,
-    required int previousIndex,
-    required int request,
-  }) {
-    if (!mounted ||
-        request != _scrollRequestGeneration ||
-        !_shouldAnimateLyrics ||
-        !_scrollController.hasClients) {
-      return;
-    }
-    final motionStartTime = _lyricMotionSeconds;
-    void startEmphasisOnly() {
-      _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
-      _startLyricEmphasisTransition(
-        targetIndex: index,
-        previousIndex: previousIndex,
-        indices: _itemKeys.keys,
-        spring: _lyricPositionSpring(_springPreset),
-        startAt: motionStartTime,
-      );
-    }
-
-    final viewport = _viewportKey.currentContext?.findRenderObject();
-    final layoutIndex = _layoutIndex;
-    if (viewport is! RenderBox || layoutIndex == null) {
-      startEmphasisOnly();
-      _scrollToLyric(
-        index,
-        animate: false,
-        force: true,
-        preserveEmphasis: true,
-      );
-      return;
-    }
-    final targetBox = _getKeyForIndex(index).currentContext?.findRenderObject();
-    if (targetBox is! RenderBox || !targetBox.attached) {
-      startEmphasisOnly();
-      _scrollToLyric(
-        index,
-        animate: false,
-        force: true,
-        preserveEmphasis: true,
-      );
-      return;
-    }
-    final visibleHeight = _visibleViewportHeight(widget.visibleBottomInset);
-    final targetTop = targetBox
-        .localToGlobal(Offset.zero, ancestor: viewport)
-        .dy;
-    if (targetTop + targetBox.size.height <= 0 || targetTop >= visibleHeight) {
-      startEmphasisOnly();
-      _scrollToLyric(
-        index,
-        animate: false,
-        force: true,
-        preserveEmphasis: true,
-      );
-      return;
-    }
-    final now = _lyricMotionSeconds;
-    final previousSamples = <int, _LyricSpringSample>{};
-    for (final index in _itemKeys.keys) {
-      final sample =
-          (_lyricMotion.containsKey(index)
-              ? _visibleLyricSpringSample(index, now)
-              : null) ??
-          _frozenLyricMotion[index];
-      if (sample == null) continue;
-      previousSamples[index] = sample;
-    }
-    _scrollRequestGeneration++;
-    final targetScroll =
-        (_lyricContentCenter(index) -
-                _playbackAnchorY(widget.visibleBottomInset))
-            .clamp(
-              _scrollController.position.minScrollExtent,
-              _scrollController.position.maxScrollExtent,
-            );
-    final visibleRows = <({int index, double center})>[];
-    for (final entry in _itemKeys.entries) {
-      final renderObject = entry.value.currentContext?.findRenderObject();
-      if (renderObject is! RenderBox || !renderObject.attached) continue;
-      final top = renderObject
-          .localToGlobal(Offset.zero, ancestor: viewport)
-          .dy;
-      final bottom = renderObject
-          .localToGlobal(
-            Offset(0, renderObject.size.height),
-            ancestor: viewport,
-          )
-          .dy;
-      if (bottom <= 0 || top >= visibleHeight) continue;
-      visibleRows.add((
-        index: entry.key,
-        center: renderObject
-            .localToGlobal(
-              Offset(0, renderObject.size.height / 2),
-              ancestor: viewport,
-            )
-            .dy,
-      ));
-    }
-    if (!visibleRows.any((row) => row.index == index)) {
-      startEmphasisOnly();
-      _scrollToLyric(
-        index,
-        animate: false,
-        force: true,
-        preserveEmphasis: true,
-      );
-      return;
-    }
-
-    visibleRows.sort((left, right) => left.index.compareTo(right.index));
-    if (index < previousIndex) {
-      visibleRows.setAll(0, visibleRows.reversed);
-    }
-    final delays = <int, double>{};
-    var delayMicros = 0.0;
-    var stepMicros = _lyricSpringCascadeStep.inMicroseconds.toDouble();
-    var passedTarget = false;
-    for (var rowIndex = 0; rowIndex < visibleRows.length; rowIndex++) {
-      final row = visibleRows[rowIndex];
-      delays[row.index] = delayMicros / Duration.microsecondsPerSecond;
-      if (row.index == index) passedTarget = true;
-      if (rowIndex + 1 < visibleRows.length) {
-        if (passedTarget) stepMicros /= 1.05;
-        delayMicros += stepMicros;
-      }
-    }
-
-    // A selection can change between this frame's build and its callbacks.
-    _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
-    final spring = _lyricPositionSpring(_springPreset);
-    _lyricMotion.clear();
-    _frozenLyricMotion.clear();
-    _lyricMotionBaseY.clear();
-    for (final row in visibleRows) {
-      final targetY = _lyricContentCenter(row.index) - targetScroll;
-      _lyricMotionBaseY[row.index] = targetY;
-      final previousSample = previousSamples[row.index];
-      final startY = _startLyricPosition(row, previousSample);
-      final startDelay = previousSample?.moving == true
-          ? 0.0
-          : delays[row.index] ?? 0.0;
-      final velocityY = previousSample?.moving == true
-          ? previousSample!.velocityY
-          : 0.0;
-      if ((startY - targetY).abs() < 0.01 && velocityY.abs() < 0.01) {
-        continue;
-      }
-      _lyricMotion[row.index] = _LyricSpringMotion(
-        startY: startY,
-        targetY: targetY,
-        velocityY: velocityY,
-        startAt: motionStartTime,
-        delay: startDelay,
-        positionSpring: spring,
-      );
-    }
-    _pendingLyricY.clear();
-    _pendingLyricTextY.clear();
-    _startLyricEmphasisTransition(
-      targetIndex: index,
-      previousIndex: previousIndex,
-      indices: visibleRows.map((row) => row.index),
-      spring: spring,
-      startAt: motionStartTime,
-    );
-    _lyricMotionFrame.value++;
-    if ((targetScroll - _scrollController.position.pixels).abs() > 0.01) {
-      _scrollController.jumpTo(targetScroll);
-    }
-    _startLyricMotionTicker();
-  }
-
   void _startLyricScrollSpring(
     int index, {
     required bool stagger,
     int? previousIndex,
     int? previousEmphasisIndex,
+    bool clampToBounds = false,
+    bool isPlaybackFollow = false,
     int? request,
   }) {
     if (!mounted ||
@@ -2769,7 +2612,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final target = _layoutTargetForLine(
       index,
       widget.visibleBottomInset,
-      clampToBounds: false,
+      clampToBounds: clampToBounds,
     );
     if (target == null) {
       startEmphasisOnly();
@@ -2783,6 +2626,20 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final scrollVelocity = oldScrollSample?.velocity ?? 0;
     final originIndex =
         previousIndex ?? _scrollSpringTargetIndex ?? _currentLyricIndex;
+    final inheritedLagDirection =
+        isPlaybackFollow && _scrollSpringIsPlaybackFollow == true
+        ? _scrollSpringLagDirection
+        : null;
+    final scrollDirection = target.compareTo(startScroll);
+    final playbackDirection = originIndex == null
+        ? 0
+        : index.compareTo(originIndex);
+    final lagDirection =
+        inheritedLagDirection != null && inheritedLagDirection != 0
+        ? inheritedLagDirection
+        : scrollDirection != 0
+        ? scrollDirection
+        : playbackDirection;
     final previousSamples = <int, _LyricSpringSample>{};
     for (final visibleIndex in _itemKeys.keys) {
       final sample =
@@ -2841,7 +2698,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         delayMicros += stepMicros;
       }
     }
-
     _scrollRequestGeneration++;
     _springPreset = ref.read(playerLyricSettingsProvider).springPreset;
     final spring = _lyricPositionSpring(_springPreset);
@@ -2856,6 +2712,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         : null;
     _scrollSpringTargetIndex = index;
     _scrollSpringOriginIndex = originIndex;
+    _scrollSpringIsPlaybackFollow = isPlaybackFollow;
+    _scrollSpringLagDirection = isPlaybackFollow ? lagDirection : null;
     _lyricMotion.clear();
     _frozenLyricMotion.clear();
     _lyricMotionBaseY.clear();
@@ -2901,6 +2759,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     } else {
       _scrollSpringTargetIndex = null;
       _scrollSpringOriginIndex = null;
+      _scrollSpringIsPlaybackFollow = null;
+      _scrollSpringLagDirection = null;
     }
   }
 
@@ -3117,7 +2977,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if (pendingY == null && sample == null && frozen == null && !retained) {
       return naturalY;
     }
-    final center =
+    var center =
         pendingY ??
         (sample != null
             ? sample.y
@@ -3126,6 +2986,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             : retained
             ? baseY
             : naturalY);
+    if (_scrollSpringIsPlaybackFollow == true) {
+      center = _constrainPlaybackFollowCenter(index, naturalY, center);
+    }
     if (!position.hasContentDimensions) return center;
     final scrollTarget = _lyricScrollMotion?.target;
     return center
@@ -3140,6 +3003,99 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   : math.min(position.minScrollExtent, scrollTarget)),
         )
         .toDouble();
+  }
+
+  double _constrainPlaybackFollowCenter(
+    int index,
+    double naturalY,
+    double center,
+  ) {
+    final direction = _scrollSpringLagDirection ?? 0;
+    if (direction == 0) return center;
+    final currentBaseY = _lyricMotionBaseY[index];
+    if (currentBaseY == null) {
+      return direction > 0
+          ? center
+                .clamp(
+                  naturalY,
+                  naturalY + _LyricLayoutIndex.itemVerticalPadding,
+                )
+                .toDouble()
+          : center
+                .clamp(
+                  naturalY - _LyricLayoutIndex.itemVerticalPadding,
+                  naturalY,
+                )
+                .toDouble();
+    }
+
+    final now = _lyricMotionSeconds;
+    const padding = _LyricLayoutIndex.itemVerticalPadding;
+    var lag = _rawPlaybackFollowLag(
+      index,
+      index,
+      naturalY,
+      currentBaseY,
+      center,
+      direction,
+      now,
+    );
+    if (!_retainedScrollSpringRows.contains(index)) {
+      lag = lag.clamp(0.0, padding).toDouble();
+    } else {
+      var distance = 0.0;
+      var nextIndex = index + direction;
+      while (_retainedScrollSpringRows.contains(nextIndex)) {
+        distance += padding;
+        if (distance >= lag) break;
+        final nextLag = _rawPlaybackFollowLag(
+          nextIndex,
+          index,
+          naturalY,
+          currentBaseY,
+          center,
+          direction,
+          now,
+        );
+        lag = math.min(lag, nextLag + distance);
+        nextIndex += direction;
+      }
+      distance += padding;
+      lag = math.min(lag, distance).clamp(0.0, double.infinity).toDouble();
+    }
+
+    return direction > 0 ? naturalY + lag : naturalY - lag;
+  }
+
+  double _rawPlaybackFollowLag(
+    int rowIndex,
+    int currentIndex,
+    double currentNaturalY,
+    double currentBaseY,
+    double currentCenter,
+    int direction,
+    double now,
+  ) {
+    final rowBaseY = _lyricMotionBaseY[rowIndex];
+    if (rowBaseY == null) return 0;
+    final rowNaturalY = currentNaturalY + rowBaseY - currentBaseY;
+    final rowPendingY = _pendingLyricY[rowIndex];
+    final rowMotion = _lyricMotion[rowIndex];
+    final rowFrozen = _frozenLyricMotion[rowIndex];
+    final rowCenter = rowIndex == currentIndex
+        ? currentCenter
+        : rowPendingY ??
+              (rowMotion != null
+                  ? rowMotion.sample(now).y
+                  : rowFrozen != null
+                  ? rowNaturalY + rowFrozen.y - rowBaseY
+                  : _retainedScrollSpringRows.contains(rowIndex)
+                  ? rowBaseY
+                  : rowNaturalY);
+    return math.max(
+      0,
+      direction > 0 ? rowCenter - rowNaturalY : rowNaturalY - rowCenter,
+    );
   }
 
   _LyricSpringSample _visibleLyricSpringSample(int index, double now) {
@@ -4292,16 +4248,21 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               stagger: false,
               previousIndex: previous,
               previousEmphasisIndex: previous,
+              clampToBounds: canSpring,
+              isPlaybackFollow: _scrollSpringIsPlaybackFollow == true,
               request: motionRequest,
             );
             return;
           }
           if (_pendingTappedIndex == currentIndex && !isDiscontinuity) return;
           if (canSpring) {
-            _startLyricSpringFollow(
-              index: currentIndex,
+            _startLyricScrollSpring(
+              currentIndex,
+              stagger: true,
               previousIndex: previous,
               request: motionRequest,
+              clampToBounds: true,
+              isPlaybackFollow: true,
             );
           } else {
             if (_pendingLyricEmphasisFromIndex case final previousIndex?) {
@@ -4509,6 +4470,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   currentIndex,
                   stagger: false,
                   previousIndex: _scrollSpringOriginIndex,
+                  isPlaybackFollow: _scrollSpringIsPlaybackFollow == true,
                   request: request,
                 );
               } else if (_autoScroll && !widget.suspendAutoScroll) {
@@ -4577,7 +4539,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   : HitTestBehavior.deferToChild,
               onPointerDown: widget.isActive && !widget.isLocked
                   ? (event) {
-                      if (_lyricScrollMotion != null) {
+                      if (_lyricScrollMotion != null &&
+                          _scrollSpringIsPlaybackFollow != true) {
                         _lyricScrollHoldPointer = event.pointer;
                         _beginUserBrowse(showControls: false);
                       }

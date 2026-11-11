@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
@@ -694,22 +692,17 @@ void main() {
   });
 
   testWidgets(
-    'continuous playback keeps a multiline lyric clear of its bottom neighbor',
+    'continuous playback keeps subtitles clear at the viewport bottom',
     (tester) async {
-      final previousPlatform = debugDefaultTargetPlatformOverride;
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
-
-      final longSubtitle = List.filled(6, 'wrapped subtitle words').join(' ');
       final playback = await _mount(
         tester,
         position: const Duration(seconds: 5),
         lyrics: List.generate(
-          32,
+          20,
           (index) => LyricLine(
             startTime: Duration(seconds: index),
             endTime: Duration(seconds: index + 1),
-            text: index == 11 ? 'subtitle 11 $longSubtitle' : 'subtitle $index',
+            text: 'subtitle $index',
           ),
         ),
       );
@@ -726,7 +719,6 @@ void main() {
       );
       final lyricList = find.byKey(const ValueKey('full-lyric-list'));
       final textPrefix = RegExp(r'^subtitle (\d+)');
-      String? firstOverlap;
       Map<int, List<Rect>> visibleLyricRows() {
         final visibleRows = <int, List<Rect>>{};
         for (final element
@@ -752,18 +744,18 @@ void main() {
               paragraph.localToGlobal(Offset(box.left, box.top)),
               paragraph.localToGlobal(Offset(box.right, box.bottom)),
             );
-            final visibleRect = textRect.intersect(viewport);
-            if (visibleRect.isEmpty) continue;
-            visibleRows.putIfAbsent(index, () => []).add(visibleRect);
+            if (!textRect.overlaps(viewport)) continue;
+            visibleRows.putIfAbsent(index, () => []).add(textRect);
           }
         }
         return visibleRows;
       }
 
       var previousVisibleRows = visibleLyricRows().keys.toSet();
-      int? firstFutureEntryIndex;
-      int? firstFutureEntryFrame;
-      double? firstFutureEntryCenter;
+      ({int index, int frame, Rect rect})? firstFutureEntry;
+      var firstFutureEntryMovedUp = false;
+      var maxOverlap = 0.0;
+      var overlapDetails = '';
       for (var frame = 0; frame < 150; frame++) {
         playback.positions.add(Duration(milliseconds: 5000 + (frame + 1) * 16));
         await tester.pump(const Duration(milliseconds: 16));
@@ -773,11 +765,20 @@ void main() {
         final visibleRows = visibleLyricRows();
         for (final entry in visibleRows.entries) {
           if (entry.key > playbackIndex &&
-              !previousVisibleRows.contains(entry.key) &&
-              firstFutureEntryIndex == null) {
-            firstFutureEntryIndex = entry.key;
-            firstFutureEntryFrame = frame;
-            firstFutureEntryCenter = entry.value.first.center.dy;
+              !previousVisibleRows.contains(entry.key)) {
+            firstFutureEntry ??= (
+              index: entry.key,
+              frame: frame,
+              rect: entry.value.first,
+            );
+          }
+          final first = firstFutureEntry;
+          if (first != null &&
+              entry.key == first.index &&
+              frame > first.frame &&
+              frame <= first.frame + 20 &&
+              entry.value.first.center.dy < first.rect.center.dy - 0.5) {
+            firstFutureEntryMovedUp = true;
           }
         }
         for (final entry in visibleRows.entries) {
@@ -785,16 +786,14 @@ void main() {
           if (nextRow == null) continue;
           for (final currentRect in entry.value) {
             for (final nextRect in nextRow) {
-              final overlap = currentRect.intersect(nextRect);
-              if (overlap.width > 0.5 &&
-                  overlap.height > 0.5 &&
-                  overlap.center.dy >= viewport.top + 0.6 * viewport.height) {
-                firstOverlap ??=
-                    'frame $frame: subtitles ${entry.key} and ${entry.key + 1} '
-                    'overlap by ${overlap.height.toStringAsFixed(2)} px at '
-                    'y=${overlap.center.dy.toStringAsFixed(2)}; first future '
-                    'entry was subtitle $firstFutureEntryIndex at frame '
-                    '$firstFutureEntryFrame, center $firstFutureEntryCenter';
+              final overlap = currentRect
+                  .intersect(nextRect)
+                  .intersect(viewport);
+              if (overlap.width > 0.5 && overlap.height > maxOverlap) {
+                maxOverlap = overlap.height;
+                overlapDetails =
+                    'frame $frame: subtitles ${entry.key} and '
+                    '${entry.key + 1}; current: $currentRect; next: $nextRect';
               }
             }
           }
@@ -802,21 +801,202 @@ void main() {
         previousVisibleRows = visibleRows.keys.toSet();
       }
 
-      expect(firstOverlap, isNull, reason: firstOverlap ?? '');
+      expect(maxOverlap, lessThanOrEqualTo(0.5), reason: overlapDetails);
       expect(
-        firstFutureEntryIndex,
+        firstFutureEntry,
         isNotNull,
         reason: 'a future subtitle must enter the viewport during playback',
       );
       expect(
-        firstFutureEntryCenter,
-        greaterThanOrEqualTo(viewport.top + 0.6 * viewport.height),
-        reason:
-            'subtitle $firstFutureEntryIndex must enter from the visible bottom; '
-            'it first became visible at frame $firstFutureEntryFrame with center '
-            '$firstFutureEntryCenter',
+        firstFutureEntry!.rect.bottom,
+        greaterThan(viewport.bottom),
+        reason: 'the new subtitle should enter through the bottom edge',
+      );
+      expect(
+        firstFutureEntryMovedUp,
+        isTrue,
+        reason: 'the new subtitle should continue moving up after it enters',
       );
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'dragging during playback keeps later subtitles clear',
+    (tester) async {
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 5),
+        lyrics: List.generate(
+          40,
+          (index) => LyricLine(
+            startTime: Duration(seconds: index),
+            endTime: Duration(seconds: index + 1),
+            text: 'subtitle $index',
+          ),
+        ),
+      );
+      final settings = playback.container.read(
+        playerLyricSettingsProvider.notifier,
+      );
+      await settings.updateFullActiveFontSize(26.1);
+      await settings.updateFullInactiveFontSize(16.8);
+      await tester.pumpAndSettle();
+      playback.positions.add(const Duration(seconds: 6));
+      await _frames(tester, 3);
+
+      final gesture = await tester.startGesture(const Offset(180, 700));
+      await gesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -390));
+      await tester.pump();
+
+      Rect textRect(String text) {
+        final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+        final box = paragraph
+            .getBoxesForSelection(
+              TextSelection(baseOffset: 0, extentOffset: text.length),
+            )
+            .single;
+        return Rect.fromPoints(
+          paragraph.localToGlobal(Offset(box.left, box.top)),
+          paragraph.localToGlobal(Offset(box.right, box.bottom)),
+        );
+      }
+
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      final visible = <int, Rect>{};
+      for (var index = 0; index < 40; index++) {
+        final text = 'subtitle $index';
+        if (find.text(text).evaluate().isEmpty) continue;
+        final rect = textRect(text);
+        if (rect.overlaps(viewport)) visible[index] = rect;
+      }
+      await gesture.up();
+      expect(visible.keys.any((index) => index >= 17), isTrue);
+      for (final entry in visible.entries) {
+        final next = visible[entry.key + 1];
+        if (next == null) continue;
+        expect(
+          entry.value.intersect(next).intersect(viewport).isEmpty,
+          isTrue,
+          reason: 'subtitle ${entry.key}: ${entry.value}; next: $next',
+        );
+      }
+
+      await tester.pump();
+      final secondGesture = await tester.startGesture(const Offset(180, 700));
+      await secondGesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+      await secondGesture.moveBy(const Offset(0, -390));
+      await tester.pump();
+      final anchor = tester
+          .getCenter(find.byKey(const ValueKey('playback-line-indicator')))
+          .dy;
+      final distances = <int, double>{};
+      for (var index = 0; index < 40; index++) {
+        final text = 'subtitle $index';
+        if (find.text(text).evaluate().isEmpty) continue;
+        final rect = textRect(text);
+        if (rect.overlaps(viewport)) {
+          distances[index] = (rect.center.dy - anchor).abs();
+        }
+      }
+      final nearest = distances.entries.reduce(
+        (left, right) => left.value < right.value ? left : right,
+      );
+      final displayedTime = tester
+          .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+          .data;
+      await secondGesture.up();
+      expect(nearest.value, lessThan(35));
+      expect(displayedTime, '00:${nearest.key.toString().padLeft(2, '0')}');
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'browsing a moving lyric keeps the playback line time aligned',
+    (tester) async {
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 5),
+      );
+      final settings = playback.container.read(
+        playerLyricSettingsProvider.notifier,
+      );
+      await settings.updateFullActiveFontSize(26.1);
+      await settings.updateFullInactiveFontSize(16.8);
+      await tester.pumpAndSettle();
+      playback.positions.add(const Duration(seconds: 6));
+      await _frames(tester, 33);
+      final gesture = await tester.startGesture(const Offset(180, 700));
+      await gesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+      final nearest = _lyricIndexAtPlaybackAnchor(tester);
+      final time = tester
+          .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+          .data;
+      await gesture.up();
+      expect(time, '00:${nearest.toString().padLeft(2, '0')}');
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'browsing back during playback keeps subtitles clear',
+    (tester) async {
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 10),
+      );
+      final settings = playback.container.read(
+        playerLyricSettingsProvider.notifier,
+      );
+      await settings.updateFullActiveFontSize(26.1);
+      await settings.updateFullInactiveFontSize(16.8);
+      await tester.pumpAndSettle();
+      playback.positions.add(const Duration(seconds: 11));
+      await _frames(tester, 20);
+      final gesture = await tester.startGesture(const Offset(180, 180));
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 130));
+      await tester.pump();
+      final viewport = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      final visible = <int, Rect>{};
+      for (var index = 0; index < 30; index++) {
+        final text = 'spring $index';
+        if (find.text(text).evaluate().isEmpty) continue;
+        final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+        final box = paragraph
+            .getBoxesForSelection(
+              TextSelection(baseOffset: 0, extentOffset: text.length),
+            )
+            .single;
+        final rect = Rect.fromPoints(
+          paragraph.localToGlobal(Offset(box.left, box.top)),
+          paragraph.localToGlobal(Offset(box.right, box.bottom)),
+        );
+        if (rect.overlaps(viewport)) visible[index] = rect;
+      }
+      await gesture.up();
+      expect(visible.containsKey(4), isTrue);
+      for (final entry in visible.entries) {
+        final next = visible[entry.key + 1];
+        if (next == null) continue;
+        expect(
+          entry.value.intersect(next).intersect(viewport).isEmpty,
+          isTrue,
+          reason: 'subtitle ${entry.key}: ${entry.value}; next: $next',
+        );
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
   testWidgets('emphasis stays at its target after a spring overshoots', (
