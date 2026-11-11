@@ -332,6 +332,13 @@ void main() {
         final progressed = videoPlayer.stream.position.firstWhere(
           (position) => position > Duration.zero,
         );
+        final videoParams = videoPlayer.stream.videoParams.firstWhere(
+          (params) =>
+              params.dw != null &&
+              params.dw! > 0 &&
+              params.dh != null &&
+              params.dh! > 0,
+        );
         await videoPlayer
             .open(Media(videoFile.path), play: false)
             .timeout(const Duration(seconds: 20));
@@ -341,8 +348,46 @@ void main() {
         );
         final position = await progressed.timeout(const Duration(seconds: 30));
         expect(position, greaterThan(Duration.zero));
+
+        // Linux sends a 1x1 placeholder resize when it creates the texture.
+        // The first-frame future can complete for that placeholder, so wait
+        // for libmpv's decoded video parameters and the real texture resize.
+        final decodedVideoParams = await videoParams.timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw TimeoutException(
+            'libmpv did not report positive video dimensions',
+          ),
+        );
         expect(videoPlayer.state.width, greaterThan(0));
         expect(videoPlayer.state.height, greaterThan(0));
+        final renderedFrame = Completer<Rect>();
+        void observeRenderedFrame() {
+          final rect = controller.rect.value;
+          if (!renderedFrame.isCompleted &&
+              rect != null &&
+              rect.width > 1 &&
+              rect.height > 1) {
+            renderedFrame.complete(rect);
+          }
+        }
+
+        controller.rect.addListener(observeRenderedFrame);
+        late final Rect renderedRect;
+        try {
+          observeRenderedFrame();
+          renderedRect = await renderedFrame.future.timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => throw TimeoutException(
+              'the video texture did not resize beyond its 1x1 placeholder '
+              'after libmpv reported ${decodedVideoParams.dw}x'
+              '${decodedVideoParams.dh}',
+            ),
+          );
+        } finally {
+          controller.rect.removeListener(observeRenderedFrame);
+        }
+        expect(renderedRect.width, greaterThan(1));
+        expect(renderedRect.height, greaterThan(1));
         expect(await nativeVideo.getProperty('af'), isNot(contains('kiko')));
         expect(
           await nativeVideo.getProperty('mpv-version'),
