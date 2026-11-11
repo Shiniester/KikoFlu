@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_chapter_downloader.dart';
+import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
 import 'package:kikoeru_flutter/src/services/resumable_file_transfer.dart';
 import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 
@@ -231,6 +232,46 @@ void main() {
     expect(hlsRequests, isEmpty);
     expect(await output.readAsBytes(), _flacAudio);
   });
+
+  test(
+    'downloads a direct Buzzheavier original without requesting HLS',
+    () async {
+      final originalTransport = _ResponseTransport(
+        contentLength: _flacAudio.length,
+        stream: Stream.value(_flacAudio),
+      );
+      final hlsRequests = <RequestOptions>[];
+      dio = _dioFor(
+        hlsRequests,
+        segments: [_transportSegment(126000)],
+        segmentCount: 1,
+      );
+      final service = JapaneseAsmrService(dio: dio);
+      const originalUrl = 'https://ts.buzzheavier.com/d/full-file?token=fresh';
+      final output = File('${tempDirectory.path}/direct.aac.downloading');
+
+      final result =
+          await JapaneseAsmrChapterDownloader(
+            dio: dio,
+            fileTransfer: ResumableFileTransfer(transport: originalTransport),
+          ).downloadPreferred(
+            playlistUrl: 'https://media.example/work.m3u8',
+            originalDownloadUrl: originalUrl,
+            startTimeMs: 0,
+            endTimeMs: null,
+            outputFile: output,
+            cancellation: RemoteAssetCancellation(),
+            resolveOriginalDownloadUrl: (url) =>
+                service.resolveDownloadUrl(url),
+          );
+
+      expect(result.usedOriginalFile, isTrue);
+      expect(result.fileExtension, '.flac');
+      expect(originalTransport.requestUris, [Uri.parse(originalUrl)]);
+      expect(hlsRequests, isEmpty);
+      expect(await output.readAsBytes(), _flacAudio);
+    },
+  );
 
   test('falls back to HLS when the original endpoint fails', () async {
     final originalTransport = _ResponseTransport(

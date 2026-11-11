@@ -399,8 +399,11 @@ class JapaneseAsmrService {
     if (_isJapaneseAsmrHost(uri)) {
       throw const FormatException('Source-site download URLs are unsupported');
     }
-    if (uri.host == 'buzzheavier.com' ||
-        uri.host.endsWith('.buzzheavier.com')) {
+    final isDirectBuzzheavierUrl =
+        uri.host.endsWith('.buzzheavier.com') && uri.path.startsWith('/d/');
+    if (!isDirectBuzzheavierUrl &&
+        (uri.host == 'buzzheavier.com' ||
+            uri.host.endsWith('.buzzheavier.com'))) {
       final page = await _getText(uri, cancelToken: cancelToken);
       final path = html
           .parse(page.data)

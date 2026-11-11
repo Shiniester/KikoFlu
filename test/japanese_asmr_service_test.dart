@@ -563,6 +563,96 @@ void main() {
   });
 
   test(
+    'returns Buzzheavier direct audio URLs without loading a page',
+    () async {
+      final adapter = _Adapter((_) => const _Reply('not a landing page'));
+      final service = JapaneseAsmrService(dio: _dio(adapter));
+
+      for (final url in [
+        'https://ts.buzzheavier.com/d/full-file?token=fresh',
+        'https://cdn.buzzheavier.com/d/second-file',
+      ]) {
+        expect(await service.resolveDownloadUrl(url), url);
+      }
+      await expectLater(
+        service.resolveDownloadUrl('https://ts.buzzheavier.com/d/work.m3u8'),
+        throwsFormatException,
+      );
+      final cancelToken = CancelToken()..cancel();
+      await expectLater(
+        service.resolveDownloadUrl(
+          'https://ts.buzzheavier.com/d/full-file',
+          cancelToken: cancelToken,
+        ),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.cancel,
+          ),
+        ),
+      );
+      expect(adapter.requests, isEmpty);
+    },
+  );
+
+  test('resolves Buzzheavier subdomain landing pages', () async {
+    final adapter = _Adapter((request) {
+      if (request.uri.path == '/file') {
+        return const _Reply(
+          '<a class="download-btn" hx-get="/file/download">Download</a>',
+          contentType: 'text/html',
+        );
+      }
+      return const _Reply(
+        '',
+        contentType: 'text/plain',
+        headers: {
+          'hx-redirect': ['https://ts.buzzheavier.com/d/full-file'],
+        },
+      );
+    });
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    expect(
+      await service.resolveDownloadUrl('https://files.buzzheavier.com/file'),
+      'https://ts.buzzheavier.com/d/full-file',
+    );
+    expect(adapter.requests.map((request) => request.uri.path), [
+      '/file',
+      '/file/download',
+    ]);
+    expect(adapter.requests.last.headers['HX-Request'], 'true');
+  });
+
+  test('resolves queued full-work links to direct Buzzheavier audio', () async {
+    const directUrl = 'https://ts.buzzheavier.com/d/full-file?token=fresh';
+    final adapter = _Adapter(
+      (_) => const _Reply({
+        'rj': 'RJ01707048',
+        'trackTree': [
+          {
+            'type': 'audio',
+            'title': 'RJ01707048.m4a',
+            'mediaDownloadUrl': directUrl,
+          },
+        ],
+      }),
+    );
+    final service = JapaneseAsmrService(dio: _dio(adapter));
+
+    expect(
+      await service.resolveDownloadUrl(
+        'https://japaneseasmr.com/dlc.php?f=RJ01707048',
+      ),
+      directUrl,
+    );
+    expect(adapter.requests.map((request) => request.uri.host), [
+      'earaasmr.com',
+    ]);
+  });
+
+  test(
     'resolves queued source-site download links through Eara and Buzzheavier',
     () async {
       final adapter = _Adapter((request) {
