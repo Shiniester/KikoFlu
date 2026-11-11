@@ -80,6 +80,8 @@ if grep -Fqx '        no-srtp' "$openssl_config"; then
 fi
 grep -Fqx '        --enable-openssl' "$ffmpeg_config" ||
     fail "FFmpeg HTTPS/TLS must keep OpenSSL support enabled"
+grep -Fqx '        --pkg-config-flags=--static' "$ffmpeg_config" ||
+    fail "FFmpeg must include OpenSSL private libraries in the static link"
 for protocol in https tls; do
     grep -Fqx "        --enable-protocol=$protocol" "$ffmpeg_config" ||
         fail "FFmpeg $protocol protocol must remain enabled"
@@ -92,10 +94,14 @@ if [[ -e "$source_dir/packages/ffmpeg-dash-base-url-escape.patch" ]]; then
 fi
 [[ -f "$source_dir/packages/ffmpeg-sendcmd-precision.patch" ]] ||
     fail "FFmpeg sendcmd precision patch is missing from the recipe"
+[[ -f "$source_dir/packages/ffmpeg-windows-native-trust.patch" ]] ||
+    fail "FFmpeg Windows certificate validation patch is missing from the recipe"
 [[ -f "$source_dir/packages/apply_ffmpeg_sendcmd_precision.sh" ]] ||
     fail "FFmpeg sendcmd precision verifier is missing from the recipe"
 cmp -s "$script_dir/ffmpeg-sendcmd-precision.patch" "$source_dir/packages/ffmpeg-sendcmd-precision.patch" ||
     fail "FFmpeg sendcmd precision patch differs from the checked patch"
+cmp -s "$script_dir/windows-ffmpeg-native-trust.patch" "$source_dir/packages/ffmpeg-windows-native-trust.patch" ||
+    fail "FFmpeg Windows certificate validation patch differs from the checked patch"
 cmp -s "$script_dir/apply_ffmpeg_sendcmd_precision.sh" "$source_dir/packages/apply_ffmpeg_sendcmd_precision.sh" ||
     fail "FFmpeg sendcmd precision verifier differs from the checked script"
 bash "$script_dir/apply_ffmpeg_sendcmd_precision.sh" --check-patch \

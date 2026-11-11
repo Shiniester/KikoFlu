@@ -106,9 +106,10 @@ index cb14b05..785cc37 100644
 +fi
 +printf '%s\n' "${release_version}" > VERSION
 +
-@@ -11 +17 @@ patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch
+@@ -11 +17,2 @@ patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch
 -patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-dash-base-url-escape.patch
 +git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"
++git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/darwin-ffmpeg-system-trust.patch"
 diff --git a/scripts/ffmpeg/meson.build b/scripts/ffmpeg/meson.build
 index aa3831e..6dcfd1f 100644
 --- a/scripts/ffmpeg/meson.build
@@ -117,6 +118,9 @@ index aa3831e..6dcfd1f 100644
  strip = find_program('strip')
 -pkg_config = find_program('pkgconfig')
 +pkg_config = find_program('pkg-config')
+@@ -45 +45,2 @@ common_options = [
+     '--enable-mbedtls', # tls support (mbedtls)
++    '--extra-libs=-framework CoreFoundation -framework Security',
 @@ -168,0 +169,24 @@ audio_default_options = [
 +    '--enable-filter=aformat',
 +    '--enable-filter=aresample',

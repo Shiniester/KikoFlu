@@ -81,6 +81,7 @@ python3 "$script_dir/rewrite_darwin_sdk_paths.py" "$recipe_dir/cross-files" \
     --ios-simulator-sdk "$actual_ios_simulator_sdk_path"
 cp "$script_dir/libpng-macos-fp-header.patch" "$recipe_dir/patches/libpng-macos-fp-header.patch"
 cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$recipe_dir/patches/ffmpeg-sendcmd-precision.patch"
+cp "$script_dir/darwin-ffmpeg-system-trust.patch" "$recipe_dir/patches/darwin-ffmpeg-system-trust.patch"
 cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"
 cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"
 cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"
@@ -161,7 +162,7 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
-    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch\n'
+    printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,darwin-ffmpeg-system-trust.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
     printf '\nupstream_downloads.lock:\n'
     sed 's/^/  /' "$recipe_dir/downloads.lock"

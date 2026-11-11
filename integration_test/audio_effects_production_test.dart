@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -265,31 +267,13 @@ void main() {
   });
 
   testWidgets(
-    'video output remains independent from the production audio graph',
+    'verified HTTPS video output remains independent from the audio graph',
     (tester) async {
-      final directory = await Directory.systemTemp.createTemp(
-        'kikoflu-production-video-',
-      );
-      final videoFile = File('${directory.path}/butterfly.mp4');
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 20);
       Player? audioPlayer;
       Player? videoPlayer;
       NativeAudioEffects? audioEffects;
 
       try {
-        final request = await client
-            .getUrl(Uri.parse(_butterflyUrl))
-            .timeout(const Duration(seconds: 20));
-        final response = await request.close().timeout(
-          const Duration(seconds: 30),
-        );
-        expect(response.statusCode, HttpStatus.ok);
-        await response
-            .pipe(videoFile.openWrite())
-            .timeout(const Duration(seconds: 30));
-        expect(await videoFile.length(), greaterThan(1024));
-
         audioPlayer = _newPlayer();
         final audioNative = audioPlayer.platform as NativePlayer;
         await audioNative.setProperty('ao', 'null');
@@ -304,6 +288,7 @@ void main() {
         videoPlayer = _newPlayer();
         final nativeVideo = videoPlayer.platform as NativePlayer;
         await nativeVideo.setProperty('ao', 'null');
+        await _configureHttpsTestPlayer(nativeVideo);
         // shortcut: macOS CI lacks accelerated OpenGL; verify hardware rendering on a GPU runner.
         final controller = VideoController(
           videoPlayer,
@@ -338,7 +323,7 @@ void main() {
               params.dh! > 0,
         );
         await videoPlayer
-            .open(Media(videoFile.path), play: false)
+            .open(Media(_butterflyUrl), play: false)
             .timeout(const Duration(seconds: 20));
         await videoPlayer.play();
         await controller.waitUntilFirstFrameRendered.timeout(
@@ -400,13 +385,93 @@ void main() {
         await audioEffects?.dispose();
         await videoPlayer?.dispose();
         await audioPlayer?.dispose();
-        client.close(force: true);
-        await directory.delete(recursive: true);
       }
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  testWidgets('native HTTPS rejects an untrusted certificate', (tester) async {
+    final context = SecurityContext(withTrustedRoots: false)
+      ..useCertificateChainBytes(utf8.encode(_untrustedCertificate))
+      ..usePrivateKeyBytes(utf8.encode(_untrustedKey));
+    final server = await HttpServer.bindSecure(
+      InternetAddress.loopbackIPv4,
+      0,
+      context,
+    );
+    final accepted = Completer<bool>();
+    final wav = audioEffectsWav(List.filled(4800, (0, 0)), 48000);
+    server.listen(
+      (request) async {
+        if (!accepted.isCompleted) accepted.complete(false);
+        request.response.headers.contentType = ContentType('audio', 'wav');
+        request.response.contentLength = wav.length;
+        request.response.add(wav);
+        await request.response.close();
+      },
+      onError: (Object _) {
+        // A client rejecting the certificate can abort the server handshake.
+      },
+    );
+
+    final player = _newPlayer();
+    try {
+      final native = player.platform as NativePlayer;
+      await native.setProperty('ao', 'null');
+      await native.setProperty('network-timeout', '5');
+      await _configureHttpsTestPlayer(native);
+      final rejected = player.stream.error
+          .firstWhere((error) => error.contains('Failed to open'))
+          .then((_) => true);
+      final result = Future.any([accepted.future, rejected]);
+      await player.open(
+        Media('https://127.0.0.1:${server.port}/untrusted.wav'),
+        play: false,
+      );
+      expect(await result.timeout(const Duration(seconds: 10)), isTrue);
+      expect(accepted.isCompleted, isFalse);
+    } finally {
+      await player.dispose();
+      await server.close(force: true);
+    }
+  });
 }
+
+Future<void> _configureHttpsTestPlayer(NativePlayer player) async {
+  expect(await player.getProperty('tls-verify'), 'yes');
+  if (Platform.isAndroid) {
+    // These tests open a raw Player, so apply the app's Android CA bundle.
+    final caFile = await const MethodChannel(
+      'com.meteor.kikoeruflutter/native_audio',
+    ).invokeMethod<String>('getCaFile');
+    expect(caFile, isNotNull);
+    await player.setProperty('tls-ca-file', caFile!);
+  }
+}
+
+// This certificate and key are for the untrusted loopback TLS server in this test.
+const _untrustedCertificate = '''
+-----BEGIN CERTIFICATE-----
+MIIBxjCCAWygAwIBAgIUMyUCJBRQR+bR0B4O3JAnqujlbnQwCgYIKoZIzj0EAwIw
+HjEcMBoGA1UEAwwTSXJvcnUgVGVzdCBMb29wYmFjazAeFw0yMDAxMDEwMDAwMDBa
+Fw00NTAxMDEwMDAwMDBaMB4xHDAaBgNVBAMME0lyb3J1IFRlc3QgTG9vcGJhY2sw
+WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS3iOzEDvlxjcrPDmnhYyYvp/1fNh2i
+WvPJCAZ5DK2Yc2wOaW3smZXX7tEIYQmzGFZirvO2yeKE+ymjbqNGFW/8o4GHMIGE
+MB0GA1UdDgQWBBR0EqxVN0PzUXGjBvaqTXetAgURDzAfBgNVHSMEGDAWgBR0EqxV
+N0PzUXGjBvaqTXetAgURDzAPBgNVHREECDAGhwR/AAABMAwGA1UdEwEB/wQCMAAw
+DgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMAoGCCqGSM49BAMC
+A0gAMEUCIB1N1Zovpj49kL3FWoJ7DwhrdOtLZejwuRoSe/b1ljjoAiEA2oYSv9g8
+K71A/J0Dz81hB1gdj1iCW0+flYqEib1tQhg=
+-----END CERTIFICATE-----
+''';
+
+const _untrustedKey = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgs84qSoIuNhYb9jRv
+xl7Gj8/n+2IP18KYHCZyzLS/ELyhRANCAAS3iOzEDvlxjcrPDmnhYyYvp/1fNh2i
+WvPJCAZ5DK2Yc2wOaW3smZXX7tEIYQmzGFZirvO2yeKE+ymjbqNGFW/8
+-----END PRIVATE KEY-----
+''';
 
 Player _newPlayer() => Player(
   configuration: const PlayerConfiguration(

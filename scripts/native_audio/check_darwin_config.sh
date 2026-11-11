@@ -85,6 +85,8 @@ cmp -s "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$source_dir/patches/mp
     fail 'MPV Vulkan Metal layer patch differs from the checked patch'
 cmp -s "$script_dir/ffmpeg-sendcmd-precision.patch" "$source_dir/patches/ffmpeg-sendcmd-precision.patch" ||
     fail 'FFmpeg sendcmd precision patch differs from the checked patch'
+cmp -s "$script_dir/darwin-ffmpeg-system-trust.patch" "$source_dir/patches/darwin-ffmpeg-system-trust.patch" ||
+    fail 'FFmpeg Darwin system-trust patch differs from the checked patch'
 cmp -s "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$source_dir/patches/ffmpeg-fix-ios-hdr-texture.patch" ||
     fail 'FFmpeg iOS HDR texture patch differs from the checked patch'
 cmp -s "$script_dir/darwin-libplacebo-charconv.patch" "$source_dir/patches/libplacebo-darwin-charconv.patch" ||
@@ -120,6 +122,10 @@ fi
 
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/ffmpeg-sendcmd-precision.patch"' "$ffmpeg_build" ||
     fail 'FFmpeg sendcmd precision patch is not applied by the pinned build script'
+grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/darwin-ffmpeg-system-trust.patch"' "$ffmpeg_build" ||
+    fail 'FFmpeg Darwin system-trust patch is not applied by the pinned build script'
+grep -Fq -- "--extra-libs=-framework CoreFoundation -framework Security" "$ffmpeg_options" ||
+    fail 'FFmpeg system-trust frameworks are not linked'
 grep -Fq 'patch -p1 <${PROJECT_DIR}/patches/ffmpeg-fix-ios-hdr-texture.patch' "$ffmpeg_build" ||
     fail 'FFmpeg iOS HDR texture patch is not applied by the pinned build script'
 grep -Fq 'release_version=$(cat RELEASE)' "$ffmpeg_build" ||

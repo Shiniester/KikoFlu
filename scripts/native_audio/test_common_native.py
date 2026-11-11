@@ -197,6 +197,28 @@ class CommonNativeSourceTests(unittest.TestCase):
         self.assertIn("--enable-openssl", config)
         self.assertIn("for protocol in https tls; do", config)
 
+    def test_windows_native_tls_patch_is_wired_into_static_ffmpeg_build(self) -> None:
+        builder = (SCRIPT_DIR / "build_windows.sh").read_text()
+        checker = (SCRIPT_DIR / "check_windows_config.sh").read_text()
+        self.assertIn(
+            'cp "$script_dir/windows-ffmpeg-native-trust.patch" "$source_dir/packages/ffmpeg-windows-native-trust.patch"',
+            builder,
+        )
+        self.assertIn('ffmpeg-windows-native-trust.patch', checker)
+        self.assertIn('cmp -s "$script_dir/windows-ffmpeg-native-trust.patch"', checker)
+        self.assertIn('--pkg-config-flags=--static', checker)
+        patch_stats = subprocess.run(
+            ["git", "apply", "--numstat", str(SCRIPT_DIR / "windows-ffmpeg-native-trust.patch")],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(0, patch_stats.returncode, patch_stats.stderr)
+        self.assertEqual(
+            ["libavformat/tls_openssl.c"],
+            [line.split("\t", 2)[2] for line in patch_stats.stdout.splitlines()],
+        )
+
     def test_old_mpv_reinit_patch_is_not_reapplied(self) -> None:
         for name in (
             "build_android.sh",

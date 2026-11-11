@@ -176,8 +176,13 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertNotIn("mpv-audio-reinit.patch", mpv_build)
         self.assertNotIn("mpv-filter-command-target.patch", mpv_build)
         self.assertIn("ffmpeg-sendcmd-precision.patch", ffmpeg_build)
+        self.assertIn("darwin-ffmpeg-system-trust.patch", ffmpeg_build)
         self.assertIn("ffmpeg-fix-ios-hdr-texture.patch", ffmpeg_build)
         self.assertIn("release_version=$(cat RELEASE)", ffmpeg_build)
+        self.assertIn(
+            "--extra-libs=-framework CoreFoundation -framework Security",
+            ffmpeg_options,
+        )
         self.assertIn("pkg_config = find_program('pkg-config')", ffmpeg_options)
         self.assertNotIn("pkg_config = find_program('pkgconfig')", ffmpeg_options)
         for cross_file_name in (
@@ -260,6 +265,42 @@ class DarwinRecipePatchTests(unittest.TestCase):
         ).stdout
         self.assertIn("-mios-simulator-version-min=13.0", rewritten)
         self.assertNotIn("-mios-simulator-version-min=12.0", rewritten)
+
+    def test_system_trust_patch_applies_to_the_pinned_ffmpeg_source(self) -> None:
+        source_dir = os.environ.get("DARWIN_NATIVE_SOURCE_DIR")
+        if not source_dir:
+            self.skipTest("the pinned FFmpeg source is available after the builder fetches it")
+        source = Path(source_dir) / "ffmpeg/libavformat/tls_mbedtls.c"
+        if not source.is_file():
+            self.skipTest("the pinned FFmpeg source is available after the builder fetches it")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "libavformat/tls_mbedtls.c"
+            target.parent.mkdir(parents=True)
+            shutil.copyfile(source, target)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            patch_file = _normalized_patch(
+                SCRIPT_DIR / "darwin-ffmpeg-system-trust.patch", root
+            )
+            subprocess.run(
+                ["git", "apply", "--check", str(patch_file)],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(["git", "apply", str(patch_file)], cwd=root, check=True)
+            patched = target.read_text(encoding="utf-8")
+
+        for required in (
+            "mbedtls_ssl_get_peer_cert",
+            "peer_cert = peer_cert->next",
+            "SecPolicyCreateSSL(true, peer_name)",
+            "SecTrustEvaluateWithError(trust, NULL)",
+            "__builtin_available(macOS 10.14, iOS 12.0, *)",
+            "!shr->external_sock && !shr->is_dtls && !shr->listen && !shr->ca_file",
+        ):
+            self.assertIn(required, patched)
+        self.assertNotIn("SecIdentityCreate", patched)
 
     def test_recipe_patch_rejects_unmatched_upstream_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1001,7 +1042,7 @@ class DarwinProviderTests(unittest.TestCase):
             "ios_minimum=%s",
             "macos_minimum=%s",
             "filters=%s,overlay,equalizer",
-            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,ffmpeg-sendcmd-precision.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch",
+            "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,darwin-ffmpeg-system-trust.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch",
             "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz",
             "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz",
             "pkg-config-glib-atomics.patch",
@@ -1019,6 +1060,10 @@ class DarwinProviderTests(unittest.TestCase):
         )
         self.assertIn(
             'cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"',
+            builder,
+        )
+        self.assertIn(
+            'cp "$script_dir/darwin-ffmpeg-system-trust.patch" "$recipe_dir/patches/darwin-ffmpeg-system-trust.patch"',
             builder,
         )
         self.assertIn(
