@@ -132,6 +132,12 @@ grep -Fq '> VERSION' "$ffmpeg_build" ||
     fail 'FFmpeg release version metadata is not written before configure'
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-audio-controls.patch"' "$mpv_build" ||
     fail 'MPV audio controls patch is not applied by the pinned build script'
+grep -Fq -- '-Daudiounit=enabled' "$mpv_build" ||
+    fail 'MPV AudioUnit output is not enabled for iOS targets'
+grep -Fq -- '-Davfoundation=disabled' "$mpv_build" ||
+    fail 'MPV AVFoundation output must be disabled for iOS targets'
+grep -Fq 'elif [ "${OS}" == "ios" ] || [ "${OS}" == "iossimulator" ]; then' "$mpv_build" ||
+    fail 'MPV iOS audio options are not applied to the simulator target'
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/mpv-vulkan-metal-layer.patch"' "$mpv_build" ||
     fail 'MPV Vulkan Metal layer patch is not applied by the pinned build script'
 grep -Fq 'patch -p1 < "${PROJECT_DIR}/patches/pkg-config-glib-atomics.patch"' "$pkgconfig_build" ||

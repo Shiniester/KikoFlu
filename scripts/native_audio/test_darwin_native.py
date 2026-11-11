@@ -157,6 +157,13 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertNotIn("--enable-filters", audio_default_options)
         self.assertIn("mpv-audio-controls.patch", mpv_build)
         self.assertIn("mpv-vulkan-metal-layer.patch", mpv_build)
+        ios_options = mpv_build.split("IOS_OPTIONS=(", 1)[1].split(")", 1)[0]
+        self.assertIn("-Daudiounit=enabled", ios_options)
+        self.assertIn("-Davfoundation=disabled", ios_options)
+        self.assertIn(
+            'elif [ "${OS}" == "ios" ] || [ "${OS}" == "iossimulator" ]; then',
+            mpv_build,
+        )
         self.assertIn("MACOS_OPTIONS+=(-Dswift-build=enabled)", mpv_build)
         self.assertNotIn("-Dswift-build=disabled", mpv_build)
         self.assertIn('if [ "${ARCH}" == "amd64" ]; then', mpv_build)

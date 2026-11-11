@@ -259,7 +259,7 @@ index 0000000..3a256c7
 +meson compile -C build
 +meson install -C build
 diff --git a/scripts/mpv/build.sh b/scripts/mpv/build.sh
-index ce9ba20..fb21aad 100644
+index ce9ba20..3e0f76d 100644
 --- a/scripts/mpv/build.sh
 +++ b/scripts/mpv/build.sh
 @@ -8 +8,2 @@ cd ${SRC_DIR}
@@ -299,6 +299,11 @@ index ce9ba20..fb21aad 100644
 +else
 +    MACOS_OPTIONS+=("-Dswift-flags=-target arm64-apple-macosx11.0")
 +fi
+@@ -165,0 +164 @@ IOS_OPTIONS=(
++    -Davfoundation=disabled `# macOS-only AVFoundation audio output`
+@@ -185 +184 @@ if [ "${OS}" == "macos" ]; then
+-elif [ "${OS}" == "ios" ]; then
++elif [ "${OS}" == "ios" ] || [ "${OS}" == "iossimulator" ]; then
 diff --git a/scripts/pkg-config/build.sh b/scripts/pkg-config/build.sh
 index d63f487..630a599 100644
 --- a/scripts/pkg-config/build.sh
