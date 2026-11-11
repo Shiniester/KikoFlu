@@ -666,6 +666,10 @@ class AudioPlayerService {
         _latestTrackLoad != null) {
       return;
     }
+    _setCommittedQueuePosition(position);
+  }
+
+  void _setCommittedQueuePosition(Duration position) {
     final current = _committedQueueSnapshot;
     if (current == null) return;
     _committedQueueSnapshot = PlaybackSessionSnapshot(
@@ -1716,7 +1720,7 @@ class AudioPlayerService {
 
   Future<void> _loadTrack(_TrackLoadRequest request) async {
     final track = request.track;
-    if (request.nativeWindowAlreadyCurrent) {
+    if (request.nativeWindowAlreadyCurrent && !_sliceState.onlySlices) {
       try {
         await _waitForNativeWindowReady(request);
         request.nativeWindowTrackId = track.id;
@@ -1737,6 +1741,7 @@ class AudioPlayerService {
       }
     }
     if (request.nativeWindowIndex != null &&
+        !_sliceState.onlySlices &&
         _nativePreparedTrackId == track.id &&
         _androidSourceWindow?.children.length == 2) {
       try {
@@ -2333,6 +2338,17 @@ class AudioPlayerService {
       }
       if (preparedId != null) return;
     }
+    final pendingPromotion = _latestTrackLoad ?? _activeTrackLoad;
+    if (pendingPromotion != null &&
+        !_sliceState.onlySlices &&
+        !pendingPromotion.superseded &&
+        pendingPromotion.generation == _trackLoadGeneration &&
+        pendingPromotion.nativeWindowIndex == 1 &&
+        pendingPromotion.track.id == preparedId &&
+        window.children.length == 2) {
+      // Keep the child while its current promotion request still needs it.
+      return;
+    }
 
     final current = currentTrack;
     final next = _currentIndex + 1 < _queue.length
@@ -2707,6 +2723,13 @@ class AudioPlayerService {
     );
   }
 
+  AudioTrack? _trackForPlaybackIntent() {
+    final published = _publishedTrack;
+    return published != null && _queue.any((item) => item.id == published.id)
+        ? published
+        : _resumeTrack;
+  }
+
   // Playback controls
   Future<void> play() async {
     _desiredPlaying = true;
@@ -2717,10 +2740,7 @@ class AudioPlayerService {
       return;
     }
     final published = _publishedTrack;
-    final track =
-        published != null && _queue.any((item) => item.id == published.id)
-        ? published
-        : _resumeTrack;
+    final track = _trackForPlaybackIntent();
     if (track == null) return;
     if (_sourceNeedsReload || published?.id != track.id) {
       await _enqueueTrackLoad(
@@ -2838,15 +2858,63 @@ class AudioPlayerService {
   }
 
   Future<void> _stopPlayback(int stopRevision) async {
+    final nativeWindow = _androidNativePreload ? _androidSourceWindow : null;
+    final nativeSourceToRestore =
+        nativeWindow != null && nativeWindow.children.length > 1
+        ? nativeWindow.children.first
+        : null;
+    final nativePositionToRestore =
+        _nativePreloadCurrentPosition ??
+        _committedQueueSnapshot?.position ??
+        Duration.zero;
+    final publishedTrackId = _publishedTrack?.id;
+    var protectingPublishedSource =
+        publishedTrackId != null &&
+        _trackForPlaybackIntent()?.id == publishedTrackId &&
+        nativeSourceToRestore != null &&
+        _player.currentIndex == 1;
+    if (protectingPublishedSource) {
+      // The drain persists the session before stop completes. Preserve the
+      // committed track position while the native index is on its successor.
+      _sourceNeedsReload = true;
+      _failedSeekSource = nativeSourceToRestore;
+      _failedSeekPosition = nativePositionToRestore;
+      _setCommittedQueuePosition(nativePositionToRestore);
+    }
+
     final stoppedNativeLoad = await _invalidateTrackLoads();
     if (stopRevision != _intentRevision) return;
     if (!stoppedNativeLoad) _nativeLoadCancel = _player.stop();
     if (_nativeLoadCancel != null) await _nativeLoadCancel!;
     if (stopRevision != _intentRevision) return;
+
+    final nativeSourceWasPromoted =
+        publishedTrackId != null &&
+        _publishedTrack?.id == publishedTrackId &&
+        _trackForPlaybackIntent()?.id == publishedTrackId &&
+        nativeWindow != null &&
+        nativeSourceToRestore != null &&
+        nativeWindow.children.length > 1 &&
+        _player.currentIndex == 1;
+    if (nativeSourceWasPromoted) {
+      // A canceled native promotion can leave the player on the next child
+      // even though the service still publishes the committed track.
+      _sourceNeedsReload = true;
+      _failedSeekSource = nativeSourceToRestore;
+      _failedSeekPosition = nativePositionToRestore;
+      _setCommittedQueuePosition(nativePositionToRestore);
+      protectingPublishedSource = true;
+    }
     _updatePlaybackState();
     await _hapticsService.stop();
     if (stopRevision != _intentRevision) return;
-    await persistPlaybackPosition();
+    final restoreTrack = _trackForPlaybackIntent();
+    if (protectingPublishedSource ||
+        (restoreTrack != null && restoreTrack.id != _publishedTrack?.id)) {
+      await persistPlaybackSession();
+    } else {
+      await persistPlaybackPosition();
+    }
   }
 
   void _listenForPlaybackErrors() {
@@ -3450,14 +3518,21 @@ class AudioPlayerService {
       return _sessionWrite;
     }
 
-    final position = _sourceNeedsReload
+    final published = _publishedTrack;
+    final restoreTrack = _trackForPlaybackIntent();
+    final position = restoreTrack != null && restoreTrack.id != published?.id
+        ? _failedSeekPosition ?? Duration.zero
+        : _sourceNeedsReload
         ? (_committedQueueSnapshot?.position ??
               _failedSeekPosition ??
               Duration.zero)
         : _player.position;
+    final restoreIndex = restoreTrack == null
+        ? -1
+        : _queue.indexWhere((track) => track.id == restoreTrack.id);
     final snapshot = PlaybackSessionSnapshot(
       queue: List<AudioTrack>.from(_queue),
-      currentIndex: _currentIndex,
+      currentIndex: restoreIndex < 0 ? _currentIndex : restoreIndex,
       position: position,
       ownerKey: _sessionOwnerKey ??= _currentSessionOwnerKey() ?? '',
       markingQueueId: _pendingQueueMarking?.queueId ?? _markingQueueId,
@@ -3475,6 +3550,11 @@ class AudioPlayerService {
         _activeTrackLoad != null ||
         _latestTrackLoad != null ||
         _sessionCompleted) {
+      return _sessionWrite;
+    }
+    final published = _publishedTrack;
+    final restoreTrack = _trackForPlaybackIntent();
+    if (restoreTrack != null && restoreTrack.id != published?.id) {
       return _sessionWrite;
     }
     final position = _player.position;
