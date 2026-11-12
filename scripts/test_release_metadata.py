@@ -30,7 +30,8 @@ assert numbers[1] == 409001001
 assert numbers[1] > 2000  # Upgrade from the former workflow run-number scheme.
 for version in ["4.100.0-beta.1", "4.9.1000-beta.1", "4.9.1-beta.1000", "21.0.0-beta.1"]:
     assert build_number(version).returncode != 0, version
-assert beta.count('--build-number="$BUILD_NUMBER"') == 2
+assert beta.count('--build-number="$BUILD_NUMBER"') == 1
+assert "--target-platform android-arm64 --split-per-abi" in beta
 assert "$GITHUB_RUN_NUMBER" not in beta
 
 android = (ROOT / ".github/workflows/build_android.yml").read_text(encoding="utf-8")

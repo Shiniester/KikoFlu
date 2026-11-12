@@ -6,7 +6,7 @@ Linux 应用使用项目自建的 mpv、FFmpeg 和 libplacebo。
 
 ## 准备环境
 
-在 Ubuntu 22.04 的 x64 或 ARM64 环境中，安装 Flutter 和编译依赖：
+在 Ubuntu 22.04 的 x64 环境中，安装 Flutter 和编译依赖：
 
 ```bash
 sudo apt-get update
@@ -46,5 +46,5 @@ CI 的工作目录位于 `$RUNNER_TEMP/native-audio-linux/`。
 ## 验证
 
 运行 **Build test** 工作流，检查发布包中的音效输出与依赖。
-该工作流分别覆盖 Linux x64 和 ARM64。
+该工作流只构建 Linux x64。Linux ARM64 不再发布。
 输出检查使用包内的 libmpv，不能用系统库或独立探针结果替代。

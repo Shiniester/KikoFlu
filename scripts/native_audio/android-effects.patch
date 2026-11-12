@@ -4,7 +4,7 @@ index 33282bd..87de670 100755
 +++ b/buildscripts/build.sh
 @@ -9 +9 @@ target=mpv
 -archs=(armv7l arm64 x86 x86_64)
-+archs=(arm64 armv7l x86 x86_64)
++archs=(arm64 x86_64)
 diff --git a/buildscripts/flavors/default.sh b/buildscripts/flavors/default.sh
 index 5968d5d..5e884fa 100644
 --- a/buildscripts/flavors/default.sh

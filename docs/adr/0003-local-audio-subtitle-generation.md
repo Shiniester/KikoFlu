@@ -5,6 +5,8 @@
 Retired. Audio subtitle generation and its post-generation translation were
 removed from the product. Translation of existing subtitles remains supported.
 This record describes the retired implementation.
+Linux ARM64 releases were also retired on 2026-11-12; see
+[ADR 0010](0010-common-audio-effects-backend.md) for current platform support.
 
 ## Decision
 

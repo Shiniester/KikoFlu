@@ -8,6 +8,12 @@ deletions do not publish releases.
 - Other branches: Android Beta pre-release through `build_android_beta.yml`.
 - Existing manual release workflows remain available, including Android-only stable.
 
+Release workflows honor the selected `commit_sha`. The selected commit must include
+the current release configuration and Android native/Gradle interface. The prepare
+step or native workflow checks these requirements before building native libraries;
+older commits stop with an error. Select a commit that includes the new release
+configuration.
+
 ## Commit-based version selection
 
 Actions parses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)

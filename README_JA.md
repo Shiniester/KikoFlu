@@ -86,7 +86,7 @@
 
 最新バージョンは [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) からダウンロードできます。
 
-対応プラットフォーム：Android（universal / arm64-v8a）、iOS（未署名 IPA）、Windows（インストーラー / ポータブル）、macOS（DMG）、Linux（x64 / arm64）
+対応プラットフォーム：Android（arm64-v8a）、iOS（未署名 IPA）、Windows（インストーラー / ポータブル）、macOS（Apple Silicon、DMG）、Linux（x64）
 
 **macOS のアップデート：** Iroru.app と旧版 KikoFlu.app は名前が異なります。Iroru.app をコピーした後も、KikoFlu.app は残ります。Iroru が既存データを読み込めることを確認してから、KikoFlu.app を削除できます。
 
@@ -116,7 +116,7 @@ flutter pub get
 各プラットフォームのビルドには `build/native-audio/` の固定バージョンのネイティブライブラリが必要です。
 このディレクトリは Git の管理対象外です。アプリをビルドする前に、次の成果物を用意してください。
 
-- Android：Linux 環境で `bash scripts/native_audio/build_android.sh all` を実行します。
+- Android：Linux 環境で `bash scripts/native_audio/build_android.sh arm64` を実行します。x86_64 シミュレーターでは `all` を使用します。
 - Windows：Linux 環境で `bash scripts/native_audio/build_windows.sh` を実行し、成果物があるチェックアウトからアプリをビルドします。
 - iOS、macOS：Xcode 16.4 を使う macOS 環境で `bash scripts/native_audio/build_darwin.sh` を実行します。
 - Linux：[Linux ネイティブ音声ライブラリのビルド手順](docs/development/linux-native-audio.md)を参照してください。
@@ -127,7 +127,7 @@ flutter pub get
 
 | プラットフォーム | コマンド |
 |------------------|---------|
-| Android | `flutter build apk --release --split-per-abi` |
+| Android | `flutter build apk --release --target-platform android-arm64 --split-per-abi` |
 | Windows | `flutter build windows --release` |
 | macOS | `flutter build macos --release` |
 | Linux | [ネイティブライブラリをビルド](docs/development/linux-native-audio.md)してから `flutter build linux --release` |

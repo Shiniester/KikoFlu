@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -275,6 +277,34 @@ class SharedNativePatchTests(unittest.TestCase):
 
 
 class WindowsOutputCacheTests(unittest.TestCase):
+    def test_cache_key_fingerprints_only_windows_build_inputs_and_steps(self) -> None:
+        workflow = (SCRIPT_DIR.parents[1] / ".github/workflows/native_audio.yml").read_text()
+        cache_step = workflow.split(
+            "      - name: Restore Windows libmpv output cache\n", 1
+        )[1].split("\n      - name:", 1)[0]
+        key_line = next(line for line in cache_step.splitlines() if "key:" in line)
+        input_line = next(
+            line
+            for line in workflow.splitlines()
+            if "INPUT_FINGERPRINT: ${{ hashFiles(" in line
+        )
+        hashed_files = set(
+            re.findall(r"scripts/native_audio/([A-Za-z0-9_.-]+)", input_line)
+        )
+        script_references = set(
+            re.findall(
+                r"\$script_dir/([A-Za-z0-9_.-]+)",
+                (SCRIPT_DIR / "build_windows.sh").read_text()
+                + (SCRIPT_DIR / "check_windows_config.sh").read_text(),
+            )
+        ) - {".."}
+        self.assertNotIn("scripts/native_audio/**", key_line)
+        self.assertIn("steps.windows-inputs.outputs.fingerprint", key_line)
+        self.assertIn("steps.windows-workflow.outputs.fingerprint", key_line)
+        self.assertTrue(script_references.issubset(hashed_files))
+        self.assertIn("scripts/native_audio/requirements.txt", input_line)
+        self.assertIn("scripts/native_audio/filters.txt", input_line)
+
     def test_only_complete_exact_hits_are_reused(self) -> None:
         bash = _bash_executable()
         if bash is None:
@@ -343,6 +373,205 @@ class WindowsOutputCacheTests(unittest.TestCase):
                     valid = scenario == "valid"
                     self.assertIn(f"valid={str(valid).lower()}", result_file.read_text())
                     self.assertEqual(valid, output.exists())
+
+
+class AndroidNativeOutputTests(unittest.TestCase):
+    def test_android_build_and_gradle_keep_only_the_supported_abis(self) -> None:
+        builder = (SCRIPT_DIR / "build_android.sh").read_text()
+        android_patch = (SCRIPT_DIR / "android-effects.patch").read_text()
+        config = (SCRIPT_DIR / "check_android_config.sh").read_text()
+        gradle = (
+            SCRIPT_DIR.parents[1]
+            / "third_party/media_kit_libs_android_video/android/build.gradle"
+        ).read_text()
+        workflow = (SCRIPT_DIR.parents[1] / ".github/workflows/native_audio.yml").read_text()
+
+        self.assertIn("all) arches=(arm64 x86_64)", builder)
+        self.assertNotIn("armv7l) abi=", builder)
+        self.assertNotIn("x86) abi=", builder)
+        self.assertIn("+archs=(arm64 x86_64)", android_patch)
+        self.assertIn("archs=(arm64 x86_64)", config)
+        self.assertIn('supportedNativeAudioAbis = ["arm64-v8a", "x86_64"]', gradle)
+        self.assertIn('project.findProperty("target-platform")', gradle)
+        self.assertIn('"android-arm64": "arm64-v8a", "android-x64": "x86_64"', gradle)
+        self.assertIn("if (targetPlatforms != null)", gradle)
+        self.assertIn("nativeAudioAbis = supportedNativeAudioAbis", gradle)
+        self.assertIn("Custom libmpv does not support Flutter target platform", gradle)
+        self.assertIn('fromJSON(\'["arm64","x86_64"]\')', workflow)
+        self.assertIn("name: native-audio-android-${{ matrix.arch }}", workflow)
+        self.assertIn("name: native-audio-android\n", workflow)
+        self.assertIn("Only exact cache hits may be reused.", workflow)
+        self.assertIn("Fingerprint Android build workflow", workflow)
+        self.assertIn("steps.android-workflow.outputs.fingerprint", workflow)
+        self.assertIn("needs: [validate-inputs, build-android]", workflow)
+        self.assertIn('[[ -s "$OUTPUT_DIR/default-$abi.jar" ]] ||', workflow)
+        self.assertIn("native-audio-android-arm64", workflow)
+        self.assertIn("native-audio-android-x86_64", workflow)
+        self.assertIn("Restore Windows libmpv output cache", workflow)
+        self.assertIn("probe-windows:", workflow)
+
+    def test_android_output_validator_rejects_incomplete_or_stale_cache_entries(self) -> None:
+        bash = _bash_executable()
+        if bash is None:
+            self.skipTest("Bash is required to validate Android native output")
+        probe = subprocess.run(
+            [bash, "--noprofile", "--norc", "-c", "exit 0"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if probe.returncode != 0:
+            self.skipTest(f"Git Bash cannot start in this host: {probe.stderr.strip()}")
+
+        android_pins = _lock_assignments(SCRIPT_DIR / "android.lock")
+        common_pins = _lock_assignments(SCRIPT_DIR / "common.lock")
+        pins = {**common_pins, **android_pins}
+        filters = ",".join((SCRIPT_DIR / "filters.txt").read_text().splitlines())
+        validator = SCRIPT_DIR / "build_android.sh"
+        scenarios = (
+            "valid",
+            "missing-jar-entry",
+            "wrong-machine",
+            "stale-provenance",
+            "arm64-root-provenance",
+            "mismatched-arm64-root",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            for arch in ("arm64", "x86_64"):
+                abi = "arm64-v8a" if arch == "arm64" else "x86_64"
+                expected_machine = (
+                    "AArch64" if arch == "arm64" else "Advanced Micro Devices X86-64"
+                )
+                for scenario in scenarios:
+                    with self.subTest(arch=arch, scenario=scenario):
+                        output = Path(temporary) / arch / scenario / "output"
+                        output.mkdir(parents=True)
+                        payloads = {
+                            f"lib/{abi}/libmpv.so": b"fixture libmpv",
+                            f"lib/{abi}/libmediakitandroidhelper.so": b"fixture helper",
+                        }
+                        if scenario == "missing-jar-entry":
+                            payloads.pop(f"lib/{abi}/libmediakitandroidhelper.so")
+                        with zipfile.ZipFile(output / f"default-{abi}.jar", "w") as archive:
+                            for name, payload in payloads.items():
+                                archive.writestr(name, payload)
+                        abi_dir = output / abi
+                        abi_dir.mkdir()
+                        (abi_dir / "libmpv.so").write_bytes(b"fixture libmpv")
+                        (abi_dir / "libmediakitandroidhelper.so").write_bytes(
+                            b"fixture helper"
+                        )
+
+                        records = {
+                            "builder_url": pins["ANDROID_BUILDER_URL"],
+                            "builder_ref": pins["ANDROID_BUILDER_REF"],
+                            "builder_commit": pins["ANDROID_BUILDER_COMMIT"],
+                            "android_helper_commit": pins["ANDROID_HELPER_COMMIT"],
+                            "ffmpeg_version": pins["FFMPEG_VERSION"],
+                            "ffmpeg_commit": pins["FFMPEG_COMMIT"],
+                            "mpv_version": pins["MPV_VERSION"],
+                            "mpv_commit": pins["MPV_COMMIT"],
+                            "libplacebo_version": pins["LIBPLACEBO_VERSION"],
+                            "libplacebo_commit": pins["LIBPLACEBO_COMMIT"],
+                            "gas_preprocessor_commit": pins[
+                                "GAS_PREPROCESSOR_COMMIT"
+                            ],
+                            "android_api": pins["ANDROID_API"],
+                            "android_sdk_tools": pins["ANDROID_SDK_TOOLS"],
+                            "android_build_tools": pins["ANDROID_BUILD_TOOLS"],
+                            "android_ndk": pins["ANDROID_NDK"],
+                            "cxx_runtime": "libc++_shared.so",
+                            "meson": "1.0-test",
+                            "ninja": "1.0-test",
+                            "mpv_audio_controls_patch": "mpv-audio-controls.patch",
+                            "android_mpv_java_vm_patch": "android-mpv-java-vm.patch",
+                            "android_mbedtls_aesce_patch": "android-mbedtls-aesce.patch",
+                            "ffmpeg_sendcmd_argument_format": "%.17g",
+                            "architectures": arch,
+                            "android_arch": arch,
+                            "android_abi": abi,
+                            "runner_image": "Ubuntu-22.04-test-image",
+                            "input_fingerprint": "test-input-fingerprint",
+                            "toolchain_fingerprint": "test-toolchain-fingerprint",
+                            "filters": f"{filters},overlay,equalizer",
+                        }
+                        if scenario == "stale-provenance":
+                            records["mpv_commit"] = "stale"
+                        provenance = "".join(
+                            f"{key}={value}\n" for key, value in records.items()
+                        )
+                        root_provenance = provenance
+                        if scenario == "arm64-root-provenance" and arch == "x86_64":
+                            root_records = dict(records)
+                            root_records.update(
+                                android_arch="arm64",
+                                android_abi="arm64-v8a",
+                                architectures="arm64",
+                            )
+                            root_provenance = "".join(
+                                f"{key}={value}\n" for key, value in root_records.items()
+                            )
+                        if scenario == "mismatched-arm64-root" and arch == "arm64":
+                            root_provenance = provenance.replace(
+                                "input_fingerprint=test-input-fingerprint",
+                                "input_fingerprint=stale-input-fingerprint",
+                            )
+                        (output / "source-provenance.txt").write_text(root_provenance)
+                        (output / f"source-provenance-{abi}.txt").write_text(provenance)
+
+                        command = textwrap.dedent(
+                            """
+                            set -euo pipefail
+                            readelf() {
+                              case " $* " in
+                                *" -h "*) printf '  Machine: %s\\n' "$TEST_ELF_MACHINE" ;;
+                                *" -d "*) printf '  Shared library: [libc++_shared.so]\\n' ;;
+                                *" -l "*) printf '  LOAD 0x0 0x0 0x0 0x0 0x0 0x0 R E 0x4000\\n' ;;
+                                *) return 1 ;;
+                              esac
+                            }
+                            source "$NATIVE_AUDIO_ANDROID_VALIDATOR" --validate-output "$ANDROID_ARCH"
+                            """
+                        )
+                        machine = (
+                            "Intel 80386"
+                            if scenario == "wrong-machine"
+                            else expected_machine
+                        )
+                        result = subprocess.run(
+                            [bash, "--noprofile", "--norc", "-c", command],
+                            cwd=SCRIPT_DIR.parents[1],
+                            env={
+                                **os.environ,
+                                "NATIVE_AUDIO_ANDROID_VALIDATOR": validator.as_posix(),
+                                "NATIVE_AUDIO_ANDROID_OUTPUT_DIR": output.as_posix(),
+                                "NATIVE_AUDIO_ANDROID_RUNNER_IMAGE": records[
+                                    "runner_image"
+                                ],
+                                "NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT": records[
+                                    "input_fingerprint"
+                                ],
+                                "NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT": records[
+                                    "toolchain_fingerprint"
+                                ],
+                                "NATIVE_AUDIO_ANDROID_MESON_VERSION": records[
+                                    "meson"
+                                ],
+                                "NATIVE_AUDIO_ANDROID_NINJA_VERSION": records[
+                                    "ninja"
+                                ],
+                                "ANDROID_ARCH": arch,
+                                "TEST_ELF_MACHINE": machine,
+                            },
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        should_pass = scenario in {"valid", "arm64-root-provenance"} or (
+                            scenario == "mismatched-arm64-root" and arch == "x86_64"
+                        )
+                        self.assertEqual(0 if should_pass else 1, result.returncode, result.stderr)
 
 
 if __name__ == "__main__":

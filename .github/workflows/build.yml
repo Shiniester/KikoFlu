@@ -77,6 +77,15 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
 
+      - name: Verify selected release source configuration
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/ci/validate_release_source.py ]]; then
+            echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
+            exit 1
+          fi
+          python3 scripts/ci/validate_release_source.py full
+
       - name: Resolve selected release commit
         id: resolve_commit
         run: |
@@ -122,13 +131,22 @@ jobs:
           echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
           echo "Building release $tag with filename suffix $suffix"
 
-  native-audio:
-    name: Build Native Audio Libraries
+  native-audio-android:
+    name: Build Android Native Audio Libraries
     needs: prepare
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      android_only: true
       android_all_abis: true
+
+  native-audio-windows:
+    name: Build Windows Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      windows_only: true
 
   native-audio-darwin:
     name: Build Darwin Native Audio Libraries
@@ -139,7 +157,7 @@ jobs:
 
   android:
     name: Android Build
-    needs: [prepare, native-audio]
+    needs: [prepare, native-audio-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -197,6 +215,17 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
+
+      - name: Cache Android Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-java-17-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}
 
       - name: Download Android libmpv artifacts
         uses: actions/download-artifact@v6
@@ -207,18 +236,22 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
+      - name: Read Android base version code
+        run: |
+          set -euo pipefail
+          flutter build apk --config-only --no-pub
+          base_code="$(sed -n 's/^flutter\.versionCode=//p' android/local.properties | tail -n 1)"
+          if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
+            echo '::error::Flutter did not write a valid base versionCode to android/local.properties.'
+            exit 1
+          fi
+          echo "ANDROID_BASE_VERSION_CODE=$base_code" >> "$GITHUB_ENV"
+
       - name: Build Android APKs
         run: |
           set -euo pipefail
           mkdir -p dist
-
-          flutter build apk --release
-          mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
-
-          # Preserve the legacy split APK versionCode scheme so existing
-          # arm64 installations can be upgraded in place.
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --target-platform android-arm64 --split-per-abi
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
@@ -233,26 +266,26 @@ jobs:
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           aapt="$build_tools_dir/aapt"
           apksigner="$build_tools_dir/apksigner"
-          universal_apk="dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
           arm64_apk="dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
           check_native_libraries() {
             local apk=$1
-            shift
             local entries
             entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
-            for abi in "$@"; do
-              for library in libmpv.so libmediakitandroidhelper.so libc++_shared.so; do
-                if ! grep -Fxq "lib/$abi/$library" <<< "$entries"; then
-                  echo "::error::Missing lib/$abi/$library in $apk."
-                  return 1
-                fi
-              done
+            for library in libmpv.so libmediakitandroidhelper.so libc++_shared.so; do
+              if ! grep -Fxq "lib/arm64-v8a/$library" <<< "$entries"; then
+                echo "::error::Missing lib/arm64-v8a/$library in $apk."
+                return 1
+              fi
             done
+            abis="$(sed -nE 's#^lib/([^/]+)/.*#\1#p' <<< "$entries" | sort -u)"
+            if [ "$abis" != 'arm64-v8a' ]; then
+              echo "::error::Expected an arm64-only APK, found ABI entries: $abis"
+              return 1
+            fi
           }
 
-          check_native_libraries "$universal_apk" armeabi-v7a arm64-v8a x86_64
-          check_native_libraries "$arm64_apk" arm64-v8a
+          check_native_libraries "$arm64_apk"
 
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
@@ -261,22 +294,18 @@ jobs:
             fi
           done
 
-          universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
           arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
           arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
 
-          for badging in "$universal_badging" "$arm64_badging"; do
-            package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
-            version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$badging")"
-            if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
-              echo "::error::Unexpected Android package metadata: $badging"
-              exit 1
-            fi
-          done
+          package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Unexpected Android package metadata: $arm64_badging"
+            exit 1
+          fi
 
-          if [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
-            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $universal_code."
+          if [ "$arm64_code" -ne $((ANDROID_BASE_VERSION_CODE + 2000)) ]; then
+            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $ANDROID_BASE_VERSION_CODE."
             exit 1
           fi
 
@@ -285,45 +314,26 @@ jobs:
             exit 1
           fi
 
-          for apk in "$universal_apk" "$arm64_apk"; do
-            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
-            actual_cert="$(
-              printf '%s\n' "$cert_output" |
-                sed -nE '/certificate SHA-256 digest:/I {
-                  s/.*certificate SHA-256 digest:[[:space:]]*//I
-                  p
-                  q
-                }' |
-                tr -d '[:space:]:' |
-                tr '[:upper:]' '[:lower:]'
-            )"
-            if [ -z "$actual_cert" ]; then
-              echo "::error::Unable to read the Android signing certificate for $apk."
-              printf '%s\n' "$cert_output" >&2
-              exit 1
-            fi
-            if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-              echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
-              exit 1
-            fi
-          done
-
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Verify packaged Android audio effects
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          script: |
-            flutter test --no-pub -d emulator-5554 integration_test/audio_effects_production_test.dart
-            flutter test --no-pub -d emulator-5554 integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true
+          cert_output="$("$apksigner" verify --print-certs "$arm64_apk" 2>&1)"
+          actual_cert="$(
+            printf '%s\n' "$cert_output" |
+              sed -nE '/certificate SHA-256 digest:/I {
+                s/.*certificate SHA-256 digest:[[:space:]]*//I
+                p
+                q
+              }' |
+              tr -d '[:space:]:' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [ -z "$actual_cert" ]; then
+            echo "::error::Unable to read the Android signing certificate for $arm64_apk."
+            printf '%s\n' "$cert_output" >&2
+            exit 1
+          fi
+          if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::Unexpected Android signing certificate for $arm64_apk: $actual_cert"
+            exit 1
+          fi
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
@@ -332,9 +342,81 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  android-verify:
+    name: Android x86_64 Emulator Verification
+    needs: [prepare, native-audio-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+
+      - name: Download Android libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
+
+      - name: Set Application Version
+        run: |
+          sed -i.bak -E 's/^version: .*/version: ${{ needs.prepare.outputs.version }}/' pubspec.yaml
+          rm pubspec.yaml.bak
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+          cache: true
+          pub-cache: true
+
+
+      - name: Cache Android Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-java-17-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify packaged Android audio effects
+        id: android-emulator-tests
+        uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 15
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: >-
+            bash scripts/ci/run_android_emulator_test.sh "$RUNNER_TEMP/android-emulator-diagnostics" -- bash -e -c 'flutter test --no-pub -d emulator-5554 integration_test/audio_effects_production_test.dart && flutter test --no-pub -d emulator-5554 integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true'
+
+      - name: Upload Android emulator diagnostics
+        if: ${{ always() && steps.android-emulator-tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-emulator-diagnostics
+          path: ${{ runner.temp }}/android-emulator-diagnostics/
+          if-no-files-found: warn
+
   windows:
     name: Windows Build
-    needs: [prepare, native-audio]
+    needs: [prepare, native-audio-windows]
     # windows-latest currently ships newer VS/CMake versions that break
     # older native Flutter plugins used by this project.
     runs-on: windows-2022
@@ -361,6 +443,9 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
 
       - name: Get Dependencies
         run: flutter pub get
@@ -441,6 +526,9 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
 
       - name: Get Dependencies
         run: flutter pub get
@@ -480,6 +568,9 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
 
       - name: Get Dependencies
         run: flutter pub get
@@ -529,6 +620,9 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
 
       - name: Get Dependencies
         run: flutter pub get
@@ -597,20 +691,17 @@ jobs:
       - name: Test Linux bundle dependency checks
         run: bash linux/test_bundle_check.sh
 
-      - name: Build shared Linux native audio
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
-          export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/native_audio/build_linux.sh
-          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
+      - name: Cache or build shared Linux native audio
+        uses: ./.github/actions/linux-native-audio-cache
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
 
       - name: Get Dependencies
         run: flutter pub get
@@ -664,117 +755,17 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  linux-arm64:
-    name: Linux ARM64 Build
-    needs: prepare
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.commit_sha || github.sha }}
-
-      - name: Set Application Version
-        run: |
-          sed -i.bak -E 's/^version: .*/version: ${{ needs.prepare.outputs.version }}/' pubspec.yaml
-          rm pubspec.yaml.bak
-
-      - name: Install Linux Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            curl git unzip xz-utils \
-            clang cmake ninja-build pkg-config \
-            libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
-            pax-utils patchelf binutils libsqlite3-dev libssl-dev libass-dev libepoxy-dev libpulse-dev libasound2-dev \
-            libegl1-mesa-dev libgles2-mesa-dev libxrandr-dev libxinerama-dev libxss-dev \
-            libxpresent-dev libxv-dev libwayland-dev wayland-protocols nasm python3-pip xvfb
-
-      - name: Test Linux bundle dependency checks
-        run: bash linux/test_bundle_check.sh
-
-      - name: Build shared Linux native audio
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
-          export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/native_audio/build_linux.sh
-          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
-
-      - name: Setup Flutter
-        run: |
-          git clone https://github.com/flutter/flutter.git -b 3.44.7 "$RUNNER_TEMP/flutter" --depth 1
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" --version
-
-      - name: Get Dependencies
-        run: flutter pub get
-
-      - name: Build Linux ARM64 Release
-        env:
-          CC: clang
-          CXX: clang++
-          CMAKE_BUILD_PARALLEL_LEVEL: '1'
-          MAKEFLAGS: '-j1'
-        run: flutter build linux --release --verbose
-
-      - name: Verify Linux ARM64 Release Bundle
-        run: bash linux/check_linux_bundle.sh build/linux/arm64/release/bundle
-
-      - name: Verify packaged Linux PCM contracts
-        run: |
-          set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
-          flutter test --no-pub test/audio_effects_graph_test.dart
-          export LD_LIBRARY_PATH="$bundle/lib"
-          python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
-          python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
-          python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json
-
-      - name: Verify packaged Linux audio effects
-        env:
-          LIBGL_ALWAYS_SOFTWARE: '1'
-        run: |
-          set -euo pipefail
-          unset LD_LIBRARY_PATH
-          debug_bundle="$GITHUB_WORKSPACE/build/linux/arm64/debug/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
-
-      - name: Upload Linux native audio evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: native-audio-linux-arm64-evidence
-          path: |
-            build/native-audio/linux-output/*.json
-            build/native-audio/linux-output/source-provenance.txt
-          if-no-files-found: warn
-
-      - name: Create Archive
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          (cd build/linux/arm64/release/bundle && tar -czf \
-            "$GITHUB_WORKSPACE/dist/Iroru-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz" .)
-
-      - name: Upload Linux ARM64 Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: release-assets-linux-arm64
-          path: dist/*
-          if-no-files-found: error
-
   release:
     name: Create GitHub Release
     needs:
       - prepare
       - android
+      - android-verify
       - windows
       - ios-verify
       - ios-build
       - macos
       - linux
-      - linux-arm64
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -798,9 +789,7 @@ jobs:
 
           expected=(
             "Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
-            "Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
             "Iroru-ios-unsigned_${{ needs.prepare.outputs.suffix }}.ipa"
-            "Iroru-linux-arm64_${{ needs.prepare.outputs.suffix }}.tar.gz"
             "Iroru-linux-x64_${{ needs.prepare.outputs.suffix }}.tar.gz"
             "Iroru-macos_${{ needs.prepare.outputs.suffix }}.dmg"
             "Iroru-windows-setup_${{ needs.prepare.outputs.suffix }}.exe"

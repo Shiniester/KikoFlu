@@ -56,7 +56,7 @@ jobs:
     with:
       commit_sha: ${{ inputs.commit_sha || github.sha }}
       android_only: true
-      android_all_abis: true
+      android_all_abis: false
 
   android:
     name: Build Android Beta APKs
@@ -197,6 +197,16 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
+      - name: Cache Android Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-java-17-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}
 
       - name: Get Dependencies
         run: flutter pub get
@@ -226,10 +236,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          flutter build apk --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
-          mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/Iroru-android-universe_${VERSION}.apk"
-          flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          flutter build apk --release --target-platform android-arm64 --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/Iroru-android-arm64-v8a_${VERSION}.apk"
 
@@ -240,16 +247,26 @@ jobs:
         run: |
           set -euo pipefail
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          arm64_apk="dist/Iroru-android-arm64-v8a_${EXPECTED_VERSION}.apk"
+          test -s "$arm64_apk"
+          shopt -s nullglob
+          apks=(dist/*.apk)
+          if [ "${#apks[@]}" -ne 1 ] || [ "${apks[0]}" != "$arm64_apk" ]; then
+            echo "::error::Expected exactly one arm64 Beta APK, found: ${apks[*]}"
+            exit 1
+          fi
+          abi_entries="$(unzip -Z1 "$arm64_apk" | sed -nE 's#^lib/([^/]+)/.*#\1#p' | sort -u)"
+          if [ "$abi_entries" != 'arm64-v8a' ]; then
+            echo "::error::Expected an arm64-only Beta APK, found ABI entries: $abi_entries"
+            exit 1
+          fi
           for apk in dist/*.apk; do
             badging="$("$build_tools_dir/aapt" dump badging "$apk")"
             package_line="$(sed -n '1p' <<< "$badging")"
             package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$package_line")"
             version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$package_line")"
             version_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$package_line")"
-            expected_code="$EXPECTED_BUILD_NUMBER"
-            if [[ "$apk" == *-arm64-v8a_* ]]; then
-              expected_code=$((expected_code + 2000))
-            fi
+            expected_code=$((EXPECTED_BUILD_NUMBER + 2000))
             if [ "$package_name" != 'com.meteor.kikoeruflutter.beta' ] ||
                [ "$version_name" != "$EXPECTED_VERSION" ] ||
                [ "$version_code" != "$expected_code" ]; then
@@ -282,7 +299,7 @@ jobs:
           name: beta-assets-android
           path: release-assets
 
-      - name: Publish Beta with Both APKs
+      - name: Publish Beta with the arm64 APK
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
@@ -293,7 +310,6 @@ jobs:
         run: |
           set -euo pipefail
           assets=(
-            "release-assets/Iroru-android-universe_${VERSION}.apk"
             "release-assets/Iroru-android-arm64-v8a_${VERSION}.apk"
           )
           for asset in "${assets[@]}"; do
@@ -320,7 +336,7 @@ jobs:
           done
           # Resolve drafts through the CLI; the release-by-tag endpoint returns 404 before publication.
           gh release view "$TAG" --json assets --jq '.assets' > "$RUNNER_TEMP/beta-assets.json"
-          jq -e 'length == 2 and all(.[]; .size > 0 and .state == "uploaded")' \
+          jq -e 'length == 1 and all(.[]; .size > 0 and .state == "uploaded")' \
             "$RUNNER_TEMP/beta-assets.json" >/dev/null
           gh release edit "$TAG" --draft=false --prerelease --latest=false
           gh release view "$TAG" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"

@@ -927,6 +927,13 @@ class LibpngMacOSPatchTests(unittest.TestCase):
 
 
 class DarwinBuilderCommandTests(unittest.TestCase):
+    def test_source_checks_run_before_sdk_paths_are_rewritten(self) -> None:
+        builder = (SCRIPT_DIR / "build_darwin.sh").read_text()
+        self.assertLess(
+            builder.index('python3 "$script_dir/test_darwin_native.py"'),
+            builder.index('python3 "$script_dir/rewrite_darwin_sdk_paths.py"'),
+        )
+
     def _builder_commands(self, start: str, end: str | None = None) -> str:
         lines = (SCRIPT_DIR / "build_darwin.sh").read_text().splitlines()
         start_index = next(i for i, line in enumerate(lines) if line.startswith(start))

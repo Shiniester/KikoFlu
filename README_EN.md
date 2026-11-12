@@ -86,7 +86,7 @@
 
 Go to [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) for the latest version.
 
-Platforms: Android (universal / arm64-v8a), iOS (unsigned IPA), Windows (installer / portable), macOS (DMG), Linux (x64 / arm64)
+Platforms: Android (arm64-v8a), iOS (unsigned IPA), Windows (installer / portable), macOS (Apple Silicon, DMG), Linux (x64)
 
 **macOS upgrade:** Iroru.app has a different name from the old KikoFlu.app. Copying Iroru.app does not remove KikoFlu.app. After confirming that Iroru can read your existing data, you can remove KikoFlu.app.
 
@@ -116,7 +116,7 @@ flutter pub get
 Platform builds require pinned native libraries under `build/native-audio/`.
 This directory is ignored by Git. Prepare the artifacts before building:
 
-- Android: run `bash scripts/native_audio/build_android.sh all` on Linux.
+- Android: run `bash scripts/native_audio/build_android.sh arm64` on Linux. Use `all` for the x86_64 simulator.
 - Windows: run `bash scripts/native_audio/build_windows.sh` on Linux, then build the app from the checkout that contains the output directory.
 - iOS and macOS: run `bash scripts/native_audio/build_darwin.sh` on macOS with Xcode 16.4.
 - Linux: follow [the Linux native audio build guide](docs/development/linux-native-audio.md).
@@ -127,7 +127,7 @@ This directory is ignored by Git. Prepare the artifacts before building:
 
 | Platform | Command |
 |----------|---------|
-| Android | `flutter build apk --release --split-per-abi` |
+| Android | `flutter build apk --release --target-platform android-arm64 --split-per-abi` |
 | Windows | `flutter build windows --release` |
 | macOS | `flutter build macos --release` |
 | Linux | [Build native libraries](docs/development/linux-native-audio.md), then run `flutter build linux --release` |

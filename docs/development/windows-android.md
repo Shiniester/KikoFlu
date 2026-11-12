@@ -117,7 +117,7 @@ flutter doctor -v
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --debug
+flutter build apk --debug --target-platform android-x64
 flutter run -d emulator-5554
 ```
 
