@@ -103,6 +103,7 @@ class PlaybackAudioEffectsDialog extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     SingleChildScrollView(
+                      key: const PageStorageKey('audio-effects-bands'),
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [

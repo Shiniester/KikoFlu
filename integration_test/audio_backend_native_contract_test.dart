@@ -164,6 +164,138 @@ void main() {
   }, skip: !supported);
 
   for (final clipped in [false, true]) {
+    for (final initialPosition in [false, true]) {
+      testWidgets('paused ${clipped ? 'chapter' : 'track'} '
+          '${initialPosition ? 'initial position' : 'seek'} keeps its target '
+          'and resumes', (tester) async {
+        await _nativeContract(() async {
+          final directory = await Directory.systemTemp.createTemp(
+            'kiko-backend-seek-',
+          );
+          final source = File('${directory.path}/source.wav');
+          await source.writeAsBytes(
+            gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+          );
+          final player = _player();
+          late NativePlayer native;
+          late StreamSubscription<Duration> nativeSubscription;
+          final nativePositions = <Duration>[];
+          await _configureNativePlayer(player.platformId, (value) async {
+            native = value;
+            nativeSubscription = native.stream.position.listen(
+              nativePositions.add,
+            );
+          });
+          const target = Duration(milliseconds: 2002);
+          const chapterStart = Duration(seconds: 4);
+          final child = AudioSource.uri(source.uri);
+          final playable = clipped
+              ? ClippingAudioSource(
+                  child: child,
+                  start: chapterStart,
+                  end: const Duration(seconds: 20),
+                )
+              : child;
+          try {
+            await player.setAudioSource(
+              playable,
+              initialPosition: initialPosition ? target : null,
+            );
+            if (!initialPosition) await player.seek(target);
+            final rawPosition = await _settledNativePosition(
+              native,
+              target + (clipped ? chapterStart : Duration.zero),
+            );
+            final rawMicros = (double.parse(rawPosition) * 1000000).round();
+            await _until(
+              () => nativePositions.any(
+                (position) => (position.inMicroseconds - rawMicros).abs() <= 1,
+              ),
+            );
+            await Future<void>.delayed(Duration.zero);
+            expect(player.playing, isFalse);
+            expect(
+              player.position,
+              target,
+              reason: 'libmpv time-pos=$rawPosition',
+            );
+            unawaited(player.play());
+            await _until(
+              () =>
+                  player.playbackEvent.updatePosition >=
+                  target + const Duration(milliseconds: 100),
+            );
+            expect(player.playing, isTrue);
+          } finally {
+            await nativeSubscription.cancel();
+            await player.dispose();
+            JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+            await directory.delete(recursive: true);
+          }
+        });
+      }, skip: !supported);
+    }
+  }
+
+  testWidgets('a later seek wins while an indexed seek is pending', (
+    tester,
+  ) async {
+    await _nativeContract(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kiko-backend-overlapping-seek-',
+      );
+      final source = File('${directory.path}/source.wav');
+      await source.writeAsBytes(
+        gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+      );
+      final player = await _configuredPlayer();
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      try {
+        await player.setAudioSource(
+          ConcatenatingAudioSource(
+            children: [
+              AudioSource.uri(source.uri),
+              AudioSource.uri(source.uri),
+            ],
+          ),
+        );
+        unawaited(player.play());
+        await _until(
+          () =>
+              player.playing &&
+              player.playbackEvent.updatePosition >=
+                  const Duration(milliseconds: 100),
+        );
+        final lock = NativePlayer.lock.synchronized(() async {
+          locked.complete();
+          await release.future;
+        });
+        await locked.future;
+        final earlier = player.seek(const Duration(seconds: 1), index: 0);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        final later = player.seek(const Duration(seconds: 3));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        release.complete();
+        await lock;
+        await Future.wait([earlier, later]);
+        await player.pause();
+        expect(player.currentIndex, 0);
+        expect(
+          player.position,
+          greaterThan(const Duration(milliseconds: 2900)),
+        );
+        expect(player.position, lessThan(const Duration(seconds: 4)));
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await player.dispose();
+        JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+        await directory.delete(recursive: true);
+      }
+    });
+  }, skip: !supported);
+
+  for (final clipped in [false, true]) {
     testWidgets(
       'native adapter preserves authenticated ${clipped ? 'clipped ' : ''}HTTP routes and ranges',
       (tester) async {
@@ -1112,6 +1244,31 @@ Future<void> _until(bool Function() condition) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));
   }
+}
+
+Future<String> _settledNativePosition(
+  NativePlayer native,
+  Duration expected,
+) async {
+  final watch = Stopwatch()..start();
+  String? previous;
+  var stable = 0;
+  while (watch.elapsed < const Duration(seconds: 10)) {
+    final seeking = await native.getProperty('seeking');
+    final position = await native.getProperty('time-pos');
+    final seconds = double.tryParse(position);
+    if (seeking == 'no' &&
+        seconds != null &&
+        (seconds * 1000000 - expected.inMicroseconds).abs() < 100000 &&
+        position == previous) {
+      if (++stable == 3) return position;
+    } else {
+      stable = 0;
+    }
+    previous = position;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw TimeoutException('Native seek did not settle near $expected');
 }
 
 Future<void> _nativeContract(

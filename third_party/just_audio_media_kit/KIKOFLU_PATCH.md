@@ -16,3 +16,9 @@ a numeric `PlatformException`, which `just_audio` converts to its normal
 unchanged across Windows, Linux, and macOS.
 
 Keep this patch until the same behavior is available in an upstream release.
+
+## Seek position reporting
+
+libmpv can report a position one audio sample before a seek target. The adapter
+reports the target for a nearby undershoot after a seek or initial load, then
+returns to the native position as playback advances.

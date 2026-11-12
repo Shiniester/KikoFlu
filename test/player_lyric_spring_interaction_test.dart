@@ -2373,6 +2373,246 @@ void main() {
     expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
+  for (final compact in [false, true]) {
+    for (final playing in [false, true]) {
+      for (final reloading in [false, true]) {
+        testWidgets(
+          '${compact ? 'cover' : 'full'} tap keeps its selected line when '
+          '${playing ? 'playing' : 'paused'} '
+          '${reloading ? 'reload' : 'seek'} confirms the target',
+          (tester) async {
+            Duration? requested;
+            final playback = await _mount(
+              tester,
+              lyrics: List.generate(
+                80,
+                (index) => LyricLine(
+                  startTime: Duration(
+                    milliseconds: index * 1000 + (index >= 2 ? 2 : 0),
+                  ),
+                  endTime: Duration(milliseconds: (index + 1) * 1000 + 2),
+                  text: 'spring $index',
+                ),
+              ),
+              display: (playback) {
+                void seek(Duration target) {
+                  requested = target;
+                  if (!reloading) {
+                    playback.discontinuities.add(
+                      PositionDiscontinuity(
+                        PositionDiscontinuityReason.seek,
+                        PlaybackEvent(
+                          currentIndex: 0,
+                          updatePosition: Duration.zero,
+                        ),
+                        PlaybackEvent(currentIndex: 0, updatePosition: target),
+                      ),
+                    );
+                  }
+                  playback.positions.add(target);
+                }
+
+                return compact
+                    ? Center(
+                        child: SizedBox(
+                          height: 220,
+                          child: ThreeLineLyricDisplay(
+                            lineCount: 5,
+                            onSeekRequested: seek,
+                          ),
+                        ),
+                      )
+                    : FullLyricDisplay(
+                        isPortrait: true,
+                        showPlaybackLineControls: true,
+                        onSeekRequested: seek,
+                      );
+              },
+            );
+            if (compact) {
+              playback.discontinuities.stream.listen((_) {});
+              playback.container.read(isPlayingProvider);
+            }
+            playback.states.add(PlayerState(playing, ProcessingState.ready));
+            await tester.pumpAndSettle();
+
+            final previous = find.text('spring 1');
+            final selected = find.text('spring 2');
+            final previousWidth = tester.getRect(previous).width;
+            final selectedWidth = tester.getRect(selected).width;
+            await tester.tap(find.text('spring 2'));
+            await tester.pump();
+            if (playing) {
+              playback.positions.add(
+                requested! + const Duration(milliseconds: 2),
+              );
+              await tester.pump();
+            }
+            playback.positions.add(
+              requested! + const Duration(microseconds: 1),
+            );
+            expect(requested, const Duration(milliseconds: 2002));
+            for (var frame = 0; frame < 25; frame++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              expect(_visibleLyricAlpha(tester, previous), lessThan(0.6));
+              expect(
+                tester.getRect(previous).width,
+                lessThan(previousWidth + 0.5),
+              );
+            }
+            if (playing) {
+              playback.positions.add(const Duration(milliseconds: 2100));
+            }
+            await tester.pumpAndSettle();
+            expect(tester.getRect(selected).width, greaterThan(selectedWidth));
+            expect(_visibleLyricAlpha(tester, selected), closeTo(1, 0.01));
+            if (!compact) _expectAnchor(tester, 'spring 2');
+          },
+        );
+      }
+    }
+  }
+
+  for (final playing in [false, true]) {
+    testWidgets(
+      'subtitles one millisecond apart follow their exact start times '
+      'when ${playing ? 'playing' : 'paused'}',
+      (tester) async {
+        final playback = await _mount(
+          tester,
+          position: const Duration(microseconds: 999999),
+          lyrics: [
+            LyricLine(
+              startTime: Duration.zero,
+              endTime: const Duration(seconds: 1),
+              text: 'first',
+            ),
+            LyricLine(
+              startTime: const Duration(seconds: 1),
+              endTime: const Duration(milliseconds: 1001),
+              text: 'short',
+            ),
+            LyricLine(
+              startTime: const Duration(milliseconds: 1001),
+              endTime: const Duration(seconds: 2),
+              text: 'next',
+            ),
+          ],
+        );
+        playback.states.add(PlayerState(playing, ProcessingState.ready));
+        await tester.pump();
+        expect(playback.container.read(currentLyricIndexProvider), 0);
+        for (final position in [
+          const Duration(seconds: 1),
+          const Duration(microseconds: 1000500),
+          const Duration(microseconds: 1000999),
+        ]) {
+          playback.positions.add(position);
+          await tester.pump();
+          expect(playback.container.read(currentLyricIndexProvider), 1);
+        }
+        playback.positions.add(const Duration(milliseconds: 1001));
+        await tester.pump();
+        expect(playback.container.read(currentLyricIndexProvider), 2);
+      },
+    );
+  }
+
+  testWidgets('a confirmed seek does not advance a short subtitle', (
+    tester,
+  ) async {
+    final playback = await _mount(
+      tester,
+      lyrics: [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'first',
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(milliseconds: 1001),
+          text: 'short',
+        ),
+        LyricLine(
+          startTime: const Duration(milliseconds: 1001),
+          endTime: const Duration(seconds: 2),
+          text: 'next',
+        ),
+      ],
+    );
+    playback.discontinuities.add(_jump(0, 1));
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 1);
+
+    playback.positions.add(const Duration(microseconds: 1000999));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 1);
+    playback.positions.add(const Duration(milliseconds: 1001));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 2);
+
+    playback.positions.add(const Duration(microseconds: 999999));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 0);
+
+    playback.discontinuities.add(_jump(0, 1));
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 1);
+    playback.discontinuities.add(_jump(1, 0, loop: true));
+    playback.positions.add(const Duration(microseconds: 999999));
+    await tester.pump();
+    expect(playback.container.read(currentLyricIndexProvider), 0);
+  });
+
+  testWidgets('a paused seek survives switching translated subtitles', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      2,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'original $index',
+      ),
+    );
+    final playback = await _mount(
+      tester,
+      lyricState: LyricState(
+        lyrics: lyrics,
+        translatedLyrics: [
+          for (final line in lyrics)
+            line.copyWith(text: 'translated ${line.text}'),
+        ],
+        trackKey: 'first track',
+      ),
+    );
+    playback.states.add(PlayerState(false, ProcessingState.ready));
+    playback.discontinuities.add(_jump(0, 1));
+    playback.positions.add(const Duration(seconds: 1));
+    await tester.pump();
+    playback.positions.add(const Duration(microseconds: 1000001));
+    await tester.pump();
+    expect(playback.container.read(currentLyricTextProvider), 'original 1');
+
+    final controller =
+        playback.container.read(lyricControllerProvider.notifier) as _Lyrics;
+    final state = playback.container.read(lyricControllerProvider);
+    controller.replace(state.copyWith(showTranslated: true));
+    await tester.pump();
+    expect(
+      playback.container.read(currentLyricTextProvider),
+      'translated original 1',
+    );
+
+    controller.replace(state.copyWith(trackKey: 'second track'));
+    playback.positions.add(const Duration(microseconds: 999979));
+    await tester.pump();
+    expect(playback.container.read(currentLyricTextProvider), 'original 0');
+  });
+
   testWidgets('a paused tap keeps its temporary target and stays paused', (
     tester,
   ) async {

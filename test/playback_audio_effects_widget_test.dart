@@ -149,6 +149,74 @@ void main() {
     );
   });
 
+  testWidgets(
+    'equalizer controls remain visible after reopening',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final container = _container();
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_testApp(container, locale: const Locale('zh')));
+      await _openEffects(tester);
+
+      final labels = S.of(tester.element(find.byKey(_sheetSurfaceKey)));
+      final equalizerTitle = find.text(labels.audioEffectsEqualizer).first;
+      final band = find.byKey(const ValueKey('audio-effects-band-0'));
+      expect(band.hitTestable(), findsOneWidget);
+
+      await tester.tap(equalizerTitle);
+      await tester.pumpAndSettle();
+      expect(band, findsNothing);
+      await tester.tap(equalizerTitle);
+      await tester.pumpAndSettle();
+
+      expect(band.hitTestable(), findsOneWidget);
+      await tester.drag(band, const Offset(0, -35));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(audioEffectsSettingsProvider).gains.first,
+        greaterThan(0),
+      );
+
+      final lastBand = find.byKey(const ValueKey('audio-effects-band-9'));
+      await tester.ensureVisible(lastBand);
+      await tester.pumpAndSettle();
+      expect(lastBand.hitTestable(), findsOneWidget);
+      await tester.ensureVisible(equalizerTitle);
+      await tester.tap(equalizerTitle);
+      await tester.pumpAndSettle();
+      await tester.tap(equalizerTitle);
+      await tester.pumpAndSettle();
+      expect(lastBand.hitTestable(), findsOneWidget);
+      expect(
+        container.read(audioEffectsSettingsProvider).gains.first,
+        greaterThan(0),
+      );
+
+      for (final (label, dropdown) in [
+        (
+          labels.audioEffectsChannel,
+          find.byType(DropdownButtonFormField<AudioChannelMode>),
+        ),
+        (
+          labels.audioEffectsScene,
+          find.byType(DropdownButtonFormField<AudioScene>),
+        ),
+      ]) {
+        final title = find.text(label).first;
+        await tester.ensureVisible(title);
+        await tester.tap(title);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(dropdown);
+        await tester.pumpAndSettle();
+        expect(dropdown.hitTestable(), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.android}),
+  );
+
   testWidgets('long preset remains visible with enlarged Japanese text', (
     tester,
   ) async {

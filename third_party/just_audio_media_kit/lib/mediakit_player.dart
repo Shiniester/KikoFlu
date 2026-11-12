@@ -15,6 +15,7 @@ import 'src/set_property.dart';
 /// An [AudioPlayerPlatform] which wraps `package:media_kit`'s [Player]
 class MediaKitPlayer extends AudioPlayerPlatform {
   static const kErrorCode = 1;
+  static const _seekPositionTolerance = Duration(microseconds: 500);
 
   /// `package:media_kit`'s [Player]
   late final Player _player;
@@ -59,6 +60,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
 
   /// Chapter-relative [LoadRequest.initialPosition] or [seek] queued until duration is available.
   Duration? _setPosition;
+  Duration? _seekTarget;
+  bool _sawSeekUndershoot = false;
 
   Media? get _currentMedia {
     var medias = _player.state.playlist.medias;
@@ -122,10 +125,26 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.position.listen((position) {
         if (_waitingForNextIndex) return;
+        final previousPosition = _position;
         _position = position;
         final start = _currentMedia?.start;
         if (start != null) _position -= start;
         if (_position < Duration.zero) _position = Duration.zero;
+        final target = _seekTarget;
+        if (target != null) {
+          if (_position < target &&
+              target - _position <= _seekPositionTolerance) {
+            // libmpv can settle one audio sample before the seek target.
+            _position = target;
+            _sawSeekUndershoot = true;
+          } else if ((_sawSeekUndershoot &&
+                  _position >= target + _seekPositionTolerance) ||
+              (_position < target - _seekPositionTolerance &&
+                  previousPosition > target + _seekPositionTolerance)) {
+            _seekTarget = null;
+            _sawSeekUndershoot = false;
+          }
+        }
         _updateClippedReadiness();
         _updatePlaybackEvent();
       }),
@@ -206,6 +225,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
             // is not looping (technically this shouldn't be fired if the player is looping)
             _player.state.playlistMode == PlaylistMode.none) {
           _bufferedPosition = _position = Duration.zero;
+          _seekTarget = null;
+          _sawSeekUndershoot = false;
           _processingState = ProcessingStateMessage.completed;
         }
         _errorCode = null;
@@ -232,6 +253,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         if (_currentIndex != playlist.index) {
           _waitingForNextIndex = false;
           _bufferedPosition = _position = Duration.zero;
+          _seekTarget = null;
+          _sawSeekUndershoot = false;
           _currentIndex = playlist.index;
           _processingState = _player.state.buffering
               ? ProcessingStateMessage.buffering
@@ -401,10 +424,12 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   @override
   Future<LoadResponse> load(LoadRequest request) async {
     _logger.finest('load(${request.toMap()})');
-    ++_loadGeneration;
+    final generation = ++_loadGeneration;
     _waitingForNextIndex = false;
     _mediaOpened = false;
     _setPosition = null;
+    _seekTarget = request.initialPosition;
+    _sawSeekUndershoot = false;
     final pendingLoad = MediaKitPendingLoad();
     _loadCompleter = pendingLoad;
     _currentIndex = request.initialIndex ?? 0;
@@ -439,6 +464,12 @@ class MediaKitPlayer extends AudioPlayerPlatform {
 
       _updatePlaybackEvent();
       return LoadResponse(duration: await pendingLoad.future);
+    } catch (_) {
+      if (_loadGeneration == generation) {
+        _seekTarget = null;
+        _sawSeekUndershoot = false;
+      }
+      rethrow;
     } finally {
       if (identical(_loadCompleter, pendingLoad)) _loadCompleter = null;
     }
@@ -506,6 +537,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     _logger.finest('seek(${request.toMap()})');
     final generation = ++_loadGeneration;
     _waitingForNextIndex = false;
+    _seekTarget = null;
+    _sawSeekUndershoot = false;
     final index = request.index;
     final native = _nativePlayer;
     if (index != null && !_playing && native != null) {
@@ -547,18 +580,28 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       await _player.jump(index);
       if (!_playing) await _player.pause();
     }
+    if (_loadGeneration != generation) return SeekResponse();
 
     final position = request.position;
     if (position != null) {
+      _seekTarget = position;
       _position = position;
 
       final start = _currentMedia?.start;
       var nativePosition = position;
       if (start != null) nativePosition += start;
-      if (_player.state.duration > Duration.zero) {
-        await _player.seek(nativePosition);
-      } else {
-        _setPosition = position;
+      try {
+        if (_player.state.duration > Duration.zero) {
+          await _player.seek(nativePosition);
+        } else {
+          _setPosition = position;
+        }
+      } catch (_) {
+        if (_loadGeneration == generation) {
+          _seekTarget = null;
+          _sawSeekUndershoot = false;
+        }
+        rethrow;
       }
     } else {
       _position = Duration.zero;
