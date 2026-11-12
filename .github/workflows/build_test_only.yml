@@ -32,13 +32,22 @@ permissions:
 jobs:
   native-audio:
     name: Native Audio Libraries
-    if: ${{ !inputs.native_audio_darwin_only }}
+    if: ${{ !inputs.native_audio_darwin_only && (inputs.native_audio_only || !inputs.native_audio_android_only) }}
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
-      windows_only: ${{ inputs.native_audio_only == true && inputs.native_audio_windows_only == true }}
+      windows_only: ${{ !inputs.native_audio_only || inputs.native_audio_windows_only == true }}
       android_only: ${{ inputs.native_audio_android_only == true }}
-      android_all_abis: ${{ !inputs.native_audio_only || inputs.native_audio_all_abis }}
+      android_all_abis: ${{ inputs.native_audio_all_abis == true }}
+
+  native-audio-android:
+    name: Android Native Audio Libraries
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      android_only: true
+      android_all_abis: true
 
   native-audio-darwin:
     name: Darwin Native Audio Libraries
@@ -136,7 +145,7 @@ jobs:
   android:
     name: Android Build
     if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
-    needs: native-audio
+    needs: native-audio-android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -283,15 +292,17 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Verify packaged Android audio effects
+        timeout-minutes: 15
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            flutter test --no-pub -d emulator-5554 integration_test/audio_effects_production_test.dart
-            flutter test --no-pub -d emulator-5554 integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true
+          script: >-
+            flutter test --no-pub -d emulator-5554
+            --dart-define=KIKOFLU_PERFORMANCE=true
+            integration_test/android_audio_verification.dart
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
