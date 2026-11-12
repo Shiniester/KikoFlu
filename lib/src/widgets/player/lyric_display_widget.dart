@@ -201,19 +201,26 @@ class _LyricSpringMotion {
   final double delay;
   final SpringDescription positionSpring;
   final SpringSimulation positionSimulation;
+  double? _sampledAt;
+  late _LyricSpringSample _lastSample;
 
   _LyricSpringSample sample(double now) {
+    if (_sampledAt == now) return _lastSample;
+
     final elapsed = now - startAt - delay;
     if (elapsed <= 0) {
-      return (y: startY, velocityY: 0, moving: false, done: false);
+      _lastSample = (y: startY, velocityY: 0, moving: false, done: false);
+    } else {
+      final positionDone = positionSimulation.isDone(elapsed);
+      _lastSample = (
+        y: positionSimulation.x(elapsed),
+        velocityY: positionDone ? 0 : positionSimulation.dx(elapsed),
+        moving: !positionDone,
+        done: positionDone,
+      );
     }
-    final positionDone = positionSimulation.isDone(elapsed);
-    return (
-      y: positionSimulation.x(elapsed),
-      velocityY: positionDone ? 0 : positionSimulation.dx(elapsed),
-      moving: !positionDone,
-      done: positionDone,
-    );
+    _sampledAt = now;
+    return _lastSample;
   }
 }
 
@@ -253,8 +260,12 @@ class _LyricEmphasisMotion {
   final double delay;
   final SpringSimulation progressSimulation;
   double _progress = 0;
+  double? _sampledAt;
+  late _LyricEmphasisSample _lastSample;
 
   _LyricEmphasisSample sample(double now) {
+    if (_sampledAt == now) return _lastSample;
+
     final elapsed = now - startAt - delay;
     if (elapsed > 0) {
       final done = progressSimulation.isDone(elapsed);
@@ -263,7 +274,8 @@ class _LyricEmphasisMotion {
           : progressSimulation.x(elapsed).clamp(0.0, 1.0).toDouble();
       _progress = math.max(_progress, progress);
     }
-    return (
+    _sampledAt = now;
+    return _lastSample = (
       opacity: startOpacity + (targetOpacity - startOpacity) * _progress,
       scale: startScale + (targetScale - startScale) * _progress,
       done: _progress >= 1,

@@ -133,11 +133,22 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         if (_seekTarget != null && _seekCommandGeneration == _loadGeneration) {
           return;
         }
+        final media = _currentMedia;
+        final relative = position - (media?.start ?? Duration.zero);
+        final nextPosition =
+            relative < Duration.zero ? Duration.zero : relative;
+        final confirmation = _positionConfirmation;
+        final floor = confirmation?.streamPositionFloor;
+        if (floor != null) {
+          // The property read can finish before older stream samples arrive.
+          final sameMedia = identical(confirmation!.media, media);
+          if (sameMedia && nextPosition < floor) return;
+          if (!sameMedia || nextPosition > floor + _seekPositionTolerance) {
+            confirmation.streamPositionFloor = null;
+          }
+        }
         final previousPosition = _position;
-        _position = position;
-        final start = _currentMedia?.start;
-        if (start != null) _position -= start;
-        if (_position < Duration.zero) _position = Duration.zero;
+        _position = nextPosition;
         final target = _seekTarget;
         if (target != null) {
           if (_position < target &&
@@ -215,6 +226,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         _dataController.add(PlayerDataMessage(volume: volume / 100.0));
       }),
       _player.stream.completed.listen((completed) {
+        if (completed) _positionConfirmation?.streamPositionFloor = null;
         if (!completed &&
             _processingState == ProcessingStateMessage.completed) {
           _processingState = _player.state.buffering
@@ -259,6 +271,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.playlist.listen((playlist) {
         if (_currentIndex != playlist.index) {
+          _positionConfirmation?.streamPositionFloor = null;
           _waitingForNextIndex = false;
           _bufferedPosition = _position = Duration.zero;
           _seekTarget = null;
@@ -438,13 +451,20 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     return difference < Duration.zero ? confirmation.target : chapterPosition;
   }
 
-  bool _nativePositionShowsSeekDisplacement(
+  bool _nativePositionAllowsPlaybackAdvance(
     _PositionConfirmation confirmation,
     String rawPosition,
   ) {
     final baseline = confirmation.baselinePosition;
     final seconds = double.tryParse(rawPosition);
     if (baseline == null || seconds == null || !seconds.isFinite) return false;
+
+    final target =
+        confirmation.target + (confirmation.media?.start ?? Duration.zero);
+    // A nearby seek can finish between polls without a detectable displacement.
+    if ((target - baseline).abs() <= _nativePositionSampleTolerance) {
+      return true;
+    }
 
     final position = Duration(microseconds: (seconds * 1000000).round());
     final displacement =
@@ -491,16 +511,17 @@ class MediaKitPlayer extends AudioPlayerPlatform {
           if (afterPosition == 'yes') {
             sawSeeking = true;
           } else if (afterPosition == 'no') {
-            final displacement = _nativePositionShowsSeekDisplacement(
-              confirmation,
-              rawPosition,
-            );
             final position = _validatedNativePosition(
               confirmation,
               rawPosition,
-              allowPlaybackAdvance: sawSeeking || displacement,
+              allowPlaybackAdvance: sawSeeking ||
+                  _nativePositionAllowsPlaybackAdvance(
+                      confirmation, rawPosition),
             );
             if (position != null) {
+              if (!_player.state.completed) {
+                confirmation.streamPositionFloor = position;
+              }
               _publishPositionConfirmation(confirmation, position);
               confirmation.complete(position);
               return;
@@ -988,6 +1009,7 @@ class _PositionConfirmation {
   Timer? _timeoutTimer;
   Media? media;
   Duration? baselinePosition;
+  Duration? streamPositionFloor;
   bool playingAtDispatch = false;
   double rateAtDispatch = 1.0;
 

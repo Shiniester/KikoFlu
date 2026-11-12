@@ -27,3 +27,8 @@ While an explicit seek waits for the native command, libmpv can still report
 positions from before the seek. The adapter holds the target during that wait.
 The vendored `just_audio` also suspends position extrapolation until the latest
 seek request returns.
+
+A short seek during playback can finish before the first native position poll.
+The adapter accepts a settled position within the expected playback advance.
+After confirmation, it discards positions earlier than the receipt until the
+same audio source's position stream catches up.

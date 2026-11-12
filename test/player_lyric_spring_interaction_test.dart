@@ -197,6 +197,85 @@ void main() {
     }
   }
 
+  for (final (from, to) in [(5, 65), (65, 5)]) {
+    testWidgets('playing tap keeps the selected subtitle from $from to $to', (
+      tester,
+    ) async {
+      final origin = Duration(seconds: from);
+      final target = Duration(seconds: to);
+      final completion = Completer<void>();
+      Duration? requested;
+      PlaybackPositionState snapshot(
+        Duration position, {
+        Duration? preview,
+        int? pending,
+        int confirmed = 0,
+      }) => (
+        trackId: 'test-track',
+        position: position,
+        pendingJump: pending,
+        previewPosition: preview,
+        confirmedJump: confirmed,
+      );
+
+      final playback = await _mount(
+        tester,
+        position: origin,
+        positionSnapshot: snapshot(origin),
+        display: (playback) => FullLyricDisplay(
+          isPortrait: true,
+          showPlaybackLineControls: true,
+          onSeekRequested: (position) {
+            requested = position;
+            playback.publishPlaybackPosition(
+              snapshot(origin, preview: position, pending: 1),
+            );
+            return completion.future;
+          },
+        ),
+      );
+      final selected = find.text('spring $to');
+      final previous = find.text('spring ${to - 1}');
+      await tester.scrollUntilVisible(
+        selected,
+        from < to ? 600 : -600,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('full-lyric-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tap(selected);
+      expect(requested, target);
+
+      playback.discontinuities.add(_jump(from, to));
+      playback.positions.add(target - const Duration(milliseconds: 1));
+      for (var frame = 0; frame < 12; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (previous.evaluate().isNotEmpty) {
+          expect(_visibleLyricAlpha(tester, previous), lessThan(0.6));
+        }
+      }
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring $to');
+
+      playback.publishPlaybackPosition(snapshot(target, confirmed: 1));
+      completion.complete();
+      playback.positions.add(target - const Duration(milliseconds: 2));
+      for (var frame = 0; frame < 12; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        _expectAnchor(tester, 'spring $to');
+        expect(_visibleLyricAlpha(tester, previous), lessThan(0.6));
+        expect(_visibleLyricAlpha(tester, selected), closeTo(1, 0.01));
+      }
+
+      playback.publishPlaybackPosition(
+        snapshot(target + const Duration(seconds: 1), confirmed: 1),
+      );
+      await tester.pumpAndSettle();
+      _expectAnchor(tester, 'spring ${to + 1}');
+    });
+  }
+
   testWidgets('lyric pixels stay stable when browsing and returning', (
     tester,
   ) async {
