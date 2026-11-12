@@ -4700,6 +4700,9 @@ class SZh extends S {
   String get cancelAudioSliceStart => '取消起点';
 
   @override
+  String get audioSliceStartCanceled => '已取消起点';
+
+  @override
   String audioSlicePendingStart(String time) {
     return '起点：$time';
   }
@@ -9611,6 +9614,9 @@ class SZhHant extends SZh {
 
   @override
   String get cancelAudioSliceStart => '取消起點';
+
+  @override
+  String get audioSliceStartCanceled => '已取消起點';
 
   @override
   String audioSlicePendingStart(String time) {

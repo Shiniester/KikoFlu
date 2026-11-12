@@ -2430,7 +2430,6 @@ void main() {
               },
             );
             if (compact) {
-              playback.discontinuities.stream.listen((_) {});
               playback.container.read(isPlayingProvider);
             }
             playback.states.add(PlayerState(playing, ProcessingState.ready));

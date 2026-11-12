@@ -99,6 +99,117 @@ void main() {
     },
   );
 
+  test('a cut within 500 ms cancels only the pending start', () async {
+    await service.updateQueue([_track('slice-cancel-window')]);
+    final trackKey = service.sliceState.trackKey!;
+    const saved = AudioSlice(startMs: 1000, endMs: 2000);
+    expect(await service.saveSlice(trackKey: trackKey, slice: saved), isTrue);
+
+    for (final offsetMs in [0, 500, -500]) {
+      expect(
+        await service.markSlice(position: const Duration(seconds: 30)),
+        isTrue,
+      );
+      expect(
+        await service.markSlice(
+          position: Duration(milliseconds: 30000 + offsetMs),
+        ),
+        isTrue,
+      );
+      expect(service.sliceState.pendingStartMs, isNull);
+      expect(service.sliceState.slices, [saved]);
+    }
+
+    await service.markSlice(position: const Duration(seconds: 40));
+    expect(
+      await service.markSlice(position: const Duration(milliseconds: 40501)),
+      isTrue,
+    );
+    expect(service.sliceState.slices, [
+      saved,
+      const AudioSlice(startMs: 40000, endMs: 40501),
+    ]);
+
+    await service.markSlice(position: const Duration(seconds: 50));
+    expect(
+      await service.markSlice(position: const Duration(milliseconds: 49499)),
+      isFalse,
+    );
+    expect(service.sliceState.pendingStartMs, 50000);
+    expect(service.sliceState.slices, [
+      saved,
+      const AudioSlice(startMs: 40000, endMs: 40501),
+    ]);
+  });
+
+  test('an earlier write cannot remove a replacement start', () async {
+    await service.dispose();
+    player = ControlledPlayer();
+    final store = _DeferredSliceStore();
+    addTearDown(() {
+      if (!store.releaseWrite.isCompleted) store.releaseWrite.complete();
+    });
+    service = AudioPlayerService.forTesting(
+      player,
+      sessionStore: sessions,
+      sliceStore: store,
+    );
+    await service.updateQueue([_track('pending-start')]);
+
+    const start = Duration(seconds: 10);
+    expect(await service.markSlice(position: start), isTrue);
+    final saving = service.markSlice(position: const Duration(seconds: 20));
+    await store.writeStarted.future;
+    final queuedSave = service.saveSlice(
+      trackKey: service.sliceState.trackKey!,
+      slice: const AudioSlice(startMs: 30000, endMs: 40000),
+    );
+    expect(await service.markSlice(position: start), isTrue);
+    expect(await service.markSlice(position: start), isTrue);
+
+    store.releaseWrite.complete();
+    expect(await saving, isTrue);
+    expect(await queuedSave, isTrue);
+    expect(service.sliceState.pendingStartMs, 10000);
+    expect(service.sliceState.slices, const [
+      AudioSlice(startMs: 10000, endMs: 20000),
+      AudioSlice(startMs: 30000, endMs: 40000),
+    ]);
+  });
+
+  test('delete and clear cannot remove a replacement start', () async {
+    const saved = AudioSlice(startMs: 1000, endMs: 2000);
+    const start = Duration(seconds: 10);
+    for (final delete in [true, false]) {
+      await service.dispose();
+      player = ControlledPlayer();
+      final store = _DeferredSliceStore(initial: const [saved]);
+      addTearDown(() {
+        if (!store.releaseWrite.isCompleted) store.releaseWrite.complete();
+      });
+      service = AudioPlayerService.forTesting(
+        player,
+        sessionStore: sessions,
+        sliceStore: store,
+      );
+      await service.updateQueue([_track('pending-start')]);
+      expect(await service.markSlice(position: start), isTrue);
+
+      final key = service.sliceState.trackKey!;
+      final deleting = delete
+          ? service.deleteSlice(key, saved)
+          : service.clearSlices(key);
+      await store.writeStarted.future;
+      expect(await service.markSlice(position: start), isTrue);
+      expect(await service.markSlice(position: start), isTrue);
+      store.releaseWrite.complete();
+
+      expect(await deleting, isTrue);
+      expect(service.sliceState.pendingStartMs, 10000);
+      expect(service.sliceState.slices, isEmpty);
+    }
+  });
+
   test(
     'marking a slice can use subtitle times without seeking playback',
     () async {
@@ -523,6 +634,27 @@ void main() {
     );
     expect(store.writeCount, 0);
   });
+}
+
+class _DeferredSliceStore implements AudioSliceStore {
+  _DeferredSliceStore({this.initial = const []});
+
+  final List<AudioSlice> initial;
+  final writeStarted = Completer<void>();
+  final releaseWrite = Completer<void>();
+
+  @override
+  Future<List<AudioSlice>> load(String trackKey) async => initial;
+
+  @override
+  Future<bool> write(String trackKey, List<AudioSlice> slices) async {
+    if (!writeStarted.isCompleted) writeStarted.complete();
+    await releaseWrite.future;
+    return true;
+  }
+
+  @override
+  Future<bool> clear(String trackKey) => write(trackKey, const []);
 }
 
 class _FailingSliceStore implements AudioSliceStore {

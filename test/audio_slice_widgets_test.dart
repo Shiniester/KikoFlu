@@ -80,7 +80,7 @@ void main() {
     await tester.runAsync(() => tester.tap(cut));
     await tester.pumpAndSettle();
     expect(service.sliceState.pendingStartMs, 20000);
-    expect(find.byTooltip('Mark slice end'), findsOneWidget);
+    expect(find.byTooltip('Cancel slice start'), findsOneWidget);
 
     player.position = const Duration(seconds: 120);
     await tester.runAsync(() => tester.tap(cut));
@@ -93,7 +93,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Cancel slice start'));
+    await tester.tap(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Start: 02:30.000'),
+        matching: find.byTooltip('Cancel slice start'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(service.sliceState.pendingStartMs, isNull);
     expect(find.text('00:20.000 – 02:00.000'), findsOneWidget);
@@ -131,6 +136,156 @@ void main() {
     expect(service.sliceState.slices.single.startMs, 10000);
     expect(service.sliceState.slices.single.endMs, 30000);
     expect(player.position, const Duration(seconds: 90));
+  });
+
+  testWidgets('manager cut cancels the shared start inside 500 ms', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    const saved = AudioSlice(startMs: 1000, endMs: 2000);
+    await tester.runAsync(
+      () => service.saveSlice(
+        trackKey: service.sliceState.trackKey!,
+        slice: saved,
+      ),
+    );
+    player.position = const Duration(seconds: 20);
+    await _pumpControls(tester, service, const Size(390, 844));
+
+    await tester.runAsync(
+      () => tester.tap(
+        find.byKey(const ValueKey('player-slice-cut-button')).first,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(service.sliceState.pendingStartMs, 20000);
+
+    player.position = const Duration(milliseconds: 20501);
+    player.positions.add(player.position);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
+    await tester.pumpAndSettle();
+    final managerCut = find
+        .byKey(const ValueKey('player-slice-cut-button'))
+        .last;
+    expect(tester.widget<IconButton>(managerCut).tooltip, 'Mark slice end');
+
+    player.position = const Duration(milliseconds: 20500);
+    player.positions.add(player.position);
+    await tester.pump();
+    expect(tester.widget<IconButton>(managerCut).tooltip, 'Cancel slice start');
+    await tester.runAsync(() => tester.tap(managerCut));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(service.sliceState.pendingStartMs, isNull);
+    expect(service.sliceState.slices, [saved]);
+    expect(find.text('Slice start canceled'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('player-slice-cut-button')).first,
+          )
+          .tooltip,
+      'Mark slice start',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subtitle cut cancellation uses its supplied timestamp', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    const saved = AudioSlice(startMs: 1000, endMs: 2000);
+    await tester.runAsync(
+      () => service.saveSlice(
+        trackKey: service.sliceState.trackKey!,
+        slice: saved,
+      ),
+    );
+    player.position = const Duration(seconds: 90);
+    await _pumpControls(
+      tester,
+      service,
+      const Size(390, 844),
+      slicePosition: const Duration(seconds: 10),
+    );
+    final cut = find.byKey(const ValueKey('player-slice-cut-button'));
+    await tester.runAsync(() => tester.tap(cut));
+    await tester.pumpAndSettle();
+    expect(service.sliceState.pendingStartMs, 10000);
+
+    await _pumpControls(
+      tester,
+      service,
+      const Size(390, 844),
+      slicePosition: const Duration(milliseconds: 10500),
+    );
+    expect(tester.widget<IconButton>(cut).tooltip, 'Cancel slice start');
+    await tester.runAsync(() => tester.tap(cut));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(service.sliceState.pendingStartMs, isNull);
+    expect(service.sliceState.slices, [saved]);
+    expect(find.text('Slice start canceled'), findsOneWidget);
+    expect(player.position, const Duration(seconds: 90));
+  });
+
+  testWidgets('a stale cut button cannot mark the next track', (tester) async {
+    await tester.runAsync(createService);
+    player.position = const Duration(seconds: 20);
+    await _pumpControls(tester, service, const Size(390, 844));
+    final cut = find.byKey(const ValueKey('player-slice-cut-button'));
+    await tester.runAsync(() => tester.tap(cut));
+    await tester.pumpAndSettle();
+    final oldAction = tester.widget<IconButton>(cut).onPressed!;
+
+    player.holdNextLoad = true;
+    late Future<void> switching;
+    await tester.runAsync(() async {
+      switching = service.updateQueue([
+        _track.copyWith(id: 'next-track', hash: 'next-track-hash'),
+      ], autoplay: false);
+      await until(() => player.pendingLoad != null);
+      oldAction();
+    });
+    await tester.pump();
+    expect(find.textContaining('Could not save the slice'), findsNothing);
+    await tester.runAsync(() async {
+      player.finishLoad();
+      await switching;
+    });
+    await tester.runAsync(() async {
+      oldAction();
+    });
+    await tester.pumpAndSettle();
+
+    expect(service.currentTrack?.id, 'next-track');
+    expect(service.sliceState.pendingStartMs, isNull);
+    expect(find.text('Slice start canceled'), findsNothing);
+    expect(find.textContaining('Could not save the slice'), findsNothing);
+  });
+
+  test('slice cancellation notice has the confirmed translations', () async {
+    expect(
+      (await S.delegate.load(const Locale('zh'))).audioSliceStartCanceled,
+      '已取消起点',
+    );
+    expect(
+      (await S.delegate.load(
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      )).audioSliceStartCanceled,
+      '已取消起點',
+    );
+    expect(
+      (await S.delegate.load(const Locale('en'))).audioSliceStartCanceled,
+      'Slice start canceled',
+    );
+    expect(
+      (await S.delegate.load(const Locale('ja'))).audioSliceStartCanceled,
+      '開始位置を取り消しました',
+    );
   });
 
   testWidgets(

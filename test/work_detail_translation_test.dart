@@ -10,6 +10,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
+import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
@@ -17,6 +19,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -28,6 +31,7 @@ import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/translation_toggle_button.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _NoImageCache extends Fake implements BaseCacheManager {
@@ -86,6 +90,40 @@ class _OnlineApi extends KikoeruApiService {
     int id, {
     bool forceRefresh = false,
   }) async => tracks;
+}
+
+class _UnusedAudioPlayerService extends Fake implements AudioPlayerService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.isMethod &&
+        invocation.memberName == #updatePreloadThreshold) {
+      return null;
+    }
+    if (invocation.isMethod) return Future<void>.value();
+    return super.noSuchMethod(invocation);
+  }
+}
+
+class _CapturingAudioPlayerController extends AudioPlayerController {
+  _CapturingAudioPlayerController(super.service, super.ref);
+
+  List<AudioTrack>? queuedTracks;
+  int? startIndex;
+  Work? queuedWork;
+  AudioTapPlaylistMode? playlistMode;
+
+  @override
+  Future<void> playTracks(
+    List<AudioTrack> tracks, {
+    int startIndex = 0,
+    Work? work,
+    AudioTapPlaylistMode? playlistMode,
+  }) async {
+    queuedTracks = List<AudioTrack>.of(tracks);
+    this.startIndex = startIndex;
+    queuedWork = work;
+    this.playlistMode = playlistMode;
+  }
 }
 
 String _cache(String translation) => jsonEncode({
@@ -1134,4 +1172,201 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final online in [false, true]) {
+    for (final automatic in [false, true]) {
+      testWidgets(
+        'playback queue keeps translated names and original identity online=$online auto=$automatic',
+        (tester) async {
+          const workId = 818;
+          const title = '作品タイトル';
+          const translatedWork = 'Translated work';
+          const audioTitle = '音声.wav';
+          const translatedAudio = 'Translated audio.wav';
+          const audioHash = 'audio-track-hash';
+          const mediaUrl = 'https://media.example.invalid/work/audio/音声.wav';
+          final directory = Directory.systemTemp.createTempSync(
+            'detail-queue-translation-',
+          );
+          File('${directory.path}/$audioTitle').writeAsBytesSync([]);
+          final audioFile = {
+            'type': 'audio',
+            'title': audioTitle,
+            'hash': audioHash,
+            'mediaStreamUrl': mediaUrl,
+          };
+          SharedPreferences.setMockInitialValues({
+            'custom_download_path': directory.path,
+            'locale_language': 'en',
+            TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+                TranslationTargetLanguage.english.value,
+            AutoTranslateWorkDetailsNotifier.preferenceKey: automatic,
+            AutoSaveTranslatedLyricsNotifier.preferenceKey: false,
+            'translation_cache_ja_en_${title.hashCode}': _cache(
+              translatedWork,
+            ),
+            'translation_cache_ja_en_${audioTitle.hashCode}': _cache(
+              translatedAudio,
+            ),
+          });
+          await StorageService.initCritical(
+            preferences: await SharedPreferences.getInstance(),
+          );
+
+          final api = _OnlineApi(
+            title,
+            lang: 'JPN',
+            tracks: [audioFile],
+          );
+          late final _CapturingAudioPlayerController audioController;
+          final container = ProviderContainer(
+            overrides: [
+              authProvider.overrideWith((ref) => _Auth()),
+              audioPlayerControllerProvider.overrideWith((ref) {
+                audioController = _CapturingAudioPlayerController(
+                  _UnusedAudioPlayerService(),
+                  ref,
+                );
+                return audioController;
+              }),
+              kikoeruApiServiceProvider.overrideWithValue(api),
+              currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+            ],
+          );
+          container.read(audioPlayerControllerProvider.notifier);
+          await container.read(audioTapPlaylistModeProvider.notifier).getMode();
+          addTearDown(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            container.dispose();
+            await tester.runAsync(() => directory.delete(recursive: true));
+          });
+
+          const work = Work(id: workId, title: title, lang: 'JPN');
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                locale: const Locale('en'),
+                theme: AppTheme.lightTheme(null),
+                localizationsDelegates: S.localizationsDelegates,
+                supportedLocales: S.supportedLocales,
+                home: online
+                    ? const WorkDetailScreen(work: work)
+                    : OfflineWorkDetailScreen(
+                        work: work,
+                        fileTree: [audioFile],
+                        localWorkDirPath: directory.path,
+                      ),
+              ),
+            ),
+          );
+          await _pumpUntil(
+            tester,
+            () => online
+                ? api.workCompleted &&
+                      find.byType(FileExplorerWidget).evaluate().isNotEmpty
+                : container.read(fileListControllerProvider).workId == workId,
+          );
+
+          if (!automatic) {
+            await tester.ensureVisible(find.byType(InlineTranslationButton));
+            await tester.tap(find.byType(InlineTranslationButton));
+          }
+          await _pumpUntil(tester, () {
+            final header = tester.widget<WorkTitleHeader>(
+              find.byType(WorkTitleHeader),
+            );
+            return header.showTranslation &&
+                header.displayTitle == translatedWork &&
+                !header.isTranslating;
+          });
+
+          final audioTab = find.byKey(
+            const ValueKey('work-resource-audio-tab'),
+          );
+          await _pumpUntil(
+            tester,
+            () => audioTab.evaluate().isNotEmpty,
+          );
+          await tester.ensureVisible(audioTab);
+          await tester.tap(audioTab);
+          await tester.pump(tabPageDuration);
+          final audioRow = find.byKey(
+            const ValueKey('work-audio-$audioTitle'),
+          );
+          await _pumpUntil(
+            tester,
+            () => find.text(translatedAudio).evaluate().isNotEmpty &&
+                audioRow.evaluate().isNotEmpty,
+          );
+          await tester.ensureVisible(audioRow);
+          await tester.tap(audioRow);
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+          await _pumpUntil(tester, () => audioController.queuedTracks != null);
+          expect(
+            audioController.queuedTracks,
+            hasLength(1),
+            reason: 'The selected audio should enter the playback queue.',
+          );
+
+          final queued = audioController.queuedTracks!.single;
+          expect(queued.displayTitle, translatedAudio);
+          expect(queued.displayAlbum, translatedWork);
+          expect(queued.title, audioTitle);
+          expect(queued.translatedTitle, translatedAudio);
+          expect(queued.album, title);
+          expect(queued.translatedAlbum, translatedWork);
+          expect(queued.id, audioHash);
+          expect(queued.hash, audioHash);
+          expect(queued.workId, workId);
+          expect(audioController.startIndex, 0);
+          expect(audioController.queuedWork, work);
+          expect(audioController.playlistMode, AudioTapPlaylistMode.addToQueue);
+          if (online) {
+            expect(
+              Uri.decodeComponent(Uri.parse(queued.url).path),
+              endsWith('/work/audio/$audioTitle'),
+            );
+          } else {
+            expect(queued.url, startsWith('file:'));
+            expect(
+              p.equals(
+                queued.sourcePath!,
+                File('${directory.path}/$audioTitle').path,
+              ),
+              isTrue,
+            );
+            expect(queued.subtitleWorkDirPath, directory.path);
+          }
+
+          if (online && !automatic) {
+            await tester.scrollUntilVisible(
+              find.byType(InlineTranslationButton),
+              -300,
+              scrollable: find.byType(Scrollable).first,
+            );
+            await tester.tap(find.byType(InlineTranslationButton));
+            await _pumpUntil(
+              tester,
+              () => !tester
+                  .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+                  .showTranslation,
+            );
+            expect(audioController.queuedTracks!.single, queued);
+            expect(
+              audioController.queuedTracks!.single.displayTitle,
+              translatedAudio,
+            );
+            expect(
+              audioController.queuedTracks!.single.displayAlbum,
+              translatedWork,
+            );
+          }
+
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 }

@@ -43,6 +43,52 @@ void main() {
     ]);
   });
 
+  test('moving an existing item preserves its queued display names', () {
+    const queued = AudioTrack(
+      id: 'later',
+      title: 'Original',
+      album: 'Original work',
+      translatedTitle: 'First translation',
+      translatedAlbum: 'First work translation',
+      url: 'existing-url',
+    );
+    const selectedAgain = AudioTrack(
+      id: 'later',
+      title: 'Original',
+      album: 'Original work',
+      translatedTitle: 'Second translation',
+      translatedAlbum: 'Second work translation',
+      url: 'new-url',
+    );
+    final mutation = planEnqueueNext(
+      queue: const [current, next, queued],
+      currentIndex: 0,
+      track: selectedAgain,
+    );
+
+    expect(mutation.result, EnqueueNextResult.moved);
+    expect(mutation.queue[1].url, 'new-url');
+    expect(mutation.queue[1].displayTitle, 'First translation');
+    expect(mutation.queue[1].displayAlbum, 'First work translation');
+
+    const queuedOriginal = AudioTrack(
+      id: 'later',
+      title: 'Original',
+      album: 'Original work',
+      url: 'existing-url',
+    );
+    final withoutTranslation = planEnqueueNext(
+      queue: const [current, next, queuedOriginal],
+      currentIndex: 0,
+      track: selectedAgain,
+    );
+    expect(withoutTranslation.queue[1].url, 'new-url');
+    expect(withoutTranslation.queue[1].translatedTitle, isNull);
+    expect(withoutTranslation.queue[1].translatedAlbum, isNull);
+    expect(withoutTranslation.queue[1].displayTitle, 'Original');
+    expect(withoutTranslation.queue[1].displayAlbum, 'Original work');
+  });
+
   test('moves an item from before current and preserves current identity', () {
     final mutation = planEnqueueNext(
       queue: const [later, current, next],

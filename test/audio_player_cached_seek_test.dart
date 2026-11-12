@@ -100,7 +100,14 @@ void main() {
       expect(player.audioSource, isA<UriAudioSource>());
       expect((player.audioSource as UriAudioSource).uri.scheme, 'https');
 
-      expect(await service.seek(target), isTrue);
+      player.holdNextLoad = true;
+      final seeking = service.seek(target);
+      await until(() => player.pendingLoad != null);
+      expect(service.isTrackLoading, isTrue);
+      expect(player.playing, isFalse);
+      expect(service.coverExpandedDuringSeek.value, isTrue);
+      player.finishLoad();
+      expect(await seeking, isTrue);
 
       expect(player.loaded, [track.url, cachePath]);
       expect(player.initialPositions, [null, target]);
@@ -375,8 +382,10 @@ void main() {
 
       final earlier = service.seek(const Duration(seconds: 30));
       await until(() => player.pendingLoad != null);
+      expect(service.coverExpandedDuringSeek.value, isTrue);
       final latest = controller.seekAndPersist(const Duration(seconds: 60));
       final replacing = service.updateQueue([next], autoplay: true);
+      expect(service.coverExpandedDuringSeek.value, isNull);
       await Future.wait([earlier, latest, replacing]);
 
       expect(player.loaded, [current.url, cachePath, next.url]);

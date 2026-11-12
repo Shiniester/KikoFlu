@@ -169,14 +169,22 @@ EnqueueNextQueueMutation planEnqueueNext({
 
   final nextQueue = List<AudioTrack>.of(queue);
   final moved = existingIndex >= 0;
-  if (moved) nextQueue.removeAt(existingIndex);
+  final existing = moved ? nextQueue.removeAt(existingIndex) : null;
+  final nextTrack = existing == null
+      ? track
+      : track.copyWith(
+          translations: (
+            title: existing.translatedTitle,
+            album: existing.translatedAlbum,
+          ),
+        );
   final nextCurrentIndex = nextQueue.indexWhere(
     (item) => item.id == currentTrackId,
   );
   final insertionIndex = (nextCurrentIndex + 1)
       .clamp(0, nextQueue.length)
       .toInt();
-  nextQueue.insert(insertionIndex, track);
+  nextQueue.insert(insertionIndex, nextTrack);
   return EnqueueNextQueueMutation(
     result: moved ? EnqueueNextResult.moved : EnqueueNextResult.inserted,
     queue: List<AudioTrack>.unmodifiable(nextQueue),
@@ -234,6 +242,7 @@ class AudioPlayerService {
     Duration seekRecoveryTimeout = const Duration(seconds: 8),
     AudioCacheDownloader? cacheDownloader,
   }) {
+    _initializeSystemMediaControls = false;
     _player = player;
     _nativePlayerId = nativePlayerId;
     _nativePlayerInitializer = nativePlayerInitializer;
@@ -263,6 +272,7 @@ class AudioPlayerService {
   int _currentIndex = 0;
   AudioSliceStore _audioSliceStore = const SharedPreferencesAudioSliceStore();
   AudioSliceState _sliceState = const AudioSliceState();
+  int _sliceStartRevision = 0;
   final StreamController<AudioSliceState> _sliceStateController =
       StreamController.broadcast();
   Future<void> _sliceMutationTail = Future.value();
@@ -272,6 +282,7 @@ class AudioPlayerService {
   bool _sliceBoundaryInFlight = false;
   int _slicePlaybackRevision = 0;
   AudioHandler? _audioHandler;
+  bool _initializeSystemMediaControls = true;
   LoopMode _appLoopMode = LoopMode.off; // Track loop mode at app level
   String? _tempPlaybackFilePath; // 临时音频副本路径，用于规避字幕冲突
   Directory? _tempAudioDirectory;
@@ -309,6 +320,11 @@ class AudioPlayerService {
   bool _shuffleEnabled = false;
   StreamSubscription<int?>? _currentIndexSubscription;
   int _seekRevision = 0;
+  Object? _coverSeekToken;
+  final ValueNotifier<bool?> _coverExpandedDuringSeek = ValueNotifier(null);
+  bool _coverSeekSawBuffering = false;
+  bool _coverSeekReady = false;
+  Duration? _coverSeekTarget;
   Completer<void>? _seekCancellation;
   Completer<void>? _seekError;
   Completer<void>? _nativeWindowError;
@@ -750,7 +766,7 @@ class AudioPlayerService {
     );
 
     // Initialize Windows SMTC (System Media Transport Controls)
-    if (Platform.isWindows) {
+    if (Platform.isWindows && _initializeSystemMediaControls) {
       try {
         _smtc = SMTCWindows(
           config: const SMTCConfig(
@@ -894,6 +910,7 @@ class AudioPlayerService {
   }
 
   void _handlePlayerState(PlayerState state) {
+    _updateCoverSeekForPlayerState(state);
     if (state.processingState != ProcessingState.completed &&
         !_handlingTrackCompletion) {
       _completionHandled = false;
@@ -1291,6 +1308,7 @@ class AudioPlayerService {
     String? nativeWindowTrackId,
   }) {
     if (_disposed) throw StateError('AudioPlayerService is disposed');
+    if (emitCurrentTrack) _clearCoverSeek();
 
     if (audioSliceTrackKey(track) != _sliceState.trackKey) {
       ++_slicePlaybackRevision;
@@ -1452,6 +1470,7 @@ class AudioPlayerService {
     if (_isSwitchingTrack == loading) return;
     _isSwitchingTrack = loading;
     _trackLoadingController.add(loading);
+    if (!loading) _finishCoverSeekWhenReady();
     _updatePlaybackState();
   }
 
@@ -2120,7 +2139,10 @@ class AudioPlayerService {
     if (!_isCurrentMediaItem(track, generation)) return;
 
     // 应用防社死设置
-    String displayTitle = track.title;
+    String displayTitle = track.displayTitle;
+    final displayAlbum = privacyEnabled && maskTitle
+        ? track.album
+        : track.displayAlbum;
     String? displayArtworkUrl = track.artworkUrl;
 
     if (privacyEnabled) {
@@ -2161,7 +2183,7 @@ class AudioPlayerService {
     (_audioHandler as _AudioPlayerHandler).mediaItem.add(
       MediaItem(
         id: track.id,
-        album: track.album ?? '',
+        album: displayAlbum ?? '',
         title: displayTitle,
         artist: track.artist ?? '',
         duration: track.duration,
@@ -2175,7 +2197,7 @@ class AudioPlayerService {
         MusicMetadata(
           title: displayTitle,
           artist: track.artist ?? '',
-          album: track.album ?? '',
+          album: displayAlbum ?? '',
           thumbnail: displayArtworkUrl,
         ),
       );
@@ -2777,6 +2799,9 @@ class AudioPlayerService {
 
   // Playback controls
   Future<void> play() async {
+    if (!_desiredPlaying || (!_player.playing && !_isSwitchingTrack)) {
+      _clearCoverSeek();
+    }
     _desiredPlaying = true;
     if (_stopOperation != null ||
         _activeTrackLoad != null ||
@@ -2877,6 +2902,7 @@ class AudioPlayerService {
   Future<void> pause() async {
     ++_slicePlaybackRevision;
     _desiredPlaying = false;
+    _clearCoverSeek();
     _setAudioCacheTarget(null);
     final revision = _intentRevision;
     await _player.pause();
@@ -2888,6 +2914,7 @@ class AudioPlayerService {
 
   Future<void> stop() async {
     _desiredPlaying = false;
+    _clearCoverSeek();
     _setAudioCacheTarget(null);
     final stopRevision = ++_intentRevision;
     final operation = _stopPlayback(stopRevision);
@@ -3067,6 +3094,16 @@ class AudioPlayerService {
   Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
 
   Future<bool> _seek(Duration position, {required bool userInitiated}) async {
+    final coverSeekToken =
+        currentTrack != null && (_player.playing || _coverSeekToken != null)
+        ? Object()
+        : null;
+    if (coverSeekToken != null) {
+      _coverSeekToken = coverSeekToken;
+      _coverSeekTarget = null;
+      _coverSeekSawBuffering = false;
+      _coverSeekReady = false;
+    }
     if (userInitiated) {
       ++_slicePlaybackRevision;
       _sliceManualSeekPending = true;
@@ -3076,9 +3113,21 @@ class AudioPlayerService {
         _scheduleNativeWindowRefresh();
       }
     }
+    var succeeded = false;
     try {
-      return await _performSeek(position);
+      succeeded = await _performSeek(position, coverSeekToken: coverSeekToken);
+      return succeeded;
     } finally {
+      if (coverSeekToken != null &&
+          identical(_coverSeekToken, coverSeekToken)) {
+        if (succeeded) {
+          if (_coverSeekTarget == null) {
+            _completeCoverSeekOperation(coverSeekToken, position);
+          }
+        } else {
+          _clearCoverSeek();
+        }
+      }
       if (userInitiated) {
         _sliceUserSeekInFlight = false;
         if (_player.playing && _desiredPlaying && !_sliceScrubbing) {
@@ -3088,7 +3137,84 @@ class AudioPlayerService {
     }
   }
 
-  Future<bool> _performSeek(Duration position) async {
+  void _beginCoverSeekOperation(Object? token, {bool loading = false}) {
+    if (token == null || !identical(_coverSeekToken, token)) return;
+    if (_coverExpandedDuringSeek.value == null) {
+      _setCoverExpandedDuringSeek(
+        _player.playing &&
+            _player.processingState == ProcessingState.ready &&
+            !_isSwitchingTrack,
+      );
+    }
+    // Ignore buffering that ended before this seek reached the player.
+    _coverSeekSawBuffering =
+        loading ||
+        _player.processingState == ProcessingState.loading ||
+        _player.processingState == ProcessingState.buffering;
+    _coverSeekReady = false;
+  }
+
+  void _updateCoverSeekForPlayerState(PlayerState state) {
+    if (_coverSeekToken == null || _coverExpandedDuringSeek.value == null) {
+      return;
+    }
+    if ((state.processingState == ProcessingState.completed &&
+            _player.processingState == ProcessingState.completed) ||
+        (!state.playing && !_isSwitchingTrack && !_player.playing)) {
+      _clearCoverSeek();
+      return;
+    }
+    if (state.processingState == ProcessingState.loading ||
+        state.processingState == ProcessingState.buffering) {
+      if (state.processingState != _player.processingState) return;
+      final target = _coverSeekTarget;
+      // A buffering position comes from the player, not the interpolated clock.
+      if (target != null &&
+          !_coverSeekSawBuffering &&
+          state.processingState == ProcessingState.buffering &&
+          _player.processingState == ProcessingState.buffering &&
+          _player.position > target) {
+        _clearCoverSeek();
+        return;
+      }
+      _coverSeekSawBuffering = true;
+      _coverSeekReady = false;
+    } else if (state.processingState == ProcessingState.ready &&
+        _coverSeekSawBuffering) {
+      _coverSeekReady = true;
+      _finishCoverSeekWhenReady();
+    }
+  }
+
+  void _finishCoverSeekWhenReady() {
+    if (_coverSeekTarget != null &&
+        _coverSeekReady &&
+        !_isSwitchingTrack &&
+        _player.processingState == ProcessingState.ready &&
+        (_player.playing || !_desiredPlaying)) {
+      _clearCoverSeek();
+    }
+  }
+
+  void _completeCoverSeekOperation(Object? token, Duration position) {
+    if (token == null || !identical(_coverSeekToken, token)) return;
+    _coverSeekTarget = position;
+    _finishCoverSeekWhenReady();
+  }
+
+  void _setCoverExpandedDuringSeek(bool? expanded) {
+    if (!_disposed) _coverExpandedDuringSeek.value = expanded;
+  }
+
+  void _clearCoverSeek() {
+    _coverSeekToken = null;
+    _coverSeekTarget = null;
+    _coverSeekSawBuffering = false;
+    _coverSeekReady = false;
+    _setCoverExpandedDuringSeek(null);
+  }
+
+  Future<bool> _performSeek(Duration position, {Object? coverSeekToken}) async {
     var targetPosition = position;
     final trackAtStart = currentTrack;
     final pendingTrackLoad = _latestTrackLoad ?? _activeTrackLoad;
@@ -3116,6 +3242,7 @@ class AudioPlayerService {
         !_disposed && revision == _seekRevision && _isLatestTrackLoad(request);
 
     if (sameTrackReloadRequest != null) {
+      _beginCoverSeekOperation(coverSeekToken, loading: true);
       sameTrackReloadRequest.latestSeekPosition = targetPosition;
       await sameTrackReloadRequest.future;
       if (!isCurrentSeek() ||
@@ -3159,6 +3286,7 @@ class AudioPlayerService {
             targetPosition > _player.bufferedPosition ||
             targetPosition < latestPosition - _androidBackBufferDuration;
         if (cachedPath != null && stillOutsideBuffer) {
+          _beginCoverSeekOperation(coverSeekToken, loading: true);
           cachedTrackLoad = _enqueueTrackLoad(
             track,
             emitCurrentTrack: false,
@@ -3182,6 +3310,7 @@ class AudioPlayerService {
       // just_audio 0.9.44 reports Android seek errors on this stream without
       // completing seek(). Its derived playerStateStream discards the errors.
       try {
+        _beginCoverSeekOperation(coverSeekToken);
         await Future.any<void>([
           _seekNativePlayer(targetPosition),
           nativeError.future,
@@ -3209,6 +3338,7 @@ class AudioPlayerService {
           final track = currentTrack;
           if (track == null) rethrow;
           if (identical(_seekError, nativeError)) _seekError = null;
+          _beginCoverSeekOperation(coverSeekToken, loading: true);
           final recovery = _enqueueTrackLoad(
             track,
             emitCurrentTrack: false,
@@ -3218,7 +3348,11 @@ class AudioPlayerService {
             initialPosition: targetPosition,
           );
           await recovery.future;
-          return isCurrentSeekLoad(recovery);
+          final succeeded = isCurrentSeekLoad(recovery);
+          if (succeeded) {
+            _completeCoverSeekOperation(coverSeekToken, targetPosition);
+          }
+          return succeeded;
         }
       } finally {
         if (identical(_seekError, nativeError)) _seekError = null;
@@ -3227,9 +3361,11 @@ class AudioPlayerService {
         }
       }
     } else if (cachedTrackLoad == null) {
+      _beginCoverSeekOperation(coverSeekToken);
       await _seekNativePlayer(targetPosition);
     }
     if (!isCurrentSeekResult(cachedTrackLoad)) return false;
+    _completeCoverSeekOperation(coverSeekToken, targetPosition);
     if (!_handlingTrackCompletion &&
         _player.processingState != ProcessingState.completed) {
       _completionHandled = false;
@@ -3741,6 +3877,8 @@ class AudioPlayerService {
       _manualSkipAvailabilityController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
   bool get isTrackLoading => _isSwitchingTrack;
+  ValueListenable<bool?> get coverExpandedDuringSeek =>
+      _coverExpandedDuringSeek;
   int get trackLoadGeneration => _trackLoadGeneration;
   Stream<AudioTrack?> get requestedTrackStream =>
       _requestedTrackController.stream;
@@ -3804,16 +3942,15 @@ class AudioPlayerService {
       _setSliceState(_sliceState.copyWith(pendingStartMs: positionMs));
       return true;
     }
+    if ((positionMs - pendingStartMs).abs() <=
+        audioSliceStartCancellationWindowMs) {
+      _setSliceState(_sliceState.copyWith(clearPendingStart: true));
+      return true;
+    }
     if (positionMs <= pendingStartMs || positionMs > durationMs) return false;
 
     final slice = AudioSlice(startMs: pendingStartMs, endMs: positionMs);
-    final saved = await saveSlice(trackKey: trackKey, slice: slice);
-    if (saved &&
-        _isSliceTrackCurrent(trackKey) &&
-        _sliceState.pendingStartMs == pendingStartMs) {
-      _setSliceState(_sliceState.copyWith(clearPendingStart: true));
-    }
-    return saved;
+    return saveSlice(trackKey: trackKey, slice: slice);
   }
 
   void cancelSliceStart() {
@@ -3825,7 +3962,7 @@ class AudioPlayerService {
     required String trackKey,
     required AudioSlice slice,
     AudioSlice? replacing,
-  }) => _serializeSliceMutation(() async {
+  }) => _serializeSliceMutation((startRevision) async {
     final track = currentTrack;
     if (track == null ||
         !_isSliceTrackCurrent(trackKey) ||
@@ -3854,14 +3991,17 @@ class AudioPlayerService {
     }
     if (_isSliceTrackCurrent(trackKey)) {
       _setSliceState(
-        _sliceState.copyWith(slices: updated, clearPendingStart: true),
+        _sliceState.copyWith(
+          slices: updated,
+          clearPendingStart: _sliceStartRevision == startRevision,
+        ),
       );
     }
     return true;
   });
 
   Future<bool> deleteSlice(String trackKey, AudioSlice slice) =>
-      _serializeSliceMutation(() async {
+      _serializeSliceMutation((startRevision) async {
         if (!_isSliceTrackCurrent(trackKey) ||
             !_sliceState.slices.contains(slice)) {
           return false;
@@ -3877,14 +4017,17 @@ class AudioPlayerService {
         }
         if (_isSliceTrackCurrent(trackKey)) {
           _setSliceState(
-            _sliceState.copyWith(slices: updated, clearPendingStart: true),
+            _sliceState.copyWith(
+              slices: updated,
+              clearPendingStart: _sliceStartRevision == startRevision,
+            ),
           );
         }
         return true;
       });
 
   Future<bool> clearSlices(String trackKey) =>
-      _serializeSliceMutation(() async {
+      _serializeSliceMutation((startRevision) async {
         if (!_isSliceTrackCurrent(trackKey)) return false;
         try {
           if (!await _audioSliceStore.clear(trackKey)) return false;
@@ -3894,7 +4037,10 @@ class AudioPlayerService {
         }
         if (_isSliceTrackCurrent(trackKey)) {
           _setSliceState(
-            _sliceState.copyWith(slices: const [], clearPendingStart: true),
+            _sliceState.copyWith(
+              slices: const [],
+              clearPendingStart: _sliceStartRevision == startRevision,
+            ),
           );
         }
         return true;
@@ -4007,13 +4153,15 @@ class AudioPlayerService {
   int? _sliceDurationMs(AudioTrack track) =>
       _player.duration?.inMilliseconds ?? track.duration?.inMilliseconds;
 
-  Future<T> _serializeSliceMutation<T>(Future<T> Function() action) async {
+  Future<T> _serializeSliceMutation<T>(Future<T> Function(int) action) async {
+    // An older write must not clear a newly marked start.
+    final startRevision = _sliceStartRevision;
     final previous = _sliceMutationTail;
     final done = Completer<void>();
     _sliceMutationTail = done.future;
     try {
       await previous;
-      return await action();
+      return await action(startRevision);
     } finally {
       done.complete();
     }
@@ -4026,6 +4174,9 @@ class AudioPlayerService {
 
   void _setSliceState(AudioSliceState state) {
     if (state == _sliceState) return;
+    if (state.pendingStartMs != _sliceState.pendingStartMs) {
+      ++_sliceStartRevision;
+    }
     _sliceState = state;
     if (!_sliceStateController.isClosed) _sliceStateController.add(state);
   }
@@ -4334,6 +4485,7 @@ class AudioPlayerService {
     await _sliceStateController.close();
     await _manualSkipAvailabilityController.close();
     await _trackLoadingController.close();
+    _coverExpandedDuringSeek.dispose();
     await _requestedTrackController.close();
     await _playbackDiagnosticController.close();
     await _historicalQueueLoad;

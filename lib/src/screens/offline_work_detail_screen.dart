@@ -506,6 +506,7 @@ class _OfflineWorkDetailScreenState
                           // 如果是 AudioFile 对象，转换为 Map
                           return e.toJson();
                         }).toList(),
+                    translatedWorkTitle: () => _translatedTitle,
                   )
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),

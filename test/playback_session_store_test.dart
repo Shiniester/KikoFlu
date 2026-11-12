@@ -97,6 +97,51 @@ void main() {
     );
   });
 
+  test(
+    'restores translated names while retaining the original audio identity',
+    () async {
+      const track = AudioTrack(
+        id: 'original.wav',
+        title: 'original.wav',
+        album: 'Original work',
+        translatedTitle: 'Translated track.wav',
+        translatedAlbum: 'Translated work',
+        url: 'file:///tmp/original.wav',
+        sourcePath: '/tmp/original.wav',
+      );
+      const store = SharedPreferencesPlaybackSessionStore();
+      await store.save(
+        const PlaybackSessionSnapshot(
+          queue: [track],
+          currentIndex: 0,
+          position: Duration.zero,
+          ownerKey: 'owner',
+        ),
+      );
+
+      final restored = (await store.load())!.queue.single;
+      expect(restored.id, 'original.wav');
+      expect(restored.title, 'original.wav');
+      expect(restored.album, 'Original work');
+      expect(restored.sourcePath, '/tmp/original.wav');
+      expect(restored.displayTitle, 'Translated track.wav');
+      expect(restored.displayAlbum, 'Translated work');
+      expect(
+        restored.copyWith(artist: 'Artist').displayTitle,
+        restored.displayTitle,
+      );
+
+      final legacy = AudioTrack.fromJson(const {
+        'id': 'old',
+        'title': 'Old track',
+        'album': 'Old work',
+        'url': 'file:///tmp/old.wav',
+      });
+      expect(legacy.displayTitle, 'Old track');
+      expect(legacy.displayAlbum, 'Old work');
+    },
+  );
+
   test('position checkpoints do not rewrite queue metadata', () async {
     const store = SharedPreferencesPlaybackSessionStore();
     await store.save(const PlaybackSessionSnapshot(

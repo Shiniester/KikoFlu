@@ -4863,6 +4863,9 @@ class SEn extends S {
   String get cancelAudioSliceStart => 'Cancel slice start';
 
   @override
+  String get audioSliceStartCanceled => 'Slice start canceled';
+
+  @override
   String audioSlicePendingStart(String time) {
     return 'Start: $time';
   }

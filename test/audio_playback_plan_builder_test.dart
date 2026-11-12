@@ -21,6 +21,35 @@ const _work = Work(
 );
 
 void main() {
+  test('queues translated names without changing original audio identity', () async {
+    final first = audioItem('original.wav');
+    final second = audioItem('untranslated.wav');
+    for (final mode in AudioTapPlaylistMode.values) {
+      final plan = await const AudioPlaybackPlanBuilder().build(
+        fileTree: [first, second],
+        parentPath: '',
+        selectedFile: first,
+        resolveUrl: (file) async => 'file:///downloads/${file['title']}',
+        work: _work,
+        unknownTitle: 'Unknown',
+        translatedTitles: {'original.wav': 'translated.wav'},
+        translatedAlbumTitle: 'Translated work',
+        playlistMode: mode,
+      );
+
+      final track = plan.queue!.tracks.first;
+      expect(track.id, 'original.wav');
+      expect(track.title, 'original.wav');
+      expect(track.album, 'Work Title');
+      expect(track.sourcePath, '/downloads/original.wav');
+      expect(track.displayTitle, 'translated.wav');
+      expect(track.displayAlbum, 'Translated work');
+      if (mode == AudioTapPlaylistMode.replaceQueue) {
+        expect(plan.queue!.tracks.last.displayTitle, 'untranslated.wav');
+      }
+    }
+  });
+
   test('explicit audio list builds an ordered cross-directory queue', () async {
     final first = audioItem('track01.wav', hash: 'h1');
     final second = audioItem('track02.wav', hash: 'h2');

@@ -4725,6 +4725,9 @@ class SJa extends S {
   String get cancelAudioSliceStart => '開始位置を取り消す';
 
   @override
+  String get audioSliceStartCanceled => '開始位置を取り消しました';
+
+  @override
   String audioSlicePendingStart(String time) {
     return '開始：$time';
   }

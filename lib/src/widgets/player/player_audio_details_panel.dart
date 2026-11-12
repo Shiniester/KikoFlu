@@ -139,7 +139,7 @@ class _PlayerAudioDetailsPanelState
                         ? null
                         : const Icon(Icons.chevron_right, size: 18),
                     child: Text(
-                      work.title,
+                      details.track.displayAlbum ?? work.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(

@@ -10,10 +10,14 @@ import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'audio_player_latest_request_test.dart'
+    show ControlledPlayer, MemorySessionStore, until;
 
 const _track = AudioTrack(
   id: 'cover-scale-track',
@@ -59,9 +63,10 @@ class _AudioService extends AudioPlayerService {
 
 Future<void> _pumpPlayer(
   WidgetTester tester,
-  _AudioService service, {
+  AudioPlayerService service, {
   required Size size,
   required ValueNotifier<bool> disableAnimations,
+  bool useServiceStreams = false,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -74,8 +79,10 @@ Future<void> _pumpPlayer(
           ref.onDispose(() => unawaited(service.dispose()));
           return service;
         }),
-        currentTrackProvider.overrideWith((ref) => Stream.value(_track)),
-        queueProvider.overrideWith((ref) => Stream.value(const [_track])),
+        if (!useServiceStreams) ...[
+          currentTrackProvider.overrideWith((ref) => Stream.value(_track)),
+          queueProvider.overrideWith((ref) => Stream.value(const [_track])),
+        ],
         manualSkipAvailabilityProvider.overrideWith(
           (ref) => Stream.value(ManualSkipAvailability.unavailable),
         ),
@@ -105,6 +112,59 @@ double _coverScale(WidgetTester tester) {
     const ValueKey('player-cover-artwork-cover-scale-track'),
   );
   return tester.getRect(cover).width / tester.getSize(cover).width;
+}
+
+class _DelayedReadyPlayer extends ControlledPlayer {
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    this.position = position ?? Duration.zero;
+    seeks.add(this.position);
+    processingState = ProcessingState.buffering;
+  }
+
+  void emitReady() {
+    processingState = ProcessingState.ready;
+    emitPlayerState();
+  }
+
+  void emitBuffering() {
+    processingState = ProcessingState.buffering;
+    emitPlayerState();
+  }
+}
+
+class _ReadyOnReturnPlayer extends _DelayedReadyPlayer {
+  @override
+  Future<void> seek(Duration? position, {int? index}) async {
+    this.position = position ?? Duration.zero;
+    seeks.add(this.position);
+  }
+}
+
+class _DelayedPositionStore extends MemorySessionStore {
+  Completer<void>? gate;
+  final started = Completer<void>();
+
+  @override
+  Future<void> savePosition(Duration position) {
+    final pending = gate;
+    if (pending == null) return Future.value();
+    if (!started.isCompleted) started.complete();
+    return pending.future;
+  }
+}
+
+Future<void> _pumpCoverScaleAnimation(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+class _NoopCacheDownloader extends AudioCacheDownloader {
+  _NoopCacheDownloader() : super(files: CacheService.audioCacheFiles);
+
+  @override
+  Future<bool> setTarget(AudioCacheRequest? request) async => false;
 }
 
 void main() {
@@ -220,4 +280,165 @@ void main() {
     expect(_coverScale(tester), closeTo(1, 0.001));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a hanging native seek keeps the playing cover full-size', (
+    tester,
+  ) async {
+    final player = ControlledPlayer();
+    final service = _createService(player);
+    addTearDown(service.dispose);
+    await service.updateQueue([_track], autoplay: true);
+    final disabled = ValueNotifier(false);
+    addTearDown(disabled.dispose);
+    await _pumpPlayer(
+      tester,
+      service,
+      size: const Size(390, 844),
+      disableAnimations: disabled,
+      useServiceStreams: true,
+    );
+
+    player.holdNextSeek = true;
+    final seeking = service.seek(const Duration(seconds: 20));
+    await until(() => player.pendingSeek != null);
+    await _pumpCoverScaleAnimation(tester);
+
+    expect(_coverScale(tester), closeTo(1, 0.001));
+
+    await service.pause();
+    await _pumpCoverScaleAnimation(tester);
+    expect(_coverScale(tester), closeTo(0.9, 0.001));
+
+    player.finishSeek();
+    await seeking;
+    await _pumpCoverScaleAnimation(tester);
+    expect(_coverScale(tester), closeTo(0.9, 0.001));
+
+    await service.play();
+    await _pumpCoverScaleAnimation(tester);
+    expect(_coverScale(tester), closeTo(1, 0.001));
+  });
+
+  testWidgets(
+    'seek buffering stays full-size until ready, then ordinary buffering shrinks',
+    (tester) async {
+      final player = _DelayedReadyPlayer();
+      final service = _createService(player);
+      addTearDown(service.dispose);
+      await service.updateQueue([_track], autoplay: true);
+      final disabled = ValueNotifier(false);
+      addTearDown(disabled.dispose);
+      await _pumpPlayer(
+        tester,
+        service,
+        size: const Size(390, 844),
+        disableAnimations: disabled,
+        useServiceStreams: true,
+      );
+
+      player.emitBuffering();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(0.9, 0.001));
+
+      player.emitReady();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(1, 0.001));
+
+      await service.seek(const Duration(seconds: 20));
+      player.emitBuffering();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(1, 0.001));
+
+      player.emitReady();
+      player.position = const Duration(seconds: 20);
+      player.positions.add(player.position);
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(1, 0.001));
+
+      player.emitBuffering();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(0.9, 0.001));
+    },
+  );
+
+  testWidgets(
+    'a seek that returns ready ignores its later buffering transition',
+    (tester) async {
+      final player = _ReadyOnReturnPlayer();
+      final service = _createService(player);
+      addTearDown(service.dispose);
+      await service.updateQueue([_track], autoplay: true);
+      final disabled = ValueNotifier(false);
+      addTearDown(disabled.dispose);
+      await _pumpPlayer(
+        tester,
+        service,
+        size: const Size(390, 844),
+        disableAnimations: disabled,
+        useServiceStreams: true,
+      );
+
+      await service.seek(const Duration(seconds: 20));
+      expect(player.processingState, ProcessingState.ready);
+      player.emitBuffering();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(1, 0.001));
+
+      player.emitReady();
+      player.position = const Duration(seconds: 20);
+      player.positions.add(player.position);
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(1, 0.001));
+
+      player.emitBuffering();
+      await _pumpCoverScaleAnimation(tester);
+      expect(_coverScale(tester), closeTo(0.9, 0.001));
+    },
+  );
+
+  testWidgets('ordinary buffering still shrinks while seek position is saved', (
+    tester,
+  ) async {
+    final player = _ReadyOnReturnPlayer();
+    final store = _DelayedPositionStore();
+    final service = _createService(player, sessionStore: store);
+    addTearDown(service.dispose);
+    await service.updateQueue([_track], autoplay: true);
+    final disabled = ValueNotifier(false);
+    addTearDown(disabled.dispose);
+    await _pumpPlayer(
+      tester,
+      service,
+      size: const Size(390, 844),
+      disableAnimations: disabled,
+      useServiceStreams: true,
+    );
+
+    store.gate = Completer<void>();
+    addTearDown(() {
+      if (!store.gate!.isCompleted) store.gate!.complete();
+    });
+    final seeking = service.seek(const Duration(seconds: 20));
+    await store.started.future;
+    player.position = const Duration(seconds: 21);
+    player.emitBuffering();
+    await _pumpCoverScaleAnimation(tester);
+    expect(_coverScale(tester), closeTo(0.9, 0.001));
+
+    store.gate!.complete();
+    await seeking;
+  });
+}
+
+AudioPlayerService _createService(
+  ControlledPlayer player, {
+  MemorySessionStore? sessionStore,
+}) {
+  final service = AudioPlayerService.forTesting(
+    player,
+    sessionStore: sessionStore ?? MemorySessionStore(),
+    cacheDownloader: _NoopCacheDownloader(),
+  );
+  service.updatePreloadThreshold(null);
+  return service;
 }

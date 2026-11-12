@@ -10,8 +10,10 @@ AudioTrack _$AudioTrackFromJson(Map<String, dynamic> json) => AudioTrack(
       id: json['id'] as String,
       title: json['title'] as String,
       url: json['url'] as String,
+      translatedTitle: json['translatedTitle'] as String?,
       artist: json['artist'] as String?,
       album: json['album'] as String?,
+      translatedAlbum: json['translatedAlbum'] as String?,
       artworkUrl: json['artworkUrl'] as String?,
       duration: json['duration'] == null
           ? null
@@ -29,9 +31,11 @@ Map<String, dynamic> _$AudioTrackToJson(AudioTrack instance) =>
     <String, dynamic>{
       'id': instance.id,
       'title': instance.title,
+      'translatedTitle': instance.translatedTitle,
       'url': instance.url,
       'artist': instance.artist,
       'album': instance.album,
+      'translatedAlbum': instance.translatedAlbum,
       'artworkUrl': instance.artworkUrl,
       'duration': instance.duration?.inMicroseconds,
       'lyricUrl': instance.lyricUrl,

@@ -8734,6 +8734,12 @@ abstract class S {
   /// **'Cancel slice start'**
   String get cancelAudioSliceStart;
 
+  /// Audio player slice control: audioSliceStartCanceled
+  ///
+  /// In en, this message translates to:
+  /// **'Slice start canceled'**
+  String get audioSliceStartCanceled;
+
   /// Audio player slice control: audioSlicePendingStart
   ///
   /// In en, this message translates to:

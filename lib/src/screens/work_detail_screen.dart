@@ -1068,6 +1068,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                       controller: _fileExplorerController,
                       initialLoadReady: _routeReadiness.waitForIdle,
                       translate: _showTranslation,
+                      translatedWorkTitle: () => _translatedTitle,
                     ),
                   )
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),

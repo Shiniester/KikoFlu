@@ -22,3 +22,8 @@ Keep this patch until the same behavior is available in an upstream release.
 libmpv can report a position one audio sample before a seek target. The adapter
 reports the target for a nearby undershoot after a seek or initial load, then
 returns to the native position as playback advances.
+
+While an explicit seek waits for the native command, libmpv can still report
+positions from before the seek. The adapter holds the target during that wait.
+The vendored `just_audio` also suspends position extrapolation until the latest
+seek request returns.

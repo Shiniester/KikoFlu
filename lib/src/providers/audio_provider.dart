@@ -68,7 +68,12 @@ final playerStateProvider = StreamProvider<PlayerState>((ref) {
 // Position Provider
 final positionProvider = StreamProvider<Duration>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
-  return _withInitialValue(service.position, service.positionStream);
+  // The position stream can lag behind a newly published track.
+  ref.watch(currentTrackProvider);
+  return _withInitialValue(
+    service.position,
+    service.positionStream.map((_) => service.position),
+  );
 });
 
 final positionDiscontinuityProvider = StreamProvider<PositionDiscontinuity>((

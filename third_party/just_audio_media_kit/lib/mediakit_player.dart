@@ -61,6 +61,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   /// Chapter-relative [LoadRequest.initialPosition] or [seek] queued until duration is available.
   Duration? _setPosition;
   Duration? _seekTarget;
+  int? _seekCommandGeneration;
   bool _sawSeekUndershoot = false;
 
   Media? get _currentMedia {
@@ -125,6 +126,10 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }),
       _player.stream.position.listen((position) {
         if (_waitingForNextIndex) return;
+        // libmpv can still report the old position while the seek is queued.
+        if (_seekTarget != null && _seekCommandGeneration == _loadGeneration) {
+          return;
+        }
         final previousPosition = _position;
         _position = position;
         final start = _currentMedia?.start;
@@ -592,6 +597,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       if (start != null) nativePosition += start;
       try {
         if (_player.state.duration > Duration.zero) {
+          _seekCommandGeneration = generation;
           await _player.seek(nativePosition);
         } else {
           _setPosition = position;
@@ -602,13 +608,15 @@ class MediaKitPlayer extends AudioPlayerPlatform {
           _sawSeekUndershoot = false;
         }
         rethrow;
+      } finally {
+        if (_seekCommandGeneration == generation) _seekCommandGeneration = null;
       }
     } else {
       _position = Duration.zero;
     }
 
     // reset position on seek
-    _updatePlaybackEvent();
+    if (_loadGeneration == generation) _updatePlaybackEvent();
     return SeekResponse();
   }
 

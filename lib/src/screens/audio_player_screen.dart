@@ -1659,23 +1659,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         final loading =
             ref.watch(isTrackLoadingProvider).valueOrNull ??
             service.isTrackLoading;
-        final scale =
-            state.playing &&
-                state.processingState == ProcessingState.ready &&
-                !loading
-            ? 1.0
-            : 0.9;
-        final disableAnimations = MediaQuery.disableAnimationsOf(context);
-        return TweenAnimationBuilder<double>(
-          tween: Tween(end: scale),
-          duration: disableAnimations
-              ? Duration.zero
-              : const Duration(milliseconds: 500),
-          curve: const Cubic(0.34, 1.56, 0.64, 1),
-          builder: (context, value, child) => Transform.scale(
-            scale: disableAnimations ? scale : value,
-            child: child,
-          ),
+        return ValueListenableBuilder<bool?>(
+          valueListenable: service.coverExpandedDuringSeek,
+          builder: (context, expandedDuringSeek, child) {
+            final expanded =
+                expandedDuringSeek ??
+                state.playing &&
+                    state.processingState == ProcessingState.ready &&
+                    !loading;
+            final scale = expanded ? 1.0 : 0.9;
+            final disableAnimations = MediaQuery.disableAnimationsOf(context);
+            return TweenAnimationBuilder<double>(
+              tween: Tween(end: scale),
+              duration: disableAnimations
+                  ? Duration.zero
+                  : const Duration(milliseconds: 500),
+              curve: const Cubic(0.34, 1.56, 0.64, 1),
+              builder: (context, value, child) => Transform.scale(
+                scale: disableAnimations ? scale : value,
+                child: child,
+              ),
+              child: child,
+            );
+          },
           child: child,
         );
       },
@@ -1854,8 +1860,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         final preview = Padding(
           key: const ValueKey('player-lyric-preview'),
           padding: EdgeInsets.symmetric(vertical: verticalPadding),
-          child: hasLyrics
-              ? ThreeLineLyricDisplay(
+          child: Stack(
+            alignment: Alignment.center,
+            fit: StackFit.passthrough,
+            children: [
+              if (!hasLyrics) LyricDisplay(albumName: track.displayAlbum),
+              Visibility(
+                key: const ValueKey('player-lyric-preview-visibility'),
+                visible: hasLyrics,
+                maintainState: true,
+                child: ThreeLineLyricDisplay(
                   key: key,
                   onSeekRequested: (position) => unawaited(
                     ref
@@ -1866,16 +1880,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   compact: compact,
                   lineCount: lineCount,
                   textHorizontalPadding: 16,
-                )
-              : LyricDisplay(albumName: track.album),
+                ),
+              ),
+            ],
+          ),
         );
-        return hasLyrics
-            ? preview
-            : InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: _showLyrics,
-                child: preview,
-              );
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: hasLyrics ? null : _showLyrics,
+          child: preview,
+        );
       },
     );
   }
@@ -1913,7 +1927,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             currentProgress: progress,
             onMarkPressed: track.workId == null
                 ? null
-                : () => _showMarkDialog(context, track.workId!, track.title),
+                : () => _showMarkDialog(
+                    context,
+                    track.workId!,
+                    track.displayTitle,
+                  ),
             onDetailPressed: track.workId == null
                 ? null
                 : () => _navigateToWorkDetail(context, track.workId!),
@@ -1946,7 +1964,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               children: [
                 if (showTrackHeader) ...[
                   Text(
-                    track.title,
+                    track.displayTitle,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -2688,7 +2706,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             currentProgress: progress,
             onMarkPressed: track.workId == null
                 ? null
-                : () => _showMarkDialog(context, track.workId!, track.title),
+                : () => _showMarkDialog(
+                    context,
+                    track.workId!,
+                    track.displayTitle,
+                  ),
             onDetailPressed: track.workId == null
                 ? null
                 : () {
@@ -2940,7 +2962,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  track.title,
+                                  track.displayTitle,
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineSmall
@@ -2963,7 +2985,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                LyricDisplay(albumName: track.album),
+                                LyricDisplay(albumName: track.displayAlbum),
                               ],
                             ),
                           ),
@@ -2988,7 +3010,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           ? () => _showMarkDialog(
                               context,
                               track.workId!,
-                              track.title,
+                              track.displayTitle,
                             )
                           : null,
                       onDetailPressed: track.workId != null
@@ -3108,7 +3130,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         SizedBox(height: spacing1),
                         // 标题
                         Text(
-                          track.title,
+                          track.displayTitle,
                           style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.bold),
                           textAlign: TextAlign.center,
@@ -3149,7 +3171,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                     ? () => _showMarkDialog(
                                         context,
                                         track.workId!,
-                                        track.title,
+                                        track.displayTitle,
                                       )
                                     : null,
                                 onDetailPressed: track.workId != null
@@ -3664,7 +3686,7 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          track.title,
+          track.displayTitle,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -3695,7 +3717,7 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
     if (!interactive || track.workId == null) return keyedContent;
     return Semantics(
       button: true,
-      label: '${track.title}, ${S.of(context).viewDetail}',
+      label: '${track.displayTitle}, ${S.of(context).viewDetail}',
       child: InkWell(
         key: ValueKey(
           widget.isWide

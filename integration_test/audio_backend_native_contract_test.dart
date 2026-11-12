@@ -237,6 +237,77 @@ void main() {
     }
   }
 
+  testWidgets('playing seek does not reactivate the preceding subtitle', (
+    tester,
+  ) async {
+    await _nativeContract(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kiko-backend-playing-seek-',
+      );
+      final source = File('${directory.path}/source.wav');
+      await source.writeAsBytes(
+        gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+      );
+      final player = _player();
+      late NativePlayer native;
+      await _configureNativePlayer(player.platformId, (value) async {
+        native = value;
+      });
+      const target = Duration(milliseconds: 2002);
+      final reachedTarget = Completer<void>();
+      final positions = <Duration>[];
+      final subscription = player.positionStream.listen((position) {
+        if (!reachedTarget.isCompleted && position >= target) {
+          reachedTarget.complete();
+        }
+        if (reachedTarget.isCompleted) positions.add(position);
+      });
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      try {
+        await player.setFilePath(source.path);
+        unawaited(player.play());
+        await _until(
+          () => native.state.position >= const Duration(milliseconds: 100),
+        );
+        // Let the old playback clock advance while the native seek is queued.
+        final lock = NativePlayer.lock.synchronized(() async {
+          locked.complete();
+          await release.future;
+        });
+        await locked.future;
+        final before = native.state.position;
+        final seek = player.seek(target);
+        try {
+          await reachedTarget.future.timeout(const Duration(seconds: 3));
+          await _until(
+            () =>
+                native.state.position >=
+                before + const Duration(milliseconds: 100),
+          );
+          expect(native.state.position, lessThan(target));
+          expect(positions, everyElement(target));
+        } finally {
+          release.complete();
+          await lock;
+          await seek;
+        }
+        await _until(
+          () =>
+              player.playbackEvent.updatePosition >=
+              target + const Duration(milliseconds: 100),
+        );
+        expect(player.playing, isTrue);
+        expect(positions, everyElement(greaterThanOrEqualTo(target)));
+      } finally {
+        await subscription.cancel();
+        await player.dispose();
+        JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+        await directory.delete(recursive: true);
+      }
+    });
+  }, skip: !supported);
+
   testWidgets('a later seek wins while an indexed seek is pending', (
     tester,
   ) async {

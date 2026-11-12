@@ -1254,7 +1254,7 @@ final currentLyricIndexProvider = Provider<int>((ref) {
   final lyricState = ref.watch(lyricControllerProvider);
   final position = ref.watch(positionProvider);
   final displayLyrics = lyricState.displayLyrics;
-  final currentPosition = position.valueOrNull;
+  final currentPosition = position.isLoading ? null : position.valueOrNull;
   if (displayLyrics.isEmpty || currentPosition == null) return -1;
 
   var low = 0;
