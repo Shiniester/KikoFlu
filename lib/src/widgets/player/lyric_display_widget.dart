@@ -487,6 +487,45 @@ class _LyricPointerSequence {
   }
 }
 
+Widget _buildLyricEmphasis({
+  required Listenable frames,
+  required bool active,
+  required double maxScale,
+  required _LyricEmphasisValue Function(bool reducedMotion) readEmphasis,
+  required Widget Function(double opacity) buildText,
+}) {
+  // A new row build supplies new text, styles, and layout constraints.
+  ({_LyricEmphasisValue value, Transform transform})? lastFrame;
+  return AnimatedBuilder(
+    animation: frames,
+    builder: (context, _) {
+      final reducedMotion = MediaQuery.disableAnimationsOf(context);
+      final emphasis = readEmphasis(reducedMotion);
+      final value = (
+        opacity: emphasis.opacity,
+        scale: math.min(
+          reducedMotion && !active ? 1.0 : emphasis.scale,
+          maxScale,
+        ),
+      );
+      final previous = lastFrame;
+      if (previous != null && previous.value == value) {
+        return previous.transform;
+      }
+
+      final transform = Transform.scale(
+        scale: value.scale,
+        transformHitTests: true,
+        child: previous != null && previous.value.opacity == value.opacity
+            ? previous.transform.child
+            : buildText(value.opacity),
+      );
+      lastFrame = (value: value, transform: transform);
+      return transform;
+    },
+  );
+}
+
 Widget _buildLyricTapFeedbackSurface({
   required Animation<double> opacity,
   required bool active,
@@ -1925,56 +1964,40 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
                                   padding: EdgeInsets.symmetric(
                                     horizontal: widget.textHorizontalPadding,
                                   ),
-                                  child: AnimatedBuilder(
-                                    animation: _scrollMotionFrame,
-                                    builder: (context, _) {
-                                      final reducedMotion =
-                                          MediaQuery.disableAnimationsOf(
-                                            context,
-                                          );
-                                      final target =
-                                          _compactLyricEmphasisTarget(
+                                  child: _buildLyricEmphasis(
+                                    frames: _scrollMotionFrame,
+                                    active: active,
+                                    maxScale: maxTextPaintWidth / textWidth,
+                                    readEmphasis: (reducedMotion) =>
+                                        reducedMotion
+                                        ? _compactLyricEmphasisTarget(
                                             lyricIndex,
                                             index,
                                             activeTextScale,
-                                          );
-                                      final emphasis = reducedMotion
-                                          ? target
-                                          : _compactLyricEmphasisValue(
-                                              lyricIndex,
-                                              currentIndex: index,
-                                              activeScale: activeTextScale,
-                                            );
-                                      final scale = reducedMotion && !active
-                                          ? 1.0
-                                          : emphasis.scale;
-                                      return Transform.scale(
-                                        scale: math.min(
-                                          scale,
-                                          maxTextPaintWidth / textWidth,
-                                        ),
-                                        transformHitTests: true,
-                                        child: ConstrainedBox(
-                                          constraints: BoxConstraints(
-                                            maxWidth: textWidth,
+                                          )
+                                        : _compactLyricEmphasisValue(
+                                            lyricIndex,
+                                            currentIndex: index,
+                                            activeScale: activeTextScale,
                                           ),
-                                          child: _PreviewLine(
-                                            text: lyrics[lyricIndex].text,
-                                            fontSize:
-                                                settings.smallFontSize *
-                                                    widthScale -
-                                                1,
-                                            lineHeight:
-                                                settings.smallLineHeight,
-                                            opacity: emphasis.opacity,
-                                            fontWeight: _fontWeight(
-                                              settings.fullFontWeight,
-                                            ),
-                                            maxLines: 1,
-                                          ),
+                                    buildText: (opacity) => ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: textWidth,
+                                      ),
+                                      child: _PreviewLine(
+                                        text: lyrics[lyricIndex].text,
+                                        fontSize:
+                                            settings.smallFontSize *
+                                                widthScale -
+                                            1,
+                                        lineHeight: settings.smallLineHeight,
+                                        opacity: opacity,
+                                        fontWeight: _fontWeight(
+                                          settings.fullFontWeight,
                                         ),
-                                      );
-                                    },
+                                        maxLines: 1,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -5484,45 +5507,30 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                       alignment: Alignment.center,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: textWidth),
-                        child: AnimatedBuilder(
-                          animation: _lyricMotionFrame,
-                          builder: (context, _) {
-                            final target = _lyricEmphasisTarget(
-                              index,
-                              currentIndex,
-                            );
+                        child: _buildLyricEmphasis(
+                          frames: _lyricMotionFrame,
+                          active: active,
+                          maxScale: maxTextPaintWidth / textWidth,
+                          readEmphasis: (reducedMotion) {
                             final emphasis = _lyricEmphasisValue(index);
-                            final reducedMotion =
-                                MediaQuery.disableAnimationsOf(context);
-                            final opacity = reducedMotion
-                                ? target.opacity
-                                : emphasis.opacity;
-                            final scale = reducedMotion
-                                ? (active ? target.scale : 1.0)
-                                : emphasis.scale;
-                            return Transform.scale(
-                              scale: math.min(
-                                scale,
-                                maxTextPaintWidth / textWidth,
-                              ),
-                              transformHitTests: true,
-                              child: _HighlightedLyricText(
-                                key: _getTextKeyForIndex(index),
-                                text: lyric.text,
-                                query: normalizedQuery,
-                                selectedMatch:
-                                    widget.selectedSearchMatch?.lineIndex ==
-                                        index
-                                    ? widget.selectedSearchMatch
-                                    : null,
-                                style: style.copyWith(
-                                  color: colors.onSurface.withValues(
-                                    alpha: opacity,
-                                  ),
-                                ),
-                              ),
-                            );
+                            return reducedMotion
+                                ? _lyricEmphasisTarget(index, currentIndex)
+                                : emphasis;
                           },
+                          buildText: (opacity) => _HighlightedLyricText(
+                            key: _getTextKeyForIndex(index),
+                            text: lyric.text,
+                            query: normalizedQuery,
+                            selectedMatch:
+                                widget.selectedSearchMatch?.lineIndex == index
+                                ? widget.selectedSearchMatch
+                                : null,
+                            style: style.copyWith(
+                              color: colors.onSurface.withValues(
+                                alpha: opacity,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),

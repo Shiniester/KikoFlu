@@ -519,6 +519,38 @@ void main() {
     expect(requested, const Duration(seconds: 1));
   });
 
+  for (final compact in [false, true]) {
+    testWidgets(
+      'moving ${compact ? 'cover' : 'full'} lyrics reuse stable text',
+      (tester) async {
+        final playback = await _mount(
+          tester,
+          position: const Duration(seconds: 6),
+          display: compact
+              ? (_) =>
+                    ThreeLineLyricDisplay(onSeekRequested: (_) {}, lineCount: 5)
+              : null,
+        );
+        if (compact) playback.container.read(isPlayingProvider);
+        final stable = find.text('spring 8');
+        final incoming = find.text('spring 7');
+
+        playback.positions.add(const Duration(seconds: 7));
+        await _frames(tester, 14);
+        final stableText = tester.widget<Text>(stable);
+        final incomingAlpha = _visibleLyricAlpha(tester, incoming);
+
+        await _frames(tester, 2);
+
+        expect(
+          _visibleLyricAlpha(tester, incoming),
+          greaterThan(incomingAlpha),
+        );
+        expect(tester.widget<Text>(stable), same(stableText));
+      },
+    );
+  }
+
   testWidgets('playback emphasis changes while the subtitle moves', (
     tester,
   ) async {
