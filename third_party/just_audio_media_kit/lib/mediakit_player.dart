@@ -16,6 +16,9 @@ import 'src/set_property.dart';
 class MediaKitPlayer extends AudioPlayerPlatform {
   static const kErrorCode = 1;
   static const _seekPositionTolerance = Duration(microseconds: 500);
+  static const _nativePositionSampleTolerance = Duration(milliseconds: 20);
+  static const _positionConfirmationTimeout = Duration(seconds: 8);
+  static const _noTransitionConfirmationWindow = Duration(milliseconds: 250);
 
   /// `package:media_kit`'s [Player]
   late final Player _player;
@@ -54,6 +57,8 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   int? _errorCode;
   String? _errorMessage;
   MediaKitPendingLoad? _loadCompleter;
+  _PositionConfirmation? _positionConfirmation;
+  _PositionConfirmation? _setPositionConfirmation;
 
   /// The index that's currently playing
   int _currentIndex = 0;
@@ -117,9 +122,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         if (_currentMedia?.extras?['overrideDuration'] != null) return;
 
         if (_setPosition != null && duration > Duration.zero) {
-          unawaited(_player
-              .seek(_setPosition! + (_currentMedia?.start ?? Duration.zero)));
-          _setPosition = null;
+          _dispatchSetPosition();
         }
         _updateDuration(duration);
         _updatePlaybackEvent();
@@ -327,6 +330,240 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   Future<String> _readProperty(NativePlayer native, String name) =>
       nativePropertyReader?.call(native, name) ?? native.getProperty(name);
 
+  void _dispatchSetPosition() {
+    final target = _setPosition;
+    if (target == null) return;
+
+    final media = _currentMedia;
+    final confirmation = _setPositionConfirmation;
+    confirmation?.media = media;
+    confirmation?.startDispatch(
+      _playing,
+      _player.state.rate,
+      _player.state.position,
+    );
+    _setPosition = null;
+    _setPositionConfirmation = null;
+
+    final command = _player.seek(target + (media?.start ?? Duration.zero));
+    if (confirmation != null) {
+      unawaited(_confirmNativePosition(confirmation, command));
+    } else {
+      unawaited(command);
+    }
+  }
+
+  Future<Duration?>? get positionConfirmation => _positionConfirmation?.future;
+
+  _PositionConfirmation? _beginPositionConfirmation(
+    int generation,
+    Duration target,
+  ) {
+    _retirePositionConfirmation();
+    final confirmation = _PositionConfirmation(generation, target);
+    _positionConfirmation = confirmation;
+    confirmation.startTimeout(
+      _positionConfirmationTimeout,
+      () => _failPositionConfirmation(confirmation),
+    );
+    return confirmation;
+  }
+
+  void _retirePositionConfirmation() {
+    _positionConfirmation?.complete(null);
+    _positionConfirmation = null;
+    _setPositionConfirmation = null;
+  }
+
+  bool _currentPositionConfirmation(_PositionConfirmation confirmation) =>
+      !_released &&
+      !_waitingForNextIndex &&
+      !confirmation.isCompleted &&
+      confirmation.generation == _loadGeneration &&
+      identical(confirmation, _positionConfirmation) &&
+      identical(confirmation.media, _currentMedia);
+
+  Duration? _validatedNativePosition(
+    _PositionConfirmation confirmation,
+    String rawPosition, {
+    required bool allowPlaybackAdvance,
+    bool matchTarget = true,
+  }) {
+    final media = confirmation.media;
+    final seconds = double.tryParse(rawPosition);
+    if (media == null || seconds == null || !seconds.isFinite) return null;
+
+    return _validatedNativeDuration(
+      confirmation,
+      Duration(microseconds: (seconds * 1000000).round()),
+      allowPlaybackAdvance: allowPlaybackAdvance,
+      matchTarget: matchTarget,
+    );
+  }
+
+  Duration? _validatedNativeDuration(
+    _PositionConfirmation confirmation,
+    Duration position, {
+    required bool allowPlaybackAdvance,
+    bool matchTarget = true,
+  }) {
+    final media = confirmation.media;
+    if (media == null) return null;
+
+    final start = media.start ?? Duration.zero;
+    final end = media.end;
+    if (position < start) {
+      if (start - position > _seekPositionTolerance) return null;
+      position = start;
+    }
+    if (end != null && position > end) return null;
+
+    final chapterPosition = position - start;
+    if (!matchTarget) return chapterPosition;
+
+    final difference = chapterPosition - confirmation.target;
+    final advance =
+        allowPlaybackAdvance && (confirmation.playingAtDispatch || _playing)
+            ? Duration(
+                  microseconds: (confirmation.dispatchElapsed.inMicroseconds *
+                          confirmation.rateAtDispatch)
+                      .round(),
+                ) +
+                _nativePositionSampleTolerance
+            : Duration.zero;
+    if (difference > advance + _seekPositionTolerance ||
+        difference < -_seekPositionTolerance) {
+      return null;
+    }
+    return difference < Duration.zero ? confirmation.target : chapterPosition;
+  }
+
+  bool _nativePositionShowsSeekDisplacement(
+    _PositionConfirmation confirmation,
+    String rawPosition,
+  ) {
+    final baseline = confirmation.baselinePosition;
+    final seconds = double.tryParse(rawPosition);
+    if (baseline == null || seconds == null || !seconds.isFinite) return false;
+
+    final position = Duration(microseconds: (seconds * 1000000).round());
+    final displacement =
+        position > baseline ? position - baseline : baseline - position;
+    final ordinaryAdvance = Duration(
+          microseconds: (confirmation.dispatchElapsed.inMicroseconds *
+                  confirmation.rateAtDispatch)
+              .round(),
+        ) +
+        _nativePositionSampleTolerance;
+    return displacement > ordinaryAdvance;
+  }
+
+  Future<void> _confirmNativePosition(
+    _PositionConfirmation confirmation,
+    Future<void> command,
+  ) async {
+    try {
+      await Future.any<void>([
+        command,
+        confirmation.future.then<void>((_) {}),
+      ]);
+      if (!_currentPositionConfirmation(confirmation)) return;
+
+      final native = _nativePlayer;
+      if (native == null) {
+        _failPositionConfirmation(confirmation);
+        return;
+      }
+
+      var sawSeeking = false;
+      final watch = Stopwatch()..start();
+      while (watch.elapsed < _positionConfirmationTimeout) {
+        if (!_currentPositionConfirmation(confirmation)) return;
+        final seeking = await _readProperty(native, 'seeking');
+        if (!_currentPositionConfirmation(confirmation)) return;
+        if (seeking == 'yes') {
+          sawSeeking = true;
+        } else if (seeking == 'no') {
+          final rawPosition = await _readProperty(native, 'time-pos');
+          if (!_currentPositionConfirmation(confirmation)) return;
+          final afterPosition = await _readProperty(native, 'seeking');
+          if (!_currentPositionConfirmation(confirmation)) return;
+          if (afterPosition == 'yes') {
+            sawSeeking = true;
+          } else if (afterPosition == 'no') {
+            final displacement = _nativePositionShowsSeekDisplacement(
+              confirmation,
+              rawPosition,
+            );
+            final position = _validatedNativePosition(
+              confirmation,
+              rawPosition,
+              allowPlaybackAdvance: sawSeeking || displacement,
+            );
+            if (position != null) {
+              _publishPositionConfirmation(confirmation, position);
+              confirmation.complete(position);
+              return;
+            }
+            if (sawSeeking ||
+                watch.elapsed >= _noTransitionConfirmationWindow) {
+              _failPositionConfirmation(
+                confirmation,
+                rawPosition: rawPosition,
+              );
+              return;
+            }
+          }
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      _failPositionConfirmation(confirmation);
+    } catch (error) {
+      if (_currentPositionConfirmation(confirmation)) {
+        _logger.fine('native position was not confirmed: $error');
+        _failPositionConfirmation(confirmation);
+      }
+    }
+  }
+
+  void _failPositionConfirmation(
+    _PositionConfirmation confirmation, {
+    String? rawPosition,
+  }) {
+    if (!_currentPositionConfirmation(confirmation)) {
+      confirmation.complete(null);
+      return;
+    }
+    final position = rawPosition == null
+        ? null
+        : _validatedNativePosition(
+            confirmation,
+            rawPosition,
+            allowPlaybackAdvance: false,
+            matchTarget: false,
+          );
+    final fallback = position ??
+        (confirmation.baselinePosition == null
+            ? null
+            : _validatedNativeDuration(
+                confirmation,
+                confirmation.baselinePosition!,
+                allowPlaybackAdvance: false,
+                matchTarget: false,
+              ));
+    _publishPositionConfirmation(confirmation, fallback);
+    confirmation.complete(null);
+  }
+
+  void _publishPositionConfirmation(
+    _PositionConfirmation confirmation,
+    Duration? position,
+  ) {
+    if (position == null || !_currentPositionConfirmation(confirmation)) return;
+    _position = position;
+    _updatePlaybackEvent();
+  }
+
   bool _currentRead(int generation, Media? media) =>
       !_released &&
       !_waitingForNextIndex &&
@@ -430,9 +667,14 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   Future<LoadResponse> load(LoadRequest request) async {
     _logger.finest('load(${request.toMap()})');
     final generation = ++_loadGeneration;
+    final confirmation = request.initialPosition == null
+        ? null
+        : _beginPositionConfirmation(generation, request.initialPosition!);
+    if (confirmation == null) _retirePositionConfirmation();
     _waitingForNextIndex = false;
     _mediaOpened = false;
     _setPosition = null;
+    _setPositionConfirmation = confirmation;
     _seekTarget = request.initialPosition;
     _sawSeekUndershoot = false;
     final pendingLoad = MediaKitPendingLoad();
@@ -463,16 +705,25 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       }
       _mediaOpened = true;
 
-      if (request.initialPosition != null) {
+      if (request.initialPosition != null &&
+          _loadGeneration == generation &&
+          identical(confirmation, _positionConfirmation)) {
+        confirmation!.media = _currentMedia;
+        confirmation.baselinePosition = _player.state.position;
         _setPosition = _position = request.initialPosition!;
+        _setPositionConfirmation = confirmation;
+        if (_player.state.duration > Duration.zero) _dispatchSetPosition();
       }
 
       _updatePlaybackEvent();
       return LoadResponse(duration: await pendingLoad.future);
     } catch (_) {
+      if (confirmation != null) _failPositionConfirmation(confirmation);
       if (_loadGeneration == generation) {
         _seekTarget = null;
         _sawSeekUndershoot = false;
+        _setPosition = null;
+        _setPositionConfirmation = null;
       }
       rethrow;
     } finally {
@@ -541,6 +792,12 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   Future<SeekResponse> seek(SeekRequest request) async {
     _logger.finest('seek(${request.toMap()})');
     final generation = ++_loadGeneration;
+    final confirmation = request.position == null
+        ? null
+        : _beginPositionConfirmation(generation, request.position!);
+    if (confirmation == null) _retirePositionConfirmation();
+    _setPosition = null;
+    _setPositionConfirmation = confirmation;
     _waitingForNextIndex = false;
     _seekTarget = null;
     _sawSeekUndershoot = false;
@@ -597,12 +854,23 @@ class MediaKitPlayer extends AudioPlayerPlatform {
       if (start != null) nativePosition += start;
       try {
         if (_player.state.duration > Duration.zero) {
+          confirmation?.media = _currentMedia;
+          confirmation?.startDispatch(
+            _playing,
+            _player.state.rate,
+            _player.state.position,
+          );
           _seekCommandGeneration = generation;
-          await _player.seek(nativePosition);
+          final command = _player.seek(nativePosition);
+          if (confirmation != null) {
+            unawaited(_confirmNativePosition(confirmation, command));
+          }
+          await command;
         } else {
           _setPosition = position;
         }
       } catch (_) {
+        if (confirmation != null) _failPositionConfirmation(confirmation);
         if (_loadGeneration == generation) {
           _seekTarget = null;
           _sawSeekUndershoot = false;
@@ -669,13 +937,13 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     _loadCompleter?.interrupt();
     ++_loadGeneration;
     _released = true;
+    _retirePositionConfirmation();
     _waitingForNextIndex = false;
     _mediaOpened = false;
     try {
       await _nativeConfigurationTail;
     } catch (_) {}
     await _player.dispose();
-    // cancel all stream subscriptions
     for (final StreamSubscription subscription in _streamSubscriptions) {
       unawaited(subscription.cancel());
     }
@@ -707,5 +975,41 @@ class MediaKitPlayer extends AudioPlayerPlatform {
         throw UnsupportedError(
             '${audioSource.runtimeType} is currently not supported');
     }
+  }
+}
+
+class _PositionConfirmation {
+  _PositionConfirmation(this.generation, this.target);
+
+  final int generation;
+  final Duration target;
+  final Completer<Duration?> _result = Completer<Duration?>();
+  final Stopwatch _dispatchTimer = Stopwatch();
+  Timer? _timeoutTimer;
+  Media? media;
+  Duration? baselinePosition;
+  bool playingAtDispatch = false;
+  double rateAtDispatch = 1.0;
+
+  Future<Duration?> get future => _result.future;
+  Duration get dispatchElapsed => _dispatchTimer.elapsed;
+  bool get isCompleted => _result.isCompleted;
+
+  void startTimeout(Duration timeout, void Function() onTimeout) {
+    _timeoutTimer = Timer(timeout, onTimeout);
+  }
+
+  void startDispatch(bool playing, double rate, Duration baselinePosition) {
+    if (_dispatchTimer.isRunning) return;
+    playingAtDispatch = playing;
+    rateAtDispatch = rate;
+    this.baselinePosition = baselinePosition;
+    _dispatchTimer.start();
+  }
+
+  void complete(Duration? position) {
+    if (_result.isCompleted) return;
+    _timeoutTimer?.cancel();
+    _result.complete(position);
   }
 }

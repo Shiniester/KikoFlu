@@ -52,6 +52,20 @@ void main() {
     await service.dispose();
   });
 
+  Future<void> playTwoSlices() async {
+    await service.updateQueue([_track('a')]);
+    final key = service.sliceState.trackKey!;
+    for (final (start, end) in [(10000, 20000), (30000, 40000)]) {
+      await service.saveSlice(
+        trackKey: key,
+        slice: AudioSlice(startMs: start, endMs: end),
+      );
+    }
+    service.setOnlySlices(true);
+    await service.play();
+    _emitPosition(player, 19000);
+  }
+
   test(
     'marking twice saves a positive, bounded range and rejects overlap',
     () async {
@@ -275,14 +289,163 @@ void main() {
       expect(await service.seek(const Duration(milliseconds: 25000)), isTrue);
       service.setSliceScrubbing(false);
       expect(player.position, const Duration(milliseconds: 25000));
+      expect(
+        service.playbackPosition.value.position,
+        const Duration(seconds: 25),
+      );
 
       await service.play();
       expect(player.position, const Duration(milliseconds: 30000));
+      expect(
+        service.playbackPosition.value.position,
+        const Duration(seconds: 30),
+      );
       expect(player.playing, isTrue);
 
       _emitPosition(player, 25000);
       await until(() => player.position == const Duration(milliseconds: 30000));
       expect(service.currentTrack?.id, 'a');
+    },
+  );
+
+  test(
+    'playing seek into a slice gap goes directly to the next slice',
+    () async {
+      await playTwoSlices();
+      final playback = service.playbackPosition;
+      final seeksBeforeTap = player.seeks.length;
+      player.holdNextSeek = true;
+
+      final seeking = service.seek(const Duration(seconds: 25));
+      await until(() => player.pendingSeek != null);
+      expect(player.seeks.skip(seeksBeforeTap), [const Duration(seconds: 30)]);
+      expect(playback.value.pendingJump, isNotNull);
+      expect(playback.value.previewPosition, isNull);
+      expect(playback.value.position, const Duration(seconds: 19));
+
+      player.finishSeek();
+      expect(await seeking, isTrue);
+      expect(playback.value.pendingJump, isNull);
+      expect(playback.value.position, const Duration(seconds: 30));
+    },
+  );
+
+  test('automatic slice jump publishes no position in the gap', () async {
+    await playTwoSlices();
+    final playback = service.playbackPosition;
+    final updates = <PlaybackPositionState>[];
+    void record() => updates.add(playback.value);
+    playback.addListener(record);
+    addTearDown(() => playback.removeListener(record));
+    player.holdNextSeek = true;
+
+    _emitPosition(player, 20000);
+    await until(() => player.pendingSeek != null);
+    _emitPosition(player, 21000);
+    expect(playback.value.pendingJump, isNotNull);
+    expect(playback.value.previewPosition, isNull);
+    expect(playback.value.position, const Duration(seconds: 19));
+
+    player.position = const Duration(seconds: 30);
+    player.finishSeek();
+    await until(() => playback.value.pendingJump == null);
+    expect(updates.map((state) => state.position).toSet(), {
+      const Duration(seconds: 19),
+      const Duration(seconds: 30),
+    });
+    expect(playback.value.confirmedJump, greaterThan(0));
+  });
+
+  test('a manual seek supersedes a pending automatic slice jump', () async {
+    await playTwoSlices();
+    final playback = service.playbackPosition;
+    player.holdNextSeek = true;
+    _emitPosition(player, 20000);
+    await until(() => player.pendingSeek != null);
+    final automatic = playback.value.pendingJump;
+
+    const target = Duration(seconds: 12);
+    expect(await service.seek(target), isTrue);
+    final manual = playback.value;
+    expect(manual.pendingJump, isNull);
+    expect(manual.position, target);
+    expect(manual.confirmedJump, isNot(automatic));
+
+    player.finishSeek();
+    await until(() => player.pendingSeek == null);
+    expect(playback.value, manual);
+  });
+
+  for (final manual in [true, false]) {
+    test(
+      'old completion does not preempt the ${manual ? 'manual' : 'automatic'} '
+      'slice jump',
+      () async {
+        await playTwoSlices();
+        await service.setRepeatMode(LoopMode.one);
+        player.holdNextSeek = true;
+        final seeksBeforeJump = player.seeks.length;
+        final target = Duration(seconds: manual ? 33 : 30);
+        final seeking = manual ? service.seek(target) : null;
+        if (!manual) _emitPosition(player, 20000);
+        await until(() => player.pendingSeek != null);
+
+        player.processingState = ProcessingState.completed;
+        player.emitPlayerState();
+        await Future<void>.delayed(Duration.zero);
+        player.finishSeek();
+
+        if (seeking != null) expect(await seeking, isTrue);
+        await until(() => service.playbackPosition.value.pendingJump == null);
+        expect(player.seeks.skip(seeksBeforeJump), [target]);
+        expect(service.playbackPosition.value.position, target);
+      },
+    );
+  }
+
+  test(
+    'play holds the confirmed paused position until the next slice lands',
+    () async {
+      await playTwoSlices();
+      await service.pause();
+      final playback = service.playbackPosition;
+      final updates = <PlaybackPositionState>[];
+      void record() => updates.add(playback.value);
+      playback.addListener(record);
+      addTearDown(() => playback.removeListener(record));
+      player.holdNextSeek = true;
+      final seeksBeforeTap = player.seeks.length;
+      const gap = Duration(seconds: 25);
+      const nextSlice = Duration(seconds: 30);
+      final seeking = service.seek(gap);
+      await until(() => player.pendingSeek != null);
+      _emitPosition(player, 5000);
+
+      final resuming = service.play();
+      await Future<void>.delayed(Duration.zero);
+      expect(player.seeks.skip(seeksBeforeTap), [gap]);
+      player.position = gap;
+      player.holdNextSeek = true;
+      player.finishSeek();
+
+      expect(await seeking, isTrue);
+      await until(() => player.seeks.last == nextSlice);
+      final waitingForSlice = playback.value;
+      final playingBeforeSlice = player.playing;
+      player.finishSeek();
+      await resuming;
+      expect(waitingForSlice.position, gap);
+      expect(waitingForSlice.pendingJump, isNotNull);
+      expect(playingBeforeSlice, isFalse);
+      expect(player.seeks.skip(seeksBeforeTap), [gap, nextSlice]);
+      expect(playback.value.position, nextSlice);
+      expect(updates.map((state) => state.previewPosition ?? state.position), [
+        gap,
+        gap,
+        gap,
+        nextSlice,
+      ]);
+      expect(player.playing, isTrue);
     },
   );
 

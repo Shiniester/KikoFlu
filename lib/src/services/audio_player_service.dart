@@ -50,6 +50,16 @@ enum EnqueueNextResult {
 
 enum ManualSkipDirection { previous, next }
 
+/// The confirmed position stays fixed during a jump.
+/// A direct manual seek can supply a separate position for immediate feedback.
+typedef PlaybackPositionState = ({
+  String? trackId,
+  Duration position,
+  int? pendingJump,
+  Duration? previewPosition,
+  int confirmedJump,
+});
+
 @immutable
 class ManualSkipAvailability {
   const ManualSkipAvailability({
@@ -278,7 +288,7 @@ class AudioPlayerService {
   Future<void> _sliceMutationTail = Future.value();
   bool _sliceScrubbing = false;
   bool _sliceManualSeekPending = false;
-  bool _sliceUserSeekInFlight = false;
+  Completer<void>? _sliceUserSeek;
   bool _sliceBoundaryInFlight = false;
   int _slicePlaybackRevision = 0;
   AudioHandler? _audioHandler;
@@ -320,6 +330,15 @@ class AudioPlayerService {
   bool _shuffleEnabled = false;
   StreamSubscription<int?>? _currentIndexSubscription;
   int _seekRevision = 0;
+  final _playbackPosition = ValueNotifier<PlaybackPositionState>((
+    trackId: null,
+    position: Duration.zero,
+    pendingJump: null,
+    previewPosition: null,
+    confirmedJump: 0,
+  ));
+  int _positionJumpSequence = 0;
+  _PlaybackPositionJump? _positionJump;
   Object? _coverSeekToken;
   final ValueNotifier<bool?> _coverExpandedDuringSeek = ValueNotifier(null);
   bool _coverSeekSawBuffering = false;
@@ -880,7 +899,17 @@ class AudioPlayerService {
         );
       }
       _updateAudioCacheTarget();
-      _handleSlicePosition(position);
+      final currentPosition = _player.position;
+      _handleSlicePosition(currentPosition);
+      // Decide the slice boundary before publishing a sample in its gap.
+      if (_positionJump == null &&
+          currentTrack != null &&
+          !_isSwitchingTrack &&
+          _stopOperation == null &&
+          !_sourceNeedsReload &&
+          _canFollowPlaybackPosition(currentPosition)) {
+        _publishPlaybackPosition(currentPosition);
+      }
       if (position > Duration.zero &&
           _player.playing &&
           !_isSwitchingTrack &&
@@ -930,15 +959,19 @@ class AudioPlayerService {
       state.processingState == ProcessingState.loading ||
           state.processingState == ProcessingState.buffering,
     );
-    if (state.processingState == ProcessingState.completed &&
-        _sliceState.preview != null) {
+    final reachedEnd =
+        state.processingState == ProcessingState.completed &&
+        _player.processingState == ProcessingState.completed &&
+        _positionJump == null &&
+        _sliceUserSeek == null;
+    if (reachedEnd && _sliceState.preview != null) {
       if (!_completionHandled) {
         _completionHandled = true;
         final preview = _sliceState.preview!;
         final trackKey = _sliceState.trackKey;
         if (trackKey != null) _finishSlicePreview(preview, trackKey);
       }
-    } else if (state.processingState == ProcessingState.completed &&
+    } else if (reachedEnd &&
         _activeTrackLoad == null &&
         _latestTrackLoad == null &&
         !_completionHandled) {
@@ -1255,6 +1288,7 @@ class AudioPlayerService {
     _currentIndex = 0;
     _pendingTargetTrackId = null;
     _publishedTrack = null;
+    _publishPlaybackPosition(Duration.zero, confirmedJump: 0);
     _resumeTrack = null;
     _performanceActivePlaybackRequestId = null;
     _performanceActivePlaybackTrackId = null;
@@ -1339,6 +1373,10 @@ class AudioPlayerService {
         mode: _performanceModeForTrack(track),
       ),
     );
+    if (emitCurrentTrack) {
+      _releaseUserSeek();
+      _cancelPositionJump();
+    }
     _cancelPendingSeek();
     _seekRecoveryGeneration = null;
     _failedSeekSource = sourceToReload;
@@ -1496,6 +1534,8 @@ class AudioPlayerService {
 
   Future<bool> _invalidateTrackLoads() async {
     ++_trackLoadGeneration;
+    _releaseUserSeek();
+    _cancelPositionJump();
     _cancelPendingSeek();
     _seekRecoveryGeneration = null;
     final pending = _latestTrackLoad;
@@ -2116,6 +2156,7 @@ class AudioPlayerService {
     required PlayerTrackChangeDirection direction,
   }) {
     _publishedTrack = track;
+    _publishPlaybackPosition(_player.position, confirmedJump: 0);
     _lastTrackChangePresentation = PlayerTrackChangePresentation(
       trackId: track.id,
       direction: direction,
@@ -2234,13 +2275,14 @@ class AudioPlayerService {
         final completionRevision = _intentRevision;
         final completionGeneration = _trackLoadGeneration;
         final slices = _currentTrackSlices;
-        await _seek(
+        final seeked = await _seek(
           Duration(
             milliseconds: _sliceState.onlySlices && slices.isNotEmpty
                 ? slices.first.startMs
                 : 0,
           ),
           userInitiated: false,
+          sliceJump: _sliceState.onlySlices && slices.isNotEmpty,
         );
         final sameTrack = identical(currentTrack, completedTrack);
         final unchangedIntent =
@@ -2248,7 +2290,9 @@ class AudioPlayerService {
             completionGeneration == _trackLoadGeneration;
         final recoveredSameTrack =
             sameTrack && _seekRecoveryGeneration == _trackLoadGeneration;
-        if (!_disposed &&
+        if (seeked &&
+            !_disposed &&
+            _sliceUserSeek == null &&
             _desiredPlaying &&
             sameTrack &&
             (unchangedIntent || recoveredSameTrack) &&
@@ -2828,6 +2872,13 @@ class AudioPlayerService {
   }
 
   Future<bool> _prepareSlicePositionForPlayback() async {
+    final intent = _intentRevision;
+    while (_sliceState.onlySlices && _sliceUserSeek != null) {
+      await _sliceUserSeek!.future;
+      if (_disposed || !_desiredPlaying || intent != _intentRevision) {
+        return false;
+      }
+    }
     final track = currentTrack;
     final trackKey = track == null ? null : audioSliceTrackKey(track);
     final slices = _currentTrackSlices;
@@ -2853,6 +2904,7 @@ class AudioPlayerService {
     final seeked = await _seek(
       Duration(milliseconds: targetMs),
       userInitiated: false,
+      sliceJump: true,
     );
     return seeked &&
         _slicePlaybackRevision == revision &&
@@ -3093,7 +3145,11 @@ class AudioPlayerService {
 
   Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
 
-  Future<bool> _seek(Duration position, {required bool userInitiated}) async {
+  Future<bool> _seek(
+    Duration position, {
+    required bool userInitiated,
+    bool sliceJump = false,
+  }) async {
     final coverSeekToken =
         currentTrack != null && (_player.playing || _coverSeekToken != null)
         ? Object()
@@ -3104,37 +3160,162 @@ class AudioPlayerService {
       _coverSeekSawBuffering = false;
       _coverSeekReady = false;
     }
-    if (userInitiated) {
+    final userSeek = userInitiated ? Completer<void>() : null;
+    if (userSeek != null) {
       ++_slicePlaybackRevision;
       _sliceManualSeekPending = true;
-      _sliceUserSeekInFlight = true;
+      _releaseUserSeek();
+      _sliceUserSeek = userSeek;
       if (_sliceState.preview != null) {
         _setSliceState(_sliceState.copyWith(clearPreview: true));
         _scheduleNativeWindowRefresh();
       }
     }
+    final sliceTarget =
+        userInitiated &&
+            _desiredPlaying &&
+            _sliceState.onlySlices &&
+            !_sliceState.isLoading
+        ? _sliceSeekTargetMs(_currentTrackSlices, position.inMilliseconds)
+        : null;
+    final target = sliceTarget == null
+        ? position
+        : Duration(milliseconds: sliceTarget);
+    final jump = (userInitiated || sliceJump) && currentTrack != null
+        ? _beginPositionJump(
+            previewPosition: userInitiated && sliceTarget == null
+                ? position
+                : null,
+          )
+        : null;
     var succeeded = false;
     try {
-      succeeded = await _performSeek(position, coverSeekToken: coverSeekToken);
+      succeeded = await _performSeek(
+        target,
+        coverSeekToken: coverSeekToken,
+        jump: jump,
+      );
       return succeeded;
     } finally {
+      if (jump != null && identical(_positionJump, jump)) {
+        _cancelPositionJump();
+      }
       if (coverSeekToken != null &&
           identical(_coverSeekToken, coverSeekToken)) {
         if (succeeded) {
           if (_coverSeekTarget == null) {
-            _completeCoverSeekOperation(coverSeekToken, position);
+            _completeCoverSeekOperation(coverSeekToken, target);
           }
         } else {
           _clearCoverSeek();
         }
       }
-      if (userInitiated) {
-        _sliceUserSeekInFlight = false;
-        if (_player.playing && _desiredPlaying && !_sliceScrubbing) {
-          _handleSlicePosition(_player.position);
-        }
+      final currentUserSeek =
+          userSeek != null && identical(_sliceUserSeek, userSeek);
+      if (currentUserSeek) {
+        _releaseUserSeek();
+      }
+      final currentSliceJump = sliceJump && jump?.id == _positionJumpSequence;
+      if (_desiredPlaying &&
+          (currentUserSeek || currentSliceJump) &&
+          _player.processingState == ProcessingState.completed) {
+        _handlePlayerState(_player.playerState);
+      } else if (currentUserSeek &&
+          _player.playing &&
+          _desiredPlaying &&
+          !_sliceScrubbing) {
+        _handleSlicePosition(_player.position);
       }
     }
+  }
+
+  void _releaseUserSeek() {
+    final seek = _sliceUserSeek;
+    _sliceUserSeek = null;
+    seek?.complete();
+  }
+
+  bool _canFollowPlaybackPosition(Duration position) {
+    if (!_desiredPlaying ||
+        !_sliceState.onlySlices ||
+        _sliceState.preview != null) {
+      return true;
+    }
+    final slices = _currentTrackSlices;
+    return slices.isEmpty ||
+        _findContainingSlice(slices, position.inMilliseconds) != null;
+  }
+
+  void _publishPlaybackPosition(
+    Duration position, {
+    int? pendingJump,
+    Duration? previewPosition,
+    int? confirmedJump,
+  }) {
+    if (_disposed) return;
+    _playbackPosition.value = (
+      trackId: currentTrack?.id,
+      position: position,
+      pendingJump: pendingJump,
+      previewPosition: previewPosition,
+      confirmedJump: confirmedJump ?? _playbackPosition.value.confirmedJump,
+    );
+  }
+
+  _PlaybackPositionJump _beginPositionJump({Duration? previewPosition}) {
+    _positionJump?.cancelled.complete(null);
+    final jump = _PlaybackPositionJump(++_positionJumpSequence);
+    _positionJump = jump;
+    _publishPlaybackPosition(
+      _playbackPosition.value.position,
+      pendingJump: jump.id,
+      previewPosition: previewPosition,
+    );
+    return jump;
+  }
+
+  void _cancelPositionJump() {
+    final jump = _positionJump;
+    if (jump == null) return;
+    _positionJump = null;
+    jump.cancelled.complete(null);
+    _publishPlaybackPosition(_playbackPosition.value.position);
+  }
+
+  Future<bool> _confirmPositionJump(
+    _PlaybackPositionJump? jump,
+    bool Function() isCurrent,
+  ) async {
+    if (jump == null) return true;
+    if (!isCurrent() || !identical(_positionJump, jump)) return false;
+    final id = _nativePlayerId;
+    final Duration? position;
+    if (id == null) {
+      position = _player.position;
+    } else {
+      final receipt = JustAudioMediaKit.positionConfirmation(id);
+      if (receipt != null) {
+        position = await Future.any([receipt, jump.cancelled.future]);
+      } else if (_player.processingState == ProcessingState.idle) {
+        // just_audio keeps a local position after disposing the stopped player.
+        position = _player.position;
+      } else {
+        return false;
+      }
+    }
+    if (position == null || !isCurrent() || !identical(_positionJump, jump)) {
+      return false;
+    }
+    _positionJump = null;
+    // A paused seek can settle while Play is waiting to choose a slice.
+    final pausedPreview =
+        !_player.playing && _playbackPosition.value.previewPosition != null;
+    if (pausedPreview || _canFollowPlaybackPosition(position)) {
+      _publishPlaybackPosition(position, confirmedJump: jump.id);
+    } else {
+      _publishPlaybackPosition(_playbackPosition.value.position);
+    }
+    return true;
   }
 
   void _beginCoverSeekOperation(Object? token, {bool loading = false}) {
@@ -3214,7 +3395,11 @@ class AudioPlayerService {
     _setCoverExpandedDuringSeek(null);
   }
 
-  Future<bool> _performSeek(Duration position, {Object? coverSeekToken}) async {
+  Future<bool> _performSeek(
+    Duration position, {
+    Object? coverSeekToken,
+    _PlaybackPositionJump? jump,
+  }) async {
     var targetPosition = position;
     final trackAtStart = currentTrack;
     final pendingTrackLoad = _latestTrackLoad ?? _activeTrackLoad;
@@ -3348,7 +3533,12 @@ class AudioPlayerService {
             initialPosition: targetPosition,
           );
           await recovery.future;
-          final succeeded = isCurrentSeekLoad(recovery);
+          final succeeded =
+              isCurrentSeekLoad(recovery) &&
+              await _confirmPositionJump(
+                jump,
+                () => isCurrentSeekLoad(recovery),
+              );
           if (succeeded) {
             _completeCoverSeekOperation(coverSeekToken, targetPosition);
           }
@@ -3364,7 +3554,13 @@ class AudioPlayerService {
       _beginCoverSeekOperation(coverSeekToken);
       await _seekNativePlayer(targetPosition);
     }
-    if (!isCurrentSeekResult(cachedTrackLoad)) return false;
+    if (!isCurrentSeekResult(cachedTrackLoad) ||
+        !await _confirmPositionJump(
+          jump,
+          () => isCurrentSeekResult(cachedTrackLoad),
+        )) {
+      return false;
+    }
     _completeCoverSeekOperation(coverSeekToken, targetPosition);
     if (!_handlingTrackCompletion &&
         _player.processingState != ProcessingState.completed) {
@@ -3865,6 +4061,8 @@ class AudioPlayerService {
   }
 
   // Getters and Streams
+  ValueListenable<PlaybackPositionState> get playbackPosition =>
+      _playbackPosition;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<PositionDiscontinuity> get positionDiscontinuityStream =>
@@ -4117,6 +4315,7 @@ class AudioPlayerService {
     ++_slicePlaybackRevision;
     if (scrubbing) {
       ++_seekRevision;
+      _cancelPositionJump();
       _cancelPendingSeek();
     } else if (_player.playing && _desiredPlaying) {
       _handleSlicePosition(_player.position);
@@ -4242,7 +4441,7 @@ class AudioPlayerService {
         !_desiredPlaying ||
         _isSwitchingTrack ||
         _sliceScrubbing ||
-        _sliceUserSeekInFlight ||
+        _sliceUserSeek != null ||
         _sliceBoundaryInFlight) {
       return;
     }
@@ -4299,7 +4498,11 @@ class AudioPlayerService {
               null) {
         return;
       }
-      await _seek(Duration(milliseconds: targetMs), userInitiated: false);
+      await _seek(
+        Duration(milliseconds: targetMs),
+        userInitiated: false,
+        sliceJump: true,
+      );
     });
   }
 
@@ -4486,6 +4689,7 @@ class AudioPlayerService {
     await _manualSkipAvailabilityController.close();
     await _trackLoadingController.close();
     _coverExpandedDuringSeek.dispose();
+    _playbackPosition.dispose();
     await _requestedTrackController.close();
     await _playbackDiagnosticController.close();
     await _historicalQueueLoad;
@@ -4779,6 +4983,13 @@ class AudioPlayerService {
     _tempAudioDirectory = dir;
     return dir;
   }
+}
+
+class _PlaybackPositionJump {
+  _PlaybackPositionJump(this.id);
+
+  final int id;
+  final cancelled = Completer<Duration?>();
 }
 
 class _TrackLoadRequest {

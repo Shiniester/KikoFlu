@@ -132,7 +132,26 @@ void main() {
         final metrics = <Map<String, Object>>[];
         for (final percent in [25, 80, 10]) {
           final target = duration! * (percent / 100);
-          await player.seek(target).timeout(const Duration(seconds: 10));
+          final previousReceipt = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final seek = player.seek(target);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previousReceipt);
+          });
+          final receipt = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          await seek.timeout(const Duration(seconds: 10));
+          final confirmed = await receipt.timeout(const Duration(seconds: 10));
+          expect(confirmed, isNotNull);
+          expect(
+            (confirmed! - target).inMilliseconds.abs(),
+            lessThanOrEqualTo(100),
+          );
           await _until(
             () =>
                 player.processingState == ProcessingState.ready &&
@@ -236,6 +255,101 @@ void main() {
       }, skip: !supported);
     }
   }
+
+  testWidgets(
+    'native position receipt confirms paused, no-op, and EOF seeks',
+    (tester) async {
+      await _nativeContract(() async {
+        final directory = await Directory.systemTemp.createTemp(
+          'kiko-backend-position-receipt-',
+        );
+        final source = File('${directory.path}/source.wav');
+        await source.writeAsBytes(
+          gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+        );
+        final player = await _configuredPlayer();
+        const target = Duration(milliseconds: 2002);
+        const chapterStart = Duration(seconds: 4);
+        final playable = ClippingAudioSource(
+          child: AudioSource.uri(source.uri),
+          start: chapterStart,
+          end: const Duration(seconds: 20),
+        );
+
+        Future<Duration?> loadAndConfirmInitialPosition() async {
+          final previous = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final load = player.setAudioSource(playable, initialPosition: target);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previous);
+          });
+          final confirmation = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          expect(
+            await load.timeout(const Duration(seconds: 10)),
+            const Duration(seconds: 16),
+          );
+          return confirmation.timeout(const Duration(seconds: 10));
+        }
+
+        Future<Duration?> seekAndConfirm(Duration position) async {
+          final previous = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final seek = player.seek(position);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previous);
+          });
+          final confirmation = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          await seek.timeout(const Duration(seconds: 10));
+          return confirmation.timeout(const Duration(seconds: 10));
+        }
+
+        try {
+          expect(
+            JustAudioMediaKit.positionConfirmation(player.platformId),
+            isNull,
+          );
+          final initialPosition = await loadAndConfirmInitialPosition();
+          expect(initialPosition, isNotNull);
+          expect(
+            (initialPosition! - target).inMicroseconds.abs(),
+            lessThanOrEqualTo(500),
+          );
+          expect(player.playing, isFalse);
+
+          final noOpPosition = await seekAndConfirm(initialPosition);
+          expect(noOpPosition, initialPosition);
+          expect(player.playing, isFalse);
+
+          final eofPosition = await seekAndConfirm(const Duration(seconds: 16));
+          expect(eofPosition, const Duration(seconds: 16));
+
+          final resumedFromEof = await seekAndConfirm(target);
+          expect(resumedFromEof, isNotNull);
+          expect(
+            (resumedFromEof! - target).inMicroseconds.abs(),
+            lessThanOrEqualTo(500),
+          );
+        } finally {
+          await player.dispose();
+          JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+          await directory.delete(recursive: true);
+        }
+      });
+    },
+    skip: !supported,
+  );
 
   testWidgets('playing seek does not reactivate the preceding subtitle', (
     tester,
@@ -343,20 +457,47 @@ void main() {
           await release.future;
         });
         await locked.future;
-        final earlier = player.seek(const Duration(seconds: 1), index: 0);
+        final previousReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        );
+        final earlier = player.seek(const Duration(seconds: 3), index: 0);
+        await _until(() {
+          final latest = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          return latest != null && !identical(latest, previousReceipt);
+        });
+        final earlierReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        )!;
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        final later = player.seek(const Duration(seconds: 3));
+        final later = player.seek(const Duration(seconds: 1));
+        await _until(() {
+          final latest = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          return latest != null && !identical(latest, earlierReceipt);
+        });
+        final laterReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        )!;
         await Future<void>.delayed(const Duration(milliseconds: 50));
         release.complete();
         await lock;
         await Future.wait([earlier, later]);
+        expect(await earlierReceipt, isNull);
+        final confirmed = await laterReceipt.timeout(
+          const Duration(seconds: 10),
+        );
+        expect(confirmed, isNotNull);
+        expect(
+          (confirmed! - const Duration(seconds: 1)).inMilliseconds.abs(),
+          lessThanOrEqualTo(20),
+        );
         await player.pause();
         expect(player.currentIndex, 0);
-        expect(
-          player.position,
-          greaterThan(const Duration(milliseconds: 2900)),
-        );
-        expect(player.position, lessThan(const Duration(seconds: 4)));
+        expect(player.position, greaterThan(const Duration(milliseconds: 900)));
+        expect(player.position, lessThan(const Duration(seconds: 2)));
       } finally {
         if (!release.isCompleted) release.complete();
         await player.dispose();

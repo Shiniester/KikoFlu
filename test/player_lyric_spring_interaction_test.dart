@@ -13,6 +13,8 @@ import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart'
+    show PlaybackPositionState;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
@@ -26,6 +28,174 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  for (final compact in [false, true]) {
+    for (final playing in [false, true]) {
+      testWidgets(
+        '${compact ? 'compact' : 'full'} lyrics use authoritative positions '
+        'while ${playing ? 'playing' : 'paused'}',
+        (tester) async {
+          final completion = Completer<void>();
+          final playback = await _mount(
+            tester,
+            position: const Duration(seconds: 1),
+            positionSnapshot: (
+              trackId: 'test-track',
+              position: const Duration(seconds: 1),
+              pendingJump: null,
+              previewPosition: null,
+              confirmedJump: 0,
+            ),
+            display: (playback) {
+              Future<void> seek(Duration target) {
+                if (target == const Duration(seconds: 2)) {
+                  playback.publishPlaybackPosition((
+                    trackId: 'test-track',
+                    position: const Duration(seconds: 1),
+                    pendingJump: 1,
+                    previewPosition: const Duration(seconds: 2),
+                    confirmedJump: 0,
+                  ));
+                } else if (playing) {
+                  playback.publishPlaybackPosition((
+                    trackId: 'test-track',
+                    position: const Duration(seconds: 2),
+                    pendingJump: 2,
+                    previewPosition: null,
+                    confirmedJump: 1,
+                  ));
+                } else {
+                  playback.publishPlaybackPosition((
+                    trackId: 'test-track',
+                    position: const Duration(seconds: 2),
+                    pendingJump: 2,
+                    previewPosition: target,
+                    confirmedJump: 1,
+                  ));
+                }
+                return completion.future;
+              }
+
+              return compact
+                  ? Center(
+                      child: SizedBox(
+                        height: 220,
+                        child: ThreeLineLyricDisplay(
+                          lineCount: 5,
+                          onSeekRequested: seek,
+                        ),
+                      ),
+                    )
+                  : FullLyricDisplay(
+                      isPortrait: true,
+                      showPlaybackLineControls: true,
+                      onSeekRequested: seek,
+                    );
+            },
+          );
+          if (compact) playback.container.read(isPlayingProvider);
+          playback.states.add(PlayerState(playing, ProcessingState.ready));
+          await tester.pumpAndSettle();
+
+          final selected = find.text('spring 2');
+          final initialCenter = tester.getCenter(selected).dy;
+          await tester.tap(selected);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 80));
+          await tester.pump(const Duration(milliseconds: 16));
+          final intermediateCenter = tester.getCenter(selected).dy;
+          final playbackAnchor = compact
+              ? tester.getCenter(find.byType(ThreeLineLyricDisplay)).dy
+              : tester
+                    .getCenter(
+                      find.byKey(const ValueKey('playback-line-indicator')),
+                    )
+                    .dy;
+          expect((intermediateCenter - initialCenter).abs(), greaterThan(0.5));
+          expect((intermediateCenter - playbackAnchor).abs(), greaterThan(0.5));
+
+          playback.publishPlaybackPosition((
+            trackId: 'test-track',
+            position: const Duration(seconds: 2),
+            pendingJump: null,
+            previewPosition: null,
+            confirmedJump: 1,
+          ));
+          await tester.pumpAndSettle();
+          expect(_visibleLyricAlpha(tester, selected), closeTo(1, 0.01));
+          if (!compact) _expectAnchor(tester, 'spring 2');
+          if (compact) {
+            expect(tester.getCenter(selected).dy, closeTo(playbackAnchor, 2.1));
+          }
+
+          final skippedGap = find.text('spring 4');
+          await tester.tap(skippedGap);
+          if (playing) {
+            playback.positions.add(const Duration(seconds: 4));
+            playback.discontinuities.add(_jump(2, 4));
+          }
+          await tester.pump();
+          if (playing) {
+            expect(_visibleLyricAlpha(tester, skippedGap), lessThan(0.6));
+            expect(_visibleLyricAlpha(tester, selected), greaterThan(0.9));
+            expect(
+              playback.container.read(playbackPositionProvider)?.pendingJump,
+              2,
+            );
+            expect(
+              playback.container.read(currentLyricTextProvider),
+              'spring 2',
+            );
+
+            playback.publishPlaybackPosition((
+              trackId: 'test-track',
+              position: const Duration(seconds: 5),
+              pendingJump: null,
+              previewPosition: null,
+              confirmedJump: 2,
+            ));
+            await tester.pumpAndSettle();
+            expect(
+              playback.container.read(currentLyricTextProvider),
+              'spring 5',
+            );
+            expect(_visibleLyricAlpha(tester, skippedGap), lessThan(0.6));
+            expect(
+              _visibleLyricAlpha(tester, find.text('spring 5')),
+              closeTo(1, 0.01),
+            );
+            if (!compact) _expectAnchor(tester, 'spring 5');
+          } else {
+            await tester.pumpAndSettle();
+            expect(
+              playback.container.read(playbackPositionProvider)?.pendingJump,
+              2,
+            );
+            expect(
+              playback.container.read(currentLyricTextProvider),
+              'spring 4',
+            );
+            expect(_visibleLyricAlpha(tester, skippedGap), closeTo(1, 0.01));
+            playback.publishPlaybackPosition((
+              trackId: 'test-track',
+              position: const Duration(seconds: 4),
+              pendingJump: null,
+              previewPosition: null,
+              confirmedJump: 2,
+            ));
+            await tester.pumpAndSettle();
+            expect(
+              playback.container.read(currentLyricTextProvider),
+              'spring 4',
+            );
+            expect(_visibleLyricAlpha(tester, skippedGap), closeTo(1, 0.01));
+            if (!compact) _expectAnchor(tester, 'spring 4');
+          }
+          completion.complete();
+        },
+      );
+    }
+  }
 
   testWidgets('lyric pixels stay stable when browsing and returning', (
     tester,
@@ -3660,6 +3830,12 @@ class _Playback {
   final textScale = ValueNotifier<double>(1);
   late ProviderContainer container;
 
+  void publishPlaybackPosition(PlaybackPositionState? value) {
+    (container.read(playbackPositionProvider.notifier)
+            as _TestPlaybackPositionNotifier)
+        .publish(value);
+  }
+
   Future<void> dispose() async {
     container.dispose();
     await positions.close();
@@ -3678,6 +3854,7 @@ Future<_Playback> _mount(
   List<LyricLine>? lyrics,
   LyricState? lyricState,
   Duration position = Duration.zero,
+  PlaybackPositionState? positionSnapshot,
   bool settle = true,
   bool syncDiscontinuities = false,
   Widget Function(_Playback playback)? display,
@@ -3691,6 +3868,9 @@ Future<_Playback> _mount(
   playback.states.add(PlayerState(true, ProcessingState.ready));
   playback.container = ProviderContainer(
     overrides: [
+      playbackPositionProvider.overrideWith(
+        () => _TestPlaybackPositionNotifier(positionSnapshot),
+      ),
       positionProvider.overrideWith((ref) => playback.positions.stream),
       positionDiscontinuityProvider.overrideWith(
         (ref) => playback.discontinuities.stream,
@@ -3720,6 +3900,7 @@ Future<_Playback> _mount(
       isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
     ],
   );
+  if (positionSnapshot != null) playback.container.read(positionProvider);
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: playback.container,
@@ -3767,4 +3948,15 @@ class _Lyrics extends LyricController {
   _Lyrics(super.ref, LyricState initial) : super(initialState: initial);
 
   void replace(LyricState value) => state = value;
+}
+
+class _TestPlaybackPositionNotifier extends PlaybackPositionNotifier {
+  _TestPlaybackPositionNotifier(this.initialPosition);
+
+  final PlaybackPositionState? initialPosition;
+
+  @override
+  PlaybackPositionState? build() => initialPosition;
+
+  void publish(PlaybackPositionState? value) => state = value;
 }

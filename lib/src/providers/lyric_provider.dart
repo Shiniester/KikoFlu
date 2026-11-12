@@ -1252,9 +1252,15 @@ final lyricAutoLoaderProvider = Provider<void>((ref) {
 // this provider rebuild only when the effective lyric index changes.
 final currentLyricIndexProvider = Provider<int>((ref) {
   final lyricState = ref.watch(lyricControllerProvider);
-  final position = ref.watch(positionProvider);
+  final playback = ref.watch(playbackPositionProvider);
   final displayLyrics = lyricState.displayLyrics;
-  final currentPosition = position.isLoading ? null : position.valueOrNull;
+  final Duration? currentPosition;
+  if (playback == null) {
+    final position = ref.watch(positionProvider);
+    currentPosition = position.isLoading ? null : position.valueOrNull;
+  } else {
+    currentPosition = playback.previewPosition ?? playback.position;
+  }
   if (displayLyrics.isEmpty || currentPosition == null) return -1;
 
   var low = 0;

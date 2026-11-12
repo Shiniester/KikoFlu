@@ -106,8 +106,18 @@ void main() {
       expect(service.isTrackLoading, isTrue);
       expect(player.playing, isFalse);
       expect(service.coverExpandedDuringSeek.value, isTrue);
+      final pending = service.playbackPosition.value;
+      expect(pending.trackId, track.id);
+      expect(pending.position, const Duration(seconds: 8));
+      expect(pending.previewPosition, target);
+      expect(pending.pendingJump, isNotNull);
       player.finishLoad();
       expect(await seeking, isTrue);
+      final confirmed = service.playbackPosition.value;
+      expect(confirmed.trackId, track.id);
+      expect(confirmed.position, target);
+      expect(confirmed.pendingJump, isNull);
+      expect(confirmed.confirmedJump, pending.pendingJump);
 
       expect(player.loaded, [track.url, cachePath]);
       expect(player.initialPositions, [null, target]);
@@ -270,16 +280,22 @@ void main() {
     await service.updateQueue([track], autoplay: true);
     final cachePath = await createCompleteCache(track.hash!);
     player.holdNextLoad = true;
+    final playback = service.playbackPosition;
+    final positions = <Duration>[];
+    void record() => positions.add(playback.value.position);
+    playback.addListener(record);
+    addTearDown(() => playback.removeListener(record));
 
     final earlier = service.seek(const Duration(seconds: 30));
     await until(() => player.pendingLoad != null);
     final latest = service.seek(const Duration(seconds: 60));
     player.finishLoad();
-    await Future.wait([earlier, latest]);
+    expect(await Future.wait([earlier, latest]), [false, true]);
 
     expect(player.loaded, [track.url, cachePath]);
     expect(player.position, const Duration(seconds: 60));
     expect(player.seeks, [const Duration(seconds: 60)]);
+    expect(positions.toSet(), {Duration.zero, const Duration(seconds: 60)});
     expect(service.currentTrack, track);
   });
 

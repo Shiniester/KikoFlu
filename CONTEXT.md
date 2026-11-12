@@ -517,8 +517,8 @@ canceling a load does not make a complete cache entry corrupt.
 _Avoid_: Cover transition, title animation
 
 **Playback Position Jump (播放进度跳转)**:
-Moving to a selected time within the current track from the player's progress
-control or lyrics. The current track and its queue position remain the same.
+Moving to another time within the current track while keeping its queue
+position. The listener or Only Slices Mode can initiate the jump.
 _Avoid_: Track Switch, 曲目切换
 
 **Audio Slice (音频切片)**:

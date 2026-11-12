@@ -76,6 +76,29 @@ final positionProvider = StreamProvider<Duration>((ref) {
   );
 });
 
+final playbackPositionProvider =
+    NotifierProvider<PlaybackPositionNotifier, PlaybackPositionState?>(
+      PlaybackPositionNotifier.new,
+    );
+
+class PlaybackPositionNotifier extends Notifier<PlaybackPositionState?> {
+  @override
+  PlaybackPositionState? build() {
+    final track = ref.watch(currentTrackProvider).valueOrNull;
+    if (track == null) return null;
+    final positions = ref.watch(audioPlayerServiceProvider).playbackPosition;
+    PlaybackPositionState? currentPosition() {
+      final value = positions.value;
+      return value.trackId == track.id ? value : null;
+    }
+
+    void update() => state = currentPosition();
+    positions.addListener(update);
+    ref.onDispose(() => positions.removeListener(update));
+    return currentPosition();
+  }
+}
+
 final positionDiscontinuityProvider = StreamProvider<PositionDiscontinuity>((
   ref,
 ) {

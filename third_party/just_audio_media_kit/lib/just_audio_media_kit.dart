@@ -27,6 +27,10 @@ class JustAudioMediaKit extends JustAudioPlatform {
     await _instance?._configurePlayer(id, configuration);
   }
 
+  /// Returns the latest native confirmation for a position-changing request.
+  static Future<Duration?>? positionConfirmation(String id) =>
+      _instance?._players[id]?.positionConfirmation;
+
   /// Removes retained configuration after the owning service is disposed.
   static void forgetPlayerConfiguration(String id) {
     _instance?._nativePlayerConfigurations.remove(id);

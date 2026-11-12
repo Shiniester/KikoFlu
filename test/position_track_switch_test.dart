@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
@@ -11,6 +12,14 @@ import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 class _PlaybackService implements AudioPlayerService {
   final tracks = StreamController<AudioTrack?>.broadcast(sync: true);
   final positions = StreamController<Duration>.broadcast(sync: true);
+  @override
+  final ValueNotifier<PlaybackPositionState> playbackPosition = ValueNotifier((
+    trackId: null,
+    position: Duration.zero,
+    pendingJump: null,
+    previewPosition: null,
+    confirmedJump: 0,
+  ));
   AudioTrack? track;
   Duration currentPosition = Duration.zero;
   Duration? replayedPosition;
@@ -100,6 +109,13 @@ void main() {
     final service = _PlaybackService()
       ..track = oldTrack
       ..currentPosition = const Duration(seconds: 5);
+    service.playbackPosition.value = (
+      trackId: oldTrack.id,
+      position: service.position,
+      pendingJump: null,
+      previewPosition: null,
+      confirmedJump: 0,
+    );
     late _Lyrics lyrics;
     final container = ProviderContainer(
       overrides: [
@@ -123,6 +139,7 @@ void main() {
     );
     addTearDown(() async {
       container.dispose();
+      service.playbackPosition.dispose();
       await service.tracks.close();
       await service.positions.close();
     });
