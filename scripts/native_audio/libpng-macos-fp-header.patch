@@ -1,0 +1,43 @@
+From 893b8113f04d408cc6177c6de19c9889a48faa24 Mon Sep 17 00:00:00 2001
+From: Zixu Wang <zixu_wang@apple.com>
+Subject: [PATCH] Backport the macOS math header fix from libpng
+
+macOS no longer provides fp.h; the required functions are in math.h.
+Upstream commit: 893b8113f04d408cc6177c6de19c9889a48faa24.
+
+diff --git a/AUTHORS b/AUTHORS
+index 60f41e5..d29e8be 100644
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -33,6 +33,8 @@ Authors, for copyright and licensing purposes.
+  * Vadim Barkov
+  * Willem van Schaik
+  * Zhijie Liang
++ * Apple Inc.
++   - Zixu Wang
+  * Arm Holdings
+    - Richard Townsend
+  * Google Inc.
+diff --git a/pngpriv.h b/pngpriv.h
+--- a/pngpriv.h
++++ b/pngpriv.h
+@@ -515,17 +515,6 @@
+ #  include <float.h>
+-
+-#  if (defined(__MWERKS__) && defined(macintosh)) || defined(applec) || \
+-    defined(THINK_C) || defined(__SC__) || defined(TARGET_OS_MAC)
+-   /* We need to check that <math.h> hasn't already been included earlier
+-    * as it seems it doesn't agree with <fp.h>, yet we should really use
+-    * <fp.h> if possible.
+-    */
+-#    if !defined(__MATH_H__) && !defined(__MATH_H) && !defined(__cmath__)
+-#      include <fp.h>
+-#    endif
+-#  else
+-#    include <math.h>
+-#  endif
++
++#  include <math.h>
+ #  if defined(_AMIGA) && defined(__SASC) && defined(_M68881)
+    /* Amiga SAS/C: We must include builtin FPU functions when compiling using
+     * MATH=68881

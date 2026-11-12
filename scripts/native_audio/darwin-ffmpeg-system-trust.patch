@@ -1,0 +1,121 @@
+diff --git a/libavformat/tls_mbedtls.c b/libavformat/tls_mbedtls.c
+index 444148b..4448103 100644
+--- a/libavformat/tls_mbedtls.c
++++ b/libavformat/tls_mbedtls.c
+@@ -44,6 +44,11 @@
+ #include "libavutil/avstring.h"
+ #include "libavutil/random_seed.h"
+ 
++#if defined(__APPLE__)
++#include <CoreFoundation/CoreFoundation.h>
++#include <Security/Security.h>
++#endif
++
+ static int mbedtls_x509_fingerprint(char *cert_buf, size_t cert_sz, char **fingerprint)
+ {
+     unsigned char md[32];
+@@ -470,6 +475,77 @@ static void handle_handshake_error(URLContext *h, int ret)
+     }
+ }
+ 
++#if defined(__APPLE__)
++static int verify_peer_with_system_trust(URLContext *h)
++{
++    TLSContext *tls_ctx = h->priv_data;
++    TLSShared *shr = &tls_ctx->tls_shared;
++    const mbedtls_x509_crt *peer_cert = mbedtls_ssl_get_peer_cert(&tls_ctx->ssl_context);
++    CFMutableArrayRef certificates = NULL;
++    CFStringRef peer_name = NULL;
++    SecPolicyRef policy = NULL;
++    SecTrustRef trust = NULL;
++    int ret = AVERROR(EIO);
++
++    if (!peer_cert || !shr->host) {
++        av_log(h, AV_LOG_ERROR, "Mbed TLS did not retain the peer certificate chain or hostname\n");
++        return ret;
++    }
++    if (!(certificates = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks))) {
++        ret = AVERROR(ENOMEM);
++        goto end;
++    }
++    for (; peer_cert; peer_cert = peer_cert->next) {
++        CFDataRef data = CFDataCreate(NULL, peer_cert->raw.p, (CFIndex)peer_cert->raw.len);
++        SecCertificateRef certificate;
++        if (!data) {
++            ret = AVERROR(ENOMEM);
++            goto end;
++        }
++        certificate = SecCertificateCreateWithData(NULL, data);
++        CFRelease(data);
++        if (!certificate) {
++            av_log(h, AV_LOG_ERROR, "Unable to convert peer certificate for system trust\n");
++            goto end;
++        }
++        CFArrayAppendValue(certificates, certificate);
++        CFRelease(certificate);
++    }
++    if (!(peer_name = CFStringCreateWithCString(NULL, shr->host, kCFStringEncodingUTF8))) {
++        ret = AVERROR(ENOMEM);
++        goto end;
++    }
++    if (!(policy = SecPolicyCreateSSL(true, peer_name))) {
++        ret = AVERROR(ENOMEM);
++        goto end;
++    }
++    if (SecTrustCreateWithCertificates(certificates, policy, &trust) != errSecSuccess) {
++        av_log(h, AV_LOG_ERROR, "Unable to create system trust evaluation\n");
++        goto end;
++    }
++    if (__builtin_available(macOS 10.14, iOS 12.0, *)) {
++        if (!SecTrustEvaluateWithError(trust, NULL)) {
++            av_log(h, AV_LOG_ERROR, "Peer certificate chain failed system trust evaluation\n");
++            goto end;
++        }
++    } else {
++        av_log(h, AV_LOG_ERROR, "System trust evaluation is unavailable on this OS version\n");
++        goto end;
++    }
++    ret = 0;
++end:
++    if (trust)
++        CFRelease(trust);
++    if (policy)
++        CFRelease(policy);
++    if (peer_name)
++        CFRelease(peer_name);
++    if (certificates)
++        CFRelease(certificates);
++    return ret;
++}
++#endif
++
+ static int tls_handshake(URLContext *h)
+ {
+     TLSContext *tls_ctx = h->priv_data;
+@@ -492,7 +568,12 @@ static int tls_handshake(URLContext *h)
+     }
+ 
+     if (shr->verify) {
+-        // check the result of the certificate verification
++#if defined(__APPLE__)
++        if (!shr->external_sock && !shr->is_dtls && !shr->listen && !shr->ca_file) {
++            if ((ret = verify_peer_with_system_trust(h)) < 0)
++                return ret;
++        } else
++#endif
+         if ((verify_res_flags = mbedtls_ssl_get_verify_result(&tls_ctx->ssl_context)) != 0) {
+             av_log(h, AV_LOG_ERROR, "mbedtls_ssl_get_verify_result reported problems "\
+                                     "with the certificate verification, returned flags: %"PRIu32"\n",
+@@ -694,7 +775,11 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
+             goto fail;
+     }
+ 
+-    if (shr->verify) {
++    if (shr->verify
++#if defined(__APPLE__)
++        && (shr->external_sock || shr->is_dtls || shr->listen || shr->ca_file)
++#endif
++       ) {
+         // check the result of the certificate verification
+         if ((verify_res_flags = mbedtls_ssl_get_verify_result(&tls_ctx->ssl_context)) != 0) {
+             av_log(h, AV_LOG_ERROR, "mbedtls_ssl_get_verify_result reported problems "\

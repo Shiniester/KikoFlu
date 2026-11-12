@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
@@ -90,19 +89,15 @@ void _initSqfliteFfi() {
   sqfliteFfiInit();
 }
 
-Future<void> _configureMpv() async {
-  if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
-
+void _configureNativeProxy() {
   try {
-    final prefs = await SharedPreferences.getInstance();
-    final passthrough = prefs.getBool('audio_passthrough_enabled') ?? false;
     final httpProxyUrl = ProxyConfig.httpProxyUrl;
     final httpsProxyUrl = ProxyConfig.httpsProxyUrl;
     final hasProxy = httpProxyUrl != null || httpsProxyUrl != null;
 
     // media_kit/mpv is a native network stack and does not inherit Dart's
-    // HttpOverrides. Export the configured HTTP proxy before libmpv is
-    // initialized so direct URL playback uses the same route as API/Dio.
+    // HttpOverrides. Export the proxy before native players are created so
+    // direct URL playback uses the same route as API/Dio.
     if (hasProxy) {
       if (httpProxyUrl != null) {
         setProcessEnvironment('http_proxy', httpProxyUrl);
@@ -130,98 +125,10 @@ Future<void> _configureMpv() async {
       setProcessEnvironment('no_proxy', '*');
       setProcessEnvironment('NO_PROXY', '*');
     }
-
-    Directory configDir;
-    if (Platform.isWindows) {
-      final exePath = Platform.resolvedExecutable;
-      final exeDir = p.dirname(exePath);
-      configDir = Directory(p.join(exeDir, 'portable_config'));
-    } else {
-      final appSupportDir = await getApplicationSupportDirectory();
-      configDir = Directory(p.join(appSupportDir.path, 'mpv_config'));
-    }
-
-    if (!await configDir.exists()) {
-      await configDir.create(recursive: true);
-    }
-
-    final configFile = File(p.join(configDir.path, 'mpv.conf'));
-
-    // Force set MPV_HOME to ensure config is read
-    setProcessEnvironment('MPV_HOME', configDir.path);
-    LogService.instance.captureOutput(
-      '[Audio] Set MPV_HOME to: ${configDir.path}',
-    );
-
-    if (passthrough) {
-      String configContent;
-      if (Platform.isWindows) {
-        configContent = '''
-ao=wasapi
-audio-exclusive=yes
-audio-spdif=ac3,dts,eac3
-volume-max=400
-log-file=mpv_debug.log
-msg-level=all=v
-video=no
-sub-auto=no
-''';
-      } else if (Platform.isLinux) {
-        configContent =
-            '''
-audio-spdif=ac3,dts,eac3
-volume-max=400
-log-file=${p.join(configDir.path, 'mpv_debug.log')}
-msg-level=all=v
-video=no
-sub-auto=no
-''';
-      } else {
-        configContent =
-            '''
-ao=coreaudio
-audio-exclusive=yes
-audio-spdif=ac3,dts,eac3
-volume-max=400
-log-file=${p.join(configDir.path, 'mpv_debug.log')}
-msg-level=all=v
-video=no
-sub-auto=no
-''';
-      }
-
-      await configFile.writeAsString(configContent);
-      LogService.instance.captureOutput(
-        '[Audio] Updated mpv.conf: Exclusive Mode ENABLED (Forced)',
-      );
-    } else {
-      // 即使不开启直通，也建议禁用视频输出以避免 Texture 崩溃
-      String configContent;
-      if (Platform.isWindows) {
-        configContent = '''
-volume-max=400
-log-file=mpv_debug.log
-msg-level=all=v
-video=no
-sub-auto=no
-''';
-      } else {
-        configContent =
-            '''
-volume-max=400
-log-file=${p.join(configDir.path, 'mpv_debug.log')}
-msg-level=all=v
-video=no
-sub-auto=no
-''';
-      }
-      await configFile.writeAsString(configContent);
-      LogService.instance.captureOutput(
-        '[Audio] Updated mpv.conf: Video Disabled',
-      );
-    }
   } catch (e) {
-    LogService.instance.captureOutput('[Audio] Error configuring mpv: $e');
+    LogService.instance.captureOutput(
+      '[Audio] Error configuring native proxy: $e',
+    );
   }
 }
 
@@ -390,11 +297,10 @@ void main(List<String> args) async {
     return;
   }
 
-  if (isDesktop) {
-    await _configureMpv();
-    // Keep the existing desktop audio backend; video uses its own Player.
-    JustAudioMediaKit.ensureInitialized();
-  }
+  if (isDesktop) _configureNativeProxy();
+  // Pitch shifting replaces mpv's AF chain; playback speed uses native correction.
+  JustAudioMediaKit.pitch = false;
+  JustAudioMediaKit.ensureInitialized(android: true, iOS: true, macOS: true);
   MediaKit.ensureInitialized();
 
   if (Platform.isWindows || Platform.isLinux) {

@@ -2075,6 +2075,82 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(568, 320), const Size(800, 360)]) {
+    testWidgets(
+      'short landscape fits an active timer with doubled text at $size',
+      (tester) async {
+        final prefs = await SharedPreferences.getInstance();
+        const order = 'sleep_timer,seek_backward,repeat,mark,queue';
+        await prefs.setString('player_buttons_config', order);
+        await prefs.setString('player_buttons_config_desktop', order);
+        await _pumpPlayer(
+          tester,
+          size,
+          textScale: 2,
+          lyrics: [
+            LyricLine(
+              startTime: Duration.zero,
+              endTime: const Duration(seconds: 1),
+              text: 'Current lyric with doubled text',
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlayerControlsWidget)),
+        );
+        final timer = container.read(sleepTimerProvider.notifier);
+        timer.setTimer(const Duration(minutes: 90));
+        await tester.pumpAndSettle();
+
+        final timerIcon = find.byIcon(Icons.timer);
+        final timerText = find.text(
+          container.read(sleepTimerProvider).formattedTime,
+        );
+        for (final icon in [
+          Icons.replay_10,
+          Icons.repeat,
+          Icons.bookmark_border,
+          Icons.queue_music,
+        ]) {
+          expect(
+            tester.getCenter(find.byIcon(icon)).dy,
+            tester.getCenter(timerIcon).dy,
+          );
+        }
+        expect(
+          tester.getTopLeft(timerText).dy,
+          greaterThanOrEqualTo(tester.getBottomLeft(timerIcon).dy),
+        );
+        final viewport = tester.getRect(
+          find.byKey(const PageStorageKey('player-wide-controls-scroll')),
+        );
+        expect(
+          tester.getBottomLeft(timerText).dy,
+          lessThanOrEqualTo(viewport.bottom),
+        );
+        expect(timerIcon.hitTestable(), findsOneWidget);
+        if (size.width == 568) {
+          final actions = find.descendant(
+            of: find.byType(PlayerControlsWidget),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is SingleChildScrollView &&
+                  widget.scrollDirection == Axis.horizontal,
+            ),
+          );
+          final queue = find.byIcon(Icons.queue_music);
+          final previousX = tester.getCenter(queue).dx;
+          await tester.drag(actions, const Offset(-300, 0));
+          await tester.pumpAndSettle();
+          expect(tester.getCenter(queue).dx, lessThan(previousX));
+          expect(queue.hitTestable(), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('short landscape queue stays open after rotation', (
     tester,
   ) async {

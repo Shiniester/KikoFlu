@@ -5,6 +5,15 @@
 
 set -e
 
+source scripts/native_audio/darwin.lock
+
+NATIVE_AUDIO_ARCHIVE="build/native-audio/darwin-output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz"
+if [[ ! -s "$NATIVE_AUDIO_ARCHIVE" ]]; then
+    echo "❌ 缺少锁定的 iOS libmpv 文件：$NATIVE_AUDIO_ARCHIVE" >&2
+    echo "请先运行：bash scripts/native_audio/build_darwin.sh" >&2
+    exit 1
+fi
+
 echo "🚀 开始构建 iOS 无签名 IPA（简化版）..."
 
 # 检查依赖
@@ -24,7 +33,7 @@ echo ""
 
 # 清理
 echo "🧹 清理之前的构建..."
-flutter clean
+rm -rf build/ios ios/build
 rm -rf ios/Pods ios/Podfile.lock
 
 # 获取依赖

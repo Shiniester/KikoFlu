@@ -1,0 +1,767 @@
+{
+  "platform": "Windows",
+  "architecture": {
+    "machine": "AMD64",
+    "bits": 64
+  },
+  "library": {
+    "file": "libmpv-2.dll",
+    "client_api_version": {
+      "major": 2,
+      "minor": 1
+    },
+    "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+    "ffmpeg_version": "n6.0"
+  },
+  "scope": "PCM bypass and required filter-chain availability; not full effect behavior",
+  "input": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "format": "s16le",
+    "frames": 9600,
+    "tones_hz": [
+      440,
+      880
+    ],
+    "peak_s16": 6000
+  },
+  "output": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "format": "s16le raw"
+  },
+  "checks": [
+    {
+      "name": "bypass",
+      "filter": null,
+      "status": "passed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "file_loaded",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": 0,
+          "message": "success",
+          "reason": 0
+        }
+      ],
+      "logs": [],
+      "pcm_bytes": 38400,
+      "end_file": {
+        "reason": 0,
+        "error": 0,
+        "message": "success"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "pcm_frames": 9600
+    },
+    {
+      "name": "equalizer_440_hz",
+      "filter": "lavfi=[equalizer=f=440:t=q:w=1:g=6]",
+      "status": "failed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:af",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "file_loaded",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": 0,
+          "message": "success",
+          "reason": 0
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "'aresample' filter not present, cannot convert formats."
+        },
+        {
+          "prefix": "lavfi",
+          "level": "fatal",
+          "text": "failed to configure the filter graph"
+        },
+        {
+          "prefix": "af",
+          "level": "error",
+          "text": "Disabling filter lavfi.00 because it has failed."
+        }
+      ],
+      "pcm_bytes": 34304,
+      "end_file": {
+        "reason": 0,
+        "error": 0,
+        "message": "success"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "pcm_frames": 8576,
+      "reason": "mpv reported filter or playback errors"
+    },
+    {
+      "name": "lavfi_anull",
+      "filter": "lavfi=[anull]",
+      "status": "failed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:af",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": -16,
+          "message": "no audio or video data played",
+          "reason": 4
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: No such filter: 'anull'"
+        },
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: Error creating filters"
+        },
+        {
+          "prefix": "lavfi",
+          "level": "fatal",
+          "text": "parsing the filter graph failed"
+        },
+        {
+          "prefix": "user_filter_wrapper",
+          "level": "error",
+          "text": "Creating filter 'lavfi' failed."
+        },
+        {
+          "prefix": "cplayer",
+          "level": "error",
+          "text": "Audio filter initialized failed!"
+        },
+        {
+          "prefix": "cplayer",
+          "level": "fatal",
+          "text": "No video or audio streams selected."
+        }
+      ],
+      "pcm_bytes": 0,
+      "end_file": {
+        "reason": 4,
+        "error": -16,
+        "message": "no audio or video data played"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "reason": "END_FILE reported mpv error -16"
+    },
+    {
+      "name": "lavfi_aeval",
+      "filter": "lavfi=[aeval=exprs=val(0)|val(1)]",
+      "status": "failed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:af",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": -16,
+          "message": "no audio or video data played",
+          "reason": 4
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: No such filter: 'aeval'"
+        },
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: Error creating filters"
+        },
+        {
+          "prefix": "lavfi",
+          "level": "fatal",
+          "text": "parsing the filter graph failed"
+        },
+        {
+          "prefix": "user_filter_wrapper",
+          "level": "error",
+          "text": "Creating filter 'lavfi' failed."
+        },
+        {
+          "prefix": "cplayer",
+          "level": "error",
+          "text": "Audio filter initialized failed!"
+        },
+        {
+          "prefix": "cplayer",
+          "level": "fatal",
+          "text": "No video or audio streams selected."
+        }
+      ],
+      "pcm_bytes": 0,
+      "end_file": {
+        "reason": 4,
+        "error": -16,
+        "message": "no audio or video data played"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "reason": "END_FILE reported mpv error -16"
+    },
+    {
+      "name": "lavfi_aiir",
+      "filter": "lavfi=[aiir]",
+      "status": "failed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:af",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": -16,
+          "message": "no audio or video data played",
+          "reason": 4
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: No such filter: 'aiir'"
+        },
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: Error creating filters"
+        },
+        {
+          "prefix": "lavfi",
+          "level": "fatal",
+          "text": "parsing the filter graph failed"
+        },
+        {
+          "prefix": "user_filter_wrapper",
+          "level": "error",
+          "text": "Creating filter 'lavfi' failed."
+        },
+        {
+          "prefix": "cplayer",
+          "level": "error",
+          "text": "Audio filter initialized failed!"
+        },
+        {
+          "prefix": "cplayer",
+          "level": "fatal",
+          "text": "No video or audio streams selected."
+        }
+      ],
+      "pcm_bytes": 0,
+      "end_file": {
+        "reason": 4,
+        "error": -16,
+        "message": "no audio or video data played"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "reason": "END_FILE reported mpv error -16"
+    },
+    {
+      "name": "lavfi_allpass",
+      "filter": "lavfi=[allpass]",
+      "status": "failed",
+      "api": [
+        {
+          "operation": "set_option:config",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:terminal",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:vo",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-waveheader",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:ao-pcm-file",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-format",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-samplerate",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:audio-channels",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "set_option:af",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "request_log_messages",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "initialize",
+          "code": 0,
+          "message": "success"
+        },
+        {
+          "operation": "loadfile_async",
+          "code": 0,
+          "message": "success"
+        }
+      ],
+      "events": [
+        {
+          "event": "command_reply",
+          "error": 0,
+          "message": "success"
+        },
+        {
+          "event": "end_file",
+          "error": -16,
+          "message": "no audio or video data played",
+          "reason": 4
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: No such filter: 'allpass'"
+        },
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "AVFilterGraph: Error creating filters"
+        },
+        {
+          "prefix": "lavfi",
+          "level": "fatal",
+          "text": "parsing the filter graph failed"
+        },
+        {
+          "prefix": "user_filter_wrapper",
+          "level": "error",
+          "text": "Creating filter 'lavfi' failed."
+        },
+        {
+          "prefix": "cplayer",
+          "level": "error",
+          "text": "Audio filter initialized failed!"
+        },
+        {
+          "prefix": "cplayer",
+          "level": "fatal",
+          "text": "No video or audio streams selected."
+        }
+      ],
+      "pcm_bytes": 0,
+      "end_file": {
+        "reason": 4,
+        "error": -16,
+        "message": "no audio or video data played"
+      },
+      "timed_out": false,
+      "mpv_version": "mpv v0.36.0-403-g652a1dd907",
+      "ffmpeg_version": "n6.0",
+      "reason": "END_FILE reported mpv error -16"
+    }
+  ],
+  "probe_status": "failed",
+  "gate_status": "incomplete",
+  "unverified": [
+    "Channel swap/clone and stereo mid/side output behavior",
+    "EQ gain response",
+    "Eara scene behavior",
+    "Schroeder mono widening with transient and tail protection",
+    "HTTP/HLS audio, runtime updates, and playback lifecycle",
+    "Android device execution"
+  ]
+}

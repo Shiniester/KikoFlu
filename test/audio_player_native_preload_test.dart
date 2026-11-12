@@ -12,18 +12,20 @@ import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
+import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'audio_player_latest_request_test.dart'
-    show ControlledPlayer, MemorySessionStore, until;
+import 'audio_player_latest_request_test.dart' show ControlledPlayer, until;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   late _WindowPlayer player;
   late _CacheDownloader downloader;
+  late _ControlledAudioSliceStore sliceStore;
+  late SharedPreferencesPlaybackSessionStore sessionStore;
   late AudioPlayerService service;
   const a = AudioTrack(
     id: 'a',
@@ -62,9 +64,12 @@ void main() {
         );
     player = _WindowPlayer();
     downloader = _CacheDownloader();
+    sliceStore = _ControlledAudioSliceStore();
+    sessionStore = const SharedPreferencesPlaybackSessionStore();
     service = AudioPlayerService.forTesting(
       player,
-      sessionStore: MemorySessionStore(),
+      sessionStore: sessionStore,
+      sliceStore: sliceStore,
       androidSeekRecovery: true,
       androidNativePreload: true,
       seekRecoveryTimeout: const Duration(milliseconds: 100),
@@ -86,8 +91,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  Future<void> warm() async {
-    await service.updateQueue([a, b, c], autoplay: true);
+  Future<void> warm([List<AudioTrack> queue = const [a, b, c]]) async {
+    await service.updateQueue(queue, autoplay: true);
     player.position = const Duration(minutes: 4, seconds: 10);
     await buffer(20);
     await until(() => player.window.children.length == 2);
@@ -114,6 +119,49 @@ void main() {
     expect(player.window.children, hasLength(1));
     expect(completions, isEmpty);
   });
+
+  test(
+    'manual next keeps its prepared source during a position refresh',
+    () async {
+      await warm();
+      expect(service.isNativeNextPreparedForTesting(b.id), isTrue);
+
+      final switching = service.skipToNext();
+      expect(service.isTrackLoading, isTrue);
+      player.positions.add(player.position);
+
+      await switching;
+
+      expect(player.loaded, [a.url]);
+      expect(player.indexedSeeks, [1]);
+    },
+  );
+
+  test(
+    'superseded promotion does not block cleanup for the latest request',
+    () async {
+      await warm();
+      sliceStore.hold(b.id);
+      final promotion = service.skipToNext();
+      Future<void>? replacement;
+
+      try {
+        await sliceStore
+            .loadStarted(b.id)
+            .future
+            .timeout(const Duration(seconds: 1));
+        replacement = service.skipToIndex(2);
+        player.positions.add(player.position);
+        await until(() => player.window.children.length == 1);
+      } finally {
+        sliceStore.release(b.id);
+      }
+
+      await Future.wait([promotion, replacement]);
+      expect(service.currentTrack, c);
+      expect(player.loaded, [a.url, c.url]);
+    },
+  );
 
   test('natural transition publishes once after a no-op enqueue', () async {
     final completions = <AutomaticMarkingEvent>[];
@@ -175,6 +223,44 @@ void main() {
     expect(player.playing, isTrue);
   });
 
+  test(
+    'enabling Only Slices after next uses the sliced ordinary load',
+    () async {
+      await warm();
+      const firstSlice = AudioSlice(startMs: 10000, endMs: 20000);
+      await sliceStore.write(audioSliceTrackKey(b), const [firstSlice]);
+
+      final switching = service.skipToNext();
+      service.setOnlySlices(true);
+      await switching;
+
+      expect(service.currentTrack, b);
+      expect(player.loaded, [a.url, b.url]);
+      expect(player.indexedSeeks, isEmpty);
+      expect(player.initialPositions.last, const Duration(milliseconds: 10000));
+      expect(player.position, const Duration(milliseconds: 10000));
+    },
+  );
+
+  test('Only Slices starts a pending native next within its slice', () async {
+    await warm([a, b]);
+    await sliceStore.write(audioSliceTrackKey(b), const [
+      AudioSlice(startMs: 10000, endMs: 20000),
+    ]);
+    player.deferIndexWhileSeeking = true;
+    player.holdNextSeek = true;
+    final switching = service.skipToNext();
+    await until(() => player.pendingSeek != null);
+
+    service.setOnlySlices(true);
+    player.finishSeek();
+    await switching;
+
+    expect(service.currentTrack, b);
+    expect(player.firstPlaybackPositions[b.url], const Duration(seconds: 10));
+    expect(player.loaded, [a.url]);
+  });
+
   test('automatic transition waits for ready and preserves a pause', () async {
     await warm();
     player.transition(1, state: ProcessingState.buffering);
@@ -202,6 +288,31 @@ void main() {
     await until(() => player.window.children.length == 1);
     expect(service.currentTrack, a);
   });
+
+  test(
+    'native preparation accepts a full buffer when position advances per read',
+    () async {
+      await service.updateQueue([a, b], autoplay: true);
+      service.updatePreloadThreshold(const Duration(seconds: 4));
+      await Future<void>.delayed(Duration.zero);
+      expect(player.window.children, hasLength(1));
+
+      player.position = const Duration(
+        minutes: 4,
+        seconds: 59,
+        milliseconds: 999,
+      );
+      player.bufferedPosition = const Duration(minutes: 5);
+      player.advancePositionOnRead = true;
+      player.emitStoredPosition();
+
+      await until(() => player.window.children.length == 2);
+      expect(
+        (player.window.children[1] as UriAudioSource).uri.toString(),
+        b.url,
+      );
+    },
+  );
 
   for (final shuffle in [false, true]) {
     test(
@@ -290,6 +401,8 @@ void main() {
     'stop cancels an indexed seek without committing the next track',
     () async {
       await warm();
+      final currentPosition = player.position;
+      await service.persistPlaybackSession();
       player.holdNextSeek = true;
       final switching = service.skipToNext();
       await until(() => player.pendingSeek != null);
@@ -299,8 +412,89 @@ void main() {
       ]).timeout(const Duration(seconds: 1));
       expect(service.currentTrack, a);
       expect(player.playing, isFalse);
+      final stoppedSession = (await sessionStore.load())!;
+      expect(stoppedSession.queue[stoppedSession.currentIndex], a);
+      expect(stoppedSession.position, currentPosition);
+
+      await service.play();
+
+      expect(service.currentTrack, a);
+      expect(player.activeUri.toString(), a.url);
+      expect(player.initialPositions.last, currentPosition);
     },
   );
+
+  test(
+    'stop restores the committed source after an automatic native transition',
+    () async {
+      await warm();
+      final currentPosition = player.position;
+      player.transition(1, state: ProcessingState.buffering);
+      await until(() => service.isTrackLoading);
+
+      await service.stop();
+      expect(service.currentTrack, a);
+
+      await service.play();
+
+      expect(service.currentTrack, a);
+      expect(player.activeUri.toString(), a.url);
+      expect(player.initialPositions.last, currentPosition);
+    },
+  );
+
+  test(
+    'stop preserves a newer queue replacement during a native seek',
+    () async {
+      await warm();
+      player.holdNextSeek = true;
+      final switching = service.skipToNext();
+      await until(() => player.pendingSeek != null);
+      player.position = const Duration(seconds: 47);
+      final replacing = service.updateQueue(
+        [b, c],
+        startIndex: 1,
+        autoplay: true,
+        initialPosition: const Duration(seconds: 23),
+      );
+      final stopping = service.stop();
+
+      await Future.wait([
+        switching,
+        replacing,
+        stopping,
+      ]).timeout(const Duration(seconds: 1));
+      await service.persistPlaybackPosition();
+      final stoppedSession = (await sessionStore.load())!;
+      expect(stoppedSession.queue[stoppedSession.currentIndex], c);
+      expect(stoppedSession.position, const Duration(seconds: 23));
+      await service.play();
+
+      expect(service.currentTrack, c);
+      expect(player.activeUri.toString(), c.url);
+      expect(player.initialPositions.last, const Duration(seconds: 23));
+    },
+  );
+
+  test('a new queue intent during stop loads its own source', () async {
+    await warm();
+    player.holdNextSeek = true;
+    final switching = service.skipToNext();
+    await until(() => player.pendingSeek != null);
+    final stopping = service.stop();
+    final replacing = service.updateQueue([c], autoplay: true);
+
+    await Future.wait([
+      switching,
+      stopping,
+      replacing,
+    ]).timeout(const Duration(seconds: 1));
+
+    expect(service.currentTrack, c);
+    expect(player.activeUri.toString(), c.url);
+    final saved = (await sessionStore.load())!;
+    expect(saved.queue[saved.currentIndex], c);
+  });
 
   test('a complete cache seek unwraps the current native child', () async {
     await warm();
@@ -368,6 +562,21 @@ void main() {
     expect(service.currentTrack, b);
     expect(player.activeUri.scheme, 'file');
   });
+
+  test(
+    'MPV volume mapping preserves platform volume curves and gain',
+    () async {
+      await service.setVolume(0.125);
+      expect(player.volumes.last, closeTo(0.5, 1e-9));
+
+      await service.updateAudioGain(6);
+      expect(player.volumes.last, closeTo(0.6294627, 1e-7));
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      await service.setVolume(0.125);
+      expect(player.volumes.last, closeTo(0.1573657, 1e-7));
+    },
+  );
 }
 
 class _CacheDownloader extends AudioCacheDownloader {
@@ -380,19 +589,75 @@ class _CacheDownloader extends AudioCacheDownloader {
   }
 }
 
+class _ControlledAudioSliceStore implements AudioSliceStore {
+  final _delegate = const SharedPreferencesAudioSliceStore();
+  final _loadStarted = <String, Completer<void>>{};
+  final _loadGates = <String, Completer<List<AudioSlice>>>{};
+
+  void hold(String trackKey) {
+    _loadStarted[trackKey] = Completer<void>();
+    _loadGates[trackKey] = Completer<List<AudioSlice>>();
+  }
+
+  Completer<void> loadStarted(String trackKey) => _loadStarted[trackKey]!;
+
+  void release(String trackKey) {
+    final gate = _loadGates.remove(trackKey);
+    if (gate != null && !gate.isCompleted) gate.complete(const []);
+  }
+
+  @override
+  Future<List<AudioSlice>> load(String trackKey) async {
+    final gate = _loadGates[trackKey];
+    if (gate == null) return _delegate.load(trackKey);
+    final started = _loadStarted[trackKey]!;
+    if (!started.isCompleted) started.complete();
+    return gate.future;
+  }
+
+  @override
+  Future<bool> write(String trackKey, List<AudioSlice> slices) =>
+      _delegate.write(trackKey, slices);
+
+  @override
+  Future<bool> clear(String trackKey) => _delegate.clear(trackKey);
+}
+
 class _WindowPlayer extends ControlledPlayer {
   final indices = StreamController<int?>.broadcast(sync: true);
   final errors = StreamController<PlaybackEvent>.broadcast(sync: true);
   final indexedSeeks = <int>[];
+  final firstPlaybackPositions = <String?, Duration>{};
+  final volumes = <double>[];
+  bool advancePositionOnRead = false;
+  int _positionReadOffsetMicros = 0;
   AudioSource? activeChild;
+  bool deferIndexWhileSeeking = false;
   bool reportStaleIndex = false;
   bool failIndexedSeek = false;
   ConcatenatingAudioSource get window =>
       loadedAudioSource! as ConcatenatingAudioSource;
   Uri get activeUri => (window.children[currentIndex] as UriAudioSource).uri;
   @override
+  Duration get position {
+    final position =
+        super.position + Duration(microseconds: _positionReadOffsetMicros);
+    if (advancePositionOnRead) _positionReadOffsetMicros++;
+    return position;
+  }
+
+  @override
+  set position(Duration value) {
+    super.position = value;
+    _positionReadOffsetMicros = 0;
+  }
+
+  void emitStoredPosition() => positions.add(super.position);
+
+  @override
   int get currentIndex {
     if (reportStaleIndex) return 1;
+    if (deferIndexWhileSeeking && pendingSeek != null) return 0;
     final source = loadedAudioSource;
     if (source is! ConcatenatingAudioSource) return 0;
     final index = source.children.indexOf(activeChild!);
@@ -404,7 +669,21 @@ class _WindowPlayer extends ControlledPlayer {
   @override
   Stream<PlaybackEvent> get playbackEventStream => errors.stream;
   @override
+  Future<void> setVolume(double volume) async {
+    volumes.add(volume);
+  }
+
+  @override
   Future<void> setShuffleModeEnabled(bool enabled) async {}
+
+  @override
+  void emitPlayerState() {
+    if (playing && processingState == ProcessingState.ready) {
+      firstPlaybackPositions.putIfAbsent(source, () => super.position);
+    }
+    super.emitPlayerState();
+  }
+
   @override
   Future<Duration?> setAudioSource(
     AudioSource source, {

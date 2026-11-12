@@ -318,6 +318,7 @@ extension PlayerButtonTypeL10n on PlayerButtonType {
       PlayerButtonType.detail => s.viewDetail,
       PlayerButtonType.subtitleAdjustment => s.subtitleTimingAdjustment,
       PlayerButtonType.floatingLyric => s.desktopFloatingLyric,
+      PlayerButtonType.playbackAudioEffects => s.playbackAudioEffects,
     };
   }
 }

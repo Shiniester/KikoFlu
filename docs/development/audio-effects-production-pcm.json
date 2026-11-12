@@ -1,0 +1,1392 @@
+{
+  "binaural-production-final.json": {
+    "variant": "systemLibrary",
+    "scope": "actual app-rendered graphs; no device or headphone listening claim",
+    "versions": {
+      "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+      "ffmpeg-version": "N-128607-g1ddef7d76"
+    },
+    "passed": 105,
+    "checks": [
+      {
+        "name": "linear_stereo_0_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.690317272406432e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_stereo_100_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.690317272406432e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_0_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.964172238888011e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.964172238888011e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_44100_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 7.433685861313322e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_stereo_100_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 1.4799792724673466e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 7.4504136471365e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 7.449421496330544e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_44100_16384",
+        "output_channels": 2,
+        "frames": 16384,
+        "expected_frames": 16384,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 7.433685861313322e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_stereo_100_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 1.4799792724673466e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 7.4504136471365e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 7.449421496330544e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_44100_16401",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_dry_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_zero_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_expanded_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 7.449957734051438e-09,
+        "passed": true
+      },
+      {
+        "name": "mono_transient_tail_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 2.975937896110281e-08,
+        "passed": true,
+        "onset_side_peak": 0.0014263391494750977,
+        "comparison_onset_side_peak": 0.1982860565185547,
+        "tail_after_30ms_peak": 1.0224446214124328e-06
+      },
+      {
+        "name": "mono_unprotected_comparison_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "production_zero_stereo_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_stereo_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "production_zero_mono_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_mono_44100",
+        "output_channels": 2,
+        "frames": 16401,
+        "expected_frames": 16401,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "action_anchor_pcm_bytes": 552960,
+        "name": "production_hot_modes_44100",
+        "output_channels": 2,
+        "frames": 264617,
+        "expected_frames": 264617,
+        "maximum_error": 0,
+        "passed": true,
+        "stereo_stable_start": 86897,
+        "stereo_stable_frames": 40079,
+        "mono_stable_start": 128740,
+        "mono_stable_frames": 43292,
+        "neutral_between_modes": true,
+        "linear_sum_error": 1.4901161193847656e-08
+      },
+      {
+        "action_anchor_pcm_bytes": 552960,
+        "name": "production_guard_release_44100",
+        "output_channels": 2,
+        "frames": 176417,
+        "expected_frames": 176417,
+        "maximum_error": 0,
+        "passed": true,
+        "unprotected_transition_peak": 0
+      },
+      {
+        "name": "linear_stereo_0_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 5.960464483090178e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_stereo_100_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 5.960464483090178e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_0_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.739639984987278e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.739639984987278e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_48000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 1.1920928966180355e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_stereo_100_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 1.390775045129189e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 7.448045014069038e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 7.4465983102012245e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_48000_20480",
+        "output_channels": 2,
+        "frames": 20480,
+        "expected_frames": 20480,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 1.1920928966180355e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_stereo_100_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 1.390775045129189e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 7.448045014069038e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 7.4465983102012245e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_48000_20497",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_dry_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_zero_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_expanded_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 7.448401007081884e-09,
+        "passed": true
+      },
+      {
+        "name": "mono_transient_tail_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 2.977150403982165e-08,
+        "passed": true,
+        "onset_side_peak": 0.0015804469585418701,
+        "comparison_onset_side_peak": 0.20149612426757812,
+        "tail_after_30ms_peak": 9.186546208184154e-07
+      },
+      {
+        "name": "mono_unprotected_comparison_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "production_zero_stereo_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_stereo_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "production_zero_mono_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_mono_48000",
+        "output_channels": 2,
+        "frames": 20497,
+        "expected_frames": 20497,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "action_anchor_pcm_bytes": 552960,
+        "name": "production_hot_modes_48000",
+        "output_channels": 2,
+        "frames": 288017,
+        "expected_frames": 288017,
+        "maximum_error": 0,
+        "passed": true,
+        "stereo_stable_start": 86975,
+        "stereo_stable_frames": 44097,
+        "mono_stable_start": 132991,
+        "mono_stable_frames": 47233,
+        "neutral_between_modes": true,
+        "linear_sum_error": 1.4901161193847656e-08
+      },
+      {
+        "action_anchor_pcm_bytes": 552960,
+        "name": "production_guard_release_48000",
+        "output_channels": 2,
+        "frames": 192017,
+        "expected_frames": 192017,
+        "maximum_error": 0,
+        "passed": true,
+        "unprotected_transition_peak": 0
+      },
+      {
+        "name": "linear_stereo_0_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.953875225645945e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_stereo_100_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.953875225645945e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_0_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.888566078666614e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 6.888566078666614e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_96000_17",
+        "output_channels": 2,
+        "frames": 17,
+        "expected_frames": 17,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 1.1920928966180355e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_stereo_100_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 1.390775045129189e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 7.449869526832131e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 7.450435962619295e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_96000_36864",
+        "output_channels": 2,
+        "frames": 36864,
+        "expected_frames": 36864,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "linear_stereo_0_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_stereo_50_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 1.1920928966180355e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_stereo_100_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 1.390775045129189e-08,
+        "passed": true,
+        "common_error": 7.450580596923828e-09
+      },
+      {
+        "name": "linear_mono_0_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true,
+        "common_error": 0.0
+      },
+      {
+        "name": "linear_mono_50_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 7.449869526832131e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "linear_mono_100_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 7.450435962619295e-09,
+        "passed": true,
+        "common_error": 3.725290298461914e-09
+      },
+      {
+        "name": "mono_retains_side_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "stereo_identical_96000_36881",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_dry_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_zero_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "one_channel_expanded_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 7.449455441399522e-09,
+        "passed": true
+      },
+      {
+        "name": "mono_transient_tail_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 2.9791859978978152e-08,
+        "passed": true,
+        "onset_side_peak": 0.00205036997795105,
+        "comparison_onset_side_peak": 0.2058391571044922,
+        "tail_after_30ms_peak": 9.738225799083011e-07
+      },
+      {
+        "name": "mono_unprotected_comparison_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0,
+        "passed": true
+      },
+      {
+        "name": "production_zero_stereo_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_stereo_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "production_zero_mono_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "production_guard_mono_96000",
+        "output_channels": 2,
+        "frames": 36881,
+        "expected_frames": 36881,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "action_anchor_pcm_bytes": 565248,
+        "name": "production_hot_modes_96000",
+        "output_channels": 2,
+        "frames": 576017,
+        "expected_frames": 576017,
+        "maximum_error": 0,
+        "passed": true,
+        "stereo_stable_start": 96127,
+        "stereo_stable_frames": 88193,
+        "mono_stable_start": 202623,
+        "mono_stable_frames": 75905,
+        "neutral_between_modes": true,
+        "linear_sum_error": 1.4901161193847656e-08
+      },
+      {
+        "action_anchor_pcm_bytes": 569344,
+        "name": "production_guard_release_96000",
+        "output_channels": 2,
+        "frames": 384017,
+        "expected_frames": 384017,
+        "maximum_error": 0,
+        "passed": true,
+        "unprotected_transition_peak": 0
+      }
+    ]
+  },
+  "basic-production-after-binaural.json": {
+    "variant": "systemLibrary",
+    "scope": "exact Dart production snapshots on host reference; no device or OS claims",
+    "versions": {
+      "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+      "ffmpeg-version": "N-128607-g1ddef7d76"
+    },
+    "passed": 53,
+    "checks": [
+      {
+        "name": "dry_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "neutral_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_0_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_1_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_2_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_3_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_0_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_50_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.4769081624343983e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_0_100_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.4856839480881234e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_1_0_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_1_50_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.0413206408266262e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_1_100_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.0413206408266262e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_2_0_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_2_50_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.490036605211742e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_2_100_44100",
+        "output_channels": 2,
+        "frames": 8837,
+        "expected_frames": 8837,
+        "maximum_error": 1.490036605211742e-08,
+        "passed": true
+      },
+      {
+        "name": "eq_cut_44100",
+        "output_channels": 2,
+        "frames": 22067,
+        "expected_frames": 22067,
+        "maximum_error": 0,
+        "passed": true,
+        "center_gain_db": -14.999999944513057
+      },
+      {
+        "name": "eq_boost_44100",
+        "output_channels": 2,
+        "frames": 22067,
+        "expected_frames": 22067,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "dry_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "neutral_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_0_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_1_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_2_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_3_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_0_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_50_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 7.44723627210675e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_0_100_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 7.449335509557287e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_1_0_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_1_50_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 1.3973559642721511e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_1_100_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 1.3973559642721511e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_2_0_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_2_50_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 1.488430279028563e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_2_100_48000",
+        "output_channels": 2,
+        "frames": 9617,
+        "expected_frames": 9617,
+        "maximum_error": 1.4899065647888676e-08,
+        "passed": true
+      },
+      {
+        "name": "eq_cut_48000",
+        "output_channels": 2,
+        "frames": 24017,
+        "expected_frames": 24017,
+        "maximum_error": 0,
+        "passed": true,
+        "center_gain_db": -15.000000002426859
+      },
+      {
+        "name": "eq_boost_48000",
+        "output_channels": 2,
+        "frames": 24017,
+        "expected_frames": 24017,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "dry_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "neutral_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_0_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_1_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_2_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "channel_3_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_0_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_0_50_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 7.450162931021964e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_0_100_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 7.449905442546978e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_1_0_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_1_50_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 7.433264503919901e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_1_100_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 7.433264503919901e-09,
+        "passed": true
+      },
+      {
+        "name": "scene_2_0_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "scene_2_50_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 1.4515818991256424e-08,
+        "passed": true
+      },
+      {
+        "name": "scene_2_100_96000",
+        "output_channels": 2,
+        "frames": 19217,
+        "expected_frames": 19217,
+        "maximum_error": 1.4515818991256424e-08,
+        "passed": true
+      },
+      {
+        "name": "eq_cut_96000",
+        "output_channels": 2,
+        "frames": 48017,
+        "expected_frames": 48017,
+        "maximum_error": 0,
+        "passed": true,
+        "center_gain_db": -14.999999898413387
+      },
+      {
+        "name": "eq_boost_96000",
+        "output_channels": 2,
+        "frames": 48017,
+        "expected_frames": 48017,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "name": "negative_only_transient",
+        "output_channels": 2,
+        "frames": 4096,
+        "expected_frames": 4096,
+        "maximum_error": 0,
+        "passed": true,
+        "peak": 0.9700000286102295
+      },
+      {
+        "action_anchor_pcm_bytes": 524288,
+        "name": "resident_hot_controls",
+        "output_channels": 2,
+        "frames": 144017,
+        "expected_frames": 144017,
+        "maximum_error": 0,
+        "passed": true
+      }
+    ]
+  }
+}

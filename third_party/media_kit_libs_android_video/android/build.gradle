@@ -1,0 +1,80 @@
+import java.io.File
+import java.util.zip.ZipFile
+
+group 'com.alexmercerind.media_kit_libs_android_video'
+version '1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    // Conditional for compatibility with AGP <4.2.
+    if (project.android.hasProperty("namespace")) {
+        namespace 'com.alexmercerind.media_kit_libs_android_video'
+    }
+
+    compileSdkVersion 36
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        minSdkVersion 16
+    }
+
+    dependencies {
+        implementation fileTree(dir: "$buildDir/output", include: "*.jar")
+    }
+}
+
+def nativeAudioOutputDir = new File(rootProject.projectDir.parentFile, "build/native-audio/android-output")
+def nativeAudioAbis = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
+def outputDir = file("$buildDir/output")
+
+task stageNativeAudioJars {
+    doLast {
+        def nativeJars = nativeAudioAbis.collect { abi ->
+            def nativeJar = new File(nativeAudioOutputDir, "default-${abi}.jar")
+            if (!nativeJar.isFile() || nativeJar.length() == 0) {
+                throw new GradleException("Missing custom libmpv JAR for Android ${abi}: ${nativeJar}. Build or download all four artifacts into build/native-audio/android-output.")
+            }
+
+            new ZipFile(nativeJar).withCloseable { archive ->
+                if (archive.getEntry("lib/${abi}/libmpv.so") == null) {
+                    throw new GradleException("Custom libmpv JAR has no lib/${abi}/libmpv.so entry: ${nativeJar}")
+                }
+                if (archive.getEntry("lib/${abi}/libmediakitandroidhelper.so") == null) {
+                    throw new GradleException("Custom libmpv JAR has no lib/${abi}/libmediakitandroidhelper.so entry: ${nativeJar}")
+                }
+            }
+            nativeJar
+        }
+
+        delete outputDir
+        copy {
+            from nativeJars
+            into outputDir
+        }
+    }
+}
+
+preBuild.dependsOn(stageNativeAudioJars)

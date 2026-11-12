@@ -1,0 +1,212 @@
+{
+  "status": "passed",
+  "source_revision": "6c8c80a2a3b439508044fee13a9aa4a9d09ebd42",
+  "scope": "Windows reference DLL through Flutter tester and real FFI; not packaged app validation",
+  "gate_status": "incomplete",
+  "native_versions": {
+    "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+    "ffmpeg-version": "N-128607-g1ddef7d76"
+  },
+  "native_contract_tests": 11,
+  "pending_load_unit_tests": 4,
+  "binding_report": {
+    "empty_seektable": [
+      {
+        "percent": 25,
+        "target_ms": 6000,
+        "advanced_position_ms": 6558
+      },
+      {
+        "percent": 80,
+        "target_ms": 19200,
+        "advanced_position_ms": 19765
+      },
+      {
+        "percent": 10,
+        "target_ms": 2400,
+        "advanced_position_ms": 2959
+      }
+    ],
+    "gate_status": "incomplete",
+    "authenticated_http": [
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=606252-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=63532-"
+      }
+    ],
+    "authenticated_clipping": [
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=512044-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=190508-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=606252-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=127020-"
+      },
+      {
+        "route": "/protected/nested/voice%20A.wav?route=one",
+        "authorization": "Bearer native-contract",
+        "range": "bytes=0-"
+      }
+    ],
+    "native_preload": [
+      {
+        "next": "B",
+        "prepared_request": {
+          "route": "/queue/B.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 20000
+        }
+      },
+      {
+        "next": "C",
+        "prepared_request": {
+          "route": "/queue/C.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 20000
+        }
+      }
+    ],
+    "latest_wins": {
+      "published": [
+        "A",
+        "C"
+      ],
+      "requests": [
+        {
+          "route": "/queue/A.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        },
+        {
+          "route": "/queue/B.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        },
+        {
+          "route": "/queue/C.wav",
+          "cookie": "native-contract=yes",
+          "native_index": 0,
+          "native_position_ms": 0
+        }
+      ]
+    },
+    "failed_transition": {
+      "error_count": 0,
+      "service_failure_count": 1,
+      "current": "C"
+    }
+  },
+  "cache_ranges": {
+    "tail": {
+      "cache-end": 23.936,
+      "reader-pts": 23.168,
+      "cache-duration": 0.768,
+      "eof": true,
+      "underrun": false,
+      "idle": true,
+      "total-bytes": 188128,
+      "fw-bytes": 31104,
+      "raw-input-rate": 4157610,
+      "debug-low-level-seeks": 2,
+      "debug-byte-level-seeks": 1,
+      "debug-ts-last": 23.936,
+      "ts-per-stream": [
+        {
+          "type": "audio",
+          "cache-duration": 0.768,
+          "reader-pts": 23.168,
+          "cache-end": 23.936
+        }
+      ],
+      "bof-cached": true,
+      "eof-cached": true,
+      "seekable-ranges": [
+        {
+          "start": 22.976,
+          "end": 23.936
+        },
+        {
+          "start": 0.0,
+          "end": 3.392
+        }
+      ]
+    },
+    "prefix": {
+      "cache-end": 5.952,
+      "reader-pts": 5.184,
+      "cache-duration": 0.768,
+      "eof": false,
+      "underrun": false,
+      "idle": false,
+      "total-bytes": 231648,
+      "fw-bytes": 31104,
+      "raw-input-rate": 4157610,
+      "debug-low-level-seeks": 3,
+      "debug-byte-level-seeks": 2,
+      "debug-ts-last": 5.952,
+      "ts-per-stream": [
+        {
+          "type": "audio",
+          "cache-duration": 0.768,
+          "reader-pts": 5.184,
+          "cache-end": 5.952
+        }
+      ],
+      "bof-cached": true,
+      "eof-cached": true,
+      "seekable-ranges": [
+        {
+          "start": 4.992,
+          "end": 5.888
+        },
+        {
+          "start": 22.976,
+          "end": 23.936
+        },
+        {
+          "start": 0.0,
+          "end": 3.392
+        }
+      ]
+    }
+  },
+  "unverified": [
+    "Packaged Windows and Android adapter contracts",
+    "Background and system controls",
+    "Large-file performance"
+  ],
+  "known_service_gap": "Prepared remote chapter bypasses _clipAudioSourceForTrack: 24s source with start4/end20 promotes as24s, expected16s; tracked for #37"
+}

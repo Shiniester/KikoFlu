@@ -4811,6 +4811,110 @@ class SZh extends S {
 
   @override
   String get automaticMarkingConflict => '自动标记无法安全同步，已放弃此更新并保留账号在线标记。';
+
+  @override
+  String get playbackAudioEffects => '播放音效';
+
+  @override
+  String get audioEffectsEqualizer => '均衡器';
+
+  @override
+  String get audioEffectsChannel => '声道模式';
+
+  @override
+  String get audioEffectsScene => '场景效果';
+
+  @override
+  String get audioEffectsResetModule => '重置模块';
+
+  @override
+  String get audioEffectsResetAll => '重置全部音效';
+
+  @override
+  String get audioEffectsCustom => '自定义';
+
+  @override
+  String get audioEffectsFlat => '默认';
+
+  @override
+  String get audioEffectsBright => '清亮';
+
+  @override
+  String get audioEffectsBass => '低音增强';
+
+  @override
+  String get audioEffectsCrisp => '拍打清脆';
+
+  @override
+  String get audioEffectsDull => '拍打沉闷';
+
+  @override
+  String get audioEffectsVocal => '人声增强';
+
+  @override
+  String get audioEffectsNormal => '正常';
+
+  @override
+  String get audioEffectsSwap => '反转左右声道';
+
+  @override
+  String get audioEffectsCloneLeft => '克隆左声道';
+
+  @override
+  String get audioEffectsCloneRight => '克隆右声道';
+
+  @override
+  String get audioEffectsBathroom => '浴室回声';
+
+  @override
+  String get audioEffectsMuffled => '闷声';
+
+  @override
+  String get audioEffectsTelephone => '电话音';
+
+  @override
+  String get audioEffectsIntensity => '强度';
+
+  @override
+  String get audioEffectsWaiting => '播放音频后检查音效支持情况。';
+
+  @override
+  String get audioEffectsReady => '当前音声播放器支持播放音效。';
+
+  @override
+  String get audioEffectsPassthrough => '直通模式下播放音效不生效。退出直通后恢复已保存的设置。';
+
+  @override
+  String get audioEffectsUnavailable => '当前音频库无法应用播放音效。设置已保留。安装支持的音频库后重启应用。';
+
+  @override
+  String audioEffectsResetNamed(String module) {
+    return '重置$module';
+  }
+
+  @override
+  String get audioEffectsBinaural => '双耳效果';
+
+  @override
+  String get audioEffectsBinauralOff => '关闭';
+
+  @override
+  String get audioEffectsBinauralStereo => '立体声扩宽';
+
+  @override
+  String get audioEffectsBinauralMono => '单声道扩宽';
+
+  @override
+  String get audioEffectsStereoIntensity => '立体声扩宽强度';
+
+  @override
+  String get audioEffectsMonoIntensity => '单声道扩宽强度';
+
+  @override
+  String get audioEffectsStereoHint => '立体声扩宽扩大已有的左右差异，保留居中声音。';
+
+  @override
+  String get audioEffectsMonoHint => '单声道扩宽从共同声音生成左右差异，并保留原有声道内容。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -9620,4 +9724,109 @@ class SZhHant extends SZh {
 
   @override
   String get automaticMarkingConflict => '自動標記無法安全同步，已放棄此更新並保留帳號線上標記。';
+
+  @override
+  String get playbackAudioEffects => '播放音效';
+
+  @override
+  String get audioEffectsEqualizer => '等化器';
+
+  @override
+  String get audioEffectsChannel => '聲道模式';
+
+  @override
+  String get audioEffectsScene => '場景效果';
+
+  @override
+  String get audioEffectsResetModule => '重設模組';
+
+  @override
+  String get audioEffectsResetAll => '重設全部音效';
+
+  @override
+  String get audioEffectsCustom => '自訂';
+
+  @override
+  String get audioEffectsFlat => '預設';
+
+  @override
+  String get audioEffectsBright => '清亮';
+
+  @override
+  String get audioEffectsBass => '低音增強';
+
+  @override
+  String get audioEffectsCrisp => '拍打清脆';
+
+  @override
+  String get audioEffectsDull => '拍打沉悶';
+
+  @override
+  String get audioEffectsVocal => '人聲增強';
+
+  @override
+  String get audioEffectsNormal => '正常';
+
+  @override
+  String get audioEffectsSwap => '反轉左右聲道';
+
+  @override
+  String get audioEffectsCloneLeft => '複製左聲道';
+
+  @override
+  String get audioEffectsCloneRight => '複製右聲道';
+
+  @override
+  String get audioEffectsBathroom => '浴室回聲';
+
+  @override
+  String get audioEffectsMuffled => '悶聲';
+
+  @override
+  String get audioEffectsTelephone => '電話音';
+
+  @override
+  String get audioEffectsIntensity => '強度';
+
+  @override
+  String get audioEffectsWaiting => '播放音訊後檢查音效支援情況。';
+
+  @override
+  String get audioEffectsReady => '目前音聲播放器支援播放音效。';
+
+  @override
+  String get audioEffectsPassthrough => '直通模式下播放音效不生效。結束直通後恢復已儲存的設定。';
+
+  @override
+  String get audioEffectsUnavailable =>
+      '目前音訊庫無法套用播放音效。設定已保留。安裝支援的音訊庫後重新啟動應用程式。';
+
+  @override
+  String audioEffectsResetNamed(String module) {
+    return '重設$module';
+  }
+
+  @override
+  String get audioEffectsBinaural => '雙耳效果';
+
+  @override
+  String get audioEffectsBinauralOff => '關閉';
+
+  @override
+  String get audioEffectsBinauralStereo => '立體聲擴寬';
+
+  @override
+  String get audioEffectsBinauralMono => '單聲道擴寬';
+
+  @override
+  String get audioEffectsStereoIntensity => '立體聲擴寬強度';
+
+  @override
+  String get audioEffectsMonoIntensity => '單聲道擴寬強度';
+
+  @override
+  String get audioEffectsStereoHint => '立體聲擴寬擴大已有的左右差異，保留居中聲音。';
+
+  @override
+  String get audioEffectsMonoHint => '單聲道擴寬從共同聲音產生左右差異，並保留原有聲道內容。';
 }

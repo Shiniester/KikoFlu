@@ -13,7 +13,8 @@ enum PlayerButtonType {
   queue('播放队列', 'queue'),
   detail('查看详情', 'detail'),
   subtitleAdjustment('字幕轴调整', 'subtitle_adjustment'),
-  floatingLyric('悬浮字幕', 'floating_lyric');
+  floatingLyric('悬浮字幕', 'floating_lyric'),
+  playbackAudioEffects('播放音效', 'playback_audio_effects');
 
   final String label;
   final String key;
@@ -39,6 +40,7 @@ class PlayerButtonsConfig {
       PlayerButtonType.speed,
       PlayerButtonType.subtitleAdjustment,
       PlayerButtonType.detail,
+      PlayerButtonType.playbackAudioEffects,
     ],
   );
 
@@ -56,6 +58,7 @@ class PlayerButtonsConfig {
       PlayerButtonType.speed,
       PlayerButtonType.subtitleAdjustment,
       PlayerButtonType.detail,
+      PlayerButtonType.playbackAudioEffects,
     ],
   );
 

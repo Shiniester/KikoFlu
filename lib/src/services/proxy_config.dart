@@ -28,6 +28,8 @@ class ProxyConfig {
 
   static String? _systemHttpProxy;
   static String? _systemHttpsProxy;
+  static Future<void>? _systemProxyLookup;
+  static bool _systemProxyResolved = false;
 
   /// Compatibility view for code written against the old boolean setting.
   /// `true` maps to manual mode and `false` maps to direct mode.
@@ -104,6 +106,7 @@ class ProxyConfig {
       }
     }
 
+    _systemProxyResolved = false;
     if (refreshSystemProxy) await ProxyConfig.refreshSystemProxy();
   }
 
@@ -132,26 +135,34 @@ class ProxyConfig {
   /// Re-read the platform proxy settings. This is called during startup and
   /// can also be used after the user changes the system proxy while running.
   static Future<void> refreshSystemProxy() async {
-    _systemHttpProxy = null;
-    _systemHttpsProxy = null;
+    await _lookupSystemProxy();
+    await _syncAndroidWebViewProxy();
+  }
 
+  static Future<void> _lookupSystemProxy() =>
+      _systemProxyLookup ??= _readSystemProxy().whenComplete(() {
+        _systemProxyResolved = true;
+        _systemProxyLookup = null;
+      });
+
+  static Future<void> _readSystemProxy() async {
+    Object? raw;
     try {
-      final raw = await _systemProxyChannel.invokeMethod<Object?>(
-        'getSystemProxy',
-      );
-      _parseSystemProxy(raw);
+      raw = await _systemProxyChannel.invokeMethod<Object?>('getSystemProxy');
     } catch (_) {
       // Platforms without a native bridge fall back to proxy environment
       // variables below.
     }
 
+    _systemHttpProxy = null;
+    _systemHttpsProxy = null;
+    _parseSystemProxy(raw);
     _systemHttpProxy ??= _proxyFromEnvironment(
       Uri.parse('http://api.asmr-200.com/'),
     );
     _systemHttpsProxy ??= _proxyFromEnvironment(
       Uri.parse('https://api.asmr-200.com/'),
     );
-    await _syncAndroidWebViewProxy();
   }
 
   static Future<void> _syncAndroidWebViewProxy() async {
@@ -174,16 +185,24 @@ class ProxyConfig {
   /// 返回 `DIRECT` 或 `PROXY host:port`。内网/本机地址始终直连，
   /// 避免自建 Kikoeru 服务器（192.168.x.x 等）被错误代理。
   static String findProxyFor(Uri uri) {
-    final host = uri.host;
-    if (host.isEmpty ||
-        host == 'localhost' ||
-        host == '127.0.0.1' ||
-        host == '::1' ||
-        _isPrivateIp(host)) {
-      return 'DIRECT';
-    }
+    final proxy = _proxyAddressFor(uri);
+    return proxy == null ? 'DIRECT' : 'PROXY $proxy';
+  }
 
-    final normalized = switch (mode) {
+  static Future<String> resolveNativeHttpProxy(Uri uri) async {
+    if (uri.scheme != 'http' && uri.scheme != 'https') return '';
+    if (mode == ProxyMode.system &&
+        !_bypassesProxy(uri.host) &&
+        (!_systemProxyResolved || _systemProxyLookup != null)) {
+      await _lookupSystemProxy();
+    }
+    final proxy = _proxyAddressFor(uri);
+    return proxy == null ? '' : 'http://$proxy';
+  }
+
+  static String? _proxyAddressFor(Uri uri) {
+    if (_bypassesProxy(uri.host)) return null;
+    return switch (mode) {
       ProxyMode.direct => null,
       ProxyMode.manual => normalizeAddress(address),
       ProxyMode.system =>
@@ -191,8 +210,10 @@ class ProxyConfig {
             ? (_systemHttpProxy ?? _systemHttpsProxy)
             : (_systemHttpsProxy ?? _systemHttpProxy),
     };
-    return normalized == null ? 'DIRECT' : 'PROXY $normalized';
   }
+
+  static bool _bypassesProxy(String host) =>
+      host.isEmpty || host == 'localhost' || _isPrivateIp(host);
 
   static ProxyMode? _parseMode(String raw) {
     return switch (raw.trim().toLowerCase()) {

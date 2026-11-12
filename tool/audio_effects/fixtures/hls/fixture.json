@@ -1,0 +1,9 @@
+{
+  "generator": "ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers",
+  "sample_rate": 48000,
+  "channels": 2,
+  "source_frames": 48000,
+  "decoded_frames": 49152,
+  "signal": "network_frames() in transport.py; synthesized locally",
+  "generator_source": "https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1"
+}

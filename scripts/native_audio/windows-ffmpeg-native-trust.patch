@@ -1,0 +1,190 @@
+diff --git a/libavformat/tls_openssl.c b/libavformat/tls_openssl.c
+--- a/libavformat/tls_openssl.c
++++ b/libavformat/tls_openssl.c
+@@ -26,6 +26,7 @@
+ #include "os_support.h"
+ #include "libavutil/time.h"
+ #include "libavutil/random_seed.h"
++#include "libavutil/mem.h"
+ #include "url.h"
+ #include "tls.h"
+ #include "libavutil/opt.h"
+@@ -34,6 +35,20 @@
+ #include <openssl/ssl.h>
+ #include <openssl/err.h>
+ #include <openssl/x509v3.h>
++#if defined(_WIN32)
++#include <winsock2.h>
++#include <windows.h>
++#define WINCRYPT_USE_SYMBOL_PREFIX
++#include <wincrypt.h>
++#undef WINCRYPT_USE_SYMBOL_PREFIX
++#ifdef X509_NAME
++#undef X509_NAME
++#endif
++#ifdef X509_EXTENSIONS
++#undef X509_EXTENSIONS
++#endif
++#include <stdlib.h>
++#endif
+ #if HAVE_SYS_TIME_H
+ #include <sys/time.h>
+ #endif
+@@ -432,6 +447,145 @@ typedef struct TLSContext {
+     socklen_t dest_addr_len;
+ } TLSContext;
+ 
++#if defined(_WIN32)
++static PCCERT_CONTEXT openssl_x509_to_windows_cert(X509 *cert)
++{
++    unsigned char *der = NULL;
++    int der_size;
++    PCCERT_CONTEXT windows_cert = NULL;
++
++    der_size = i2d_X509(cert, &der);
++    if (der_size > 0)
++        windows_cert = CertCreateCertificateContext(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
++                                                     der, der_size);
++    OPENSSL_free(der);
++    return windows_cert;
++}
++
++static int openssl_windows_cert_verify(X509_STORE_CTX *store_ctx, void *arg)
++{
++    TLSContext *c = arg;
++    TLSShared *s = &c->tls_shared;
++    X509 *peer_cert = X509_STORE_CTX_get0_cert(store_ctx);
++    STACK_OF(X509) *untrusted = X509_STORE_CTX_get0_untrusted(store_ctx);
++    PCCERT_CONTEXT windows_peer_cert = NULL;
++    PCCERT_CHAIN_CONTEXT chain = NULL;
++    HCERTSTORE extra_certs = NULL;
++    WCHAR *server_name = NULL;
++    CERT_CHAIN_PARA chain_para = { sizeof(chain_para) };
++    CERT_USAGE_MATCH server_auth_usage = { 0 };
++    LPSTR server_auth_usages[] = { szOID_PKIX_KP_SERVER_AUTH };
++    SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl_policy = { sizeof(ssl_policy) };
++    CERT_CHAIN_POLICY_PARA policy_para = { sizeof(policy_para) };
++    CERT_CHAIN_POLICY_STATUS policy_status = { sizeof(policy_status) };
++    struct addrinfo hints = { .ai_flags = AI_NUMERICHOST }, *ai = NULL;
++    int ret = 0;
++
++    if (!peer_cert) {
++        av_log(c, AV_LOG_ERROR, "TLS: Peer did not provide a certificate\n");
++        goto end;
++    }
++
++    if (!getaddrinfo(s->host, NULL, &hints, &ai)) {
++        void *addr = ai->ai_family == AF_INET6 ?
++            (void *)&((struct sockaddr_in6 *)ai->ai_addr)->sin6_addr :
++            (void *)&((struct sockaddr_in  *)ai->ai_addr)->sin_addr;
++        if (X509_check_ip(peer_cert, addr, ai->ai_family == AF_INET6 ? 16 : 4, 0) != 1) {
++            av_log(c, AV_LOG_ERROR, "TLS: Certificate does not match IP address %s\n", s->host);
++            goto end;
++        }
++    } else {
++        int name_size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s->host, -1, NULL, 0);
++        if (!name_size || X509_check_host(peer_cert, s->host, 0,
++                                          X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1) {
++            av_log(c, AV_LOG_ERROR, "TLS: Certificate does not match hostname %s\n", s->host);
++            goto end;
++        }
++        server_name = av_malloc_array(name_size, sizeof(*server_name));
++        if (!server_name)
++            goto end;
++        if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s->host, -1,
++                                 server_name, name_size)) {
++            av_log(c, AV_LOG_ERROR, "TLS: Failed to convert hostname for Windows verification\n");
++            goto end;
++        }
++    }
++    if (ai) {
++        freeaddrinfo(ai);
++        ai = NULL;
++    }
++
++    windows_peer_cert = openssl_x509_to_windows_cert(peer_cert);
++    if (!windows_peer_cert) {
++        av_log(c, AV_LOG_ERROR, "TLS: Failed to convert peer certificate for Windows verification\n");
++        goto end;
++    }
++
++    extra_certs = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0,
++                                CERT_STORE_CREATE_NEW_FLAG, NULL);
++    if (!extra_certs) {
++        av_log(c, AV_LOG_ERROR, "TLS: Failed to create Windows certificate store (0x%08lx)\n",
++               GetLastError());
++        goto end;
++    }
++    for (int i = 0; untrusted && i < sk_X509_num(untrusted); i++) {
++        X509 *cert = sk_X509_value(untrusted, i);
++        PCCERT_CONTEXT windows_cert;
++        if (X509_cmp(cert, peer_cert) == 0)
++            continue;
++        windows_cert = openssl_x509_to_windows_cert(cert);
++        if (!windows_cert || !CertAddCertificateContextToStore(extra_certs, windows_cert,
++                                                               CERT_STORE_ADD_ALWAYS, NULL)) {
++            av_log(c, AV_LOG_ERROR, "TLS: Failed to add peer certificate to Windows chain store (0x%08lx)\n",
++                   GetLastError());
++            if (windows_cert)
++                CertFreeCertificateContext(windows_cert);
++            goto end;
++        }
++        CertFreeCertificateContext(windows_cert);
++    }
++
++    server_auth_usage.dwType = USAGE_MATCH_TYPE_AND;
++    server_auth_usage.Usage.cUsageIdentifier = 1;
++    server_auth_usage.Usage.rgpszUsageIdentifier = server_auth_usages;
++    chain_para.RequestedUsage = server_auth_usage;
++    if (!CertGetCertificateChain(NULL, windows_peer_cert, NULL, extra_certs,
++                                 &chain_para, 0, NULL, &chain)) {
++        av_log(c, AV_LOG_ERROR, "TLS: Windows certificate chain construction failed (0x%08lx)\n",
++               GetLastError());
++        goto end;
++    }
++    ssl_policy.dwAuthType = AUTHTYPE_SERVER;
++    ssl_policy.pwszServerName = server_name;
++    policy_para.pvExtraPolicyPara = &ssl_policy;
++    if (!CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain,
++                                          &policy_para, &policy_status)) {
++        av_log(c, AV_LOG_ERROR, "TLS: Windows certificate policy check failed (0x%08lx)\n",
++               GetLastError());
++        goto end;
++    }
++    if (policy_status.dwError) {
++        av_log(c, AV_LOG_ERROR, "TLS: Windows rejected peer certificate (0x%08lx)\n",
++               policy_status.dwError);
++        goto end;
++    }
++    ret = 1;
++end:
++    if (ai)
++        freeaddrinfo(ai);
++    if (chain)
++        CertFreeCertificateChain(chain);
++    if (extra_certs)
++        CertCloseStore(extra_certs, 0);
++    if (windows_peer_cert)
++        CertFreeCertificateContext(windows_peer_cert);
++    av_free(server_name);
++    if (!ret)
++        X509_STORE_CTX_set_error(store_ctx, X509_V_ERR_APPLICATION_VERIFICATION);
++    return ret;
++}
++#endif
++
+ /**
+  * Retrieves the error message for the latest OpenSSL error.
+  *
+@@ -814,6 +968,11 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
+ 
+     if (s->verify)
+         SSL_CTX_set_verify(c->ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
++#if defined(_WIN32)
++    if (s->verify && !s->listen && !s->is_dtls && !s->ca_file &&
++        !getenv("SSL_CERT_FILE") && !getenv("SSL_CERT_DIR"))
++        SSL_CTX_set_cert_verify_callback(c->ctx, openssl_windows_cert_verify, c);
++#endif
+ 
+     if (s->is_dtls && s->use_srtp) {
+         /**

@@ -1,0 +1,83 @@
+diff --git a/packages/ffmpeg.cmake b/packages/ffmpeg.cmake
+index ffbcbfc..06b425d 100644
+--- a/packages/ffmpeg.cmake
++++ b/packages/ffmpeg.cmake
+@@ -34 +33,0 @@ ExternalProject_Add(ffmpeg
+-        openal-soft
+@@ -35,0 +35 @@ ExternalProject_Add(ffmpeg
++    GIT_TAG $ENV{FFMPEG_COMMIT}
+@@ -39,0 +40,2 @@ ExternalProject_Add(ffmpeg
++        COMMAND ${EXEC} bash ${CMAKE_CURRENT_LIST_DIR}/apply_ffmpeg_sendcmd_precision.sh
++            --verify <SOURCE_DIR> $ENV{FFMPEG_COMMIT} ${CMAKE_CURRENT_LIST_DIR}/ffmpeg-sendcmd-precision.patch
+@@ -64,0 +67,24 @@ ExternalProject_Add(ffmpeg
++        --enable-filter=aformat
++        --enable-filter=aresample
++        --enable-filter=anull
++        --enable-filter=aeval
++        --enable-filter=aiir
++        --enable-filter=allpass
++        --enable-filter=aselect
++        --enable-filter=alimiter
++        --enable-filter=pan
++        --enable-filter=asplit
++        --enable-filter=join
++        --enable-filter=volume
++        --enable-filter=biquad
++        --enable-filter=adelay
++        --enable-filter=amix
++        --enable-filter=anullsrc
++        --enable-filter=atrim
++        --enable-filter=concat
++        --enable-filter=asetpts
++        --enable-filter=asetnsamples
++        --enable-filter=asettb
++        --enable-filter=arealtime
++        --enable-filter=asendcmd
++        --enable-filter=apad
+@@ -66 +91,0 @@ ExternalProject_Add(ffmpeg
+-        --disable-postproc
+@@ -113 +137,0 @@ ExternalProject_Add(ffmpeg
+-        --enable-libshaderc
+diff --git a/packages/openssl.cmake b/packages/openssl.cmake
+--- a/packages/openssl.cmake
++++ b/packages/openssl.cmake
+@@ -44 +43,0 @@ ExternalProject_Add(openssl
+-        no-srtp
+diff --git a/packages/libarchive.cmake b/packages/libarchive.cmake
+index 4773fae..9bfece7 100644
+--- a/packages/libarchive.cmake
++++ b/packages/libarchive.cmake
+@@ -14,0 +15 @@ ExternalProject_Add(libarchive
++    PATCH_COMMAND ${EXEC} git apply ${CMAKE_CURRENT_SOURCE_DIR}/libarchive-openssl-static.patch
+diff --git a/packages/libass.cmake b/packages/libass.cmake
+index d6aba07..9a4f40d 100644
+--- a/packages/libass.cmake
++++ b/packages/libass.cmake
+@@ -18,0 +19 @@ ExternalProject_Add(libass
++        --prefer-static
+diff --git a/packages/libplacebo.cmake b/packages/libplacebo.cmake
+index da8a017..a798b96 100644
+--- a/packages/libplacebo.cmake
++++ b/packages/libplacebo.cmake
+@@ -28,0 +29 @@ ExternalProject_Add(libplacebo
++        -Dvulkan=enabled
+diff --git a/packages/mpv.cmake b/packages/mpv.cmake
+index 1d9ea2e..c87b8e4 100644
+--- a/packages/mpv.cmake
++++ b/packages/mpv.cmake
+@@ -18,0 +19 @@ ExternalProject_Add(mpv
++    GIT_TAG $ENV{MPV_COMMIT}
+@@ -34 +35 @@ ExternalProject_Add(mpv
+-        -Dpdf-build=enabled
++        -Dmanpage-build=disabled
+@@ -60 +60,0 @@ ExternalProject_Add_Step(mpv copy-binary
+-    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.pdf                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/doc/manual.pdf
+@@ -73,4 +72,4 @@ ExternalProject_Add_Step(mpv copy-binary
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libmpv/client.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/client.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libmpv/stream_cb.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/stream_cb.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libmpv/render.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libmpv/render_gl.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render_gl.h
++    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/client.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/client.h
++    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/stream_cb.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/stream_cb.h
++    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/render.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render.h
++    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/render_gl.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render_gl.h

@@ -122,9 +122,24 @@ jobs:
           echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
           echo "Building release $tag with filename suffix $suffix"
 
+  native-audio:
+    name: Build Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      android_all_abis: true
+
+  native-audio-darwin:
+    name: Build Darwin Native Audio Libraries
+    needs: prepare
+    uses: ./.github/workflows/native_audio_darwin.yml
+    with:
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+
   android:
     name: Android Build
-    needs: prepare
+    needs: [prepare, native-audio]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -183,6 +198,12 @@ jobs:
           flutter-version: '3.44.7'
           channel: 'stable'
 
+      - name: Download Android libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
+
       - name: Get Dependencies
         run: flutter pub get
 
@@ -214,6 +235,24 @@ jobs:
           apksigner="$build_tools_dir/apksigner"
           universal_apk="dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
           arm64_apk="dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+
+          check_native_libraries() {
+            local apk=$1
+            shift
+            local entries
+            entries="$(unzip -Z1 "$apk" | grep '^lib/' || true)"
+            for abi in "$@"; do
+              for library in libmpv.so libmediakitandroidhelper.so libc++_shared.so; do
+                if ! grep -Fxq "lib/$abi/$library" <<< "$entries"; then
+                  echo "::error::Missing lib/$abi/$library in $apk."
+                  return 1
+                fi
+              done
+            done
+          }
+
+          check_native_libraries "$universal_apk" armeabi-v7a arm64-v8a x86_64
+          check_native_libraries "$arm64_apk" arm64-v8a
 
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
@@ -269,6 +308,23 @@ jobs:
             fi
           done
 
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify packaged Android audio effects
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            flutter test --no-pub -d emulator-5554 integration_test/audio_effects_production_test.dart
+            flutter test --no-pub -d emulator-5554 integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true
+
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -278,7 +334,7 @@ jobs:
 
   windows:
     name: Windows Build
-    needs: prepare
+    needs: [prepare, native-audio]
     # windows-latest currently ships newer VS/CMake versions that break
     # older native Flutter plugins used by this project.
     runs-on: windows-2022
@@ -286,6 +342,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download Windows libmpv artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-windows
+          path: build/native-audio/windows-output
 
       - name: Set Application Version
         shell: pwsh
@@ -302,6 +364,21 @@ jobs:
 
       - name: Get Dependencies
         run: flutter pub get
+
+      - name: Verify Windows native audio playback
+        shell: pwsh
+        run: |
+          $env:KIKOFLU_AUDIO_LIBMPV = Join-Path $env:GITHUB_WORKSPACE 'build\native-audio\windows-output\mpv-dev\libmpv-2.dll'
+          flutter test --no-pub test/audio_effects_service_native_host_test.dart --plain-name 'service updates only its own native audio and survives stop recreation'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify production audio effects
+        shell: pwsh
+        run: |
+          flutter test --no-pub -d windows integration_test/audio_effects_production_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter test --no-pub -d windows integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows Release
         run: flutter build windows --release
@@ -341,12 +418,18 @@ jobs:
 
   ios:
     name: iOS Build (Unsigned)
-    needs: prepare
+    needs: [prepare, native-audio-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download custom iOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-ios
+          path: build/native-audio/darwin-output
 
       - name: Set Application Version
         run: |
@@ -361,6 +444,15 @@ jobs:
 
       - name: Get Dependencies
         run: flutter pub get
+
+      - name: Verify iOS native audio playback
+        run: |
+          set -euo pipefail
+          simulator=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, items in devices.items() if ".iOS-" in runtime for device in items if device.get("isAvailable") and device["name"].startswith("iPhone")))')
+          trap 'xcrun simctl shutdown "$simulator" || true' EXIT
+          xcrun simctl bootstatus "$simulator" -b
+          flutter test --no-pub -d "$simulator" integration_test/audio_apple_playback_test.dart
+          flutter test --no-pub -d "$simulator" integration_test/audio_effects_production_test.dart
 
       - name: Build iOS App (Unsigned)
         run: flutter build ios --release --no-codesign
@@ -384,12 +476,18 @@ jobs:
 
   macos:
     name: macOS Build
-    needs: prepare
+    needs: [prepare, native-audio-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Download custom macOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-macos
+          path: build/native-audio/darwin-output
 
       - name: Set Application Version
         run: |
@@ -404,6 +502,11 @@ jobs:
 
       - name: Get Dependencies
         run: flutter pub get
+
+      - name: Verify macOS native audio playback
+        run: |
+          flutter test --no-pub -d macos integration_test/audio_apple_playback_test.dart
+          flutter test --no-pub -d macos integration_test/audio_effects_production_test.dart
 
       - name: Build macOS Release
         run: flutter build macos --release
@@ -446,8 +549,22 @@ jobs:
           sudo apt-get install -y \
             clang cmake ninja-build pkg-config \
             libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
-            libmpv-dev \
-            libsqlite3-dev
+            pax-utils patchelf binutils \
+            libsqlite3-dev libssl-dev libass-dev libepoxy-dev libpulse-dev libasound2-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libxrandr-dev libxinerama-dev libxss-dev \
+            libxpresent-dev libxv-dev libwayland-dev wayland-protocols nasm python3-pip xvfb
+
+      - name: Test Linux bundle dependency checks
+        run: bash linux/test_bundle_check.sh
+
+      - name: Build shared Linux native audio
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/native_audio/build_linux.sh
+          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -460,6 +577,38 @@ jobs:
 
       - name: Build Linux Release
         run: flutter build linux --release
+
+      - name: Verify Linux Release Bundle
+        run: bash linux/check_linux_bundle.sh build/linux/x64/release/bundle
+
+      - name: Verify packaged Linux PCM contracts
+        run: |
+          set -euo pipefail
+          bundle="$GITHUB_WORKSPACE/build/linux/x64/release/bundle"
+          flutter test --no-pub test/audio_effects_graph_test.dart
+          export LD_LIBRARY_PATH="$bundle/lib"
+          python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
+          python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
+          python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json
+
+      - name: Verify packaged Linux audio effects
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/x64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
+
+      - name: Upload Linux native audio evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-audio-linux-x64-evidence
+          path: |
+            build/native-audio/linux-output/*.json
+            build/native-audio/linux-output/source-provenance.txt
+          if-no-files-found: warn
 
       - name: Create Archive
         run: |
@@ -495,7 +644,22 @@ jobs:
           sudo apt-get install -y \
             curl git unzip xz-utils \
             clang cmake ninja-build pkg-config \
-            libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libmpv-dev libsqlite3-dev
+            libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            pax-utils patchelf binutils libsqlite3-dev libssl-dev libass-dev libepoxy-dev libpulse-dev libasound2-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libxrandr-dev libxinerama-dev libxss-dev \
+            libxpresent-dev libxv-dev libwayland-dev wayland-protocols nasm python3-pip xvfb
+
+      - name: Test Linux bundle dependency checks
+        run: bash linux/test_bundle_check.sh
+
+      - name: Build shared Linux native audio
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/native_audio/build_linux.sh
+          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
 
       - name: Setup Flutter
         run: |
@@ -513,6 +677,38 @@ jobs:
           CMAKE_BUILD_PARALLEL_LEVEL: '1'
           MAKEFLAGS: '-j1'
         run: flutter build linux --release --verbose
+
+      - name: Verify Linux ARM64 Release Bundle
+        run: bash linux/check_linux_bundle.sh build/linux/arm64/release/bundle
+
+      - name: Verify packaged Linux PCM contracts
+        run: |
+          set -euo pipefail
+          bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
+          flutter test --no-pub test/audio_effects_graph_test.dart
+          export LD_LIBRARY_PATH="$bundle/lib"
+          python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
+          python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
+          python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json
+
+      - name: Verify packaged Linux audio effects
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          unset LD_LIBRARY_PATH
+          debug_bundle="$GITHUB_WORKSPACE/build/linux/arm64/debug/bundle"
+          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
+
+      - name: Upload Linux native audio evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-audio-linux-arm64-evidence
+          path: |
+            build/native-audio/linux-output/*.json
+            build/native-audio/linux-output/source-provenance.txt
+          if-no-files-found: warn
 
       - name: Create Archive
         run: |

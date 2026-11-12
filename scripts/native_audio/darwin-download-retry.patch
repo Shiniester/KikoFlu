@@ -1,0 +1,18 @@
+diff --git a/cmd/downloads/main.go b/cmd/downloads/main.go
+--- a/cmd/downloads/main.go
++++ b/cmd/downloads/main.go
+@@ -12,0 +13 @@ import (
++	"time"
+@@ -87 +88,11 @@ func download(url, path string) error {
+-	res, err := http.DefaultClient.Do(req)
++	var res *http.Response
++	for attempt := 0; attempt < 3; attempt++ {
++		res, err = http.DefaultClient.Do(req)
++		if err == nil {
++			break
++		}
++		if attempt < 2 {
++			log.Printf("download: retrying %s: %v", url, err)
++			time.Sleep(time.Second)
++		}
++	}

@@ -2,15 +2,22 @@ package com.meteor.kikoeruflutter
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.system.Os
+import android.util.Base64
 import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMethodCodec
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.URI
+import java.security.KeyStore
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : AudioServiceActivity() {
     private var floatingLyricPlugin: FloatingLyricPlugin? = null
@@ -24,6 +31,7 @@ class MainActivity : AudioServiceActivity() {
     private val webViewProxyCoordinator = WebViewProxyCoordinator
     private val screenAwakeChannelName = "com.meteor.kikoeruflutter/screen_awake"
     private val systemProxyChannelName = "com.meteor.kikoeruflutter/system_proxy"
+    private val nativeAudioCaFile by lazy { exportNativeAudioCaFile() }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -96,6 +104,48 @@ class MainActivity : AudioServiceActivity() {
                 )
                 else -> result.notImplemented()
             }
+        }
+
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(
+            messenger,
+            "com.meteor.kikoeruflutter/native_audio",
+            StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue()
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getCaFile" -> try {
+                    result.success(nativeAudioCaFile)
+                } catch (error: Exception) {
+                    result.error("ca_file_unavailable", error.message, null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun exportNativeAudioCaFile(): String {
+        val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        factory.init(null as KeyStore?)
+        val certificates = factory.trustManagers.filterIsInstance<X509TrustManager>()
+            .first().acceptedIssuers
+        check(certificates.isNotEmpty()) { "Android returned no trusted CA certificates" }
+
+        val bundle = File(noBackupFilesDir, "native-audio-ca.pem")
+        val temporary = File.createTempFile("native-audio-ca-", ".pem", noBackupFilesDir)
+        try {
+            temporary.bufferedWriter().use { writer ->
+                for (certificate in certificates) {
+                    val encoded = Base64.encodeToString(certificate.encoded, Base64.NO_WRAP)
+                    writer.appendLine("-----BEGIN CERTIFICATE-----")
+                    writer.appendLine(encoded.chunked(64).joinToString("\n"))
+                    writer.appendLine("-----END CERTIFICATE-----")
+                }
+            }
+            Os.rename(temporary.absolutePath, bundle.absolutePath)
+            return bundle.absolutePath
+        } finally {
+            temporary.delete()
         }
     }
 

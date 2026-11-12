@@ -1,0 +1,706 @@
+{
+  "gate_status": "incomplete",
+  "scope": "one-octave static curves and initial snapshot; runtime smoothing/resend not tested",
+  "passed": 14,
+  "total": 14,
+  "reference_versions": {
+    "mpv-version": "mpv v0.42.0-5-g55d3feb45",
+    "ffmpeg-version": "N-128607-g1ddef7d76"
+  },
+  "response_budget_db": 0.03,
+  "neutral_budget": 0,
+  "formula_source": "https://www.w3.org/TR/audio-eq-cookbook/",
+  "fixed_profile_revision": "3918b196390011b0fccbab59e3489f72e96c92e9",
+  "fixed_profile_cache": [
+    "build/native-audio-probe/eara-fixed-equalizer-presets.kt",
+    "build/native-audio-probe/eara-fixed-equalizer-processor.kt"
+  ],
+  "old_q1_regression": {
+    "scope": "comparison only; accepted Q=1 baseline is unchanged",
+    "passed": false,
+    "response": [
+      {
+        "frequency_hz": 700,
+        "expected_db": 2.9161455968112966,
+        "measured_db": 3.882028405432715,
+        "error_db": 0.9658828086214184
+      },
+      {
+        "frequency_hz": 1000,
+        "expected_db": 6.000000000000024,
+        "measured_db": 6.0000000146638,
+        "error_db": 1.4663775971257564e-08
+      },
+      {
+        "frequency_hz": 1400,
+        "expected_db": 3.085006024024237,
+        "measured_db": 4.034253588830202,
+        "error_db": 0.9492475648059648
+      }
+    ]
+  },
+  "exports": {
+    "factory": "adaptive_eq.equalizer_auto_graph(gains)",
+    "gains": "ten dB values; initial snapshot",
+    "targets": "adaptive_eq.EQ_TARGETS: equalizer@eq_band0..9",
+    "commands": [
+      "g",
+      "enable"
+    ],
+    "zero_gain": "enable=0 for exact timeline bypass; g=0 alone is not the exact-bypass contract",
+    "frequency": "max(10,min(nominal,Fs*.45)); first native frame before processing; initial f=10",
+    "timestamp": "unmodified dry anchors outer join; work-only N+1 time base",
+    "width": "t=o:w=1",
+    "target_fallback": "actual -12 only: retry exact bare instance name; never type/all broadcast"
+  },
+  "native_warning_policy": "error/fatal and Invalid frequency and/or width warnings fail; all warnings remain in each report",
+  "unverified": [
+    "custom Windows SDK",
+    "runtime gain smoothing and g/enable transitions",
+    "audio-reconfig latest-setting resends",
+    "production integration"
+  ],
+  "report": "build/eq-octave-host/reference-complete/result.json",
+  "checks": [
+    {
+      "name": "octave_1000_44100",
+      "passed": true,
+      "frames": 66167,
+      "expected_frames": 66167,
+      "maximum_error_db": 1.890030043583124e-08,
+      "response": [
+        {
+          "frequency_hz": 700,
+          "expected_db": 2.9165948929130554,
+          "measured_db": 2.9165949089187038,
+          "error_db": 1.600564836223839e-08
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 5.9999999999999805,
+          "measured_db": 6.000000000002937,
+          "error_db": 2.956745959181717e-12
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 3.0843333990137984,
+          "measured_db": 3.084333380113498,
+          "error_db": 1.890030043583124e-08
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_1000_48000",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 1.2322691755883852e-08,
+      "response": [
+        {
+          "frequency_hz": 700,
+          "expected_db": 2.9161455968112966,
+          "measured_db": 2.9161456091339883,
+          "error_db": 1.2322691755883852e-08
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 6.000000000000024,
+          "measured_db": 5.999999989553548,
+          "error_db": 1.0446475684489087e-08
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 3.085006024024237,
+          "measured_db": 3.085006019731353,
+          "error_db": 4.292884270284958e-09
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_1000_96000",
+      "passed": true,
+      "frames": 144017,
+      "expected_frames": 144017,
+      "maximum_error_db": 1.3909451368476766e-08,
+      "response": [
+        {
+          "frequency_hz": 700,
+          "expected_db": 2.914322841030273,
+          "measured_db": 2.914322848781086,
+          "error_db": 7.750813324491901e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 6.000000000000013,
+          "measured_db": 6.000000013909465,
+          "error_db": 1.3909451368476766e-08
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 3.0877322723013,
+          "measured_db": 3.087732259940558,
+          "error_db": 1.2360742207562225e-08
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "clamp_16000_to_7200",
+      "passed": true,
+      "frames": 24017,
+      "expected_frames": 24017,
+      "maximum_error_db": 5.638263189666759e-09,
+      "response": [
+        {
+          "frequency_hz": 5760,
+          "expected_db": 5.921634419145654,
+          "measured_db": 5.921634421451987,
+          "error_db": 2.306332902435315e-09
+        },
+        {
+          "frequency_hz": 7200,
+          "expected_db": 6.0,
+          "measured_db": 5.999999994361737,
+          "error_db": 5.638263189666759e-09
+        },
+        {
+          "frequency_hz": 7560,
+          "expected_db": 5.981229962511359,
+          "measured_db": 5.981229961261873,
+          "error_db": 1.249486736298877e-09
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "preset_bright",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 1.2909540103578365e-08,
+      "response": [
+        {
+          "frequency_hz": 31,
+          "expected_db": -4.6251129662889,
+          "measured_db": -4.625112958832286,
+          "error_db": 7.456613992928851e-09
+        },
+        {
+          "frequency_hz": 62,
+          "expected_db": -4.124310081108294,
+          "measured_db": -4.124310094017834,
+          "error_db": 1.2909540103578365e-08
+        },
+        {
+          "frequency_hz": 125,
+          "expected_db": -2.8298106150867812,
+          "measured_db": -2.8298106117246773,
+          "error_db": 3.3621039285947063e-09
+        },
+        {
+          "frequency_hz": 250,
+          "expected_db": -1.3725731820467801,
+          "measured_db": -1.3725731782261401,
+          "error_db": 3.820640026575006e-09
+        },
+        {
+          "frequency_hz": 500,
+          "expected_db": 0.3285794703974475,
+          "measured_db": 0.32857946848314806,
+          "error_db": 1.9142994411858183e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 3.1141926138427785,
+          "measured_db": 3.1141926209174544,
+          "error_db": 7.0746759561757244e-09
+        },
+        {
+          "frequency_hz": 2000,
+          "expected_db": 6.3482176071394845,
+          "measured_db": 6.3482176075375065,
+          "error_db": 3.980220597554762e-10
+        },
+        {
+          "frequency_hz": 4000,
+          "expected_db": 10.513925698097022,
+          "measured_db": 10.513925698306576,
+          "error_db": 2.0955326363036875e-10
+        },
+        {
+          "frequency_hz": 8000,
+          "expected_db": 13.063913334409266,
+          "measured_db": 13.063913333508548,
+          "error_db": 9.007177226294516e-10
+        },
+        {
+          "frequency_hz": 16000,
+          "expected_db": 9.084035727164087,
+          "measured_db": 9.084035727412967,
+          "error_db": 2.488800276978509e-10
+        },
+        {
+          "frequency_hz": 700,
+          "expected_db": 1.3531607569315174,
+          "measured_db": 1.3531607542805533,
+          "error_db": 2.6509641148919627e-09
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 3.827779032241138,
+          "measured_db": 3.8277790260409312,
+          "error_db": 6.200206570383671e-09
+        }
+      ],
+      "logs": [
+        {
+          "prefix": "cplayer",
+          "level": "warn",
+          "text": "client removed during hook handling"
+        }
+      ],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "preset_bassBoost",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 1.0475961431666292e-08,
+      "response": [
+        {
+          "frequency_hz": 31,
+          "expected_db": 3.5393547669321324,
+          "measured_db": 3.5393547697837473,
+          "error_db": 2.851614944177072e-09
+        },
+        {
+          "frequency_hz": 62,
+          "expected_db": 3.466183548287874,
+          "measured_db": 3.466183547196744,
+          "error_db": 1.091129853136863e-09
+        },
+        {
+          "frequency_hz": 125,
+          "expected_db": 2.8545313271046093,
+          "measured_db": 2.854531329579496,
+          "error_db": 2.4748865179446966e-09
+        },
+        {
+          "frequency_hz": 250,
+          "expected_db": 2.139332909262347,
+          "measured_db": 2.139332910569104,
+          "error_db": 1.306756924890351e-09
+        },
+        {
+          "frequency_hz": 500,
+          "expected_db": 1.2956400540877693,
+          "measured_db": 1.2956400614497845,
+          "error_db": 7.362015219669615e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": -0.08559585348895445,
+          "measured_db": -0.08559585229275346,
+          "error_db": 1.196200985487117e-09
+        },
+        {
+          "frequency_hz": 2000,
+          "expected_db": -1.697632532774645,
+          "measured_db": -1.6976325294218975,
+          "error_db": 3.3527476350769803e-09
+        },
+        {
+          "frequency_hz": 4000,
+          "expected_db": -3.930282950222927,
+          "measured_db": -3.9302829606988885,
+          "error_db": 1.0475961431666292e-08
+        },
+        {
+          "frequency_hz": 8000,
+          "expected_db": -6.11276701092906,
+          "measured_db": -6.112767012123728,
+          "error_db": 1.1946674760565656e-09
+        },
+        {
+          "frequency_hz": 16000,
+          "expected_db": -5.426226958807595,
+          "measured_db": -5.4262269577876605,
+          "error_db": 1.0199343591921206e-09
+        },
+        {
+          "frequency_hz": 700,
+          "expected_db": 0.5284058753020505,
+          "measured_db": 0.5284058745196506,
+          "error_db": 7.823999226275191e-10
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": -0.6998893292614733,
+          "measured_db": -0.6998893295776466,
+          "error_db": 3.1617330975564073e-10
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "preset_tappingCrisp",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 2.4107661200645225e-08,
+      "response": [
+        {
+          "frequency_hz": 31,
+          "expected_db": -3.393358360489804,
+          "measured_db": -3.393358381268392,
+          "error_db": 2.0778588183389957e-08
+        },
+        {
+          "frequency_hz": 62,
+          "expected_db": -2.705916028841088,
+          "measured_db": -2.705916052948749,
+          "error_db": 2.4107661200645225e-08
+        },
+        {
+          "frequency_hz": 125,
+          "expected_db": -1.3619165369896755,
+          "measured_db": -1.3619165408866742,
+          "error_db": 3.89699872371807e-09
+        },
+        {
+          "frequency_hz": 250,
+          "expected_db": 0.19452467547967947,
+          "measured_db": 0.19452468235208822,
+          "error_db": 6.872408753189063e-09
+        },
+        {
+          "frequency_hz": 500,
+          "expected_db": 2.3715347981429318,
+          "measured_db": 2.3715348076542138,
+          "error_db": 9.511281984231346e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 5.049444901941208,
+          "measured_db": 5.0494448975822745,
+          "error_db": 4.358933658465958e-09
+        },
+        {
+          "frequency_hz": 2000,
+          "expected_db": 9.610132469403993,
+          "measured_db": 9.610132471616641,
+          "error_db": 2.212647842725346e-09
+        },
+        {
+          "frequency_hz": 4000,
+          "expected_db": 13.305786132494783,
+          "measured_db": 13.305786129856072,
+          "error_db": 2.638710583369175e-09
+        },
+        {
+          "frequency_hz": 8000,
+          "expected_db": 14.55575954179417,
+          "measured_db": 14.555759541356899,
+          "error_db": 4.3727155230044445e-10
+        },
+        {
+          "frequency_hz": 16000,
+          "expected_db": 9.26916992901132,
+          "measured_db": 9.26916992342065,
+          "error_db": 5.590669260868708e-09
+        },
+        {
+          "frequency_hz": 700,
+          "expected_db": 2.9805257893121238,
+          "measured_db": 2.9805257927619504,
+          "error_db": 3.4498266465732286e-09
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 5.936213581468805,
+          "measured_db": 5.936213577786711,
+          "error_db": 3.6820937410197985e-09
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "preset_tappingDull",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 2.5537277181797435e-08,
+      "response": [
+        {
+          "frequency_hz": 31,
+          "expected_db": 5.185417628013349,
+          "measured_db": 5.185417634113265,
+          "error_db": 6.0999161277663916e-09
+        },
+        {
+          "frequency_hz": 62,
+          "expected_db": 6.99471951066325,
+          "measured_db": 6.994719510987615,
+          "error_db": 3.2436453523132514e-10
+        },
+        {
+          "frequency_hz": 125,
+          "expected_db": 7.811969281544804,
+          "measured_db": 7.811969282359719,
+          "error_db": 8.14915246394321e-10
+        },
+        {
+          "frequency_hz": 250,
+          "expected_db": 5.4737537627019135,
+          "measured_db": 5.473753764438596,
+          "error_db": 1.7366827975706656e-09
+        },
+        {
+          "frequency_hz": 500,
+          "expected_db": 1.8309802852209796,
+          "measured_db": 1.8309802912203754,
+          "error_db": 5.999395868983015e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": -3.006915267913259,
+          "measured_db": -3.006915271643696,
+          "error_db": 3.730437292404076e-09
+        },
+        {
+          "frequency_hz": 2000,
+          "expected_db": -7.753897635380109,
+          "measured_db": -7.753897620652911,
+          "error_db": 1.4727198127673091e-08
+        },
+        {
+          "frequency_hz": 4000,
+          "expected_db": -12.706476857165674,
+          "measured_db": -12.706476860450879,
+          "error_db": 3.2852049969278596e-09
+        },
+        {
+          "frequency_hz": 8000,
+          "expected_db": -16.780662106488588,
+          "measured_db": -16.780662112180252,
+          "error_db": 5.691664028972809e-09
+        },
+        {
+          "frequency_hz": 16000,
+          "expected_db": -13.386818238912975,
+          "measured_db": -13.386818213375697,
+          "error_db": 2.5537277181797435e-08
+        },
+        {
+          "frequency_hz": 700,
+          "expected_db": -0.3963662011901608,
+          "measured_db": -0.3963662000813337,
+          "error_db": 1.108827085705144e-09
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": -4.360155400679648,
+          "measured_db": -4.360155411379344,
+          "error_db": 1.0699695351945593e-08
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "preset_vocal",
+      "passed": true,
+      "frames": 72017,
+      "expected_frames": 72017,
+      "maximum_error_db": 1.3454488190234315e-08,
+      "response": [
+        {
+          "frequency_hz": 31,
+          "expected_db": -3.3800152415766593,
+          "measured_db": -3.38001524102235,
+          "error_db": 5.543094871995891e-10
+        },
+        {
+          "frequency_hz": 62,
+          "expected_db": -2.650042202890609,
+          "measured_db": -2.6500422163450974,
+          "error_db": 1.3454488190234315e-08
+        },
+        {
+          "frequency_hz": 125,
+          "expected_db": -1.0861127721333637,
+          "measured_db": -1.0861127615526194,
+          "error_db": 1.0580744280730414e-08
+        },
+        {
+          "frequency_hz": 250,
+          "expected_db": 1.643829672509039,
+          "measured_db": 1.6438296808141952,
+          "error_db": 8.305156118382229e-09
+        },
+        {
+          "frequency_hz": 500,
+          "expected_db": 4.897837057319855,
+          "measured_db": 4.897837062724517,
+          "error_db": 5.404662495323009e-09
+        },
+        {
+          "frequency_hz": 1000,
+          "expected_db": 9.63180626796417,
+          "measured_db": 9.631806267290512,
+          "error_db": 6.73656685989954e-10
+        },
+        {
+          "frequency_hz": 2000,
+          "expected_db": 11.770808838155554,
+          "measured_db": 11.770808839219871,
+          "error_db": 1.0643166348245359e-09
+        },
+        {
+          "frequency_hz": 4000,
+          "expected_db": 8.807133979455749,
+          "measured_db": 8.807133984758632,
+          "error_db": 5.302883465674313e-09
+        },
+        {
+          "frequency_hz": 8000,
+          "expected_db": 2.9652164480383436,
+          "measured_db": 2.9652164543567796,
+          "error_db": 6.318435996632843e-09
+        },
+        {
+          "frequency_hz": 16000,
+          "expected_db": -1.174369013025429,
+          "measured_db": -1.174369022865586,
+          "error_db": 9.840157133567118e-09
+        },
+        {
+          "frequency_hz": 700,
+          "expected_db": 5.888300547077175,
+          "measured_db": 5.888300551946308,
+          "error_db": 4.8691335408079794e-09
+        },
+        {
+          "frequency_hz": 1400,
+          "expected_db": 8.79231376203337,
+          "measured_db": 8.792313766397223,
+          "error_db": 4.363853278732677e-09
+        }
+      ],
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "clamp_first_frame_impulse",
+      "passed": true,
+      "frames": 1617,
+      "expected_frames": 1617,
+      "maximum_error": 2.9253796496320206e-08,
+      "first_frame_error": 2.9253796496320206e-08,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_neutral_16000",
+      "passed": true,
+      "frames": 1617,
+      "expected_frames": 1617,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_neutral_44100",
+      "passed": true,
+      "frames": 4427,
+      "expected_frames": 4427,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_neutral_48000",
+      "passed": true,
+      "frames": 4817,
+      "expected_frames": 4817,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    },
+    {
+      "name": "octave_neutral_96000",
+      "passed": true,
+      "frames": 9617,
+      "expected_frames": 9617,
+      "maximum_error": 0.0,
+      "logs": [],
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "ao_closed": true
+    }
+  ],
+  "pcm_budget": 1e-06
+}

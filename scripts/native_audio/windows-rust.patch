@@ -1,0 +1,15 @@
+diff --git a/toolchain/rustup.cmake b/toolchain/rustup.cmake
+--- a/toolchain/rustup.cmake
++++ b/toolchain/rustup.cmake
+@@ -4,8 +4,8 @@ ExternalProject_Add(rustup
+     SOURCE_DIR rustup-prefix/src
+     CONFIGURE_COMMAND ${EXEC} CONF=1
+         curl -sSf https://sh.rustup.rs |
+-        sh -s -- -y --default-toolchain stable --target aarch64-pc-windows-gnullvm,x86_64-pc-windows-gnullvm,i686-pc-windows-gnullvm,x86_64-pc-windows-gnu,i686-pc-windows-gnu --no-modify-path --profile minimal
+-    BUILD_COMMAND ${EXEC} rustup update
+-    INSTALL_COMMAND ${EXEC} LD_PRELOAD= cargo install cargo-c --profile=release-strip --features=vendored-openssl
++        sh -s -- -y --default-toolchain 1.99.1 --target x86_64-pc-windows-gnullvm --no-modify-path --profile minimal
++    BUILD_COMMAND ""
++    INSTALL_COMMAND ${EXEC} LD_PRELOAD= cargo +1.99.1 install cargo-c --version 0.10.26 --locked --profile=release-strip --features=vendored-openssl
+     LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
+ )

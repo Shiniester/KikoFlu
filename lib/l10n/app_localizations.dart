@@ -8919,6 +8919,210 @@ abstract class S {
   /// In en, this message translates to:
   /// **'An automatic mark could not be synced safely and was discarded. The account’s online mark was kept.'**
   String get automaticMarkingConflict;
+
+  /// No description provided for @playbackAudioEffects.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback audio effects'**
+  String get playbackAudioEffects;
+
+  /// No description provided for @audioEffectsEqualizer.
+  ///
+  /// In en, this message translates to:
+  /// **'Equalizer'**
+  String get audioEffectsEqualizer;
+
+  /// No description provided for @audioEffectsChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel mode'**
+  String get audioEffectsChannel;
+
+  /// No description provided for @audioEffectsScene.
+  ///
+  /// In en, this message translates to:
+  /// **'Scene effect'**
+  String get audioEffectsScene;
+
+  /// No description provided for @audioEffectsResetModule.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset module'**
+  String get audioEffectsResetModule;
+
+  /// No description provided for @audioEffectsResetAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset all effects'**
+  String get audioEffectsResetAll;
+
+  /// No description provided for @audioEffectsCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get audioEffectsCustom;
+
+  /// No description provided for @audioEffectsFlat.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get audioEffectsFlat;
+
+  /// No description provided for @audioEffectsBright.
+  ///
+  /// In en, this message translates to:
+  /// **'Bright'**
+  String get audioEffectsBright;
+
+  /// No description provided for @audioEffectsBass.
+  ///
+  /// In en, this message translates to:
+  /// **'Bass boost'**
+  String get audioEffectsBass;
+
+  /// No description provided for @audioEffectsCrisp.
+  ///
+  /// In en, this message translates to:
+  /// **'Crisp tapping'**
+  String get audioEffectsCrisp;
+
+  /// No description provided for @audioEffectsDull.
+  ///
+  /// In en, this message translates to:
+  /// **'Dull tapping'**
+  String get audioEffectsDull;
+
+  /// No description provided for @audioEffectsVocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Vocal boost'**
+  String get audioEffectsVocal;
+
+  /// No description provided for @audioEffectsNormal.
+  ///
+  /// In en, this message translates to:
+  /// **'Normal'**
+  String get audioEffectsNormal;
+
+  /// No description provided for @audioEffectsSwap.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap left and right'**
+  String get audioEffectsSwap;
+
+  /// No description provided for @audioEffectsCloneLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Clone left channel'**
+  String get audioEffectsCloneLeft;
+
+  /// No description provided for @audioEffectsCloneRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Clone right channel'**
+  String get audioEffectsCloneRight;
+
+  /// No description provided for @audioEffectsBathroom.
+  ///
+  /// In en, this message translates to:
+  /// **'Bathroom echo'**
+  String get audioEffectsBathroom;
+
+  /// No description provided for @audioEffectsMuffled.
+  ///
+  /// In en, this message translates to:
+  /// **'Muffled'**
+  String get audioEffectsMuffled;
+
+  /// No description provided for @audioEffectsTelephone.
+  ///
+  /// In en, this message translates to:
+  /// **'Telephone'**
+  String get audioEffectsTelephone;
+
+  /// No description provided for @audioEffectsIntensity.
+  ///
+  /// In en, this message translates to:
+  /// **'Intensity'**
+  String get audioEffectsIntensity;
+
+  /// No description provided for @audioEffectsWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Play audio to check effect support.'**
+  String get audioEffectsWaiting;
+
+  /// No description provided for @audioEffectsReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio effects are ready for this audio player.'**
+  String get audioEffectsReady;
+
+  /// No description provided for @audioEffectsPassthrough.
+  ///
+  /// In en, this message translates to:
+  /// **'Passthrough bypasses audio effects. Saved settings resume when passthrough is off.'**
+  String get audioEffectsPassthrough;
+
+  /// No description provided for @audioEffectsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This audio library cannot apply the effects. Settings are retained. Restart the app after installing a supported library.'**
+  String get audioEffectsUnavailable;
+
+  /// No description provided for @audioEffectsResetNamed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset {module}'**
+  String audioEffectsResetNamed(String module);
+
+  /// Playback audio effects: Binaural effect
+  ///
+  /// In en, this message translates to:
+  /// **'Binaural effect'**
+  String get audioEffectsBinaural;
+
+  /// Playback audio effects: Off
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get audioEffectsBinauralOff;
+
+  /// Playback audio effects: Stereo widening
+  ///
+  /// In en, this message translates to:
+  /// **'Stereo widening'**
+  String get audioEffectsBinauralStereo;
+
+  /// Playback audio effects: Mono widening
+  ///
+  /// In en, this message translates to:
+  /// **'Mono widening'**
+  String get audioEffectsBinauralMono;
+
+  /// Playback audio effects: Stereo widening intensity
+  ///
+  /// In en, this message translates to:
+  /// **'Stereo widening intensity'**
+  String get audioEffectsStereoIntensity;
+
+  /// Playback audio effects: Mono widening intensity
+  ///
+  /// In en, this message translates to:
+  /// **'Mono widening intensity'**
+  String get audioEffectsMonoIntensity;
+
+  /// Playback audio effects: Stereo widening expands existing left/right differences and preserves centered sound.
+  ///
+  /// In en, this message translates to:
+  /// **'Stereo widening expands existing left/right differences and preserves centered sound.'**
+  String get audioEffectsStereoHint;
+
+  /// Playback audio effects: Mono widening generates differences from shared sound and retains existing channel content.
+  ///
+  /// In en, this message translates to:
+  /// **'Mono widening generates differences from shared sound and retains existing channel content.'**
+  String get audioEffectsMonoHint;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

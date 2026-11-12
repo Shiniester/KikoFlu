@@ -51,8 +51,24 @@ set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
 # System-level dependencies.
+set(NATIVE_AUDIO_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../build/native-audio/linux-output")
+if(NOT EXISTS "${NATIVE_AUDIO_PREFIX}/lib/pkgconfig/mpv.pc")
+  message(FATAL_ERROR "Build the pinned native audio libraries first: bash scripts/native_audio/build_linux.sh")
+endif()
+set(ENV{PKG_CONFIG_PATH} "${NATIVE_AUDIO_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+
+# The Linux bundle needs libmpv and its non-platform runtime dependencies.
+# These tools resolve and patch the dependency closure during installation.
+find_program(LDDTREE_EXECUTABLE NAMES lddtree)
+find_program(PATCHELF_EXECUTABLE NAMES patchelf)
+find_program(READELF_EXECUTABLE NAMES readelf)
+if(NOT LDDTREE_EXECUTABLE OR NOT PATCHELF_EXECUTABLE OR NOT READELF_EXECUTABLE)
+  message(FATAL_ERROR
+    "Linux bundle packaging requires pax-utils (lddtree), patchelf, and binutils (readelf). "
+    "Install them with: sudo apt-get install pax-utils patchelf binutils")
+endif()
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
@@ -85,7 +101,9 @@ endif()
 
 # Start with a clean build bundle directory every time.
 install(CODE "
-  file(REMOVE_RECURSE \"${BUILD_BUNDLE_DIR}/\")
+  if(\"${CMAKE_INSTALL_PREFIX}\" STREQUAL \"${BUILD_BUNDLE_DIR}\")
+    file(REMOVE_RECURSE \"\$ENV{DESTDIR}${BUILD_BUNDLE_DIR}/\")
+  endif()
   " COMPONENT Runtime)
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
@@ -116,7 +134,7 @@ install(DIRECTORY "${NATIVE_ASSETS_DIR}"
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")
 install(CODE "
-  file(REMOVE_RECURSE \"${INSTALL_BUNDLE_DATA_DIR}/${FLUTTER_ASSET_DIR_NAME}\")
+  file(REMOVE_RECURSE \"\$ENV{DESTDIR}${INSTALL_BUNDLE_DATA_DIR}/${FLUTTER_ASSET_DIR_NAME}\")
   " COMPONENT Runtime)
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
@@ -126,3 +144,20 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Copy libmpv's runtime closure and make every bundled ELF resolve sibling
+# libraries through its own RUNPATH. This also repairs the plugin's generated
+# build-tree RUNPATH, which is not rewritten when Flutter copies it as a file.
+install(CODE "
+  execute_process(
+    COMMAND bash \"${CMAKE_CURRENT_SOURCE_DIR}/package_linux_libmpv.sh\"
+      \"\$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}\"
+      \"${LDDTREE_EXECUTABLE}\"
+      \"${PATCHELF_EXECUTABLE}\"
+      \"${READELF_EXECUTABLE}\"
+    RESULT_VARIABLE LINUX_LIBMPV_PACKAGE_RESULT
+  )
+  if(NOT LINUX_LIBMPV_PACKAGE_RESULT EQUAL 0)
+    message(FATAL_ERROR \"Linux libmpv packaging failed\")
+  endif()
+" COMPONENT Runtime)

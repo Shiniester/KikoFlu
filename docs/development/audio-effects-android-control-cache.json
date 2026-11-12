@@ -1,0 +1,808 @@
+{
+  "gate_status": "pass",
+  "source": "committed AAC HLS fixture, first segment repeated 12 times before 96/44.1/96 kHz changes",
+  "ao_sample_rate": 48000,
+  "baseline": {
+    "passed": true,
+    "frames": 382405,
+    "diagnostic_channel": 5,
+    "raw_pcm": "control_cache_baseline.pcm",
+    "native_errors": [],
+    "diagnostic": {
+      "frames": 382405,
+      "raw_min": 0.4410000145435333,
+      "raw_max": 0.9599999785423279,
+      "transient_frames": 0,
+      "transient_runs": [],
+      "plateaus": [
+        {
+          "start": 0,
+          "end": 307618,
+          "frames": 307618,
+          "mode": 0,
+          "sample_rate": 44100,
+          "raw_min": 0.4410000145435333,
+          "raw_max": 0.44101589918136597
+        },
+        {
+          "start": 307618,
+          "end": 332194,
+          "frames": 24576,
+          "mode": 0,
+          "sample_rate": 96000,
+          "raw_min": 0.9599999785423279,
+          "raw_max": 0.9599999785423279
+        },
+        {
+          "start": 332194,
+          "end": 357829,
+          "frames": 25635,
+          "mode": 0,
+          "sample_rate": 44100,
+          "raw_min": 0.4410000145435333,
+          "raw_max": 0.44101589918136597
+        },
+        {
+          "start": 357829,
+          "end": 382405,
+          "frames": 24576,
+          "mode": 0,
+          "sample_rate": 96000,
+          "raw_min": 0.9599999785423279,
+          "raw_max": 0.9599999785423279
+        }
+      ]
+    },
+    "native": {
+      "api": [
+        [
+          "config",
+          0
+        ],
+        [
+          "load-scripts",
+          0
+        ],
+        [
+          "terminal",
+          0
+        ],
+        [
+          "vo",
+          0
+        ],
+        [
+          "ao",
+          0
+        ],
+        [
+          "ao-pcm-waveheader",
+          0
+        ],
+        [
+          "ao-pcm-file",
+          0
+        ],
+        [
+          "audio-format",
+          0
+        ],
+        [
+          "audio-samplerate",
+          0
+        ],
+        [
+          "audio-channels",
+          0
+        ],
+        [
+          "af",
+          0
+        ],
+        [
+          "demuxer-lavf-format",
+          0
+        ],
+        [
+          "ao-pcm-append",
+          0
+        ],
+        [
+          "initialize",
+          0
+        ]
+      ],
+      "events": [
+        [
+          11,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          1
+        ],
+        [
+          6,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          8,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          1000
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          21,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          7,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          11,
+          0,
+          0
+        ]
+      ],
+      "logs": [],
+      "updates": [],
+      "actions": [
+        {
+          "command": [
+            "set",
+            "volume",
+            "100"
+          ],
+          "enqueue_code": 0,
+          "reply_error": 0,
+          "pause_after_reply": "no"
+        }
+      ],
+      "end_files": [
+        {
+          "reason": 0,
+          "error": 0
+        }
+      ],
+      "initialized_handles": 1,
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "timed_out": false,
+      "versions": {
+        "mpv-version": "mpv 78d4374-dirty",
+        "ffmpeg-version": "4.4.2-0ubuntu0.22.04.1"
+      },
+      "ao_closed": true,
+      "timing": {
+        "wall_seconds": 9.353746672,
+        "process_cpu_seconds": 0.456527679
+      },
+      "name": "control_cache_baseline",
+      "process": {
+        "return_code": 0,
+        "stderr": ""
+      },
+      "output_channels": 5
+    }
+  },
+  "controlled": {
+    "passed": true,
+    "frames": 382405,
+    "expected_frames_from_baseline": 382405,
+    "diagnostic_channel": 5,
+    "raw_pcm": "control_cache_controlled.pcm",
+    "diagnostic": {
+      "frames": 382405,
+      "raw_min": 0.08342639356851578,
+      "raw_max": 3.9600000381469727,
+      "transient_frames": 49,
+      "transient_runs": [
+        {
+          "start": 9885,
+          "end": 9888,
+          "frames": 3,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 0.4040379226207733,
+          "raw_max": 0.47494053840637207
+        },
+        {
+          "start": 9888,
+          "end": 9889,
+          "frames": 1,
+          "mode": 0,
+          "sample_rate": 44100,
+          "raw_min": 0.4387262165546417,
+          "raw_max": 0.4387262165546417
+        },
+        {
+          "start": 9889,
+          "end": 9898,
+          "frames": 9,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 0.08342639356851578,
+          "raw_max": 3.6604294776916504
+        },
+        {
+          "start": 63523,
+          "end": 63535,
+          "frames": 12,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 1.362161636352539,
+          "raw_max": 3.6734323501586914
+        },
+        {
+          "start": 109500,
+          "end": 109512,
+          "frames": 12,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 1.3961992263793945,
+          "raw_max": 2.5580785274505615
+        },
+        {
+          "start": 158262,
+          "end": 158266,
+          "frames": 4,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 2.392390727996826,
+          "raw_max": 2.486483573913574
+        },
+        {
+          "start": 158266,
+          "end": 158267,
+          "frames": 1,
+          "mode": 2,
+          "sample_rate": 44100,
+          "raw_min": 2.4380931854248047,
+          "raw_max": 2.4380931854248047
+        },
+        {
+          "start": 158267,
+          "end": 158271,
+          "frames": 4,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 3.228158473968506,
+          "raw_max": 3.5497355461120605
+        },
+        {
+          "start": 158271,
+          "end": 158272,
+          "frames": 1,
+          "mode": 3,
+          "sample_rate": 44100,
+          "raw_min": 3.444359064102173,
+          "raw_max": 3.444359064102173
+        },
+        {
+          "start": 158272,
+          "end": 158274,
+          "frames": 2,
+          "mode": null,
+          "sample_rate": null,
+          "raw_min": 3.4334328174591064,
+          "raw_max": 3.4465107917785645
+        }
+      ],
+      "plateaus": [
+        {
+          "start": 0,
+          "end": 9885,
+          "frames": 9885,
+          "mode": 0,
+          "sample_rate": 44100,
+          "raw_min": 0.4403049349784851,
+          "raw_max": 0.44592732191085815
+        },
+        {
+          "start": 9898,
+          "end": 63523,
+          "frames": 53625,
+          "mode": 3,
+          "sample_rate": 44100,
+          "raw_min": 3.4370908737182617,
+          "raw_max": 3.4429311752319336
+        },
+        {
+          "start": 63535,
+          "end": 109500,
+          "frames": 45965,
+          "mode": 1,
+          "sample_rate": 44100,
+          "raw_min": 1.4371834993362427,
+          "raw_max": 1.443993091583252
+        },
+        {
+          "start": 109512,
+          "end": 158262,
+          "frames": 48750,
+          "mode": 2,
+          "sample_rate": 44100,
+          "raw_min": 2.438654899597168,
+          "raw_max": 2.4428298473358154
+        },
+        {
+          "start": 158274,
+          "end": 307618,
+          "frames": 149344,
+          "mode": 3,
+          "sample_rate": 44100,
+          "raw_min": 3.438941478729248,
+          "raw_max": 3.4414572715759277
+        },
+        {
+          "start": 307618,
+          "end": 332194,
+          "frames": 24576,
+          "mode": 3,
+          "sample_rate": 96000,
+          "raw_min": 3.9600000381469727,
+          "raw_max": 3.9600000381469727
+        },
+        {
+          "start": 332194,
+          "end": 357829,
+          "frames": 25635,
+          "mode": 3,
+          "sample_rate": 44100,
+          "raw_min": 3.440999984741211,
+          "raw_max": 3.441124200820923
+        },
+        {
+          "start": 357829,
+          "end": 382405,
+          "frames": 24576,
+          "mode": 3,
+          "sample_rate": 96000,
+          "raw_min": 3.9600000381469727,
+          "raw_max": 3.9600000381469727
+        }
+      ]
+    },
+    "observed_input_sample_rates": [
+      44100,
+      96000,
+      44100,
+      96000
+    ],
+    "observed_control_modes": [
+      0,
+      3,
+      1,
+      2,
+      3
+    ],
+    "stable_state_runs": [
+      {
+        "start": 0,
+        "end": 9885,
+        "frames": 9885,
+        "mode": 0,
+        "sample_rate": 44100,
+        "raw_min": 0.4403049349784851,
+        "raw_max": 0.44592732191085815
+      },
+      {
+        "start": 9898,
+        "end": 63523,
+        "frames": 53625,
+        "mode": 3,
+        "sample_rate": 44100,
+        "raw_min": 3.4370908737182617,
+        "raw_max": 3.4429311752319336
+      },
+      {
+        "start": 63535,
+        "end": 109500,
+        "frames": 45965,
+        "mode": 1,
+        "sample_rate": 44100,
+        "raw_min": 1.4371834993362427,
+        "raw_max": 1.443993091583252
+      },
+      {
+        "start": 109512,
+        "end": 158262,
+        "frames": 48750,
+        "mode": 2,
+        "sample_rate": 44100,
+        "raw_min": 2.438654899597168,
+        "raw_max": 2.4428298473358154
+      },
+      {
+        "start": 158274,
+        "end": 307618,
+        "frames": 149344,
+        "mode": 3,
+        "sample_rate": 44100,
+        "raw_min": 3.438941478729248,
+        "raw_max": 3.4414572715759277
+      },
+      {
+        "start": 307618,
+        "end": 332194,
+        "frames": 24576,
+        "mode": 3,
+        "sample_rate": 96000,
+        "raw_min": 3.9600000381469727,
+        "raw_max": 3.9600000381469727
+      },
+      {
+        "start": 332194,
+        "end": 357829,
+        "frames": 25635,
+        "mode": 3,
+        "sample_rate": 44100,
+        "raw_min": 3.440999984741211,
+        "raw_max": 3.441124200820923
+      },
+      {
+        "start": 357829,
+        "end": 382405,
+        "frames": 24576,
+        "mode": 3,
+        "sample_rate": 96000,
+        "raw_min": 3.9600000381469727,
+        "raw_max": 3.9600000381469727
+      }
+    ],
+    "first_rate_change_frame": 307618,
+    "valid_control_replies": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "invalid_control_reply": -12,
+    "intentional_invalid_control_errors": [
+      {
+        "prefix": "ffmpeg",
+        "level": "error",
+        "text": "Eval: Undefined constant or missing '(' in 'native_cache_invalid'"
+      },
+      {
+        "prefix": "ffmpeg",
+        "level": "error",
+        "text": "volume@channel_mode: Error when evaluating the volume expression 'native_cache_invalid'"
+      }
+    ],
+    "unexpected_native_errors": [],
+    "latest_clone_right_after_first_rate_change": true,
+    "suffix_max_error_to_baseline_right": 0.0,
+    "native": {
+      "api": [
+        [
+          "config",
+          0
+        ],
+        [
+          "load-scripts",
+          0
+        ],
+        [
+          "terminal",
+          0
+        ],
+        [
+          "vo",
+          0
+        ],
+        [
+          "ao",
+          0
+        ],
+        [
+          "ao-pcm-waveheader",
+          0
+        ],
+        [
+          "ao-pcm-file",
+          0
+        ],
+        [
+          "audio-format",
+          0
+        ],
+        [
+          "audio-samplerate",
+          0
+        ],
+        [
+          "audio-channels",
+          0
+        ],
+        [
+          "af",
+          0
+        ],
+        [
+          "demuxer-lavf-format",
+          0
+        ],
+        [
+          "ao-pcm-append",
+          0
+        ],
+        [
+          "initialize",
+          0
+        ]
+      ],
+      "events": [
+        [
+          11,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          1
+        ],
+        [
+          6,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          8,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          1000
+        ],
+        [
+          5,
+          0,
+          1001
+        ],
+        [
+          21,
+          0,
+          0
+        ],
+        [
+          5,
+          0,
+          1002
+        ],
+        [
+          5,
+          0,
+          1003
+        ],
+        [
+          5,
+          -12,
+          1004
+        ],
+        [
+          5,
+          -12,
+          1004
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          7,
+          0,
+          0
+        ],
+        [
+          18,
+          0,
+          0
+        ],
+        [
+          11,
+          0,
+          0
+        ]
+      ],
+      "logs": [
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "Eval: Undefined constant or missing '(' in 'native_cache_invalid'"
+        },
+        {
+          "prefix": "ffmpeg",
+          "level": "error",
+          "text": "volume@channel_mode: Error when evaluating the volume expression 'native_cache_invalid'"
+        }
+      ],
+      "updates": [],
+      "actions": [
+        {
+          "command": [
+            "af-command",
+            "effects",
+            "volume",
+            "3",
+            "volume@channel_mode"
+          ],
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@channel_mode",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ],
+          "reply_error": 0,
+          "pause_after_reply": "no"
+        },
+        {
+          "command": [
+            "af-command",
+            "effects",
+            "volume",
+            "1",
+            "volume@channel_mode"
+          ],
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@channel_mode",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ],
+          "reply_error": 0,
+          "pause_after_reply": "no"
+        },
+        {
+          "command": [
+            "af-command",
+            "effects",
+            "volume",
+            "2",
+            "volume@channel_mode"
+          ],
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@channel_mode",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ],
+          "reply_error": 0,
+          "pause_after_reply": "no"
+        },
+        {
+          "command": [
+            "af-command",
+            "effects",
+            "volume",
+            "3",
+            "volume@channel_mode"
+          ],
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@channel_mode",
+              "enqueue_code": 0,
+              "reply_error": 0
+            }
+          ],
+          "reply_error": 0,
+          "pause_after_reply": "no"
+        },
+        {
+          "command": [
+            "af-command",
+            "effects",
+            "volume",
+            "native_cache_invalid",
+            "volume@channel_mode"
+          ],
+          "enqueue_code": 0,
+          "attempts": [
+            {
+              "target": "volume@channel_mode",
+              "enqueue_code": 0,
+              "reply_error": -12
+            },
+            {
+              "target": "channel_mode",
+              "enqueue_code": 0,
+              "reply_error": -12
+            }
+          ],
+          "reply_error": -12,
+          "pause_after_reply": "no"
+        }
+      ],
+      "end_files": [
+        {
+          "reason": 0,
+          "error": 0
+        }
+      ],
+      "initialized_handles": 1,
+      "end_file": {
+        "reason": 0,
+        "error": 0
+      },
+      "timed_out": false,
+      "versions": {
+        "mpv-version": "mpv 78d4374-dirty",
+        "ffmpeg-version": "4.4.2-0ubuntu0.22.04.1"
+      },
+      "ao_closed": true,
+      "timing": {
+        "wall_seconds": 9.418968308000004,
+        "process_cpu_seconds": 0.520324251
+      },
+      "name": "control_cache_controlled",
+      "process": {
+        "return_code": 0,
+        "stderr": ""
+      },
+      "output_channels": 5
+    }
+  }
+}

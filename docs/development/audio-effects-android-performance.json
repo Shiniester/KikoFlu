@@ -1,0 +1,90 @@
+{
+  "platform": "Android16/API36 arm64-v8a OPD2405",
+  "native_build": {
+    "commit": "2dad3041",
+    "workflow_run": 42490996422,
+    "source_provenance": "audio-effects-android-build.txt"
+  },
+  "samplerate": 96000,
+  "frames": 384017,
+  "signal": {
+    "left": "round((.7*sin(2*pi*997*n/96000)+.1*sin(2*pi*1733*n/96000))*32767)",
+    "right": "round(.65*sin(2*pi*1999*n/96000)*32767)"
+  },
+  "chain": "EQ all +15 dB -> mono 100% -> alimiter -> three dynamic scenes (selected 100%, others 0%)",
+  "output_channels": 2,
+  "lavfi_threads_per_node": 1,
+  "scope": "One offline run per scene; includes initialization, destruction and log drain; not sustained playback or cross-device acceptance",
+  "before_source": "ae47f514",
+  "after_source": "6de4ba0f",
+  "before": [
+    {
+      "name": "bathroom",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 1.0,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 3.695170928,
+        "wall_seconds": 3.749749231
+      }
+    },
+    {
+      "name": "through_wall",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 0.9638134241104126,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 3.699299376,
+        "wall_seconds": 3.770105847
+      }
+    },
+    {
+      "name": "telephone",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 0.9802219271659851,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 4.048755931,
+        "wall_seconds": 4.095889538
+      }
+    }
+  ],
+  "after": [
+    {
+      "name": "bathroom",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 1.0,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 3.227333177,
+        "wall_seconds": 3.600006769
+      }
+    },
+    {
+      "name": "through_wall",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 0.9638134241104126,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 2.989396059,
+        "wall_seconds": 3.043872538
+      }
+    },
+    {
+      "name": "telephone",
+      "pcm_frames": 384017,
+      "input_seconds": 4.000177083333333,
+      "peak": 0.9802219271659851,
+      "finite": true,
+      "timing": {
+        "process_cpu_seconds": 3.241301968,
+        "wall_seconds": 3.28155977
+      }
+    }
+  ]
+}

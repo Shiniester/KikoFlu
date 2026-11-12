@@ -7,6 +7,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/audio_track.dart';
 import '../models/audio_slice.dart';
 import '../models/audio_gain_settings.dart';
+import '../models/audio_effects_settings.dart';
+import '../services/native_audio_effects.dart';
+import 'audio_effects_provider.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../models/work.dart';
 import '../services/audio_player_service.dart';
@@ -25,6 +28,14 @@ final audioPlayerServiceProvider = Provider<AudioPlayerService>((ref) {
   final service = AudioPlayerService.instance;
   ref.read(automaticWorkMarkingProvider);
   return service;
+});
+
+final audioEffectsStatusProvider = StreamProvider<AudioEffectsStatus>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return _withInitialValue(
+    service.audioEffectsStatus,
+    service.audioEffectsStatusStream,
+  );
 });
 
 // Current Track Provider
@@ -267,6 +278,13 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       }
     });
 
+    _ref.listen<AudioEffectsSettings>(audioEffectsSettingsProvider, (
+      previous,
+      next,
+    ) {
+      unawaited(_service.updateAudioEffects(next));
+    });
+
     // 监听下一首预加载设置变化
     _ref.listen<PreloadNextSettings>(preloadNextSettingsProvider, (
       previous,
@@ -320,6 +338,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     _service.updatePreloadThreshold(
       preloadSeconds == null ? null : Duration(seconds: preloadSeconds),
     );
+
+    await _service.updateAudioEffects(_ref.read(audioEffectsSettingsProvider));
 
     // Restore only after privacy and output settings are active. Restored
     // sessions stay paused until the user explicitly resumes playback.
@@ -439,6 +459,8 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     required AudioTapPlaylistMode playlistMode,
   }) async {
     final selectedTrack = tracks[startIndex];
+    final noCurrentTrack = _service.currentTrack == null;
+    final loadGeneration = _service.trackLoadGeneration;
     switch (playlistMode) {
       case AudioTapPlaylistMode.replaceQueue:
         await _service.updateQueue(
@@ -455,6 +477,14 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
           await _service.appendTracks([selectedTrack]);
         }
         _log.captureOutput('[AudioController] 已安排下一首播放');
+    }
+    if (noCurrentTrack &&
+        _service.currentTrack == null &&
+        _service.trackLoadGeneration == loadGeneration) {
+      final index = _service.queue.indexWhere(
+        (track) => track.id == selectedTrack.id,
+      );
+      if (index >= 0) await _service.skipToIndex(index);
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
   }

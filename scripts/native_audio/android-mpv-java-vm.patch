@@ -1,0 +1,48 @@
+diff --git a/include/mpv/client.h b/include/mpv/client.h
+--- a/include/mpv/client.h
++++ b/include/mpv/client.h
+@@ -1734,6 +1734,12 @@ MPV_EXPORT mpv_event *mpv_wait_event(mpv_handle *ctx, double timeout);
+  */
+ MPV_EXPORT void mpv_wakeup(mpv_handle *ctx);
+ 
++/**
++ * Calls av_jni_set_java_vm() with the given JavaVM*.
++ * The av_jni_set_java_vm() symbol is not visible when statically linking with libavcodec.
++ */
++MPV_EXPORT int mpv_lavc_set_java_vm(void *vm);
++
+ /**
+  * Set a custom function that should be called when there are new events. Use
+  * this if blocking in mpv_wait_event() to wait for new events is not feasible.
+diff --git a/player/client.c b/player/client.c
+--- a/player/client.c
++++ b/player/client.c
+@@ -22,6 +22,8 @@
+ #include <stdint.h>
+ #include <stdlib.h>
+ 
++#include <libavcodec/jni.h>
++
+ #include "common/common.h"
+ #include "common/global.h"
+ #include "common/msg.h"
+@@ -45,6 +47,7 @@
+ 
+ #include "command.h"
+ #include "core.h"
++#include "mpv/client.h"
+ #include "client.h"
+ 
+ /*
+@@ -978,6 +981,11 @@ void mpv_wakeup(mpv_handle *ctx)
+     mp_mutex_unlock(&ctx->lock);
+ }
+ 
++int mpv_lavc_set_java_vm(void *vm)
++{
++    return av_jni_set_java_vm(vm, NULL);
++}
++
+ // map client API types to internal types
+ static const struct m_option type_conv[] = {
+     [MPV_FORMAT_STRING]     = { .type = CONF_TYPE_STRING },
