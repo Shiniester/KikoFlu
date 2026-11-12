@@ -1588,13 +1588,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                               key: const ValueKey(
                                 'compact-main-lyric-scroll-surface',
                               ),
-                              onSeekRequested: (position) => unawaited(
-                                ref
-                                    .read(
-                                      audioPlayerControllerProvider.notifier,
-                                    )
-                                    .seekAndPersist(position),
-                              ),
+                              onSeekRequested: (position) => ref
+                                  .read(audioPlayerControllerProvider.notifier)
+                                  .seekAndPersist(position),
                               onLineDoubleTap: _togglePlayback,
                               enableLineTapFeedback: true,
                               lineCount: 5,
@@ -1871,11 +1867,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                 maintainState: true,
                 child: ThreeLineLyricDisplay(
                   key: key,
-                  onSeekRequested: (position) => unawaited(
-                    ref
-                        .read(audioPlayerControllerProvider.notifier)
-                        .seekAndPersist(position),
-                  ),
+                  onSeekRequested: (position) => ref
+                      .read(audioPlayerControllerProvider.notifier)
+                      .seekAndPersist(position),
                   onLineDoubleTap: _togglePlayback,
                   compact: compact,
                   lineCount: lineCount,

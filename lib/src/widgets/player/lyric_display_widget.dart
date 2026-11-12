@@ -575,7 +575,7 @@ class ThreeLineLyricDisplay extends ConsumerStatefulWidget {
     this.onLineDoubleTap,
   }) : assert(lineCount == 3 || lineCount == 5);
 
-  final ValueChanged<Duration> onSeekRequested;
+  final FutureOr<void> Function(Duration) onSeekRequested;
   final bool compact;
   final int lineCount;
   final bool enableLineTapFeedback;
@@ -614,6 +614,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
   int? _scrollHoldPointer;
   int _latestIndex = -1;
   int? _lastIndex;
+  _PendingLyricTap? _pendingTap;
   List<LyricLine>? _lastDisplayLyrics;
   String? _lastTrackKey;
   bool _hasObservedLyricTrack = false;
@@ -1492,7 +1493,23 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     _resumeFollowTimer?.cancel();
     _isUserBrowsing = true;
     _userScrollInProgress = false;
-    widget.onSeekRequested(lyrics[index].startTime);
+    final tap = _PendingLyricTap(
+      index: index,
+      position: lyrics[index].startTime,
+      originIndex: ref.read(currentLyricIndexProvider),
+    );
+    _pendingTap = tap;
+    final completion = widget.onSeekRequested(tap.position);
+    if (completion is Future<void>) {
+      tap.waitFor(completion, () {
+        if (!mounted || !identical(_pendingTap, tap)) return;
+        _pendingTap = null;
+        _updateDisplayedIndex(ref.read(currentLyricIndexProvider));
+      });
+      _updateDisplayedIndex(index);
+    } else {
+      _pendingTap = null;
+    }
     _positionCurrentLine(
       index,
       itemExtent,
@@ -1517,9 +1534,51 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     _resumeFollowTimer = null;
     _isUserBrowsing = false;
     _userScrollInProgress = false;
+    _pendingTap = null;
     _scrollGeneration++;
     _clearLyricEmphasisMotion(notify: false);
     _clearScrollMotion();
+  }
+
+  void _updateDisplayedIndex(int index) {
+    final previousIndex = _latestIndex;
+    if (previousIndex == index) return;
+    final playbackContent = ref.read(
+      lyricControllerProvider.select(
+        (state) => (lyrics: state.displayLyrics, trackKey: state.trackKey),
+      ),
+    );
+    final sourceChanged =
+        !identical(_lastDisplayLyrics, playbackContent.lyrics) ||
+        _lastTrackKey != playbackContent.trackKey;
+    final canAnimateEmphasis =
+        _tickersEnabled &&
+        !sourceChanged &&
+        previousIndex >= 0 &&
+        index >= 0 &&
+        !MediaQuery.disableAnimationsOf(context);
+    _pendingLyricEmphasisFromIndex = canAnimateEmphasis ? previousIndex : null;
+    if (!canAnimateEmphasis) {
+      _clearLyricEmphasisMotion();
+    }
+    _latestIndex = index;
+    if (!_tickersEnabled) return;
+    setState(() {});
+    if (canAnimateEmphasis && _isUserBrowsing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            !_tickersEnabled ||
+            !_isUserBrowsing ||
+            _latestIndex != index) {
+          return;
+        }
+        _startCompactLyricEmphasisTransition(
+          targetIndex: index,
+          previousIndex: previousIndex,
+          activeScale: _activeTextScale,
+        );
+      });
+    }
   }
 
   @override
@@ -1538,52 +1597,23 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     _hasObservedLyricTrack = true;
     final lyrics = lyricContent.lyrics;
     ref.listen<int>(currentLyricIndexProvider, (_, index) {
-      final previousIndex = _latestIndex;
-      final playbackContent = ref.read(
-        lyricControllerProvider.select(
-          (state) => (lyrics: state.displayLyrics, trackKey: state.trackKey),
-        ),
-      );
-      final sourceChanged =
-          !identical(_lastDisplayLyrics, playbackContent.lyrics) ||
-          _lastTrackKey != playbackContent.trackKey;
-      final canAnimateEmphasis =
-          _tickersEnabled &&
-          !sourceChanged &&
-          previousIndex >= 0 &&
-          index >= 0 &&
-          previousIndex != index &&
-          !MediaQuery.disableAnimationsOf(context);
-      _pendingLyricEmphasisFromIndex = canAnimateEmphasis
-          ? previousIndex
-          : null;
-      if (!canAnimateEmphasis) {
-        _clearLyricEmphasisMotion();
-      }
-      _latestIndex = index;
-      if (_tickersEnabled) {
-        setState(() {});
-        if (canAnimateEmphasis && _isUserBrowsing) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted ||
-                !_tickersEnabled ||
-                !_isUserBrowsing ||
-                _latestIndex != index) {
-              return;
-            }
-            _startCompactLyricEmphasisTransition(
-              targetIndex: index,
-              previousIndex: previousIndex,
-              activeScale: _activeTextScale,
-            );
-          });
-        }
-      }
+      final tap = _pendingTap;
+      if (tap != null && !tap.hasReached(index)) return;
+      _pendingTap = null;
+      _updateDisplayedIndex(index);
     });
     ref.listen<AsyncValue<PositionDiscontinuity>>(
       positionDiscontinuityProvider,
       (_, next) {
         final discontinuity = next.asData?.value;
+        final tap = _pendingTap;
+        if (discontinuity != null && tap != null) {
+          final playbackIndex = ref.read(currentLyricIndexProvider);
+          if (!tap.acknowledge(discontinuity, playbackIndex)) {
+            _pendingTap = null;
+            _updateDisplayedIndex(playbackIndex);
+          }
+        }
         if (discontinuity?.reason == PositionDiscontinuityReason.seek) {
           final track = ref.read(currentTrackProvider).valueOrNull;
           _manuallySoughtTrackKey = track == null
@@ -1604,7 +1634,6 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
         }
       },
     );
-    final index = ref.read(currentLyricIndexProvider);
     final settings = ref.watch(playerLyricSettingsProvider);
     ref.listen<PlayerLyricSpringPreset>(
       playerLyricSettingsProvider.select((settings) => settings.springPreset),
@@ -1645,6 +1674,8 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       _lastTrackKey = lyricContent.trackKey;
       _lastIndex = null;
     }
+    final index =
+        _pendingTap?.index ?? ref.read<int>(currentLyricIndexProvider);
     if (index >= 0) {
       _trackIntroEnabled = false;
     }
@@ -2341,7 +2372,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final double visibleBottomInset;
   final bool snapOnAutoScrollResume;
   final bool snapToCurrentOnFirstLayout;
-  final ValueChanged<Duration>? onSeekRequested;
+  final FutureOr<void> Function(Duration)? onSeekRequested;
   final VoidCallback? onLineDoubleTap;
   final bool enableLineTapFeedback;
 
@@ -2354,6 +2385,46 @@ typedef _LyricBrowseAnchor = ({
   int lineIndex,
   double fraction,
 });
+
+class _PendingLyricTap {
+  _PendingLyricTap({
+    required this.index,
+    required this.position,
+    required this.originIndex,
+  });
+
+  final int index;
+  final Duration position;
+  final int? originIndex;
+  int? _playbackIndexAtSeek;
+  bool _awaitsCompletion = false;
+
+  bool acknowledge(PositionDiscontinuity discontinuity, int playbackIndex) {
+    if (_playbackIndexAtSeek != null ||
+        discontinuity.reason != PositionDiscontinuityReason.seek ||
+        discontinuity.event.updatePosition != position) {
+      return false;
+    }
+    _playbackIndexAtSeek = playbackIndex;
+    return true;
+  }
+
+  bool hasReached(int playbackIndex) {
+    if (!_awaitsCompletion) {
+      return playbackIndex >= 0 && playbackIndex != originIndex;
+    }
+    // The old source can cross a subtitle while the seek prepares its source.
+    final beforeSeek = _playbackIndexAtSeek;
+    return beforeSeek != null &&
+        (playbackIndex == index ||
+            (playbackIndex > index && playbackIndex != beforeSeek));
+  }
+
+  void waitFor(Future<void> completion, VoidCallback onComplete) {
+    _awaitsCompletion = true;
+    unawaited(completion.whenComplete(onComplete));
+  }
+}
 
 class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     with TickerProviderStateMixin, WidgetsBindingObserver {
@@ -2391,9 +2462,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   bool _reducedMotion = false;
   int? _currentLyricIndex;
   Duration? _lastSeekingPosition;
-  int? _pendingTappedIndex;
-  int? _pendingTapOriginIndex;
-  bool _pendingTapAcknowledged = false;
+  _PendingLyricTap? _pendingTap;
   bool _autoScroll = true;
   bool _userScrollInProgress = false;
   int? _lyricScrollHoldPointer;
@@ -2465,9 +2534,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         _preparingVisiblePage = false;
         _scrollRequestGeneration++;
         _clearLyricMotion(notify: false);
-        _pendingTappedIndex = null;
-        _pendingTapOriginIndex = null;
-        _pendingTapAcknowledged = false;
+        _pendingTap = null;
       }
     }
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
@@ -2477,7 +2544,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         final scrollTarget = _scrollSpringTargetIndex;
         final playbackIndex = ref.read(currentLyricIndexProvider);
         final index =
-            _pendingTappedIndex ??
+            _pendingTap?.index ??
             (playbackIndex >= 0 ? playbackIndex : scrollTarget);
         _scrollRequestGeneration++;
         _clearLyricMotion(notify: false);
@@ -2566,9 +2633,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _userScrollInProgress = false;
       _autoScroll = true;
       _setPlaybackLineControlsVisible(false);
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
       _clearTapFeedbackState(notify: false);
       if (!_preparingVisiblePage) {
         _scrollRequestGeneration++;
@@ -2597,9 +2662,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if (!oldWidget.suspendAutoScroll && widget.suspendAutoScroll) {
       _scrollRequestGeneration++;
       _clearLyricMotion(notify: false);
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.pixels);
       }
@@ -2608,9 +2671,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         oldWidget.selectedSearchMatch != widget.selectedSearchMatch) {
       _scrollRequestGeneration++;
       _clearLyricMotion(notify: false);
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
     }
     if (oldWidget.suspendAutoScroll &&
         !widget.suspendAutoScroll &&
@@ -2644,8 +2705,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       final request = _scrollRequestGeneration;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || request != _scrollRequestGeneration) return;
-        final index =
-            _pendingTappedIndex ?? ref.read(currentLyricIndexProvider);
+        final index = _pendingTap?.index ?? ref.read(currentLyricIndexProvider);
         if (index != null && index >= 0) {
           _startLyricScrollSpring(
             index,
@@ -2669,18 +2729,14 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     } else {
       _scrollRequestGeneration++;
       _clearLyricMotion();
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
     }
   }
 
   void _scheduleLyricResync() {
     // The next build owns following; another jump here would use stale layout.
     _currentLyricIndex = null;
-    _pendingTappedIndex = null;
-    _pendingTapOriginIndex = null;
-    _pendingTapAcknowledged = false;
+    _pendingTap = null;
     _clearLyricMotion(notify: false);
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2946,22 +3002,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     required String? trackKey,
     required Duration? seekingPosition,
   }) {
-    final pendingTapIndex = _pendingTappedIndex;
-    if (discontinuity.reason == PositionDiscontinuityReason.seek &&
-        pendingTapIndex != null &&
-        !_pendingTapAcknowledged &&
-        pendingTapIndex >= 0 &&
-        pendingTapIndex < lyrics.length &&
-        lyrics[pendingTapIndex].startTime ==
-            discontinuity.event.updatePosition) {
-      _pendingTapAcknowledged = true;
+    final pendingTap = _pendingTap;
+    if (pendingTap != null &&
+        pendingTap.acknowledge(
+          discontinuity,
+          ref.read(currentLyricIndexProvider),
+        )) {
       return;
     }
     _scrollRequestGeneration++;
     _clearLyricMotion();
-    _pendingTappedIndex = null;
-    _pendingTapOriginIndex = null;
-    _pendingTapAcknowledged = false;
+    _pendingTap = null;
     _pendingDiscontinuity = null;
     final isSeek = discontinuity.reason == PositionDiscontinuityReason.seek;
     final isLoop =
@@ -3099,6 +3150,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         animate: false,
         force: true,
         ignoreAutoScroll: true,
+        preservePendingTap: _pendingTap?.index == index,
       );
       return;
     }
@@ -3915,9 +3967,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if ((!_autoScroll || widget.suspendAutoScroll) && !ignoreAutoScroll) return;
     if (!_scrollController.hasClients || index < 0) return;
     if (!preservePendingTap) {
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
     }
     final waitForMotionReset = _hasLyricMotion;
     _clearLyricMotion(preserveEmphasis: preserveEmphasis);
@@ -4023,9 +4073,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     required double Function() visibleBottomInset,
   }) {
     if (!_scrollController.hasClients || match.lineIndex < 0) return;
-    _pendingTappedIndex = null;
-    _pendingTapOriginIndex = null;
-    _pendingTapAcknowledged = false;
+    _pendingTap = null;
     final waitForMotionReset = _hasLyricMotion;
     _clearLyricMotion();
     final request = ++_scrollRequestGeneration;
@@ -4466,6 +4514,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     final target = lyrics[index].startTime;
     final playbackIndex = ref.read(currentLyricIndexProvider);
     final originIndex = playbackIndex >= 0 ? playbackIndex : _currentLyricIndex;
+    final tap = _PendingLyricTap(
+      index: index,
+      position: target,
+      originIndex: originIndex,
+    );
     final emphasisOrigin = _currentLyricIndex ?? originIndex ?? -1;
     final centers = _captureLyricCenters();
     final textCenters = _captureLyricTextCenters();
@@ -4481,9 +4534,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     setState(() {
       _autoScroll = true;
       _pendingDiscontinuity = null;
-      _pendingTappedIndex = index;
-      _pendingTapOriginIndex = originIndex;
-      _pendingTapAcknowledged = false;
+      _pendingTap = tap;
       _currentLyricIndex = index;
     });
     _pendingLyricY
@@ -4524,10 +4575,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         );
       }
     });
-    if (widget.onSeekRequested case final callback?) {
-      callback(target);
-    } else {
-      ref.read(audioPlayerControllerProvider.notifier).seekAndPersist(target);
+    final callback = widget.onSeekRequested;
+    final completion = callback == null
+        ? ref
+              .read(audioPlayerControllerProvider.notifier)
+              .seekAndPersist(target)
+        : callback(target);
+    if (completion is Future<void>) {
+      tap.waitFor(completion, () {
+        if (!mounted || !identical(_pendingTap, tap)) return;
+        setState(() => _pendingTap = null);
+      });
     }
   }
 
@@ -4546,9 +4604,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _autoScroll = false;
     _scrollRequestGeneration++;
     _pendingDiscontinuity = null;
-    _pendingTappedIndex = null;
-    _pendingTapOriginIndex = null;
-    _pendingTapAcknowledged = false;
+    _pendingTap = null;
     _freezeLyricMotion();
     if (wasFollowing) _lyricMotionFrame.value++;
   }
@@ -4714,9 +4770,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _lastTrackKey = lyricContent.trackKey;
       _currentLyricIndex = null;
       _pendingDiscontinuity = null;
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
       _layoutFingerprint = null;
       _layoutIndex = null;
       return Center(child: Text(S.of(context).noSubtitlesAvailable));
@@ -4737,9 +4791,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _clearTapFeedbackState(notify: false);
       _currentLyricIndex = null;
       _pendingDiscontinuity = null;
-      _pendingTappedIndex = null;
-      _pendingTapOriginIndex = null;
-      _pendingTapAcknowledged = false;
+      _pendingTap = null;
       _itemKeys.clear();
       _textKeys.clear();
       _layoutFingerprint = null;
@@ -4756,18 +4808,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             (playbackIndex >= 0 &&
                 playbackIndex != pendingDiscontinuity.originIndex));
     if (discontinuityAcknowledged) _pendingDiscontinuity = null;
-    if (_pendingTappedIndex != null) {
-      final originIndex = _pendingTapOriginIndex;
-      final requestSettled =
-          seekingPosition != null ||
-          (playbackIndex >= 0 && playbackIndex != originIndex);
-      if (requestSettled) {
-        _pendingTappedIndex = null;
-        _pendingTapOriginIndex = null;
-        _pendingTapAcknowledged = false;
-      }
+    final pendingTap = _pendingTap;
+    if (pendingTap != null &&
+        (seekingPosition != null || pendingTap.hasReached(playbackIndex))) {
+      _pendingTap = null;
     }
-    final pendingIndex = seekingPosition == null ? _pendingTappedIndex : null;
+    final pendingIndex = seekingPosition == null ? _pendingTap?.index : null;
     final currentIndex =
         seekingIndex ??
         (discontinuityAcknowledged ? null : pendingDiscontinuity?.index) ??
@@ -4786,7 +4832,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         currentIndex < 0 &&
         seekingPosition == null &&
         pendingDiscontinuity == null &&
-        _pendingTappedIndex == null &&
+        _pendingTap?.index == null &&
         (widget.isActive || _preparingVisiblePage) &&
         _tickerModeEnabled &&
         _appLifecycleVisible &&
@@ -4904,7 +4950,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             );
             return;
           }
-          if (_pendingTappedIndex == currentIndex && !isDiscontinuity) return;
+          if (_pendingTap?.index == currentIndex && !isDiscontinuity) return;
           if (canSpring) {
             _startLyricScrollSpring(
               currentIndex,

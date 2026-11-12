@@ -466,7 +466,8 @@ _Avoid_: Subtitle screen
 
 **Current Playback Subtitle (当前播放字幕)**:
 The subtitle corresponding to the audio's actual playback position. It can
-differ from the subtitle at the Playback Line while browsing or searching.
+differ from the subtitle at the Playback Line while browsing, searching, or
+waiting for a Playback Position Jump.
 There is no Current Playback Subtitle before the first subtitle starts.
 
 **Subtitle Spring Motion (字幕弹簧动画)**:

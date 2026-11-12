@@ -2278,6 +2278,7 @@ void main() {
     'tapping a short line follows playback beyond the tapped target',
     (tester) async {
       Duration? requested;
+      final completion = Completer<void>();
       final playback = await _mount(
         tester,
         lyrics: List.generate(
@@ -2300,6 +2301,7 @@ void main() {
             playback.discontinuities.add(_jump(0, 1));
             playback.positions.add(target);
             playback.positions.add(const Duration(milliseconds: 1002));
+            return completion.future;
           },
         ),
       );
@@ -2318,6 +2320,7 @@ void main() {
         await tester.pumpAndSettle();
         _expectAnchor(tester, 'spring $next');
       }
+      completion.complete();
     },
   );
 
@@ -2471,6 +2474,126 @@ void main() {
       }
     }
   }
+
+  for (final (origin, target, reducedMotion, compact) in [
+    (1, 3, false, false),
+    (3, 1, false, false),
+    (3, 1, true, false),
+    (1, 3, false, true),
+    (3, 1, false, true),
+  ]) {
+    testWidgets(
+      '${compact ? 'cover' : 'full'} tap $target while playing $origin does not '
+      'follow the old playback position (reduced motion: $reducedMotion)',
+      (tester) async {
+        Duration? requested;
+        final completion = Completer<void>();
+        Future<void> seek(Duration position) {
+          requested = position;
+          return completion.future;
+        }
+
+        final playback = await _mount(
+          tester,
+          position: Duration(milliseconds: origin * 1000 + 999),
+          display: (_) => compact
+              ? Center(
+                  child: SizedBox(
+                    height: 220,
+                    child: ThreeLineLyricDisplay(
+                      lineCount: 5,
+                      onSeekRequested: seek,
+                    ),
+                  ),
+                )
+              : FullLyricDisplay(
+                  isPortrait: true,
+                  showPlaybackLineControls: true,
+                  onSeekRequested: seek,
+                ),
+        );
+        if (compact) playback.container.read(isPlayingProvider);
+        playback.reducedMotion.value = reducedMotion;
+        await tester.pumpAndSettle();
+        final oldNext = find.text('spring ${origin + 1}');
+        final oldNextWidth = tester.getRect(oldNext).width;
+
+        final selected = find.text('spring $target');
+        await tester.tap(selected);
+        await tester.pump();
+        expect(requested, Duration(seconds: target));
+
+        // The current source can keep playing while the seek looks up its cache.
+        playback.positions.add(Duration(seconds: origin + 1));
+        await tester.pump();
+        for (var frame = 0; frame < 8; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.getRect(oldNext).width, closeTo(oldNextWidth, 0.5));
+        }
+
+        playback.discontinuities.add(_jump(origin + 1, target));
+        playback.positions.add(requested!);
+        completion.complete();
+        await tester.pumpAndSettle();
+        expect(_visibleLyricAlpha(tester, selected), closeTo(1, 0.001));
+        if (!compact) _expectAnchor(tester, 'spring $target');
+      },
+    );
+  }
+
+  testWidgets('cached seek completion follows the latest playback position', (
+    tester,
+  ) async {
+    final requests = <Completer<void>>[];
+    final playback = await _mount(
+      tester,
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        showPlaybackLineControls: true,
+        onSeekRequested: (_) {
+          final completion = Completer<void>();
+          requests.add(completion);
+          return completion.future;
+        },
+      ),
+    );
+
+    await tester.tap(find.text('spring 3'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('spring 5'));
+    await tester.pumpAndSettle();
+    requests.first.complete();
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 5');
+
+    // A cached reload can already be past the target when it completes.
+    playback.positions.add(const Duration(seconds: 6));
+    requests.last.complete();
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 6');
+  });
+
+  testWidgets('a finished seek without a position change releases the tap', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    await _mount(
+      tester,
+      display: (_) => FullLyricDisplay(
+        isPortrait: true,
+        showPlaybackLineControls: true,
+        onSeekRequested: (_) => completion.future,
+      ),
+    );
+
+    await tester.tap(find.text('spring 2'));
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 2');
+
+    completion.complete();
+    await tester.pumpAndSettle();
+    _expectAnchor(tester, 'spring 0');
+  });
 
   for (final playing in [false, true]) {
     testWidgets(
