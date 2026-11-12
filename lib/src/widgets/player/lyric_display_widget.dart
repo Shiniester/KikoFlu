@@ -5592,22 +5592,26 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
               selectedMatch: widget.selectedSearchMatch,
             );
             final contentCenter = _lyricContentCenter(index);
-            return AnimatedBuilder(
-              animation: Listenable.merge([
-                _lyricMotionFrame,
-                _scrollController.position,
-              ]),
-              child: motion,
-              builder: (context, child) {
-                final center = _lyricMotionCenter(index, contentCenter);
-                return Positioned(
-                  left: 0,
-                  right: 0,
-                  top: center - extent / 2,
-                  height: extent,
-                  child: child!,
-                );
-              },
+            return Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              height: extent,
+              child: AnimatedBuilder(
+                animation: Listenable.merge([
+                  _lyricMotionFrame,
+                  _scrollController.position,
+                ]),
+                child: motion,
+                builder: (context, child) {
+                  final center = _lyricMotionCenter(index, contentCenter);
+                  // Move the retained row without relaying out its stack.
+                  return Transform.translate(
+                    offset: Offset(0, center - extent / 2),
+                    child: child,
+                  );
+                },
+              ),
             );
           }
 
