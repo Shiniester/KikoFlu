@@ -640,12 +640,16 @@ void main() {
     final naturalCenter =
         tester.getCenter(viewport).dy +
         (4 - scrollable.position.pixels / itemExtent) * itemExtent;
-    expect(
-      (visibleCenter.dy - naturalCenter).abs(),
-      greaterThan(itemExtent / 2),
-    );
+    final displacement = visibleCenter.dy - naturalCenter;
+    expect(displacement.abs(), greaterThan(1));
 
-    await tester.tapAt(visibleCenter);
+    await tester.tapAt(
+      Offset(
+        visibleCenter.dx,
+        (visibleCenter.dy + naturalCenter) / 2 +
+            displacement.sign * itemExtent / 2,
+      ),
+    );
     await tester.pump();
     expect(requested, const Duration(seconds: 4));
     expect(tester.takeException(), isNull);

@@ -1172,9 +1172,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
       _scrollRowMotionBaseY[index] = targetY;
       final previousSample = previousSamples[index];
       final startY = previousSample?.y ?? contentCenter - start;
-      final startDelay = previousSample?.moving == true
-          ? 0.0
-          : (cascadeRows ? delays[index] ?? 0.0 : 0.0);
+      final rowDelay = cascadeRows ? delays[index] ?? 0.0 : 0.0;
       final velocityY = previousSample?.moving == true
           ? previousSample!.velocityY
           : 0.0;
@@ -1182,13 +1180,21 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
         _scrollRowMotionBaseY.remove(index);
         continue;
       }
+      final durationScale = 1 + rowDelay;
+      final rowSpring = rowDelay > 0
+          ? SpringDescription(
+              mass: spring.mass,
+              stiffness: spring.stiffness / (durationScale * durationScale),
+              damping: spring.damping / durationScale,
+            )
+          : spring;
       _scrollRowMotions[index] = _LyricSpringMotion(
         startY: startY,
         targetY: targetY,
         velocityY: velocityY,
         startAt: now,
-        delay: startDelay,
-        positionSpring: spring,
+        delay: 0,
+        positionSpring: rowSpring,
       );
     }
     _pendingScrollRows.clear();
@@ -1684,7 +1690,9 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
         previousIndex >= 0 &&
         index >= 0 &&
         !MediaQuery.disableAnimationsOf(context);
-    _pendingLyricEmphasisFromIndex = canAnimateEmphasis ? previousIndex : null;
+    // Several updates can arrive before the next frame paints the active line.
+    final emphasisOrigin = _pendingLyricEmphasisFromIndex ?? previousIndex;
+    _pendingLyricEmphasisFromIndex = canAnimateEmphasis ? emphasisOrigin : null;
     if (!canAnimateEmphasis) {
       _clearLyricEmphasisMotion();
     }
@@ -1701,7 +1709,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
         }
         _startCompactLyricEmphasisTransition(
           targetIndex: index,
-          previousIndex: previousIndex,
+          previousIndex: emphasisOrigin,
           activeScale: _activeTextScale,
         );
       });

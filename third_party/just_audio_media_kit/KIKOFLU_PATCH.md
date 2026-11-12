@@ -30,5 +30,7 @@ seek request returns.
 
 A short seek during playback can finish before the first native position poll.
 The adapter accepts a settled position within the expected playback advance.
-After confirmation, it discards positions earlier than the receipt until the
-same audio source's position stream catches up.
+During playback it gives an early position sample time to reach the seek target.
+After confirmation, the position stream cannot move before the receipt on the
+same audio source until a new seek or playback boundary. Native repeat releases
+that bound after the stream advances, since it can rewind without a seek request.

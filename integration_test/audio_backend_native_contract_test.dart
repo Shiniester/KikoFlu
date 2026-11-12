@@ -435,10 +435,16 @@ void main() {
     });
   }, skip: !supported);
 
-  for (final delayedRead in [true, false]) {
+  for (final (delayedRead, earlyPosition) in [
+    (true, false),
+    (false, true),
+    (false, false),
+  ]) {
     testWidgets(
       delayedRead
           ? 'a nearby playing seek confirms after playback passes its target'
+          : earlyPosition
+          ? 'a playing seek waits for the position to reach its target'
           : 'a delayed native sample cannot undo a confirmed seek',
       (tester) async {
         await _nativeContract(() async {
@@ -451,6 +457,7 @@ void main() {
           late NativePlayer native;
           Duration? delayReadUntil;
           String? delayedSeekingState;
+          final settlingReads = <String>[];
           final player = MediaKitPlayer(
             'subtitle-seek',
             nativePlayerConfiguration: (value) async {
@@ -458,6 +465,10 @@ void main() {
               await _configureWindowsNullAudioOutput(value);
             },
             nativePropertyReader: (native, name) async {
+              if (settlingReads.isNotEmpty &&
+                  (name == 'seeking' || name == 'time-pos')) {
+                return settlingReads.removeAt(0);
+              }
               final until = delayReadUntil;
               if (name == 'seeking' && until != null) {
                 delayReadUntil = null;
@@ -481,19 +492,25 @@ void main() {
                 ),
               ),
             );
-            if (delayedRead) {
-              await player.play(PlayRequest());
-              await _until(
-                () =>
-                    native.state.position >= const Duration(milliseconds: 100),
-              );
-            }
+            await player.play(PlayRequest());
+            await _until(
+              () => native.state.position >= const Duration(milliseconds: 100),
+            );
             final before = native.state.position;
             final target = delayedRead
                 ? Duration(milliseconds: before.inMilliseconds + 7)
                 : const Duration(milliseconds: 2002);
             if (delayedRead) {
               delayReadUntil = target + const Duration(milliseconds: 25);
+            }
+            final precedingPosition = target - const Duration(milliseconds: 2);
+            if (earlyPosition) {
+              settlingReads.addAll([
+                'yes',
+                'no',
+                (precedingPosition.inMicroseconds / 1000000).toStringAsFixed(6),
+                'no',
+              ]);
             }
             await player.seek(SeekRequest(position: target));
             final confirmed = await player.positionConfirmation!;
@@ -502,17 +519,18 @@ void main() {
             expect(confirmed!, greaterThanOrEqualTo(target));
             reports.clear();
 
-            if (!delayedRead) {
-              // Replay a pre-seek sample after the stream reaches the receipt.
+            if (!delayedRead && !earlyPosition) {
+              // Replay old positions both before and after the stream advances.
               final delivered = native.stream.position.firstWhere(
-                (position) => position == before,
+                (position) => position == precedingPosition,
               );
               // ignore: invalid_use_of_protected_member
               native.positionController
                 ..add(confirmed)
-                ..add(before);
+                ..add(before)
+                ..add(confirmed + const Duration(milliseconds: 2))
+                ..add(precedingPosition);
               await delivered.timeout(const Duration(seconds: 3));
-              await player.play(PlayRequest());
             }
             await _until(
               () => reports.any(

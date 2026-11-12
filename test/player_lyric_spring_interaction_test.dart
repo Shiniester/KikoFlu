@@ -276,6 +276,60 @@ void main() {
     });
   }
 
+  testWidgets('cover subtitle tap skips a playback update in the same frame', (
+    tester,
+  ) async {
+    const target = Duration(seconds: 3);
+    Duration? requested;
+    PlaybackPositionState positionAt(int seconds, {Duration? preview}) => (
+      trackId: 'test-track',
+      position: Duration(seconds: seconds),
+      pendingJump: preview == null ? null : 1,
+      previewPosition: preview,
+      confirmedJump: 0,
+    );
+    final playback = await _mount(
+      tester,
+      position: const Duration(seconds: 1),
+      positionSnapshot: positionAt(1),
+      display: (playback) => Center(
+        child: SizedBox(
+          height: 220,
+          child: ThreeLineLyricDisplay(
+            lineCount: 5,
+            enableLineTapFeedback: true,
+            onLineDoubleTap: () {},
+            onSeekRequested: (position) {
+              requested = position;
+              playback.publishPlaybackPosition(
+                positionAt(2, preview: position),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    playback.container.read(isPlayingProvider);
+    await tester.pumpAndSettle();
+    final preceding = find.text('spring 2');
+    expect(_visibleLyricAlpha(tester, preceding), lessThan(0.6));
+
+    await tester.tap(find.byKey(const ValueKey('compact-lyric-line-3')));
+    const tick = Duration(milliseconds: 1);
+    await tester.pump(kDoubleTapTimeout - tick);
+    expect(requested, isNull);
+    playback.publishPlaybackPosition(positionAt(2));
+    await tester.pump(tick);
+    expect(requested, target);
+    expect(playback.container.read(currentLyricTextProvider), 'spring 3');
+    for (var frame = 0; frame < 8; frame++) {
+      expect(_visibleLyricAlpha(tester, preceding), lessThan(0.6));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+    expect(_visibleLyricAlpha(tester, find.text('spring 3')), closeTo(1, 0.01));
+  });
+
   testWidgets('lyric pixels stay stable when browsing and returning', (
     tester,
   ) async {
@@ -358,6 +412,95 @@ void main() {
       _expectAnchor(tester, 'spring 3');
     },
   );
+
+  for (final (lineCount, preset) in [
+    (3, PlayerLyricSpringPreset.defaultPreset),
+    (5, PlayerLyricSpringPreset.defaultPreset),
+    (3, PlayerLyricSpringPreset.jello),
+    (5, PlayerLyricSpringPreset.jello),
+  ]) {
+    testWidgets('cover subtitles start together during playback '
+        '($lineCount lines, ${preset.id})', (tester) async {
+      final playback = await _mount(
+        tester,
+        position: const Duration(seconds: 5),
+        display: (_) => Center(
+          child: SizedBox(
+            height: 220,
+            child: ThreeLineLyricDisplay(
+              lineCount: lineCount,
+              onSeekRequested: (_) {},
+            ),
+          ),
+        ),
+      );
+      await playback.container
+          .read(playerLyricSettingsProvider.notifier)
+          .updateSpringPreset(preset);
+      playback.container.read(isPlayingProvider);
+      playback.states.add(PlayerState(true, ProcessingState.ready));
+      await tester.pumpAndSettle();
+
+      final indices = [
+        for (var offset = -(lineCount ~/ 2); offset <= lineCount ~/ 2; offset++)
+          5 + offset,
+      ];
+      final initial = {
+        for (final index in indices)
+          index: tester.getCenter(find.text('spring $index')).dy,
+      };
+      final onsets = <int, int>{};
+      final enteringIndex = indices.last + 1;
+      var enteringSeen = false;
+      var variedSpacing = false;
+      final initialGap = initial[indices.last]! - initial[indices.last - 1]!;
+      for (var frame = 0; frame < 60; frame++) {
+        playback.positions.add(Duration(milliseconds: 6000 + frame * 16));
+        await tester.pump(const Duration(milliseconds: 16));
+        for (final index in indices) {
+          final line = find.text('spring $index');
+          if (line.evaluate().isNotEmpty &&
+              tester.getCenter(line).dy < initial[index]! - 0.5) {
+            onsets.putIfAbsent(index, () => frame);
+          }
+        }
+        final preceding = find.text('spring ${indices.last - 1}');
+        final bottom = find.text('spring ${indices.last}');
+        if (preceding.evaluate().isNotEmpty && bottom.evaluate().isNotEmpty) {
+          final gap =
+              tester.getCenter(bottom).dy - tester.getCenter(preceding).dy;
+          if ((gap - initialGap).abs() > 0.1) variedSpacing = true;
+        }
+        for (final index in [...indices, enteringIndex]) {
+          final line = find.text('spring $index');
+          final next = find.text('spring ${index + 1}');
+          if (line.evaluate().isEmpty || next.evaluate().isEmpty) continue;
+          expect(
+            tester.getTopLeft(next).dy - tester.getBottomLeft(line).dy,
+            greaterThanOrEqualTo(-0.5),
+            reason: 'cover subtitles $index and ${index + 1} at frame $frame',
+          );
+        }
+        enteringSeen |= find
+            .text('spring $enteringIndex')
+            .evaluate()
+            .isNotEmpty;
+      }
+      expect(onsets.keys, unorderedEquals(indices));
+      final starts = onsets.values.toList()..sort();
+      expect(
+        starts.last - starts.first,
+        lessThanOrEqualTo(1),
+        reason: 'visible cover subtitles should move together: $onsets',
+      );
+      expect(enteringSeen, isTrue);
+      expect(
+        variedSpacing,
+        isTrue,
+        reason: 'the cascade should remain visible',
+      );
+    });
+  }
 
   testWidgets('growing lyrics keep their original line breaks', (tester) async {
     const singleLine = 'MMMMMMMMM';

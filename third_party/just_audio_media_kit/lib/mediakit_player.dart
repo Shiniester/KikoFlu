@@ -18,7 +18,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   static const _seekPositionTolerance = Duration(microseconds: 500);
   static const _nativePositionSampleTolerance = Duration(milliseconds: 20);
   static const _positionConfirmationTimeout = Duration(seconds: 8);
-  static const _noTransitionConfirmationWindow = Duration(milliseconds: 250);
+  static const _positionSettleWindow = Duration(milliseconds: 250);
 
   /// `package:media_kit`'s [Player]
   late final Player _player;
@@ -143,7 +143,10 @@ class MediaKitPlayer extends AudioPlayerPlatform {
           // The property read can finish before older stream samples arrive.
           final sameMedia = identical(confirmation!.media, media);
           if (sameMedia && nextPosition < floor) return;
-          if (!sameMedia || nextPosition > floor + _seekPositionTolerance) {
+          // Native repeat can rewind without a new seek request.
+          if (!sameMedia ||
+              (_player.state.playlistMode != PlaylistMode.none &&
+                  nextPosition > floor + _seekPositionTolerance)) {
             confirmation.streamPositionFloor = null;
           }
         }
@@ -497,12 +500,14 @@ class MediaKitPlayer extends AudioPlayerPlatform {
 
       var sawSeeking = false;
       final watch = Stopwatch()..start();
+      Duration? firstMismatchAt;
       while (watch.elapsed < _positionConfirmationTimeout) {
         if (!_currentPositionConfirmation(confirmation)) return;
         final seeking = await _readProperty(native, 'seeking');
         if (!_currentPositionConfirmation(confirmation)) return;
         if (seeking == 'yes') {
           sawSeeking = true;
+          firstMismatchAt = null;
         } else if (seeking == 'no') {
           final rawPosition = await _readProperty(native, 'time-pos');
           if (!_currentPositionConfirmation(confirmation)) return;
@@ -510,6 +515,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
           if (!_currentPositionConfirmation(confirmation)) return;
           if (afterPosition == 'yes') {
             sawSeeking = true;
+            firstMismatchAt = null;
           } else if (afterPosition == 'no') {
             final position = _validatedNativePosition(
               confirmation,
@@ -526,8 +532,10 @@ class MediaKitPlayer extends AudioPlayerPlatform {
               confirmation.complete(position);
               return;
             }
-            if (sawSeeking ||
-                watch.elapsed >= _noTransitionConfirmationWindow) {
+            // Audio can still be approaching the target after seeking ends.
+            final mismatchAt = firstMismatchAt ??= watch.elapsed;
+            if ((sawSeeking && !_playing) ||
+                watch.elapsed - mismatchAt >= _positionSettleWindow) {
               _failPositionConfirmation(
                 confirmation,
                 rawPosition: rawPosition,
