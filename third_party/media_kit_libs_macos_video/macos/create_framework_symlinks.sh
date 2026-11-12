@@ -53,7 +53,7 @@ relpath() {
 # ```
 # create_framework_symlinks Frameworks/Mpv.xcframework Frameworks/.symlinks/mpv
 # Frameworks/.symlinks/mpv/ios -> ../../Mpv.xcframework/ios-arm64
-# Frameworks/.symlinks/mpv/ios-simulator -> ../../Mpv.xcframework/ios-arm64_x86_64-simulator
+# Frameworks/.symlinks/mpv/ios-simulator -> ../../Mpv.xcframework/ios-arm64-simulator
 # ```
 create_framework_symlinks() {
     SRC_DIR="$1"

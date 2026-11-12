@@ -97,17 +97,102 @@ jobs:
             --requirement scripts/native_audio/requirements.txt
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
+      - name: Fingerprint installed Ubuntu build toolchain
+        id: windows-toolchain
+        run: |
+          set -euo pipefail
+          {
+            dpkg-query -W -f='${binary:Package}=${Version}\n' | LC_ALL=C sort
+            python3 -m pip freeze | LC_ALL=C sort
+            gcc --version | sed -n '1p'
+            g++ --version | sed -n '1p'
+            cmake --version | sed -n '1p'
+            ninja --version
+            meson --version
+            pkgconf --version
+            python3 --version
+          } > "$RUNNER_TEMP/native-audio-windows-toolchain.txt"
+          fingerprint=$(sha256sum "$RUNNER_TEMP/native-audio-windows-toolchain.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Record Ubuntu runner image
+        id: windows-runner-image
+        run: |
+          set -euo pipefail
+          : "${ImageOS:?GitHub runner did not provide ImageOS}"
+          : "${ImageVersion:?GitHub runner did not provide ImageVersion}"
+          echo "image=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Windows libmpv output cache
+        id: windows-output-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-windows
+          key: native-audio-windows-output-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-runner-image.outputs.image }}-${{ steps.windows-toolchain.outputs.fingerprint }}-${{ hashFiles('scripts/native_audio/**', '.github/workflows/native_audio.yml') }}-${{ inputs.commit_sha != '' && inputs.commit_sha != github.sha && github.sha || 'current-source' }}
+
+      - name: Check restored Windows libmpv output
+        id: windows-output-check
+        env:
+          NATIVE_AUDIO_OUTPUT_DIR: ${{ runner.temp }}/native-audio-windows
+          WINDOWS_OUTPUT_CACHE_HIT: ${{ steps.windows-output-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [[ "$WINDOWS_OUTPUT_CACHE_HIT" != 'true' ]]; then
+            # The cache action can restore prefix matches; only exact hits may be reused.
+            rm -rf -- "$NATIVE_AUDIO_OUTPUT_DIR"
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          source scripts/native_audio/windows.lock
+          provenance="$NATIVE_AUDIO_OUTPUT_DIR/source-provenance.txt"
+          valid=true
+          for file in \
+            mpv-dev/libmpv-2.dll \
+            mpv-dev/include/mpv/client.h \
+            mpv-dev/include/mpv/stream_cb.h \
+            mpv-dev/include/mpv/render.h \
+            mpv-dev/include/mpv/render_gl.h \
+            vulkan-smoke.exe \
+            source-provenance.txt; do
+            if [[ ! -s "$NATIVE_AUDIO_OUTPUT_DIR/$file" ]]; then
+              echo "::warning::Cached Windows libmpv output is missing $file."
+              valid=false
+            fi
+          done
+          if [[ "$valid" == 'true' ]]; then
+            for expected in \
+              "recipe_ref=$RECIPE_COMMIT" \
+              "mpv_commit=$MPV_COMMIT" \
+              "ffmpeg_commit=$FFMPEG_COMMIT" \
+              "compiler_bundle=$LLVM_MINGW_DIR" \
+              "target_arch=$TARGET_ARCH" \
+              "rust_version=$RUST_VERSION" \
+              "rust_target=$RUST_TARGET" \
+              "cargo_c_version=$CARGO_C_VERSION"; do
+              if ! grep -Fqx "$expected" "$provenance"; then
+                echo "::warning::Cached Windows libmpv provenance is missing or stale: $expected."
+                valid=false
+              fi
+            done
+          fi
+          if [[ "$valid" != 'true' ]]; then
+            rm -rf -- "$NATIVE_AUDIO_OUTPUT_DIR"
+          fi
+          echo "valid=$valid" >> "$GITHUB_OUTPUT"
+
       - name: Restore pinned Rust toolchain cache
         id: rust-cache
+        if: ${{ steps.windows-output-cache.outputs.cache-hit != 'true' || steps.windows-output-check.outputs.valid != 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/rustup
-          key: native-audio-rust-1.99.1-cargo-c-0.10.26-${{ runner.os }}-${{ hashFiles('scripts/native_audio/windows-rust.patch') }}
-          restore-keys: |
-            native-audio-rust-1.99.1-cargo-c-0.10.26-${{ runner.os }}-
+          key: native-audio-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-runner-image.outputs.image }}-${{ steps.windows-toolchain.outputs.fingerprint }}-${{ hashFiles('scripts/native_audio/windows.lock', 'scripts/native_audio/common.lock', 'scripts/native_audio/windows-rust.patch') }}
 
       - name: Build pinned Windows libmpv
         id: native-build
+        if: ${{ steps.windows-output-cache.outputs.cache-hit != 'true' || steps.windows-output-check.outputs.valid != 'true' }}
         env:
           NATIVE_AUDIO_OUTPUT_DIR: ${{ runner.temp }}/native-audio-windows
         run: |
@@ -120,6 +205,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/rustup
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+      - name: Save Windows libmpv output cache
+        if: ${{ success() && steps.windows-output-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-windows
+          key: ${{ steps.windows-output-cache.outputs.cache-primary-key }}
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v6

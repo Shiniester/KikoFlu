@@ -32,7 +32,9 @@ def _bash_executable() -> str | None:
     return None
 
 
-def _write_xcframework(root: Path, name: str, platform: str) -> None:
+def _write_xcframework(
+    root: Path, name: str, platform: str, *, include_intel: bool = False
+) -> None:
     framework = root / f"{name}.xcframework"
     slices = []
     if platform == "ios":
@@ -44,9 +46,15 @@ def _write_xcframework(root: Path, name: str, platform: str) -> None:
                 "SupportedPlatform": "ios",
             },
             {
-                "LibraryIdentifier": "ios-arm64_x86_64-simulator",
+                "LibraryIdentifier": (
+                    "ios-arm64_x86_64-simulator"
+                    if include_intel
+                    else "ios-arm64-simulator"
+                ),
                 "LibraryPath": f"{name}.framework",
-                "SupportedArchitectures": ["arm64", "x86_64"],
+                "SupportedArchitectures": (
+                    ["arm64", "x86_64"] if include_intel else ["arm64"]
+                ),
                 "SupportedPlatform": "ios",
                 "SupportedPlatformVariant": "simulator",
             },
@@ -54,9 +62,13 @@ def _write_xcframework(root: Path, name: str, platform: str) -> None:
     else:
         slices = [
             {
-                "LibraryIdentifier": "macos-arm64_x86_64",
+                "LibraryIdentifier": (
+                    "macos-arm64_x86_64" if include_intel else "macos-arm64"
+                ),
                 "LibraryPath": f"{name}.framework",
-                "SupportedArchitectures": ["arm64", "x86_64"],
+                "SupportedArchitectures": (
+                    ["arm64", "x86_64"] if include_intel else ["arm64"]
+                ),
                 "SupportedPlatform": "macos",
             }
         ]
@@ -71,7 +83,7 @@ def _write_xcframework(root: Path, name: str, platform: str) -> None:
         binary.write_bytes(b"fixture Mach-O")
 
 
-def _write_archive(path: Path, platform: str) -> None:
+def _write_archive(path: Path, platform: str, *, include_intel: bool = False) -> None:
     package_root = path.parent / f"fixture-package-{path.name.replace('.tar.gz', '')}"
     package_root.mkdir()
     for name in (
@@ -94,7 +106,7 @@ def _write_archive(path: Path, platform: str) -> None:
         "Uchardet",
         "Xml2",
     ):
-        _write_xcframework(package_root, name, platform)
+        _write_xcframework(package_root, name, platform, include_intel=include_intel)
 
     with tarfile.open(path, "w:gz") as archive:
         archive.add(package_root, arcname="libmpv-xcframeworks-v0.6.0")
@@ -166,10 +178,8 @@ class DarwinRecipePatchTests(unittest.TestCase):
         )
         self.assertIn("MACOS_OPTIONS+=(-Dswift-build=enabled)", mpv_build)
         self.assertNotIn("-Dswift-build=disabled", mpv_build)
-        self.assertIn('if [ "${ARCH}" == "amd64" ]; then', mpv_build)
-        self.assertIn(
-            '"-Dswift-flags=-target x86_64-apple-macosx10.15"', mpv_build
-        )
+        self.assertNotIn('if [ "${ARCH}" == "amd64" ]; then', mpv_build)
+        self.assertNotIn("x86_64-apple-macosx", mpv_build)
         self.assertIn(
             '"-Dswift-flags=-target arm64-apple-macosx11.0"', mpv_build
         )
@@ -187,9 +197,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertNotIn("pkg_config = find_program('pkgconfig')", ffmpeg_options)
         for cross_file_name in (
             "ios-arm64.ini",
-            "iossimulator-amd64.ini",
             "iossimulator-arm64.ini",
-            "macos-amd64.ini",
             "macos-arm64.ini",
         ):
             cross_file = (recipe / "cross-files" / cross_file_name).read_text(
@@ -198,6 +206,19 @@ class DarwinRecipePatchTests(unittest.TestCase):
             with self.subTest(cross_file=cross_file_name):
                 self.assertIn("pkg-config = ['pkg-config']", cross_file)
                 self.assertNotIn("pkgconfig = ['pkg-config']", cross_file)
+                if cross_file_name == "macos-arm64.ini":
+                    self.assertIn("cpu = 'arm64'", cross_file)
+                    self.assertEqual(
+                        8,
+                        cross_file.count(
+                            "-mmacosx-version-min=11.0"
+                        ),
+                    )
+        self.assertIn("${INTERMEDIATE_DIR}/xcframeworks_%:", makefile)
+        self.assertIn("frameworks_ios-arm64-$$(word 3,", makefile)
+        self.assertIn("frameworks_iossimulator-$$(word 2,", makefile)
+        self.assertIn("frameworks_$$(word 1,$$(subst -, ,$$*))-$$(word 2,", makefile)
+        self.assertIn("${OUTPUT_DIR}/libmpv-%.tar.gz:", makefile)
         self.assertIn("${INTERMEDIATE_DIR}/libplacebo_", makefile)
         self.assertIn("-Dopengl=enabled", libplacebo_build)
         self.assertIn(
@@ -207,7 +228,7 @@ class DarwinRecipePatchTests(unittest.TestCase):
         self.assertIn("subproject=Vulkan-Headers", libplacebo_build)
         self.assertIn("-Dvulkan=disabled", libplacebo_build)
         self.assertIn("libplacebo-darwin-charconv.patch", libplacebo_build)
-        self.assertIn("-mmacosx-version-min=10.15", libplacebo_build)
+        self.assertIn("-mmacosx-version-min=11.0", libplacebo_build)
         self.assertIn("-miphoneos-version-min=13.0", libplacebo_build)
         self.assertIn("-mios-simulator-version-min=13.0", libplacebo_build)
         self.assertIn(
@@ -655,11 +676,17 @@ class DarwinArtifactTests(unittest.TestCase):
             _write_archive(ios_archive, "ios")
             _write_archive(macos_archive, "macos")
 
-            def vtool(_binary: Path, _architecture: str) -> str:
-                return "Mach build version\n    minos 10.9\n"
+            def vtool(binary: Path, _architecture: str) -> str:
+                if "ios-arm64-simulator" in binary.parts:
+                    minimum = "14.0"
+                elif any(part.startswith("ios-arm64") for part in binary.parts):
+                    minimum = "13.0"
+                else:
+                    minimum = "11.0"
+                return f"Mach build version\n    minos {minimum}\n"
 
             validate_archive(ios_archive, "ios", "13.0", vtool_runner=vtool)
-            validate_archive(macos_archive, "macos", "10.15", vtool_runner=vtool)
+            validate_archive(macos_archive, "macos", "11.0", vtool_runner=vtool)
 
     def test_legacy_version_min_load_commands_report_deployment_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -683,11 +710,11 @@ class DarwinArtifactTests(unittest.TestCase):
             validate_archive(
                 macos_archive,
                 "macos",
-                "10.15",
+                "11.0",
                 vtool_runner=lambda _binary, _architecture: (
                     "Load command 5\n"
                     " cmd LC_VERSION_MIN_MACOSX\n"
-                    " version 10.9\n"
+                    " version 11.0\n"
                     " sdk 15.5\n"
                 ),
             )
@@ -713,19 +740,18 @@ class DarwinArtifactTests(unittest.TestCase):
             _write_archive(archive, "ios")
 
             def minimum_os(binary: Path, architecture: str) -> str:
-                simulator = "ios-arm64_x86_64-simulator" in binary.parts
-                minimum = "14.0" if simulator and architecture == "arm64" else "13.0"
+                simulator = "ios-arm64-simulator" in binary.parts
+                minimum = "14.0" if simulator else "13.0"
                 return f"Mach build version\n    minos {minimum}\n"
 
             validate_archive(archive, "ios", "13.0", vtool_runner=minimum_os)
 
             for variant, architecture, too_new in (
                 ("simulator", "arm64", "14.1"),
-                ("simulator", "x86_64", "13.1"),
                 ("device", "arm64", "13.1"),
             ):
                 def too_new_minimum(binary: Path, target_architecture: str) -> str:
-                    simulator = "ios-arm64_x86_64-simulator" in binary.parts
+                    simulator = "ios-arm64-simulator" in binary.parts
                     target_variant = "simulator" if simulator else "device"
                     if (target_variant, target_architecture) == (variant, architecture):
                         return f"Mach build version\n    minos {too_new}\n"
@@ -740,29 +766,24 @@ class DarwinArtifactTests(unittest.TestCase):
                             archive, "ios", "13.0", vtool_runner=too_new_minimum
                         )
 
-    def test_macos_minimum_accounts_for_arm64_platform_floor_per_architecture(self) -> None:
+    def test_macos_arm64_minimum_accounts_for_arm64_platform_floor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive = Path(temporary) / "macos.tar.gz"
             _write_archive(archive, "macos")
 
-            def valid_minimum(_binary: Path, architecture: str) -> str:
-                minimum = {"arm64": "11.0", "x86_64": "10.15"}[architecture]
-                return f"Mach build version\n    minos {minimum}\n"
+            def valid_minimum(_binary: Path, _architecture: str) -> str:
+                return "Mach build version\n    minos 11.0\n"
 
-            validate_archive(archive, "macos", "10.15", vtool_runner=valid_minimum)
+            validate_archive(archive, "macos", "11.0", vtool_runner=valid_minimum)
 
-            for architecture, too_new in (("arm64", "11.1"), ("x86_64", "10.16")):
+            for architecture, too_new in (("arm64", "11.1"),):
                 def too_new_minimum(
                     _binary: Path,
                     target_architecture: str,
                     architecture: str = architecture,
                     too_new: str = too_new,
                 ) -> str:
-                    minimum = (
-                        too_new
-                        if target_architecture == architecture
-                        else {"arm64": "11.0", "x86_64": "10.15"}[target_architecture]
-                    )
+                    minimum = too_new if target_architecture == architecture else "11.0"
                     return f"Mach build version\n    minos {minimum}\n"
 
                 with self.subTest(architecture=architecture, minimum=too_new):
@@ -773,9 +794,31 @@ class DarwinArtifactTests(unittest.TestCase):
                         validate_archive(
                             archive,
                             "macos",
-                            "10.15",
+                            "11.0",
                             vtool_runner=too_new_minimum,
                         )
+
+    def test_intel_slices_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            ios_archive = temp / "ios.tar.gz"
+            macos_archive = temp / "macos.tar.gz"
+            _write_archive(ios_archive, "ios", include_intel=True)
+            _write_archive(macos_archive, "macos", include_intel=True)
+
+            with self.subTest(platform="ios simulator"):
+                with self.assertRaisesRegex(
+                    ArtifactError,
+                    r"unexpected ios simulator architectures: x86_64",
+                ):
+                    validate_archive(ios_archive, "ios", "13.0")
+
+            with self.subTest(platform="macos"):
+                with self.assertRaisesRegex(
+                    ArtifactError,
+                    r"unexpected macos device architectures: x86_64",
+                ):
+                    validate_archive(macos_archive, "macos", "11.0")
 
 
 class DarwinSdkPathTests(unittest.TestCase):
@@ -785,8 +828,8 @@ class DarwinSdkPathTests(unittest.TestCase):
             macos = "/Applications/Xcode_16.4.app/SDKs/MacOSX.sdk"
             ios = "/Applications/Xcode_16.4.app/SDKs/iPhoneOS.sdk"
             simulator = "/Applications/Xcode_16.4.app/SDKs/iPhoneSimulator.sdk"
-            (cross_files / "macos-amd64.ini").write_text(
-                "c_args = ['-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']\n"
+            (cross_files / "macos-arm64.ini").write_text(
+                "c_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']\n"
                 "cmake_osx_sysroot = '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk'\n"
             )
             (cross_files / "ios-arm64.ini").write_text(
@@ -796,11 +839,6 @@ class DarwinSdkPathTests(unittest.TestCase):
                 "c_args = ['-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk', '-miphoneos-version-min=12.0']\n"
                 "c_link_args = ['-miphoneos-version-min=12.0']\n"
             )
-            (cross_files / "iossimulator-amd64.ini").write_text(
-                "c_args = ['-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk', '-miphoneos-version-min=9.0']\n"
-                "c_link_args = ['-miphoneos-version-min=9.0']\n"
-            )
-
             rewrite_sdk_paths(
                 cross_files,
                 macos_sdk_path=macos,
@@ -808,9 +846,9 @@ class DarwinSdkPathTests(unittest.TestCase):
                 ios_simulator_sdk_path=simulator,
             )
 
-            macos_contents = (cross_files / "macos-amd64.ini").read_text()
+            macos_contents = (cross_files / "macos-arm64.ini").read_text()
             self.assertEqual(2, macos_contents.count(macos))
-            self.assertIn("-mmacosx-version-min=10.9", macos_contents)
+            self.assertIn("-mmacosx-version-min=11.0", macos_contents)
             ios_contents = (cross_files / "ios-arm64.ini").read_text()
             self.assertIn(ios, ios_contents)
             self.assertIn("-miphoneos-version-min=9.0", ios_contents)
@@ -818,9 +856,6 @@ class DarwinSdkPathTests(unittest.TestCase):
             self.assertIn(simulator, simulator_contents)
             self.assertEqual(2, simulator_contents.count("-mios-simulator-version-min=12.0"))
             self.assertNotIn("-miphoneos-version-min=", simulator_contents)
-            simulator_amd64 = (cross_files / "iossimulator-amd64.ini").read_text()
-            self.assertEqual(2, simulator_amd64.count("-mios-simulator-version-min=9.0"))
-            self.assertNotIn("-miphoneos-version-min=", simulator_amd64)
 
     def test_rejects_cross_files_missing_a_locked_sdk_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -994,11 +1029,89 @@ class DarwinBuilderCommandTests(unittest.TestCase):
 class DarwinProviderTests(unittest.TestCase):
     def test_workflow_runs_the_builder_through_bash(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
-        self.assertIn("run: bash scripts/native_audio/build_darwin.sh", workflow)
+        self.assertIn("bash scripts/native_audio/build_darwin.sh", workflow)
+
+    def test_selected_commit_must_support_arm64_artifact_names(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
+        checkout = workflow.index("uses: actions/checkout@v6")
+        contract = workflow.index("Validate selected Darwin builder supports arm64 archives")
+        cache_restore = workflow.index("Restore Darwin native audio artifacts")
+        self.assertLess(checkout, contract)
+        self.assertLess(contract, cache_restore)
+        self.assertIn("_ios-arm64-video-default.tar.gz", workflow)
+        self.assertIn("_macos-arm64-video-default.tar.gz", workflow)
+        self.assertIn("DARWIN_OUTPUT_VERSION=v0.6.0", (SCRIPT_DIR / "darwin.lock").read_text())
+        self.assertIn("DARWIN_OUTPUT_VERSION\" != 'v0.6.0'", workflow)
+        self.assertIn("Selected commit does not support the arm64-only Darwin artifact contract.", workflow)
+        self.assertIn("Darwin provider consumers require output version v0.6.0.", workflow)
+
+    def test_archives_and_provenance_are_required_before_cache_save_and_upload(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
+        verify = workflow.index("Verify Darwin output files")
+        cache_save = workflow.index("Save Darwin native audio artifacts")
+        ios_upload = workflow.index("Upload iOS libmpv archive")
+        macos_upload = workflow.index("Upload macOS libmpv archive")
+        self.assertLess(verify, cache_save)
+        self.assertLess(verify, ios_upload)
+        self.assertLess(verify, macos_upload)
+        verification_step = workflow[verify:cache_save]
+        self.assertIn("test -s build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_ios-arm64-video-default.tar.gz", verification_step)
+        self.assertIn("test -s build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz", verification_step)
+        self.assertIn("test -s build/native-audio/darwin-output/source-provenance.txt", verification_step)
+        self.assertEqual(2, workflow.count("libmpv-xcframeworks_v0.6.0_ios-arm64-video-default.tar.gz"))
+        self.assertEqual(2, workflow.count("libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz"))
 
     def test_both_provider_artifacts_include_source_provenance(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
-        self.assertEqual(2, workflow.count("build/native-audio/darwin-output/source-provenance.txt"))
+        self.assertEqual(4, workflow.count("build/native-audio/darwin-output/source-provenance.txt"))
+
+    def test_darwin_cache_requires_exact_validated_hit_and_rebuilds_on_failure(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/native_audio_darwin.yml").read_text()
+        cache_key = next(
+            line.strip()
+            for line in workflow.splitlines()
+            if line.strip().startswith("key: native-audio-darwin-arm64-")
+        )
+        for value in (
+            "steps.runner-image.outputs.image-os",
+            "steps.runner-image.outputs.image-version",
+            "runner.os",
+            "runner.arch",
+            "hashFiles('.github/workflows/native_audio_darwin.yml', 'scripts/native_audio/**')",
+            "inputs.commit_sha != '' && inputs.commit_sha != github.sha && github.sha",
+        ):
+            self.assertIn(value, cache_key)
+        self.assertIn("uses: actions/cache/restore@v4", workflow)
+        self.assertIn("uses: actions/cache/save@v4", workflow)
+        self.assertEqual(2, workflow.count("continue-on-error: true"))
+        self.assertIn("if: steps.darwin-cache.outputs.cache-hit == 'true'", workflow)
+        self.assertIn("if: steps.darwin-cache.outputs.cache-hit != 'true'", workflow)
+        self.assertIn("steps.cache-validation.outputs.cache-valid != 'true'", workflow)
+        self.assertIn('"ios_minimum=$DARWIN_IOS_MIN_VERSION"', workflow)
+        self.assertIn('"macos_minimum=$DARWIN_MACOS_MIN_VERSION"', workflow)
+        self.assertIn("check_darwin_artifacts.py", workflow)
+        self.assertIn("source-provenance.txt", workflow)
+
+    def test_release_waits_for_ios_validation_and_build(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/build.yml").read_text()
+        release = re.search(
+            r"(?ms)^  release:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", workflow
+        )
+        self.assertIsNotNone(release)
+        self.assertIn("- ios-verify", release.group(1))
+        self.assertIn("- ios-build", release.group(1))
+
+    def test_both_ios_playback_verifications_have_a_timeout(self) -> None:
+        for workflow_path in (
+            REPO_ROOT / ".github/workflows/build.yml",
+            REPO_ROOT / ".github/workflows/build_test_only.yml",
+        ):
+            workflow = workflow_path.read_text()
+            verification = workflow.split(
+                "- name: Verify iOS native audio playback", 1
+            )[1].split("\n      - ", 1)[0]
+            with self.subTest(workflow=workflow_path.name):
+                self.assertIn("timeout-minutes: 35", verification)
 
     def test_darwin_only_dispatch_skips_windows_effect_validation(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/build_test_only.yml").read_text()
@@ -1041,10 +1154,13 @@ class DarwinProviderTests(unittest.TestCase):
             "libplacebo_source_commit=%s",
             "ios_minimum=%s",
             "macos_minimum=%s",
+            "ios_device_architectures=arm64",
+            "ios_simulator_architectures=arm64",
+            "macos_architectures=arm64",
             "filters=%s,overlay,equalizer",
             "patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,darwin-ffmpeg-system-trust.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch",
-            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz",
-            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz",
+            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-arm64-video-default.tar.gz",
+            "libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-arm64-video-default.tar.gz",
             "pkg-config-glib-atomics.patch",
             "upstream_downloads.lock:",
         ):
@@ -1098,15 +1214,55 @@ class DarwinProviderTests(unittest.TestCase):
         )
 
     def test_provider_makefiles_require_the_run_artifact_without_stock_fallback(self) -> None:
-        for makefile in (
-            REPO_ROOT / "third_party/media_kit_libs_ios_video/ios/Makefile",
-            REPO_ROOT / "third_party/media_kit_libs_macos_video/macos/Makefile",
+        expected_archives = (
+            "libmpv-xcframeworks_v0.6.0_ios-arm64-video-default.tar.gz",
+            "libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz",
+        )
+        for makefile, expected_archive in zip(
+            (
+                REPO_ROOT / "third_party/media_kit_libs_ios_video/ios/Makefile",
+                REPO_ROOT / "third_party/media_kit_libs_macos_video/macos/Makefile",
+            ),
+            expected_archives,
         ):
             contents = makefile.read_text()
             self.assertIn("darwin-output", contents)
+            self.assertIn(expected_archive, contents)
+            self.assertNotIn("universal", contents)
             self.assertIn("Required", contents)
             self.assertNotIn("curl", contents.lower())
             self.assertNotIn("releases/download", contents)
+
+    def test_macos_app_targets_only_arm64_and_requires_macos_11(self) -> None:
+        project = (REPO_ROOT / "macos/Runner.xcodeproj/project.pbxproj").read_text()
+        podfile = (REPO_ROOT / "macos/Podfile").read_text()
+        self.assertEqual(3, project.count("ARCHS = arm64;"))
+        self.assertEqual(3, project.count("EXCLUDED_ARCHS = x86_64;"))
+        self.assertEqual(3, project.count("MACOSX_DEPLOYMENT_TARGET = 11.0;"))
+        self.assertNotIn("10.15", project)
+        self.assertIn("platform :osx, '11.0'", podfile)
+
+    def test_ios_podfile_excludes_intel_simulator_architecture(self) -> None:
+        podfile = (REPO_ROOT / "ios/Podfile").read_text()
+        project = (REPO_ROOT / "ios/Runner.xcodeproj/project.pbxproj").read_text()
+        post_install = podfile.split("post_install do |installer|", 1)[1]
+        self.assertIn("target.build_configurations.each do |config|", post_install)
+        self.assertIn(
+            "config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = '$(inherited) i386 x86_64'",
+            post_install,
+        )
+        self.assertEqual(
+            3,
+            project.count(
+                '"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = "$(inherited) x86_64";'
+            ),
+        )
+
+    def test_darwin_artifact_checker_rejects_non_arm64_architectures(self) -> None:
+        checker = (SCRIPT_DIR / "check_darwin_artifacts.py").read_text()
+        self.assertIn('None: {"arm64"}, "simulator": {"arm64"}', checker)
+        self.assertIn('return {None: {"arm64"}}', checker)
+        self.assertIn("architectures - required[variant]", checker)
 
     def test_provider_podspec_propagates_a_missing_archive_failure(self) -> None:
         for podspec in (

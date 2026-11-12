@@ -118,8 +118,8 @@ grep -A3 '^ffmpeg:' "$recipe_dir/downloads.lock"
 grep -A3 '^mpv:' "$recipe_dir/downloads.lock"
 grep -A3 '^libplacebo:' "$recipe_dir/downloads.lock"
 
-ios_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz"
-macos_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz"
+ios_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-arm64-video-default.tar.gz"
+macos_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-arm64-video-default.tar.gz"
 (
     cd "$recipe_dir"
     make "VERSION=$DARWIN_OUTPUT_VERSION" "$ios_artifact" "$macos_artifact"
@@ -161,6 +161,9 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'libplacebo_source_commit=%s\n' "$LIBPLACEBO_COMMIT"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
+    printf 'ios_device_architectures=arm64\n'
+    printf 'ios_simulator_architectures=arm64\n'
+    printf 'macos_architectures=arm64\n'
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
     printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,darwin-ffmpeg-system-trust.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

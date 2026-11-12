@@ -314,8 +314,8 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  ios:
-    name: iOS Build (Unsigned)
+  ios-verify:
+    name: iOS Simulator Verification
     if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     needs: native-audio-darwin
     runs-on: macos-latest
@@ -338,6 +338,7 @@ jobs:
         run: flutter pub get
 
       - name: Verify iOS native audio playback
+        timeout-minutes: 35
         run: |
           set -euo pipefail
           simulator=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, items in devices.items() if ".iOS-" in runtime for device in items if device.get("isAvailable") and device["name"].startswith("iPhone")))')
@@ -354,6 +355,29 @@ jobs:
             printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
             flutter --verbose test --no-pub -d "$simulator" "$test_file"
           done
+
+  ios-build:
+    name: iOS IPA Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: native-audio-darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download custom iOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-ios
+          path: build/native-audio/darwin-output
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+
+      - name: Get Dependencies
+        run: flutter pub get
 
       - name: Build iOS App (Unsigned)
         run: flutter build ios --release --no-codesign
@@ -372,6 +396,20 @@ jobs:
           name: test-assets-ios
           path: dist/*
           if-no-files-found: error
+
+  ios:
+    name: iOS Build (Unsigned)
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: [ios-verify, ios-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check iOS verification and build results
+        env:
+          IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
+          IOS_VERIFY_RESULT: ${{ needs.ios-verify.result }}
+        run: |
+          test "$IOS_VERIFY_RESULT" = success
+          test "$IOS_BUILD_RESULT" = success
 
   macos:
     name: macOS Build
@@ -411,6 +449,16 @@ jobs:
 
       - name: Build macOS Release
         run: flutter build macos --release
+
+      - name: Verify macOS Release Architecture
+        run: |
+          set -euo pipefail
+          executable=build/macos/Build/Products/Release/Iroru.app/Contents/MacOS/Iroru
+          architectures="$(lipo -archs "$executable")"
+          if [[ "$architectures" != arm64 ]]; then
+            echo "::error::Expected Iroru.app to contain only arm64, found: $architectures"
+            exit 1
+          fi
 
       - name: Create DMG
         run: |

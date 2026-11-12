@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -271,6 +272,77 @@ class SharedNativePatchTests(unittest.TestCase):
             )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("patch format is invalid", result.stderr)
+
+
+class WindowsOutputCacheTests(unittest.TestCase):
+    def test_only_complete_exact_hits_are_reused(self) -> None:
+        bash = _bash_executable()
+        if bash is None:
+            self.skipTest("Bash is required to validate the Windows output cache")
+
+        root = SCRIPT_DIR.parents[1]
+        workflow = (root / ".github/workflows/native_audio.yml").read_text()
+        step = workflow.split("      - name: Check restored Windows libmpv output\n", 1)[1]
+        step = step.split("\n      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        pins = _lock_assignments(SCRIPT_DIR / "common.lock") | _lock_assignments(
+            SCRIPT_DIR / "windows.lock"
+        )
+        provenance = {
+            "recipe_ref": pins["RECIPE_COMMIT"],
+            "mpv_commit": pins["MPV_COMMIT"],
+            "ffmpeg_commit": pins["FFMPEG_COMMIT"],
+            "compiler_bundle": pins["LLVM_MINGW_DIR"],
+            "target_arch": pins["TARGET_ARCH"],
+            "rust_version": pins["RUST_VERSION"],
+            "rust_target": pins["RUST_TARGET"],
+            "cargo_c_version": pins["CARGO_C_VERSION"],
+        }
+        files = (
+            "mpv-dev/libmpv-2.dll",
+            "mpv-dev/include/mpv/client.h",
+            "mpv-dev/include/mpv/stream_cb.h",
+            "mpv-dev/include/mpv/render.h",
+            "mpv-dev/include/mpv/render_gl.h",
+            "vulkan-smoke.exe",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            for scenario in ("miss", "valid", "missing", "stale"):
+                with self.subTest(scenario=scenario):
+                    directory = Path(temporary) / scenario
+                    output = directory / "output"
+                    for name in files:
+                        path = output / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text("fixture")
+                    records = dict(provenance)
+                    if scenario == "missing":
+                        (output / "mpv-dev/include/mpv/client.h").unlink()
+                    if scenario == "stale":
+                        records["mpv_commit"] = "outdated"
+                    (output / "source-provenance.txt").write_text(
+                        "".join(f"{key}={value}\n" for key, value in records.items())
+                    )
+                    result_file = directory / "github-output"
+                    result = subprocess.run(
+                        [bash, "--noprofile", "--norc", "-c", script],
+                        cwd=root,
+                        env={
+                            **os.environ,
+                            "WINDOWS_OUTPUT_CACHE_HIT": (
+                                "false" if scenario == "miss" else "true"
+                            ),
+                            "NATIVE_AUDIO_OUTPUT_DIR": output.as_posix(),
+                            "GITHUB_OUTPUT": result_file.as_posix(),
+                        },
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    valid = scenario == "valid"
+                    self.assertIn(f"valid={str(valid).lower()}", result_file.read_text())
+                    self.assertEqual(valid, output.exists())
 
 
 if __name__ == "__main__":
