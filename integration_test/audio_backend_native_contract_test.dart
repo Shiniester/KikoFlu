@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:audio_session/audio_session.dart';
@@ -12,13 +15,18 @@ import 'package:just_audio_platform_interface/just_audio_platform_interface.dart
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:just_audio_media_kit/mediakit_player.dart';
 import 'package:media_kit/media_kit.dart' show NativePlayer;
+import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
 import 'package:kikoeru_flutter/src/performance/performance_build_guard.dart';
+import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
+import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_backend_native_fixture.dart';
@@ -548,6 +556,159 @@ void main() {
       },
       skip: !supported,
     );
+  }
+
+  for (final (description, initialLine, targetLine, stalled) in [
+    ('backward subtitle tap stays selected while seeking', 5, 2, false),
+    ('forward subtitle tap stays selected while seeking', 2, 5, false),
+    ('a stalled seek releases its pending subtitle preview', 5, 2, true),
+  ]) {
+    testWidgets(description, (tester) async {
+      await _nativeContract(() async {
+        await tester.binding.setSurfaceSize(const Size(390, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        SharedPreferences.setMockInitialValues({});
+        await StorageService.initCritical(
+          preferences: await SharedPreferences.getInstance(),
+        );
+        final directory = await Directory.systemTemp.createTemp(
+          'kiko-subtitle-jump-',
+        );
+        final source = await File(
+          '${directory.path}/source.wav',
+        ).writeAsBytes(gzip.decode(base64Decode(audioBackendWavGzipBase64)));
+        const lineDuration = Duration(seconds: 3);
+        final target = lineDuration * targetLine;
+        final selectedText = 'subtitle $targetLine';
+        var replayingSeek = false;
+        var samplesRemaining = 35;
+        final player = _player();
+        final service = AudioPlayerService.forTesting(
+          player,
+          nativePlayerId: player.platformId,
+          nativePlayerInitializer: _configureWindowsNullAudioOutput,
+          androidSeekRecovery: true,
+        );
+        await JustAudioMediaKit.configurePlayer(
+          player.platformId,
+          _configureWindowsNullAudioOutput,
+          nativePropertyReader: (native, name) async {
+            if (replayingSeek && samplesRemaining > 0) {
+              if (name == 'seeking') return 'no';
+              if (name == 'time-pos') {
+                // Replay an early clock after seeking ends for over 250 ms.
+                final earlyMilliseconds = stalled ? 35 : samplesRemaining;
+                samplesRemaining--;
+                return (target.inSeconds - earlyMilliseconds / 1000)
+                    .toStringAsFixed(6);
+              }
+            }
+            return native.getProperty(name);
+          },
+        );
+        final container = ProviderContainer(
+          overrides: [
+            audioPlayerServiceProvider.overrideWithValue(service),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: [
+                    for (var index = 0; index < 8; index++)
+                      LyricLine(
+                        startTime: lineDuration * index,
+                        endTime: lineDuration * (index + 1),
+                        text: 'subtitle $index',
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+        Future<bool>? seeking;
+        final visibleSubtitles = <String?>[];
+        final subtitleSubscription = container.listen(
+          currentLyricTextProvider,
+          (_, next) {
+            if (replayingSeek) visibleSubtitles.add(next);
+          },
+        );
+        try {
+          await service.updateHapticsSettings(enabled: false, intensity: .85);
+          await service.updateQueue([
+            AudioTrack(id: 'local', title: 'Local audio', url: source.path),
+          ], autoplay: true);
+          expect(
+            await service.seek(
+              lineDuration * initialLine + const Duration(milliseconds: 100),
+            ),
+            isTrue,
+          );
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                localizationsDelegates: S.localizationsDelegates,
+                supportedLocales: S.supportedLocales,
+                home: Scaffold(
+                  body: FullLyricDisplay(
+                    isPortrait: true,
+                    showPlaybackLineControls: true,
+                    snapToCurrentOnFirstLayout: true,
+                    onLineDoubleTap: () {},
+                    onSeekRequested: (position) {
+                      expect(position, target);
+                      replayingSeek = true;
+                      seeking = service.seek(position);
+                    },
+                  ),
+                ),
+              ),
+            ),
+          );
+          final selected = find.text(selectedText);
+          await tester.pump();
+          expect(
+            container.read(currentLyricTextProvider),
+            'subtitle $initialLine',
+          );
+          await tester.tap(selected);
+          await tester.pump(kDoubleTapTimeout);
+          expect(container.read(currentLyricTextProvider), selectedText);
+          final success = await seeking!.timeout(const Duration(seconds: 3));
+          if (stalled) {
+            expect(success, isFalse);
+            expect(samplesRemaining, greaterThan(0));
+            expect(service.playbackPosition.value.pendingJump, isNull);
+            expect(service.playbackPosition.value.previewPosition, isNull);
+            return;
+          }
+          await tester.pump();
+          expect(visibleSubtitles, [selectedText]);
+          expect(success, isTrue);
+          expect(samplesRemaining, 0);
+          await service.pause();
+          for (var frame = 0; frame < 36; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          final playbackLine = find.byKey(
+            const ValueKey('playback-line-indicator'),
+          );
+          expect(
+            tester.getCenter(selected).dy,
+            closeTo(tester.getCenter(playbackLine).dy, 2.1),
+          );
+        } finally {
+          replayingSeek = false;
+          await tester.pumpWidget(const SizedBox.shrink());
+          subtitleSubscription.close();
+          container.dispose();
+          await service.dispose();
+          await directory.delete(recursive: true);
+        }
+      });
+    }, skip: !supported);
   }
 
   testWidgets('a later seek wins while an indexed seek is pending', (

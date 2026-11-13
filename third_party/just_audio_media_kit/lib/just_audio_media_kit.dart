@@ -3,6 +3,7 @@ library just_audio_media_kit;
 
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio_media_kit/mediakit_player.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
@@ -22,8 +23,13 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// Configuration is retained when that player is stopped and recreated.
   static Future<void> configurePlayer(
     String id,
-    NativePlayerConfiguration configuration,
-  ) async {
+    NativePlayerConfiguration configuration, {
+    @visibleForTesting
+    Future<String> Function(NativePlayer, String)? nativePropertyReader,
+  }) async {
+    if (nativePropertyReader != null) {
+      _instance?._nativePropertyReaders[id] = nativePropertyReader;
+    }
     await _instance?._configurePlayer(id, configuration);
   }
 
@@ -34,6 +40,7 @@ class JustAudioMediaKit extends JustAudioPlatform {
   /// Removes retained configuration after the owning service is disposed.
   static void forgetPlayerConfiguration(String id) {
     _instance?._nativePlayerConfigurations.remove(id);
+    _instance?._nativePropertyReaders.remove(id);
   }
 
   /// The internal MPV player's logLevel
@@ -76,6 +83,8 @@ class JustAudioMediaKit extends JustAudioPlatform {
   final _players = HashMap<String, MediaKitPlayer>();
   final _nativePlayerConfigurations =
       HashMap<String, NativePlayerConfiguration>();
+  final _nativePropertyReaders =
+      HashMap<String, Future<String> Function(NativePlayer, String)>();
 
   /// Players that are disposing (player id -> future that completes when the player is disposed)
   final _disposingPlayers = HashMap<String, Future<void>>();
@@ -123,6 +132,7 @@ class JustAudioMediaKit extends JustAudioPlatform {
     final player = MediaKitPlayer(
       request.id,
       nativePlayerConfiguration: _nativePlayerConfigurations[request.id],
+      nativePropertyReader: _nativePropertyReaders[request.id],
     );
     _players[request.id] = player;
     await player.ready();
