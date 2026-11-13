@@ -28,5 +28,5 @@ assert len(set(certificates.values())) == 1, (
 )
 
 test_workflow = (ROOT / WORKFLOWS[-1]).read_text(encoding="utf-8")
-assert 'apksigner" verify --print-certs "$apk"' in test_workflow
+assert 'apksigner" verify --print-certs "$arm64_apk"' in test_workflow
 assert 'if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then' in test_workflow
