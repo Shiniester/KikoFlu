@@ -67,7 +67,7 @@ def child(config_path):
         ("audio-samplerate", str(config["rate"])),
         ("audio-channels", {2: "stereo", 3: "3.0", 5: "5.0"}[config["output_channels"]]),
         # Preserve mpv's native input-format remix before lavfi converts to double.
-        ("af", chain or "format=channels=stereo,@effects:lavfi=o=[threads=1]:graph=%" + str(len(graph.encode("utf-8"))) + "%" + graph),
+        ("af", chain if chain is not None else "format=channels=stereo,@effects:lavfi=o=[threads=1]:graph=%" + str(len(graph.encode("utf-8"))) + "%" + graph),
     ]
     if config["demuxer_format"]:
         # Repetitive synthetic WAV can otherwise be misdetected as MPEG-TS.

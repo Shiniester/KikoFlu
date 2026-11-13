@@ -5,38 +5,34 @@ import 'package:kikoeru_flutter/src/models/audio_effects_settings.dart';
 import 'package:kikoeru_flutter/src/services/native_audio_effects.dart';
 
 void main() {
-  test(
-    'runtime updates send only changed effective targets in safe guard order',
-    () {
-      final dry = AudioEffectsSettings();
-      final channel = dry.copyWith(channelMode: AudioChannelMode.swap);
-      expect(AudioEffectsGraph.controls(channel, previous: dry), [
-        ['af-command', 'kiko_channel', 'volume', '1', 'volume@channel_mode'],
-      ]);
-      final saved = dry.copyWith(gains: [0, 0, 0, 0, 0, -5, 0, 0, 0, 0]);
-      expect(AudioEffectsGraph.controls(saved, previous: dry), isEmpty);
-      final cut = saved.copyWith(equalizerEnabled: true);
-      final enable = AudioEffectsGraph.controls(cut, previous: dry);
-      expect(enable.length, 3);
-      expect(enable.first[1], 'kiko_guard');
-      expect(enable.last[2], 'enable');
-      final changed = cut.copyWith(gains: [0, 0, 0, 0, 0, -10, 0, 0, 0, 0]);
-      expect(AudioEffectsGraph.controls(changed, previous: cut).length, 1);
-      final disable = AudioEffectsGraph.controls(dry, previous: cut);
-      expect(disable.last[1], 'kiko_guard');
-      expect(disable.last[3], '0');
+  test('runtime updates send only targets present in the active graph', () {
+    final dry = AudioEffectsSettings();
+    final channel = dry.copyWith(channelMode: AudioChannelMode.swap);
+    expect(AudioEffectsGraph.controls(channel, previous: dry), [
+      ['af-command', 'kiko_channel', 'volume', '1', 'volume@channel_mode'],
+    ]);
+    final saved = dry.copyWith(gains: [0, 0, 0, 0, 0, -5, 0, 0, 0, 0]);
+    expect(AudioEffectsGraph.controls(saved, previous: dry), isEmpty);
+    final cut = saved.copyWith(equalizerEnabled: true);
+    final enable = AudioEffectsGraph.controls(cut, previous: dry);
+    expect(enable.length, 2);
+    expect(enable.first[1], 'kiko_eq');
+    expect(enable.last[2], 'enable');
+    final changed = cut.copyWith(gains: [0, 0, 0, 0, 0, -10, 0, 0, 0, 0]);
+    expect(AudioEffectsGraph.controls(changed, previous: cut).length, 1);
+    final disable = AudioEffectsGraph.controls(dry, previous: cut);
+    expect(disable, isEmpty);
 
-      final muffled = dry.copyWith(
-        sceneEnabled: true,
-        scene: AudioScene.muffled,
-        sceneAmount: 75,
-      );
-      final bathroom = muffled.copyWith(scene: AudioScene.bathroom);
-      expect(AudioEffectsGraph.controls(bathroom, previous: muffled), [
-        ['af-command', 'kiko_scene', 'volume', '0.75', 'volume@scene_amount'],
-      ]);
-    },
-  );
+    final muffled = dry.copyWith(
+      sceneEnabled: true,
+      scene: AudioScene.muffled,
+      sceneAmount: 75,
+    );
+    final bathroom = muffled.copyWith(scene: AudioScene.bathroom);
+    expect(AudioEffectsGraph.controls(bathroom, previous: muffled), [
+      ['af-command', 'kiko_scene', 'volume', '0.75', 'volume@scene_amount'],
+    ]);
+  });
   test(
     'filter preflight accepts git builds and rejects old or missing filters',
     () {
@@ -124,24 +120,12 @@ void main() {
                     stereoAmount: 100,
                   ),
                 ),
-                'off': AudioEffectsGraph.controls(
-                  AudioEffectsSettings(),
-                  previous: AudioEffectsSettings(
-                    binauralMode: BinauralMode.mono,
-                    monoAmount: 100,
-                  ),
-                ),
-                'stereoOff': AudioEffectsGraph.controls(
-                  AudioEffectsSettings(),
-                  previous: AudioEffectsSettings(
-                    binauralMode: BinauralMode.stereo,
-                    stereoAmount: 100,
-                  ),
-                ),
               },
               'controls': AudioEffectsGraph.controls(
-                AudioEffectsSettings(channelMode: AudioChannelMode.swap),
-                previous: AudioEffectsSettings(),
+                AudioEffectsSettings(channelMode: AudioChannelMode.cloneLeft),
+                previous: AudioEffectsSettings(
+                  channelMode: AudioChannelMode.swap,
+                ),
               ),
             },
         }),
@@ -156,7 +140,11 @@ void main() {
           final settings = AudioEffectsSettings(
             equalizerEnabled: true,
             gains: AudioEffectsSettings.curves[EqualizerPreset.vocal],
-            channelMode: mode,
+            channelMode: mode == AudioChannelMode.normal
+                ? AudioChannelMode.swap
+                : mode,
+            binauralMode: BinauralMode.stereo,
+            stereoAmount: 100,
             sceneEnabled: true,
             scene: AudioScene.muffled,
             sceneAmount: 75,
@@ -184,7 +172,11 @@ void main() {
           );
           expect(
             graph.indexOf('@kiko_scene'),
-            lessThan(graph.indexOf('@kiko_bathroom')),
+            lessThan(
+              graph.indexOf(
+                '@kiko_${AudioEffectsGraph.sceneNames[settings.scene.index]}',
+              ),
+            ),
           );
           expect(graph, contains('t=o:w=1:g=9.0'));
           expect(graph, contains('volume@scene_amount=2.75'));
@@ -210,6 +202,52 @@ void main() {
       }
     },
   );
+  test('active modules install only the graphs required for their outputs', () {
+    expect(
+      AudioEffectsGraph.render(AudioEffectsSettings(), systemLibrary: false),
+      '',
+    );
+    expect(
+      AudioEffectsGraph.render(AudioEffectsSettings(), systemLibrary: true),
+      '',
+    );
+    final scene = AudioEffectsSettings(
+      sceneEnabled: true,
+      scene: AudioScene.telephone,
+      sceneAmount: 50,
+    );
+    final graph = AudioEffectsGraph.render(scene, systemLibrary: false);
+    expect(graph, contains('@kiko_scene'));
+    expect(graph, contains('@kiko_telephone'));
+    expect(graph, isNot(contains('@kiko_eq')));
+    expect(graph, isNot(contains('@kiko_channel')));
+    expect(graph, isNot(contains('@kiko_binaural')));
+    expect(graph, isNot(contains('@kiko_bathroom')));
+    expect(graph, isNot(contains('@kiko_through_wall')));
+    expect(AudioEffectsGraph.activeModules(scene), ['scene', 'telephone']);
+    expect(
+      AudioEffectsGraph.controls(
+        scene,
+      ).every((command) => command[1] == 'kiko_scene'),
+      true,
+    );
+
+    final equalizer = AudioEffectsSettings(
+      equalizerEnabled: true,
+      gains: const [0, 0, 0, 0, 0, 9, 0, 0, 0, 0],
+    );
+    expect(
+      AudioEffectsGraph.render(equalizer, systemLibrary: false),
+      contains('@kiko_eq'),
+    );
+    expect(AudioEffectsGraph.activeModules(equalizer), ['eq', 'guard']);
+    expect(
+      AudioEffectsGraph.controls(
+        equalizer,
+      ).every((command) => command[1] == 'kiko_eq'),
+      true,
+    );
+  });
   test('binaural delta targets stop old mode before starting the new mode', () {
     final stereo = AudioEffectsSettings(
       binauralMode: BinauralMode.stereo,
@@ -231,11 +269,9 @@ void main() {
       ),
       isEmpty,
     );
-    final disabled = AudioEffectsGraph.controls(
-      AudioEffectsSettings(),
-      previous: mono,
+    expect(
+      AudioEffectsGraph.controls(AudioEffectsSettings(), previous: mono),
+      isEmpty,
     );
-    expect(disabled.first.last, 'volume@mono_amount');
-    expect(disabled.last.last, 'volume@guard_mix');
   });
 }

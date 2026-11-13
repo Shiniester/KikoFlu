@@ -282,7 +282,7 @@ void main() {
           AudioEffectsSettings(sceneEnabled: true, sceneAmount: 50),
           false,
         );
-        expect(await audioNative.getProperty('af'), contains('@kiko_eq'));
+        expect(await audioNative.getProperty('af'), contains('@kiko_scene'));
 
         videoPlayer = _newPlayer();
         final nativeVideo = videoPlayer.platform as NativePlayer;
@@ -633,16 +633,8 @@ Future<List<(double, double)>> _captureProduction(
 
     final installedGraph = await native.getProperty('af');
     if (settings.isActive) {
-      for (final target in [
-        '@kiko_eq',
-        '@kiko_channel',
-        '@kiko_binaural',
-        '@kiko_guard',
-        '@kiko_scene',
-        '@kiko_bathroom',
-        '@kiko_through_wall',
-        '@kiko_telephone',
-      ]) {
+      for (final name in AudioEffectsGraph.activeModules(settings)) {
+        final target = '@kiko_$name';
         expect(graph, contains(target));
         expect(installedGraph, contains(target));
       }

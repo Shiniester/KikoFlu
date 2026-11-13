@@ -47,10 +47,21 @@ class AudioEffectsGraph {
           .replaceAll('__STEREO__', '${settings.effectiveStereoAmount}')
           .replaceAll('__MONO__', '${settings.effectiveMonoAmount}');
 
+  static List<String> activeModules(AudioEffectsSettings settings) => [
+    if (settings.equalizerActive) 'eq',
+    if (settings.channelActive) 'channel',
+    if (settings.binauralActive) 'binaural',
+    if (settings.needsGuard) 'guard',
+    if (settings.sceneActive) 'scene',
+    if (settings.sceneActive) sceneNames[settings.scene.index],
+  ];
+
   static String render(
     AudioEffectsSettings settings, {
     required bool systemLibrary,
   }) {
+    final modules = activeModules(settings);
+    if (modules.isEmpty) return '';
     final templates = systemLibrary
         ? systemAudioEffectsTemplates
         : nativeAudioEffectsTemplates;
@@ -77,7 +88,7 @@ class AudioEffectsGraph {
       ),
       for (final name in sceneNames) name: templates[name]!,
     };
-    return 'format=channels=stereo,${graphs.entries.map((e) => '@kiko_${e.key}:lavfi=o=[threads=1]:graph=%${e.value.length}%${e.value}').join(',')}';
+    return 'format=channels=stereo,${modules.map((name) => '@kiko_$name:lavfi=o=[threads=1]:graph=%${graphs[name]!.length}%${graphs[name]}').join(',')}';
   }
 
   static List<List<String>> controls(
@@ -100,23 +111,27 @@ class AudioEffectsGraph {
       ),
     ];
     return [
-      // Enable the guard before EQ or widening can raise the output level.
-      // Even EQ cuts can overshoot on transients.
-      if (settings.needsGuard && previous?.needsGuard != true)
-        ['af-command', 'kiko_guard', 'volume', '1', 'volume@guard_mix'],
-      for (var i = 0; i < 10; i++) ...[
-        if (oldGains == null || gains[i] != oldGains[i])
-          ['af-command', 'kiko_eq', 'g', '${gains[i]}', 'equalizer@eq_band$i'],
-        if (oldGains == null || (gains[i] == 0) != (oldGains[i] == 0))
-          [
-            'af-command',
-            'kiko_eq',
-            'enable',
-            gains[i] == 0 ? '0' : '1',
-            'equalizer@eq_band$i',
-          ],
-      ],
-      if (previous?.channelMode != settings.channelMode)
+      if (settings.equalizerActive)
+        for (var i = 0; i < 10; i++) ...[
+          if (oldGains == null || gains[i] != oldGains[i])
+            [
+              'af-command',
+              'kiko_eq',
+              'g',
+              '${gains[i]}',
+              'equalizer@eq_band$i',
+            ],
+          if (oldGains == null || (gains[i] == 0) != (oldGains[i] == 0))
+            [
+              'af-command',
+              'kiko_eq',
+              'enable',
+              gains[i] == 0 ? '0' : '1',
+              'equalizer@eq_band$i',
+            ],
+        ],
+      if (settings.channelActive &&
+          previous?.channelMode != settings.channelMode)
         [
           'af-command',
           'kiko_channel',
@@ -125,13 +140,16 @@ class AudioEffectsGraph {
           'volume@channel_mode',
         ],
       // Stop the outgoing target first; native sample ramps pass through neutral.
-      for (final (amount, oldAmount, target) in binauralTargets)
-        if (amount == 0 && oldAmount != 0)
-          ['af-command', 'kiko_binaural', 'volume', '0', target],
-      for (final (amount, oldAmount, target) in binauralTargets)
-        if (amount > 0 && amount != oldAmount)
-          ['af-command', 'kiko_binaural', 'volume', '$amount', target],
-      if (previous == null || sceneTarget != _sceneTarget(previous))
+      if (settings.binauralActive)
+        for (final (amount, oldAmount, target) in binauralTargets)
+          if (amount == 0 && oldAmount != 0)
+            ['af-command', 'kiko_binaural', 'volume', '0', target],
+      if (settings.binauralActive)
+        for (final (amount, oldAmount, target) in binauralTargets)
+          if (amount > 0 && amount != oldAmount)
+            ['af-command', 'kiko_binaural', 'volume', '$amount', target],
+      if (settings.sceneActive &&
+          (previous == null || sceneTarget != _sceneTarget(previous)))
         [
           'af-command',
           'kiko_scene',
@@ -139,8 +157,6 @@ class AudioEffectsGraph {
           '$sceneTarget',
           'volume@scene_amount',
         ],
-      if (!settings.needsGuard && previous?.needsGuard != false)
-        ['af-command', 'kiko_guard', 'volume', '0', 'volume@guard_mix'],
     ];
   }
 }
@@ -152,6 +168,8 @@ class NativeAudioEffects {
   NativePlayer? _player;
   AudioEffectsSettings _settings = AudioEffectsSettings();
   AudioEffectsSettings? _appliedSettings;
+  List<String> _installedModules = const [];
+  bool _graphStringCurrent = false;
   bool _graphInstalled = false;
   bool _passthrough = false;
   bool _failed = false;
@@ -227,13 +245,25 @@ class NativeAudioEffects {
       return;
     }
     // The stereo DSP chain changes the layout of a neutral multichannel source.
-    final installGraph = !_passthrough && _settings.isActive;
+    final modules = AudioEffectsGraph.activeModules(_settings);
+    final installGraph = !_passthrough && modules.isNotEmpty;
+    final modulesChanged = !listEquals(modules, _installedModules);
+    final graphStringCurrent =
+        mayReuseFilters &&
+        _graphInstalled &&
+        installGraph &&
+        !modulesChanged &&
+        identical(_appliedSettings, _settings) &&
+        _graphStringCurrent;
+    if (graphStringCurrent) return;
     // mpv reuses filters with matching options, including their cached commands.
     final resetCachedControls =
         mayReuseFilters &&
         _graphInstalled &&
         installGraph &&
-        !identical(_appliedSettings, _settings);
+        (modulesChanged ||
+            !identical(_appliedSettings, _settings) ||
+            !_graphStringCurrent);
     if (resetCachedControls && _setAf(player, '') < 0) {
       _markUnavailable();
       return;
@@ -248,6 +278,8 @@ class NativeAudioEffects {
       _markUnavailable();
     } else {
       _graphInstalled = installGraph;
+      _installedModules = installGraph ? modules : const [];
+      _graphStringCurrent = true;
       _appliedSettings = _settings;
       _pendingControls = !_passthrough;
       onStatus(
@@ -276,7 +308,8 @@ class NativeAudioEffects {
   void _apply({bool allowInitialSnapshot = false}) {
     final player = _player;
     if (player == null || player.disposed || _passthrough || _failed) return;
-    if (_settings.isActive != _graphInstalled) {
+    final modules = AudioEffectsGraph.activeModules(_settings);
+    if (!listEquals(modules, _installedModules)) {
       _install();
       return;
     }
@@ -299,6 +332,7 @@ class NativeAudioEffects {
         // Targets can be absent while loading, seeking, or reconfiguring output.
         if (result == -12) {
           _appliedSettings = null;
+          _graphStringCurrent = false;
           _pendingControls = true;
           if (allowInitialSnapshot && _output?.hasAudioOutput != true) {
             _install(mayReuseFilters: true);
@@ -309,6 +343,7 @@ class NativeAudioEffects {
         return;
       }
     }
+    if (controls.isNotEmpty) _graphStringCurrent = false;
     _appliedSettings = _settings;
     _pendingControls = false;
     onStatus(AudioEffectsStatus.ready);
@@ -318,6 +353,8 @@ class NativeAudioEffects {
     if (_failed || _passthrough) return;
     _failed = true;
     _graphInstalled = false;
+    _installedModules = const [];
+    _graphStringCurrent = false;
     _appliedSettings = null;
     _pendingControls = false;
     final player = _player;
@@ -367,6 +404,8 @@ class NativeAudioEffects {
     await _position?.cancel();
     _position = null;
     _graphInstalled = false;
+    _installedModules = const [];
+    _graphStringCurrent = false;
     _appliedSettings = null;
     _pendingControls = false;
   }

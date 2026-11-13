@@ -88,7 +88,7 @@ def main():
     live = [(1000+n%997, -3000-n%991) for n in range(144017)]
     controls = graphs['controls']
     actions = [(0.05, command) for command in controls]
-    report, actual = capture('resident_hot_controls', graphs['dry'], live, 48000,
+    report, actual = capture('resident_hot_controls', graphs['channel_1'], live, 48000,
                              actions=actions, actions_after_output=True)
     replies = report.get('actions', [])
     report['passed'] &= (len(replies) == len(controls) and
@@ -96,9 +96,9 @@ def main():
         report.get('initialized_handles') == 1 and
         sum(row[0] == probe.FILE_LOADED for row in report.get('events', [])) == 1)
     if len(actual) == len(live):
-        report['passed'] &= (all(row == (source[0]/32768, source[1]/32768)
+        report['passed'] &= (all(row == (source[1]/32768, source[0]/32768)
             for row,source in zip(actual[:128], live[:128])) and
-            all(row == (source[1]/32768, source[0]/32768)
+            all(row == (source[0]/32768, source[0]/32768)
             for row,source in zip(actual[-128:], live[-128:])))
 
     args.output.write_text(json.dumps({'variant':args.variant,

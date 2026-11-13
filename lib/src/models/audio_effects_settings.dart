@@ -82,16 +82,14 @@ class AudioEffectsSettings {
       binauralMode == BinauralMode.stereo ? stereoAmount / 100 : 0;
   double get effectiveMonoAmount =>
       binauralMode == BinauralMode.mono ? monoAmount / 100 : 0;
-  bool get needsGuard =>
-      (equalizerEnabled && gains.any((g) => g != 0)) ||
-      effectiveStereoAmount > 0 ||
-      effectiveMonoAmount > 0;
+  bool get equalizerActive => equalizerEnabled && gains.any((g) => g != 0);
+  bool get channelActive => channelMode != AudioChannelMode.normal;
+  bool get binauralActive =>
+      effectiveStereoAmount > 0 || effectiveMonoAmount > 0;
+  bool get sceneActive => sceneEnabled && sceneAmount > 0;
+  bool get needsGuard => equalizerActive || binauralActive;
   bool get isActive =>
-      (equalizerEnabled && gains.any((g) => g != 0)) ||
-      channelMode != AudioChannelMode.normal ||
-      effectiveStereoAmount > 0 ||
-      effectiveMonoAmount > 0 ||
-      (sceneEnabled && sceneAmount > 0);
+      equalizerActive || channelActive || binauralActive || sceneActive;
   EqualizerPreset? get preset {
     if (equalizerCustom) return null;
     for (final entry in curves.entries) {

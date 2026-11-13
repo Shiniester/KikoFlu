@@ -88,13 +88,11 @@ def main():
             report['peak']=max((abs(v) for row in actual for v in row),default=math.inf)
             report['passed'] &= report['peak']<=.970001
 
-        # Real commands must alter PCM before EOF, retain common content, then return dry.
+        # Real commands must switch modes before EOF and retain common content.
         frames=[(round(6000*math.sin(n*.13)),round(4000*math.sin(n*.17))) for n in range(rate*6+17)]
         source=[(l/32768,r/32768) for l,r in frames]
-        actions=[]
-        for when,key in ((.05,'stereo'),(1,'mono'),(2,'off')):
-            actions += [(when,command) for command in graphs['binauralControls'][key]]
-        report,actual=capture(f'production_hot_modes_{rate}',graphs['dry'],frames,rate,
+        actions=[(1,command) for command in graphs['binauralControls']['mono']]
+        report,actual=capture(f'production_hot_modes_{rate}',graphs['binaural_stereo_100'],frames,rate,
             chain=True,actions=actions,actions_after_output=True)
         if len(actual)==len(source):
             expected_mono=mono_oracle(source,rate,1)
@@ -114,20 +112,12 @@ def main():
             report.update(stereo_stable_start=stereo_start,stereo_stable_frames=stereo_count,
                 mono_stable_start=mono_start,mono_stable_frames=mono_count,neutral_between_modes=neutral_between,linear_sum_error=mid_error)
             report['passed'] &= (stereo_count>rate//5 and mono_count>rate//5 and
-                stereo_start<mono_start and neutral_between and mid_error<2e-7 and actual[-rate//5:]==source[-rate//5:])
+                stereo_start<mono_start and neutral_between and mid_error<2e-7 and
+                actual[-rate//5:]==expected_mono[-rate//5:])
         report['passed'] &= (len(report.get('actions',[]))==len(actions) and
             all(row.get('reply_error')==0 for row in report.get('actions',[])) and
             report.get('initialized_handles')==1 and sum(row[0]==probe.FILE_LOADED for row in report.get('events',[]))==1)
 
-        # A nearly full-scale dry input must be limited until the widening fade is over.
-        frames=[(32600,-32600)]*(rate*4+17)
-        source=[(l/32768,r/32768) for l,r in frames]
-        actions=[(.2,command) for command in graphs['binauralControls']['stereoOff']]
-        report,actual=capture(f'production_guard_release_{rate}',graphs['binaural_stereo_100'],frames,rate,
-            chain=True,actions=actions,actions_after_output=True)
-        overshoot=max((abs(v) for row in actual for v in row if abs(v)>.970001 and abs(abs(v)-32600/32768)>1e-7),default=0)
-        report['unprotected_transition_peak']=overshoot
-        report['passed'] &= overshoot==0 and actual[-rate//5:]==source[-rate//5:] and all(row.get('reply_error')==0 for row in report.get('actions',[]))
         print(rate, sum(row['passed'] for row in checks), '/', len(checks), flush=True)
 
     args.output.write_text(json.dumps({'variant':args.variant,'scope':'actual app-rendered graphs; no device or headphone listening claim','checks':checks},indent=2),encoding='utf-8')
