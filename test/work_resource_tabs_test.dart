@@ -2253,6 +2253,46 @@ void main() {
     expect(queue!.map((file) => file['hash']), ['one', 'two', 'ten']);
   });
 
+  testWidgets('audio groups by folder and replaces the queue within it', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'folder',
+        'title': 'A',
+        'children': [
+          {'type': 'audio', 'title': 'a1.wav', 'hash': 'a1'},
+          {'type': 'audio', 'title': 'a2.wav', 'hash': 'a2'},
+        ],
+      },
+      {
+        'type': 'folder',
+        'title': 'B',
+        'children': [
+          {'type': 'audio', 'title': 'b1.wav', 'hash': 'b1'},
+        ],
+      },
+    ]);
+    addTearDown(tree.dispose);
+    List<dynamic>? queue;
+    await _pumpResources(tester, tree, onPlay: (_, __, files) => queue = files);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('work-audio-folder-A')), findsOneWidget);
+    expect(find.byKey(const ValueKey('work-audio-folder-B')), findsOneWidget);
+    expect(find.text('A'), findsOneWidget);
+    expect(find.text('B'), findsOneWidget);
+    expect(
+      tester
+          .widget<ListTile>(find.byKey(const ValueKey('work-audio-A/a1.wav')))
+          .subtitle,
+      isNull,
+    );
+
+    await tester.tap(find.text('a1.wav'));
+    expect(queue!.map((file) => file['hash']), ['a1', 'a2']);
+  });
+
   testWidgets(
     'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {
@@ -2286,7 +2326,7 @@ void main() {
       );
       await tester.tap(find.text('track02.wav'));
       expect(selected['hash'], 'audio2');
-      expect(queue!.map((file) => file['hash']), ['audio1', 'audio2']);
+      expect(queue!.map((file) => file['hash']), ['audio2']);
       await tester.tap(
         find.byKey(const ValueKey('work-audio-subtitle-A/track01.wav')),
       );

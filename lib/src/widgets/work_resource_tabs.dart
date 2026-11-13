@@ -117,8 +117,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<dynamic> _images = const [];
   List<FileTreeVideoFile> _videos = const [];
   List<PlayerAudioVariant> _audio = const [];
-  List<dynamic> _queue = const [];
   List<PlayerSubtitleCandidate?> _subtitles = const [];
+  List<({String? folder, int? index})> _audioRows = const [];
+  Map<String, List<dynamic>> _audioFolderFiles = const {};
   int? _workId;
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
   final _resolvedImageTargets = <dynamic, PreviewFileItem>{};
@@ -277,7 +278,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       widget.audioVariants,
       preference: preference,
     );
-    _queue = _audio.map((variant) => variant.source).toList(growable: false);
     const repository = PlayerSubtitleCandidateRepository();
     // ponytail: scans subtitles per selected track; index names if large catalogs dominate.
     _subtitles = [
@@ -296,6 +296,20 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             )
             .where((candidate) => candidate.matchesCurrentAudio)
             .firstOrNull,
+    ];
+    final folderIndices = <String, List<int>>{};
+    for (var index = 0; index < _audio.length; index++) {
+      folderIndices.putIfAbsent(_audio[index].parentPath, () => []).add(index);
+    }
+    _audioFolderFiles = {
+      for (final entry in folderIndices.entries)
+        entry.key: [for (final index in entry.value) _audio[index].source],
+    };
+    _audioRows = [
+      for (final entry in folderIndices.entries) ...[
+        (folder: entry.key, index: null),
+        for (final index in entry.value) (folder: null, index: index),
+      ],
     ];
   }
 
@@ -730,8 +744,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     return SliverMainAxisGroup(
       slivers: [
         SliverList.builder(
-          itemCount: _audio.length,
-          itemBuilder: (context, index) {
+          itemCount: _audioRows.length,
+          itemBuilder: (context, rowIndex) {
+            final row = _audioRows[rowIndex];
+            final folder = row.folder;
+            if (folder != null) {
+              return _buildAudioFolderHeader(folder: folder);
+            }
+            final index = row.index!;
             final variant = _audio[index];
             final entry = _entry(
               variant.source,
@@ -766,16 +786,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 entry.displayTitle,
                 style: const TextStyle(fontSize: 14),
               ),
-              subtitle: variant.parentPath.isEmpty
-                  ? null
-                  : Text(
-                      variant.parentPath,
-                      style: const TextStyle(fontSize: 12),
-                    ),
               onTap: () => widget.onPlayAudio(
                 variant.source,
                 variant.parentPath,
-                _queue,
+                _audioFolderFiles[variant.parentPath]!,
               ),
               onLongPress: widget.onAudioLongPress == null
                   ? () => _copyName(entry.displayTitle)
@@ -783,7 +797,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       variant.source,
                       entry.displayTitle,
                       variant.parentPath,
-                      _queue,
+                      _audioFolderFiles[variant.parentPath]!,
                     ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -808,6 +822,31 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildAudioFolderHeader({required String folder}) {
+    return Padding(
+      key: ValueKey('work-audio-folder-$folder'),
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Row(
+        children: [
+          Icon(Icons.folder_outlined, size: 16, color: Colors.grey[600]),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              folder.isEmpty ? S.of(context).rootDirectory : folder,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

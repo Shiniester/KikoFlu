@@ -308,6 +308,12 @@ _Avoid_: App Tab Bar, Works Home Tab
 A video file supplied among an audio work's resources, separate from videos
 cataloged by a Video Source.
 
+**Audio Folder Group (音频文件夹分组)**:
+The audio files shown under one folder path in a Work Details Screen's Audio
+tab. The folder path appears once as the group heading. "替换播放队列" uses
+only the selected file's group.
+_Avoid_: Whole-work audio queue, audio directory tree
+
 **Same-folder Work Videos (同文件夹作品视频)**:
 Work Resource Videos directly contained in the same resource folder. Videos in
 child folders belong to their own folder.

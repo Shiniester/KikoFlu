@@ -59,6 +59,7 @@ class AudioEffectsGraph {
   static String render(
     AudioEffectsSettings settings, {
     required bool systemLibrary,
+    int? resetToken,
   }) {
     final modules = activeModules(settings);
     if (modules.isEmpty) return '';
@@ -88,7 +89,11 @@ class AudioEffectsGraph {
       ),
       for (final name in sceneNames) name: templates[name]!,
     };
-    return 'format=channels=stereo,${modules.map((name) => '@kiko_$name:lavfi=o=[threads=1]:graph=%${graphs[name]!.length}%${graphs[name]}').join(',')}';
+    return 'format=channels=stereo,${modules.map((name) {
+      final graph = resetToken == null ? graphs[name]! : '${graphs[name]}'
+                ';[out]volume@kiko_reset$resetToken=1:precision=double[reset]';
+      return '@kiko_$name:lavfi=o=[threads=1]:graph=%${graph.length}%$graph';
+    }).join(',')}';
   }
 
   static List<List<String>> controls(
@@ -169,7 +174,7 @@ class NativeAudioEffects {
   AudioEffectsSettings _settings = AudioEffectsSettings();
   AudioEffectsSettings? _appliedSettings;
   List<String> _installedModules = const [];
-  bool _graphStringCurrent = false;
+  int _resetGeneration = 0;
   bool _graphInstalled = false;
   bool _passthrough = false;
   bool _failed = false;
@@ -247,31 +252,18 @@ class NativeAudioEffects {
     // The stereo DSP chain changes the layout of a neutral multichannel source.
     final modules = AudioEffectsGraph.activeModules(_settings);
     final installGraph = !_passthrough && modules.isNotEmpty;
-    final modulesChanged = !listEquals(modules, _installedModules);
-    final graphStringCurrent =
-        mayReuseFilters &&
-        _graphInstalled &&
-        installGraph &&
-        !modulesChanged &&
-        identical(_appliedSettings, _settings) &&
-        _graphStringCurrent;
-    if (graphStringCurrent) return;
-    // mpv reuses filters with matching options, including their cached commands.
-    final resetCachedControls =
-        mayReuseFilters &&
-        _graphInstalled &&
-        installGraph &&
-        (modulesChanged ||
-            !identical(_appliedSettings, _settings) ||
-            !_graphStringCurrent);
-    if (resetCachedControls && _setAf(player, '') < 0) {
-      _markUnavailable();
-      return;
-    }
+    // A seek must change each active lavfi graph so mpv recreates stateful filters.
+    final resetToken = mayReuseFilters && installGraph
+        ? ++_resetGeneration
+        : null;
     final result = _setAf(
       player,
       installGraph
-          ? AudioEffectsGraph.render(_settings, systemLibrary: false)
+          ? AudioEffectsGraph.render(
+              _settings,
+              systemLibrary: false,
+              resetToken: resetToken,
+            )
           : '',
     );
     if (result < 0) {
@@ -279,7 +271,6 @@ class NativeAudioEffects {
     } else {
       _graphInstalled = installGraph;
       _installedModules = installGraph ? modules : const [];
-      _graphStringCurrent = true;
       _appliedSettings = _settings;
       _pendingControls = !_passthrough;
       onStatus(
@@ -332,7 +323,6 @@ class NativeAudioEffects {
         // Targets can be absent while loading, seeking, or reconfiguring output.
         if (result == -12) {
           _appliedSettings = null;
-          _graphStringCurrent = false;
           _pendingControls = true;
           if (allowInitialSnapshot && _output?.hasAudioOutput != true) {
             _install(mayReuseFilters: true);
@@ -343,7 +333,6 @@ class NativeAudioEffects {
         return;
       }
     }
-    if (controls.isNotEmpty) _graphStringCurrent = false;
     _appliedSettings = _settings;
     _pendingControls = false;
     onStatus(AudioEffectsStatus.ready);
@@ -354,7 +343,6 @@ class NativeAudioEffects {
     _failed = true;
     _graphInstalled = false;
     _installedModules = const [];
-    _graphStringCurrent = false;
     _appliedSettings = null;
     _pendingControls = false;
     final player = _player;
@@ -405,7 +393,6 @@ class NativeAudioEffects {
     _position = null;
     _graphInstalled = false;
     _installedModules = const [];
-    _graphStringCurrent = false;
     _appliedSettings = null;
     _pendingControls = false;
   }

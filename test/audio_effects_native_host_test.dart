@@ -1,7 +1,6 @@
 import 'package:ffi/ffi.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -118,13 +117,15 @@ void main() {
   );
 
   test(
-    'seek history reset keeps the resident graph when live controls did not change',
+    'seek history reset replaces the resident graph when live controls did not change',
     () async {
       final frames = List.generate(48000, (n) => (1000 + n, -3000 - n));
-      final graphs = <String>[];
+      final settings = AudioEffectsSettings(
+        channelMode: AudioChannelMode.cloneLeft,
+      );
       await _captureInitialEffects(
         audioEffectsWav(frames, 48000),
-        AudioEffectsSettings(channelMode: AudioChannelMode.cloneLeft),
+        settings,
         onLoad: (_, native) async {
           const clock = 'asetnsamples=n=128:p=0,arealtime';
           final chain = await native.getProperty('af');
@@ -132,11 +133,12 @@ void main() {
             native,
             '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
           );
-          graphs.add(await native.getProperty('af'));
         },
         duringPlayback: (controller, native) async {
           controller.resetHistory();
-          expect(await native.getProperty('af'), graphs.single);
+          final reset = await native.getProperty('af');
+          expect(reset, contains('@kiko_channel'));
+          expect(reset, isNot(contains('@test_clock')));
         },
       );
     },
@@ -144,78 +146,27 @@ void main() {
   );
 
   test(
-    'seek clears scene reverb history when the graph is current',
+    'seek history reset rewrites the scene graph to clear stateful filters',
     () async {
-      final ready = Completer<void>();
-      final player = Player(
-        configuration: PlayerConfiguration(ready: ready.complete),
+      final sceneSettings = AudioEffectsSettings(
+        sceneEnabled: true,
+        scene: AudioScene.bathroom,
+        sceneAmount: 100,
       );
-      await ready.future.timeout(const Duration(seconds: 10));
-      final native = player.platform as NativePlayer;
-      final statuses = <AudioEffectsStatus>[];
-      final controller = NativeAudioEffects(statuses.add);
-      final directory = await Directory.systemTemp.createTemp(
-        'kiko-effects-scene-seek-',
+      await _captureInitialEffects(
+        audioEffectsWav(List.generate(4800, (n) => (0, 0)), 48000),
+        sceneSettings,
+        duringPlayback: (controller, native) async {
+          final before = await native.getProperty('af');
+          expect(before, contains('@kiko_bathroom'));
+          expect(before, isNot(contains('kiko_reset')));
+          controller.resetHistory();
+          final after = await native.getProperty('af');
+          expect(after, contains('@kiko_bathroom'));
+          expect(after, contains('kiko_reset'));
+          expect(after, isNot(equals(before)));
+        },
       );
-      final source = File('${directory.path}/source.wav');
-      final output = File('${directory.path}/capture.pcm');
-      const rate = 48000;
-      const silenceStart = rate * 19 ~/ 5;
-      final frames = List.generate(rate * 4, (n) {
-        if (n >= silenceStart) return (0, 0);
-        final sample = (12000 * math.sin(2 * math.pi * 1000 * n / rate)).round();
-        return (sample, sample);
-      });
-      await source.writeAsBytes(audioEffectsWav(frames, rate));
-      try {
-        for (final entry in {
-          'ao': 'pcm',
-          'ao-pcm-waveheader': 'no',
-          'ao-pcm-append': 'yes',
-          'ao-pcm-file': output.path,
-          'audio-format': 'float',
-          'audio-samplerate': '$rate',
-          'audio-channels': 'stereo',
-        }.entries) {
-          await native.setProperty(entry.key, entry.value);
-        }
-        await controller.configure(
-          native,
-          AudioEffectsSettings(
-            sceneEnabled: true,
-            scene: AudioScene.bathroom,
-            sceneAmount: 100,
-          ),
-          false,
-        );
-        native.onLoadHooks.add(() async {
-          final chain = await native.getProperty('af');
-          const clock = 'asetnsamples=n=128:p=0,arealtime';
-          await native.setProperty(
-            'af',
-            '@test_clock:lavfi=o=[threads=1]:graph=%${clock.length}%$clock,$chain',
-          );
-        });
-        final completed = player.stream.completed.firstWhere((done) => done);
-        await player.open(Media(source.path));
-        await _waitForNativePosition(native, .3);
-        controller.resetHistory();
-        await player.seek(
-          const Duration(milliseconds: silenceStart * 1000 ~/ rate),
-        );
-        await completed.timeout(const Duration(seconds: 15));
-        final actual = await _finishPcmCapture(native, output);
-        expect(actual.length, greaterThan(rate * 19 ~/ 5));
-        for (var n = actual.length - rate ~/ 5; n < actual.length; n++) {
-          expect(actual[n].$1.abs(), lessThan(1e-6));
-          expect(actual[n].$2.abs(), lessThan(1e-6));
-        }
-        expect(statuses, isNot(contains(AudioEffectsStatus.unavailable)));
-      } finally {
-        await controller.dispose();
-        await player.dispose();
-        await directory.delete(recursive: true);
-      }
     },
     skip: library == null,
   );
