@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:just_audio_media_kit/mpv_client.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:logging/logging.dart';
 import 'package:media_kit/media_kit.dart';
@@ -50,6 +51,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   /// Overrides only native property-query timing in lifecycle contract tests.
   @visibleForTesting
   final Future<String> Function(NativePlayer, String)? nativePropertyReader;
+  MpvClient? _propertyClient;
   NativePlayerConfiguration? _nativePlayerConfiguration;
   NativePlayer? _nativePlayer;
   int _nativeConfigurationRevision = 0;
@@ -344,7 +346,11 @@ class MediaKitPlayer extends AudioPlayerPlatform {
   }
 
   Future<String> _readProperty(NativePlayer native, String name) =>
-      nativePropertyReader?.call(native, name) ?? native.getProperty(name);
+      _released || native.disposed
+          ? Future.value('')
+          : nativePropertyReader?.call(native, name) ??
+              (_propertyClient ??= MpvClient(native, 'audio-properties'))
+                  .read(name);
 
   void _dispatchSetPosition() {
     final target = _setPosition;
@@ -946,6 +952,7 @@ class MediaKitPlayer extends AudioPlayerPlatform {
     try {
       await _nativeConfigurationTail;
     } catch (_) {}
+    _propertyClient?.dispose();
     await _player.dispose();
     for (final StreamSubscription subscription in _streamSubscriptions) {
       unawaited(subscription.cancel());

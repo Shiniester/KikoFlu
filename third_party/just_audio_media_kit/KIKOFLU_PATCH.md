@@ -19,6 +19,9 @@ Keep this patch until the same behavior is available in an upstream release.
 
 ## Seek position reporting
 
+The adapter reads libmpv seek and cache state asynchronously so the Flutter UI
+can build frames while the playback core processes audio.
+
 libmpv can report a position one audio sample before a seek target. The adapter
 reports the target for a nearby undershoot after a seek or initial load, then
 returns to the native position as playback advances.

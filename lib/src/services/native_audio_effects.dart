@@ -3,6 +3,8 @@ import 'dart:ffi';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:ffi/ffi.dart';
+import 'package:just_audio_media_kit/mpv_client.dart';
+import 'package:media_kit/generated/libmpv/bindings.dart';
 import 'package:media_kit/media_kit.dart';
 import '../models/audio_effects_settings.dart';
 import 'audio_effects_templates.dart';
@@ -159,7 +161,7 @@ class NativeAudioEffects {
       defaultTargetPlatform == TargetPlatform.linux || Platform.isWindows;
   StreamSubscription<PlayerLog>? _logs;
   StreamSubscription<Duration>? _position;
-  StreamSubscription<AudioParams>? _params;
+  _AudioOutputObserver? _output;
 
   Future<void> configure(
     NativePlayer player,
@@ -171,8 +173,15 @@ class NativeAudioEffects {
     _passthrough = passthrough;
     if (!identical(player, _player)) {
       await _detach();
+      await player.waitForPlayerInitialization;
+      if (player.disposed) return;
       _player = player;
       _failed = false;
+      _output = _AudioOutputObserver.attach(player, _apply);
+      if (_output == null) {
+        _markUnavailable();
+        return;
+      }
       player.onLoadHooks.add(_onLoad);
       _position = player.stream.position.listen((_) {
         if (_pendingControls) _apply();
@@ -184,11 +193,6 @@ class NativeAudioEffects {
           _markUnavailable();
         }
       });
-      _params = player.stream.audioParams.listen((_) => _apply());
-      await player.observeProperty('seeking', (value) async {
-        if (value == 'no' || value == 'false') _apply();
-      });
-      await player.observeProperty('audio-out-params', (_) async => _apply());
       _install();
     } else if (changedOutput) {
       _failed = false;
@@ -201,6 +205,7 @@ class NativeAudioEffects {
 
   Future<void> _onLoad() async {
     _failed = false;
+    _output?.beginSource();
     _install();
   }
 
@@ -278,7 +283,7 @@ class NativeAudioEffects {
     final controls = _graphInstalled
         ? AudioEffectsGraph.controls(_settings, previous: _appliedSettings)
         : const <List<String>>[];
-    if (controls.isEmpty && !_hasAudioOutput(player)) {
+    if (controls.isEmpty && _output?.hasAudioOutput != true) {
       _pendingControls = true;
       return;
     }
@@ -295,7 +300,7 @@ class NativeAudioEffects {
         if (result == -12) {
           _appliedSettings = null;
           _pendingControls = true;
-          if (allowInitialSnapshot && !_hasAudioOutput(player)) {
+          if (allowInitialSnapshot && _output?.hasAudioOutput != true) {
             _install(mayReuseFilters: true);
           }
           return;
@@ -319,10 +324,6 @@ class NativeAudioEffects {
     if (player != null && !player.disposed) _setAf(player, '');
     onStatus(AudioEffectsStatus.unavailable);
   }
-
-  bool _hasAudioOutput(NativePlayer player) =>
-      _property(player, 'audio-params') != null &&
-      _property(player, 'audio-out-params') != null;
 
   String? _property(NativePlayer player, String property) {
     final name = property.toNativeUtf8();
@@ -357,8 +358,10 @@ class NativeAudioEffects {
   }
 
   Future<void> _detach() async {
-    await _params?.cancel();
-    _params = null;
+    _output?.dispose();
+    _output = null;
+    _player?.onLoadHooks.remove(_onLoad);
+    _player = null;
     await _logs?.cancel();
     _logs = null;
     await _position?.cancel();
@@ -366,13 +369,74 @@ class NativeAudioEffects {
     _graphInstalled = false;
     _appliedSettings = null;
     _pendingControls = false;
-    final player = _player;
-    _player = null;
-    if (player == null) return;
-    player.onLoadHooks.remove(_onLoad);
-    if (!player.disposed) await player.unobserveProperty('seeking');
-    if (!player.disposed) await player.unobserveProperty('audio-out-params');
   }
 
   Future<void> dispose() => _detach();
+}
+
+class _AudioOutputObserver {
+  _AudioOutputObserver(this._onChange);
+
+  static _AudioOutputObserver? attach(
+    NativePlayer player,
+    VoidCallback onChange,
+  ) {
+    final observer = _AudioOutputObserver(onChange);
+    try {
+      observer._client = MpvClient(
+        player,
+        'audio-effects',
+        onEvent: observer._handleEvent,
+        onDrained: observer._handleDrained,
+      );
+    } on StateError {
+      return null;
+    }
+    for (final (id, property) in ['audio-params', 'audio-out-params'].indexed) {
+      final result = observer._client.observe(
+        property,
+        id,
+        mpv_format.MPV_FORMAT_NODE,
+      );
+      if (result < 0) {
+        observer.dispose();
+        return null;
+      }
+    }
+    return observer;
+  }
+
+  final VoidCallback _onChange;
+  late final MpvClient _client;
+  final _available = [false, false];
+  bool _sourceRestarted = true;
+  bool _changed = false;
+
+  bool get hasAudioOutput =>
+      _sourceRestarted && _available.every((available) => available);
+
+  void beginSource() => _sourceRestarted = false;
+
+  void _handleEvent(mpv_event event) {
+    switch (event.event_id) {
+      case mpv_event_id.MPV_EVENT_PROPERTY_CHANGE:
+        final property = event.data.cast<mpv_event_property>().ref;
+        _available[event.reply_userdata] =
+            property.format == mpv_format.MPV_FORMAT_NODE;
+        _changed = true;
+      case mpv_event_id.MPV_EVENT_PLAYBACK_RESTART:
+        _sourceRestarted = true;
+        _changed = true;
+      case mpv_event_id.MPV_EVENT_AUDIO_RECONFIG:
+        _changed = true;
+    }
+  }
+
+  void _handleDrained() {
+    if (!_changed) return;
+    _changed = false;
+    _onChange();
+  }
+
+  void dispose() => _client.dispose();
 }
