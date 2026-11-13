@@ -164,7 +164,26 @@ void main() {
               _visibleLyricAlpha(tester, find.text('spring 5')),
               closeTo(1, 0.01),
             );
-            if (!compact) _expectAnchor(tester, 'spring 5');
+            if (!compact) {
+              _expectAnchor(tester, 'spring 5');
+
+              final nextLine = find.text('spring 6');
+              final beforeAdvance = tester.getCenter(nextLine).dy;
+              playback.publishPlaybackPosition((
+                trackId: 'test-track',
+                position: const Duration(seconds: 6),
+                pendingJump: null,
+                previewPosition: null,
+                confirmedJump: 2,
+              ));
+              await tester.pump();
+              await _frames(tester, 4);
+              final duringAdvance = tester.getCenter(nextLine).dy;
+              expect(duringAdvance, lessThan(beforeAdvance - 0.5));
+              expect(duringAdvance, greaterThan(playbackAnchor + 0.5));
+              await tester.pumpAndSettle();
+              _expectAnchor(tester, 'spring 6');
+            }
           } else {
             await tester.pumpAndSettle();
             expect(

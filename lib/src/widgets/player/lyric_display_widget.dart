@@ -4939,13 +4939,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         playbackLyricPosition.pendingJump == null &&
         playbackLyricPosition.confirmedJump == _pendingAuthoritativeJump;
     if (_pendingAuthoritativeJump != null &&
-        (playbackLyricPosition == null ||
-            (playbackLyricPosition.pendingJump != null &&
-                playbackLyricPosition.pendingJump !=
-                    _pendingAuthoritativeJump) ||
-            (playbackLyricPosition.pendingJump == null &&
-                playbackLyricPosition.confirmedJump !=
-                    _pendingAuthoritativeJump))) {
+        playbackLyricPosition?.pendingJump != _pendingAuthoritativeJump) {
       _pendingAuthoritativeJump = null;
     }
     _lastConfirmedJump = playbackLyricPosition?.confirmedJump;
