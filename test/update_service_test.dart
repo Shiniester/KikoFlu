@@ -97,7 +97,7 @@ void main() {
       final cases = <(String, Abi?, String)>[
         ('android', Abi.androidArm64, 'Iroru-android-arm64-v8a_4192.apk'),
         ('windows', null, 'Iroru-windows-setup_4192.exe'),
-        ('macos', null, 'Iroru-macos_4192.dmg'),
+        ('macos', Abi.macosArm64, 'Iroru-macos_4192.dmg'),
         ('linux', Abi.linuxX64, 'Iroru-linux-x64_4192.tar.gz'),
         ('linux', Abi.linuxArm64, 'Iroru-linux-arm64_4192.tar.gz'),
         ('ios', null, 'Iroru-ios-unsigned_4192.ipa'),
@@ -180,14 +180,26 @@ void main() {
       expect(matched['browser_download_url'], 'https://example.com/setup.exe');
     });
 
-    test('matches macOS DMG', () {
+    test('matches the macOS DMG on Apple Silicon', () {
       final service = UpdateService();
       final matched = service.findPlatformAsset(
         assets,
         targetPlatform: 'macos',
+        targetAbi: Abi.macosArm64,
       );
       expect(matched, isNotNull);
       expect(matched!['name'], 'KikoFlu-macos_4192.dmg');
+    });
+
+    test('does not offer the macOS DMG on Intel', () {
+      expect(
+        UpdateService().findPlatformAsset(
+          assets,
+          targetPlatform: 'macos',
+          targetAbi: Abi.macosX64,
+        ),
+        isNull,
+      );
     });
 
     test('matches Linux x64 even when ARM64 is listed first', () {

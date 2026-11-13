@@ -47,7 +47,13 @@ jobs:
         env:
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
-        run: python3 scripts/ci/build_test_scope.py "$PUSH_BEFORE" "$PUSH_SHA" >> "$GITHUB_OUTPUT"
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          args=("$PUSH_BEFORE" "$PUSH_SHA")
+          if [[ "$GITHUB_REF_TYPE" == branch && "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            args+=("refs/remotes/origin/$DEFAULT_BRANCH")
+          fi
+          python3 scripts/ci/build_test_scope.py "${args[@]}" >> "$GITHUB_OUTPUT"
 
       - name: Keep manual builds enabled
         id: dispatch
@@ -57,7 +63,7 @@ jobs:
   native-audio:
     name: Native Audio Libraries
     needs: build-scope
-    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true') && !inputs.native_audio_darwin_only && (inputs.native_audio_only || !inputs.native_audio_android_only) }}
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_darwin_only && (inputs.native_audio_only || !inputs.native_audio_android_only) }}
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -68,7 +74,7 @@ jobs:
   native-audio-android:
     name: Android Native Audio Libraries
     needs: build-scope
-    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true') && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -78,7 +84,7 @@ jobs:
   native-audio-darwin:
     name: Darwin Native Audio Libraries
     needs: build-scope
-    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true') && !inputs.native_audio_android_only && (!inputs.native_audio_only || inputs.native_audio_darwin_only) }}
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_android_only && (!inputs.native_audio_only || inputs.native_audio_darwin_only) }}
     uses: ./.github/workflows/native_audio_darwin.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -143,6 +149,9 @@ jobs:
 
       - name: Test release metadata
         run: python3 scripts/test_release_metadata.py
+
+      - name: Test push release planning
+        run: python3 scripts/test_plan_push_release.py
 
       - name: Test release workflow contracts
         run: python3 scripts/test_release_workflow_contracts.py
@@ -427,7 +436,7 @@ jobs:
   android:
     name: Android Build
     needs: [build-scope, android-build, android-emulator-verify]
-    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true' || (github.event_name == 'push' && needs.build-scope.outputs.build_required == 'false')) }}
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     runs-on: ubuntu-latest
     steps:
       - name: Mark Android build unnecessary for documentation changes
@@ -435,7 +444,7 @@ jobs:
         run: echo 'Android build skipped because the push contains documentation changes only.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check Android build and emulator results
-        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false' }}
         env:
           ANDROID_BUILD_RESULT: ${{ needs.android-build.result }}
           ANDROID_EMULATOR_RESULT: ${{ needs.android-emulator-verify.result }}
@@ -530,7 +539,7 @@ jobs:
 
   ios:
     name: iOS Build (Unsigned)
-    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true' || (github.event_name == 'push' && needs.build-scope.outputs.build_required == 'false')) }}
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     needs: [build-scope, ios-verify, ios-build]
     runs-on: ubuntu-latest
     steps:
@@ -539,7 +548,7 @@ jobs:
         run: echo 'iOS build skipped because the push contains documentation changes only.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check iOS verification and build results
-        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false' }}
         env:
           IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
           IOS_VERIFY_RESULT: ${{ needs.ios-verify.result }}
@@ -691,7 +700,7 @@ jobs:
   linux:
     name: Linux x64 Build
     needs: build-scope
-    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required == 'true') && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6

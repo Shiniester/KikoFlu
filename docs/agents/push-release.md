@@ -4,6 +4,10 @@
 several commits produces one release plan for the pushed tip. Tag pushes and branch
 deletions do not publish releases.
 
+Every branch push checks for unreleased changes, including a documentation-only
+push after a failed build. A release needs both a version bump and build input
+changes since the published baseline.
+
 - `main`: full-platform stable release through `build.yml`.
 - Other branches: Android Beta pre-release through `build_android_beta.yml`.
 - Existing manual release workflows remain available, including Android-only stable.

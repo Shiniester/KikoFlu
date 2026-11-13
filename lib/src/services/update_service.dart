@@ -344,6 +344,7 @@ class UpdateService {
         );
         break;
       case 'macos':
+        if ((targetAbi ?? Abi.current()) != Abi.macosArm64) return null;
         result = assetList.firstWhere(
           (a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.dmg'),
           orElse: () => <String, dynamic>{},

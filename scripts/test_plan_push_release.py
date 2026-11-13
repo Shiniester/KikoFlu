@@ -118,11 +118,11 @@ def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0"
         return output_values(output), summary.read_text(encoding="utf-8") if summary.exists() else "", calls
 
 
-def run_real_main(root, target, stable_commit, releases, tags):
+def run_real_main(root, target, stable_commit, releases, tags, *, branch="feature/merge"):
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary)
         output, summary = path / "output", path / "summary"
-        env = {"GH_REPO": "owner/repo", "GITHUB_REF_NAME": "feature/merge",
+        env = {"GH_REPO": "owner/repo", "GITHUB_REF_NAME": branch,
                "GITHUB_SHA": target, "GITHUB_OUTPUT": str(output),
                "GITHUB_STEP_SUMMARY": str(summary)}
         real_command = planner.command
@@ -140,6 +140,42 @@ def run_real_main(root, target, stable_commit, releases, tags):
                              side_effect=lambda repo, resource: releases if resource == "releases" else tags):
             planner.main()
         return output_values(output), summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+
+def check_docs_after_unpublished_fix():
+    for branch, expected_version in (("main", "4.8.2"), ("feature/player", "4.8.2-beta.1")):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git(root, "init", "--object-format=sha1", "--initial-branch=main")
+            git(root, "config", "user.name", "Release Planner Test")
+            git(root, "config", "user.email", "release-planner@example.invalid")
+            stable_commit = commit(root, "app.dart", "base\n", "chore: establish stable base")
+            if branch != "main":
+                git(root, "switch", "-c", branch)
+            releases = [RELEASES[0]]
+            tags = [{"name": RELEASES[0]["tag_name"]}]
+            docs_subject = "fix(docs): correct instructions"
+            docs_only = commit(root, "README.md", "Docs\n", docs_subject)
+            values, _ = run_real_main(root, docs_only, stable_commit, releases, tags, branch=branch)
+            assert values["publish"] == "false"
+
+            subject = "fix(player): prevent crash"
+            commit(root, "app.dart", "fixed\n", subject)
+            docs_after_fix = commit(root, "README.md", "More docs\n", "docs: update readme")
+            values, _ = run_real_main(root, docs_after_fix, stable_commit, releases, tags, branch=branch)
+            assert values == {"publish": "true", "version": expected_version,
+                              "release_notes": f"- {docs_subject}\n- {subject}",
+                              "commit_sha": docs_after_fix}
+
+            if branch == "main":
+                continue
+            beta_tag = f"v{expected_version}"
+            git(root, "tag", beta_tag)
+            releases.append({"tag_name": beta_tag, "draft": False, "prerelease": True})
+            tags.append({"name": beta_tag})
+            docs_after_beta = commit(root, "README.md", "Even more docs\n", "fix(docs): correct example")
+            values, _ = run_real_main(root, docs_after_beta, stable_commit, releases, tags, branch=branch)
+            assert values["publish"] == "false"
 
 
 def check_real_beta_union():
@@ -386,6 +422,7 @@ def check():
     else:
         raise AssertionError("A published beta release without a resolvable tag must stop planning")
 
+    check_docs_after_unpublished_fix()
     check_real_beta_union()
     print("Push release planner checks passed.")
 

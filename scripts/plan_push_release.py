@@ -8,6 +8,8 @@ import subprocess
 import sys
 import uuid
 
+from ci.build_test_scope import is_document
+
 ROOT = Path(__file__).resolve().parents[1]
 STABLE = re.compile(r"v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 BUMP_LEVEL = {"none": 0, "patch": 1, "minor": 2, "major": 3}
@@ -70,6 +72,13 @@ def read_commits(baseline, target, additional_baselines=()):
                   *revisions, "--")
     return [message.strip("\r\n") for message in log.split("\0")
             if message.strip("\r\n")]
+
+
+def changed_paths(baseline, target):
+    return [path for path in command(
+        "git", "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
+        "--name-only", "-z", baseline, target, "--",
+    ).split("\0") if path]
 
 
 def published_beta_baselines(releases, base, target):
@@ -194,9 +203,8 @@ def main():
             raise ValueError(f"Stable baseline {tag} is not an ancestor of the main push target.")
         if ancestry.returncode != 0:
             raise RuntimeError("Could not verify the main push target against the stable baseline.")
-    changed = command("git", "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-                      "--name-only", "-z", baseline, target, "--").split("\0")
-    if not any(changed):
+    changed = changed_paths(baseline, target)
+    if not changed:
         write_outputs({"publish": "false"})
         print(f"No changes against stable {tag}; skipping release.")
         return
@@ -209,6 +217,11 @@ def main():
         summary += f"Beta baselines: {', '.join(tag for tag, _ in beta_baselines)}\n"
     summary += f"Commit: {target}\nBranch: {branch}\n\n{decision['reason']}\n"
     if decision["bump"] != "none":
+        release_paths = changed_paths(beta_commits[0], target) if beta_commits else changed
+        if all(is_document(path) for path in release_paths):
+            write_outputs({"publish": "false"})
+            print("No build inputs changed since the published baseline; skipping release.")
+            return
         existing = {r["tag_name"] for r in releases} | {t["name"] for t in inventory(repo, "tags")}
         version = next_version(base, branch, decision["bump"], existing)
         write_outputs({"publish": "true", "version": version,

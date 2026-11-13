@@ -103,13 +103,22 @@ assert "production-pcm.json" not in linux_cache
 cache_keys = re.findall(r"^        key: (.+)$", linux_cache, re.MULTILINE)
 assert len(cache_keys) == 2 and cache_keys[0] == cache_keys[1]
 
-scope = job(release_on_push, "scope")
 plan = job(release_on_push, "plan")
-assert "scripts/ci/build_test_scope.py" in scope
-assert "needs: scope" in plan
-assert "needs.scope.outputs.build_required != 'false'" in plan
-assert "needs.scope.result != 'success'" in plan
+assert "scripts/ci/build_test_scope.py" not in release_on_push
+assert re.findall(r"^    if: (.+)$", plan, re.MULTILINE) == ["github.event.deleted != true"]
+assert "scripts/plan_push_release.py" in plan
+for release_job in ("stable", "beta"):
+    assert "needs: plan" in job(release_on_push, release_job)
+    assert "needs.plan.outputs.publish == 'true'" in job(release_on_push, release_job)
 assert "workflow_dispatch:" not in release_on_push
+assert "python3 scripts/test_plan_push_release.py" in job(test_only, "quality-analysis")
+
+build_scope = job(test_only, "build-scope")
+assert "fetch-depth: 0" in build_scope
+assert 'args+=("refs/remotes/origin/$DEFAULT_BRANCH")' in build_scope
+assert 'scripts/ci/build_test_scope.py "${args[@]}"' in build_scope
+for gated_job in ("native-audio", "native-audio-android", "native-audio-darwin", "linux"):
+    assert "needs.build-scope.outputs.build_required != 'false'" in job(test_only, gated_job)
 
 
 for workflow, profile in (

@@ -68,6 +68,45 @@ class BuildScopeTests(unittest.TestCase):
         self.assertTrue(requires_build_for_push("0" * 40, "1" * 40))
         self.assertTrue(requires_build_for_push("1" * 40, "2" * 40))
 
+    def test_branch_build_checks_both_push_and_default_branch_ranges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            self.run_git(repository, "init", "-q", "--initial-branch=main")
+            self.run_git(repository, "config", "user.name", "CI Test")
+            self.run_git(repository, "config", "user.email", "ci@example.invalid")
+            (repository / "app.dart").write_text("base\n", encoding="utf-8")
+            self.commit(repository, "base")
+            base = self.run_git(repository, "rev-parse", "HEAD").stdout.strip()
+            self.run_git(repository, "switch", "-c", "topic")
+            (repository / "README.md").write_text("Docs\n", encoding="utf-8")
+            self.commit(repository, "docs: add readme")
+            docs = self.run_git(repository, "rev-parse", "HEAD").stdout.strip()
+
+            self.run_git(repository, "switch", "main")
+            (repository / "app.dart").write_text("main change\n", encoding="utf-8")
+            self.commit(repository, "main advances")
+            self.run_git(repository, "update-ref", "refs/remotes/origin/main", "HEAD")
+            self.run_git(repository, "switch", "topic")
+            branch_base = "refs/remotes/origin/main"
+            self.assertFalse(requires_build_for_push(base, docs, repository, branch_base=branch_base))
+            self.assertFalse(requires_build_for_push("0" * 40, docs, repository, branch_base=branch_base))
+            self.assertTrue(requires_build_for_push(base, docs, repository, branch_base="refs/remotes/origin/missing"))
+
+            (repository / "app.dart").write_text("branch change\n", encoding="utf-8")
+            self.commit(repository, "fix: change app")
+            code = self.run_git(repository, "rev-parse", "HEAD").stdout.strip()
+            (repository / "README.md").write_text("More docs\n", encoding="utf-8")
+            self.commit(repository, "docs: update readme")
+            after = self.run_git(repository, "rev-parse", "HEAD").stdout.strip()
+            self.assertFalse(requires_build_for_push(code, after, repository))
+            self.assertTrue(requires_build_for_push(code, after, repository, branch_base=branch_base))
+            self.assertTrue(requires_build_for_push("0" * 40, after, repository, branch_base=branch_base))
+
+            (repository / "app.dart").write_text("base\n", encoding="utf-8")
+            self.commit(repository, "revert app change")
+            reverted = self.run_git(repository, "rev-parse", "HEAD").stdout.strip()
+            self.assertTrue(requires_build_for_push(after, reverted, repository, branch_base=branch_base))
+
     @staticmethod
     def run_git(repository, *args):
         return subprocess.run(
