@@ -62,6 +62,50 @@ final _tree = <dynamic>[
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  for (final translated in [false, true]) {
+    testWidgets('details preserve the queued work name translated=$translated', (
+      tester,
+    ) async {
+      final track = AudioTrack(
+        id: 'queued',
+        title: 'Track',
+        album: 'Queued work',
+        translatedAlbum: translated ? 'Translated work' : null,
+        url: 'local.flac',
+        workId: 7,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            playerWorkDetailsProvider.overrideWith(
+              (ref) async => PlayerWorkDetailsData(
+                track: track,
+                work: _work,
+                fileTree: _tree,
+                variants: const PlayerAudioVariantClassifier().scan(_tree),
+                fileTreeId: 'queued-work',
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: PlayerBackdropGroup(child: PlayerAudioDetailsPanel()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final title = find.descendant(
+        of: find.byKey(const ValueKey('player-detail-album')),
+        matching: find.text(translated ? 'Translated work' : 'Queued work'),
+      );
+      expect(title, findsOneWidget);
+      expect(find.text(_work.title), findsNothing);
+    });
+  }
+
   test(
     'moving audio into a subtitle directory invalidates classification',
     () async {

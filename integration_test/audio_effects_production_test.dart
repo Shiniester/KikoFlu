@@ -496,8 +496,14 @@ Future<List<(double, double)>> _captureProduction(
 
   final player = _newPlayer();
   final native = player.platform as NativePlayer;
-  final statuses = <AudioEffectsStatus>[];
-  final effects = NativeAudioEffects(statuses.add);
+  final ready = Completer<void>();
+  var status = AudioEffectsStatus.waiting;
+  final effects = NativeAudioEffects((value) {
+    status = value;
+    if (value == AudioEffectsStatus.ready && !ready.isCompleted) {
+      ready.complete();
+    }
+  });
   final errors = <String>[];
   final completed = Completer<void>();
   final eofReached = Completer<void>();
@@ -558,11 +564,24 @@ Future<List<(double, double)>> _captureProduction(
       });
     }
 
-    await player.open(Media(source.path)).timeout(const Duration(seconds: 10));
+    await player
+        .open(Media(source.path), play: false)
+        .timeout(const Duration(seconds: 10));
+    await Future.any<void>([
+      ready.future,
+      nativeFailure.future.then<void>((error) {
+        fail('Native playback failed before audio effects were ready: $error');
+      }),
+    ]).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () =>
+          fail('Native audio effects did not become ready: $status'),
+    );
+    await player.play();
     if (duringPlayback != null) {
       await duringPlayback(player, native, effects, pcm);
       expect(
-        statuses.last,
+        status,
         AudioEffectsStatus.ready,
         reason: 'the live native parameter update must be accepted',
       );
@@ -606,12 +625,6 @@ Future<List<(double, double)>> _captureProduction(
     await player.stop();
     expect(_commandStatus(native, ['set', 'ao', 'null']), 0);
     expect(await native.getProperty('current-ao'), isNot('pcm'));
-    expect(
-      statuses,
-      contains(AudioEffectsStatus.ready),
-      reason:
-          'NativeAudioEffects must apply the production graph on this library',
-    );
     expect(
       errors,
       isEmpty,

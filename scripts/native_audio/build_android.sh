@@ -62,7 +62,101 @@ check_cxx_runtime_symbols() {
         fail "libmpv.so imports C++ symbols missing from libc++_shared.so for $abi: $missing_symbols"
 }
 
-[[ "$mode" == arm64 || "$mode" == all ]] || fail "mode must be arm64 or all"
+validate_output() {
+    local arch=$1
+    local abi expected_machine jar entries so_entries expected_entries temp_dir provenance expected expected_filters
+
+    case "$arch" in
+        arm64) abi=arm64-v8a; expected_machine='AArch64' ;;
+        x86_64) abi=x86_64; expected_machine='Advanced Micro Devices X86-64' ;;
+        *) fail "unsupported Android architecture for output validation: $arch" ;;
+    esac
+    expected_filters="filters=$(paste -sd, "$script_dir/filters.txt"),overlay,equalizer"
+
+    jar="$output_dir/default-$abi.jar"
+    provenance="$output_dir/source-provenance-$abi.txt"
+    [[ -s "$jar" ]] || fail "default-$abi.jar is missing or empty"
+    [[ -s "$output_dir/source-provenance.txt" ]] || fail "source-provenance.txt is missing or empty"
+    [[ -s "$provenance" ]] || fail "source-provenance-$abi.txt is missing or empty"
+    if [[ "$abi" == arm64-v8a ]] && ! cmp -s "$output_dir/source-provenance.txt" "$provenance"; then
+        fail "source provenance files do not match for $abi"
+    fi
+
+    unzip -tq "$jar" >/dev/null || fail "default-$abi.jar is not a valid ZIP archive"
+    entries=$(unzip -Z1 "$jar") || fail "could not list default-$abi.jar"
+    for entry in "lib/$abi/libmpv.so" "lib/$abi/libmediakitandroidhelper.so"; do
+        grep -Fxq "$entry" <<< "$entries" || fail "default-$abi.jar is missing $entry"
+    done
+    so_entries=$(grep -E '^lib/.+\.so$' <<< "$entries" | LC_ALL=C sort -u)
+    expected_entries=$(printf '%s\n' "lib/$abi/libmpv.so" "lib/$abi/libmediakitandroidhelper.so" | LC_ALL=C sort)
+    [[ "$so_entries" == "$expected_entries" ]] || fail "default-$abi.jar contains unexpected native libraries"
+
+    temp_dir=$(mktemp -d)
+    unzip -p "$jar" "lib/$abi/libmpv.so" > "$temp_dir/libmpv.so" || fail "could not extract libmpv.so from default-$abi.jar"
+    unzip -p "$jar" "lib/$abi/libmediakitandroidhelper.so" > "$temp_dir/libmediakitandroidhelper.so" ||
+        fail "could not extract libmediakitandroidhelper.so from default-$abi.jar"
+    cmp -s "$temp_dir/libmpv.so" "$output_dir/$abi/libmpv.so" ||
+        fail "default-$abi.jar libmpv.so differs from the loose output"
+    cmp -s "$temp_dir/libmediakitandroidhelper.so" "$output_dir/$abi/libmediakitandroidhelper.so" ||
+        fail "default-$abi.jar helper differs from the loose output"
+    readelf -h "$temp_dir/libmpv.so" | grep -Eq "Machine:[[:space:]]+$expected_machine" ||
+        fail "cached libmpv.so has the wrong ELF machine for $abi"
+    readelf -h "$temp_dir/libmediakitandroidhelper.so" | grep -Eq "Machine:[[:space:]]+$expected_machine" ||
+        fail "cached helper has the wrong ELF machine for $abi"
+    readelf -W -d "$temp_dir/libmpv.so" | grep -Fq 'Shared library: [libc++_shared.so]' ||
+        fail "cached libmpv.so does not depend on libc++_shared.so for $abi"
+    readelf -W -l "$temp_dir/libmediakitandroidhelper.so" |
+        awk '/^[[:space:]]*LOAD/ { found = 1; if ($NF != "0x4000") invalid = 1 } END { exit !(found && !invalid) }' ||
+        fail "cached helper is not aligned for 16 KiB pages for $abi"
+
+    for expected in \
+        "android_arch=$arch" \
+        "android_abi=$abi" \
+        "architectures=$arch" \
+        "runner_image=${NATIVE_AUDIO_ANDROID_RUNNER_IMAGE:?runner image is required for output validation}" \
+        "input_fingerprint=${NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT:?input fingerprint is required for output validation}" \
+        "toolchain_fingerprint=${NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT:?toolchain fingerprint is required for output validation}" \
+        "builder_url=$ANDROID_BUILDER_URL" \
+        "builder_ref=$ANDROID_BUILDER_REF" \
+        "builder_commit=$ANDROID_BUILDER_COMMIT" \
+        "android_helper_commit=$ANDROID_HELPER_COMMIT" \
+        "ffmpeg_version=$FFMPEG_VERSION" \
+        "ffmpeg_commit=$FFMPEG_COMMIT" \
+        "mpv_version=$MPV_VERSION" \
+        "mpv_commit=$MPV_COMMIT" \
+        "libplacebo_version=$LIBPLACEBO_VERSION" \
+        "libplacebo_commit=$LIBPLACEBO_COMMIT" \
+        "gas_preprocessor_commit=$GAS_PREPROCESSOR_COMMIT" \
+        "android_api=$ANDROID_API" \
+        "android_sdk_tools=$ANDROID_SDK_TOOLS" \
+        "android_build_tools=$ANDROID_BUILD_TOOLS" \
+        "android_ndk=$ANDROID_NDK" \
+        "cxx_runtime=libc++_shared.so" \
+        "meson=${NATIVE_AUDIO_ANDROID_MESON_VERSION:-$(meson --version)}" \
+        "ninja=${NATIVE_AUDIO_ANDROID_NINJA_VERSION:-$(ninja --version)}" \
+        "mpv_audio_controls_patch=mpv-audio-controls.patch" \
+        "android_mpv_java_vm_patch=android-mpv-java-vm.patch" \
+        "android_mbedtls_aesce_patch=android-mbedtls-aesce.patch" \
+        "ffmpeg_sendcmd_argument_format=%.17g" \
+        "$expected_filters"; do
+        grep -Fqx "$expected" "$provenance" || fail "Android output provenance is missing or stale: $expected"
+    done
+    rm -rf -- "$temp_dir"
+}
+
+if [[ "$mode" == --validate-output ]]; then
+    [[ $# -eq 2 ]] || fail "usage: build_android.sh --validate-output <arm64|x86_64>"
+    validate_output "$2"
+    exit 0
+fi
+
+case "$mode" in
+    arm64) arches=(arm64) ;;
+    x86_64) arches=(x86_64) ;;
+    all) arches=(arm64 x86_64) ;;
+    *) fail "mode must be arm64, x86_64, or all" ;;
+esac
+
 [[ ! -e "$work_dir" ]] || fail "work directory already exists: $work_dir"
 if [[ -d "$output_dir" ]] && [[ -n "$(find "$output_dir" -mindepth 1 -print -quit)" ]]; then
     fail "output directory is not empty: $output_dir"
@@ -137,12 +231,6 @@ git -C "$mbedtls_source_dir" apply "$script_dir/android-mbedtls-aesce.patch"
 [[ "$(git -C deps/ffmpeg describe --tags --exact-match HEAD)" == "n$FFMPEG_VERSION" ]] ||
     fail "FFmpeg source does not match n$FFMPEG_VERSION"
 
-if [[ "$mode" == all ]]; then
-    arches=(arm64 armv7l x86 x86_64)
-else
-    arches=(arm64)
-fi
-
 helper_cmake_source="$helper_source_dir/app/src/main/cpp"
 helper_cmake="$buildscripts_dir/sdk/android-sdk-linux/cmake/3.22.1/bin/cmake"
 helper_toolchain="$buildscripts_dir/sdk/android-sdk-linux/ndk/$ANDROID_NDK/build/cmake/android.toolchain.cmake"
@@ -155,8 +243,6 @@ grep -Fq -- '-Wl,-z,max-page-size=16384' "$helper_cmake_source/CMakeLists.txt" |
 for arch in "${arches[@]}"; do
     case "$arch" in
         arm64) abi=arm64-v8a; expected_machine='AArch64'; cxx_runtime_arch=aarch64-linux-android ;;
-        armv7l) abi=armeabi-v7a; expected_machine='ARM'; cxx_runtime_arch=arm-linux-androideabi ;;
-        x86) abi=x86; expected_machine='Intel 80386'; cxx_runtime_arch=i686-linux-android ;;
         x86_64) abi=x86_64; expected_machine='Advanced Micro Devices X86-64'; cxx_runtime_arch=x86_64-linux-android ;;
         *) fail "unsupported Android architecture: $arch" ;;
     esac
@@ -201,38 +287,50 @@ for arch in "${arches[@]}"; do
         fail "default-$abi.jar is missing lib/$abi/libmpv.so"
     unzip -Z1 "$output_dir/default-$abi.jar" | grep -Fxq "lib/$abi/libmediakitandroidhelper.so" ||
         fail "default-$abi.jar is missing lib/$abi/libmediakitandroidhelper.so"
+
+    {
+        printf 'builder_url=%s\n' "$ANDROID_BUILDER_URL"
+        printf 'builder_ref=%s\n' "$ANDROID_BUILDER_REF"
+        printf 'builder_commit=%s\n' "$ANDROID_BUILDER_COMMIT"
+        printf 'android_helper_commit=%s\n' "$ANDROID_HELPER_COMMIT"
+        printf 'ffmpeg_version=%s\n' "$FFMPEG_VERSION"
+        printf 'ffmpeg_commit=%s\n' "$FFMPEG_COMMIT"
+        printf 'mpv_version=%s\n' "$MPV_VERSION"
+        printf 'mpv_commit=%s\n' "$MPV_COMMIT"
+        printf 'libplacebo_version=%s\n' "$LIBPLACEBO_VERSION"
+        printf 'libplacebo_commit=%s\n' "$LIBPLACEBO_COMMIT"
+        printf 'mpv_audio_controls_patch=%s\n' 'mpv-audio-controls.patch'
+        printf 'android_mpv_java_vm_patch=%s\n' 'android-mpv-java-vm.patch'
+        printf 'android_mbedtls_aesce_patch=%s\n' 'android-mbedtls-aesce.patch'
+        printf 'ffmpeg_sendcmd_argument_format=%s\n' '%.17g'
+        printf 'gas_preprocessor_commit=%s\n' "$GAS_PREPROCESSOR_COMMIT"
+        printf 'android_api=%s\n' "$ANDROID_API"
+        printf 'android_sdk_tools=%s\n' "$ANDROID_SDK_TOOLS"
+        printf 'android_build_tools=%s\n' "$ANDROID_BUILD_TOOLS"
+        printf 'android_ndk=%s\n' "$ANDROID_NDK"
+        printf 'cxx_runtime=libc++_shared.so\n'
+        printf 'meson=%s\n' "$(meson --version)"
+        printf 'ninja=%s\n' "$(ninja --version)"
+        printf 'architectures=%s\n' "$arch"
+        printf 'android_arch=%s\n' "$arch"
+        printf 'android_abi=%s\n' "$abi"
+        printf 'runner_image=%s\n' "${NATIVE_AUDIO_ANDROID_RUNNER_IMAGE:-local}"
+        printf 'input_fingerprint=%s\n' "${NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT:-local}"
+        printf 'toolchain_fingerprint=%s\n' "${NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT:-local}"
+        printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
+        printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        printf 'source_revisions:\n'
+        for package_dir in "$buildscripts_dir"/deps/*; do
+            [[ -d "$package_dir/.git" || -f "$package_dir/.git" ]] || continue
+            package_commit=$(git -C "$package_dir" rev-parse HEAD)
+            printf '  %s=%s\n' "$(basename "$package_dir")" "$package_commit"
+            git -C "$package_dir" submodule status --recursive 2>/dev/null | sed 's/^/    /'
+        done
+    } > "$output_dir/source-provenance-$abi.txt"
 done
 
-{
-    printf 'builder_url=%s\n' "$ANDROID_BUILDER_URL"
-    printf 'builder_ref=%s\n' "$ANDROID_BUILDER_COMMIT"
-    printf 'android_helper_commit=%s\n' "$ANDROID_HELPER_COMMIT"
-    printf 'ffmpeg_version=%s\n' "$FFMPEG_VERSION"
-    printf 'ffmpeg_commit=%s\n' "$FFMPEG_COMMIT"
-    printf 'mpv_version=%s\n' "$MPV_VERSION"
-    printf 'mpv_commit=%s\n' "$MPV_COMMIT"
-    printf 'libplacebo_version=%s\n' "$LIBPLACEBO_VERSION"
-    printf 'libplacebo_commit=%s\n' "$LIBPLACEBO_COMMIT"
-    printf 'mpv_audio_controls_patch=%s\n' 'mpv-audio-controls.patch'
-    printf 'android_mpv_java_vm_patch=%s\n' 'android-mpv-java-vm.patch'
-    printf 'android_mbedtls_aesce_patch=%s\n' 'android-mbedtls-aesce.patch'
-    printf 'ffmpeg_sendcmd_argument_format=%s\n' '%.17g'
-    printf 'gas_preprocessor_commit=%s\n' "$GAS_PREPROCESSOR_COMMIT"
-    printf 'android_api=%s\n' "$ANDROID_API"
-    printf 'android_sdk_tools=%s\n' "$ANDROID_SDK_TOOLS"
-    printf 'android_build_tools=%s\n' "$ANDROID_BUILD_TOOLS"
-    printf 'android_ndk=%s\n' "$ANDROID_NDK"
-    printf 'cxx_runtime=libc++_shared.so\n'
-    printf 'meson=%s\n' "$(meson --version)"
-    printf 'ninja=%s\n' "$(ninja --version)"
-    printf 'architectures=%s\n' "${arches[*]}"
-    printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
-    printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-    printf 'source_revisions:\n'
-    for package_dir in "$buildscripts_dir"/deps/*; do
-        [[ -d "$package_dir/.git" || -f "$package_dir/.git" ]] || continue
-        package_commit=$(git -C "$package_dir" rev-parse HEAD)
-        printf '  %s=%s\n' "$(basename "$package_dir")" "$package_commit"
-        git -C "$package_dir" submodule status --recursive 2>/dev/null | sed 's/^/    /'
-    done
-} > "$output_dir/source-provenance.txt"
+if [[ -s "$output_dir/source-provenance-arm64-v8a.txt" ]]; then
+    cp "$output_dir/source-provenance-arm64-v8a.txt" "$output_dir/source-provenance.txt"
+else
+    cp "$output_dir/source-provenance-x86_64.txt" "$output_dir/source-provenance.txt"
+fi

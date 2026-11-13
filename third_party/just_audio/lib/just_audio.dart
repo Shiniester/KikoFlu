@@ -133,7 +133,7 @@ class AudioPlayer {
   final _androidAudioSessionIdSubject = BehaviorSubject<int?>();
   final _positionDiscontinuitySubject =
       PublishSubject<PositionDiscontinuity>(sync: true);
-  var _seeking = false;
+  SeekRequest? _seekRequest;
   // ignore: close_sinks
   BehaviorSubject<Duration>? _positionSubject;
   bool _automaticallyWaitsToMinimizeStalling = true;
@@ -225,7 +225,7 @@ class AudioPlayer {
       final prev = pair.first;
       final curr = pair.last;
       // Detect auto-advance
-      if (_seeking) return;
+      if (_seekRequest != null) return;
       if (prev.currentIndex == null || curr.currentIndex == null) return;
       if (curr.currentIndex != prev.currentIndex) {
         // If we've changed item without seeking, it must be an autoAdvance.
@@ -593,8 +593,11 @@ class AudioPlayer {
 
   Duration _getPositionFor(PlaybackEvent playbackEvent) {
     if (playing && processingState == ProcessingState.ready) {
-      final result = playbackEvent.updatePosition +
-          (DateTime.now().difference(playbackEvent.updateTime)) * speed;
+      var result = playbackEvent.updatePosition;
+      // The playback clock has yet to restart at the seek target.
+      if (_seekRequest == null) {
+        result += DateTime.now().difference(playbackEvent.updateTime) * speed;
+      }
       return playbackEvent.duration == null || result <= playbackEvent.duration!
           ? result
           : playbackEvent.duration!;
@@ -1178,8 +1181,9 @@ class AudioPlayer {
       case ProcessingState.loading:
         return;
       default:
+        final request = SeekRequest(position: position, index: index);
+        _seekRequest = request;
         try {
-          _seeking = true;
           final prevPlaybackEvent = _playbackEvent;
           _playbackEvent = prevPlaybackEvent.copyWith(
             updatePosition: position,
@@ -1190,10 +1194,9 @@ class AudioPlayer {
               PositionDiscontinuityReason.seek,
               prevPlaybackEvent,
               _playbackEvent));
-          await (await _platform)
-              .seek(SeekRequest(position: position, index: index));
+          await (await _platform).seek(request);
         } finally {
-          _seeking = false;
+          if (identical(_seekRequest, request)) _seekRequest = null;
         }
     }
   }

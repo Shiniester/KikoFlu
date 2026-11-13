@@ -51,6 +51,16 @@ for package_version in \
     [[ "$(lock_value "$package" version)" == "$expected_version" ]] ||
         fail "$package download version differs from common.lock"
 done
+for cross_file in ios-arm64.ini iossimulator-arm64.ini macos-arm64.ini; do
+    [[ -f "$source_dir/cross-files/$cross_file" ]] ||
+        fail "required arm64 cross-file is missing: $cross_file"
+    grep -Fq "cpu = 'arm64'" "$source_dir/cross-files/$cross_file" ||
+        fail "$cross_file does not target arm64"
+done
+macos_cross_file="$source_dir/cross-files/macos-arm64.ini"
+macos_minimum_count=$(grep -Fc -- "-mmacosx-version-min=$DARWIN_MACOS_MIN_VERSION" "$macos_cross_file" || true)
+[[ "$macos_minimum_count" == 8 ]] ||
+    fail "macOS arm64 cross-file must set the $DARWIN_MACOS_MIN_VERSION deployment target for all compile and link flags"
 [[ "$(lock_value mpv url)" == "https://github.com/mpv-player/mpv/archive/$MPV_COMMIT.tar.gz" ]] ||
     fail 'MPV download is not pinned to the common.lock commit'
 [[ "$(lock_value ffmpeg url)" == "https://github.com/FFmpeg/FFmpeg/archive/$FFMPEG_COMMIT.tar.gz" ]] ||
@@ -194,8 +204,8 @@ grep -Fq -- '-Dvulkan=disabled' "$libplacebo_build" ||
 grep -Fq 'git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/libplacebo-darwin-charconv.patch"' "$libplacebo_build" ||
     fail 'libplacebo Darwin charconv fallback patch is not applied'
 for target in \
-    "source_minimum='-mmacosx-version-min=10.9'" \
-    "sed_expression='s/-mmacosx-version-min=10[.]9/-mmacosx-version-min=10.15/g'" \
+    "source_minimum='-mmacosx-version-min=$DARWIN_MACOS_MIN_VERSION'" \
+    "sed_expression=''" \
     "source_minimum='-miphoneos-version-min=9.0'" \
     "sed_expression='s/-miphoneos-version-min=9[.]0/-miphoneos-version-min=13.0/g'" \
     "source_minimum='-mios-simulator-version-min=12.0'" \

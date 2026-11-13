@@ -1093,7 +1093,7 @@ class _QueueTrackTile extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  track.title,
+                                  track.displayTitle,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: titleStyle,

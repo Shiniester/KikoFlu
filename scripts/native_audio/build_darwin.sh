@@ -75,20 +75,6 @@ git -C "$recipe_dir" apply --unidiff-zero --check "$script_dir/darwin-download-r
 git -C "$recipe_dir" apply --unidiff-zero "$script_dir/darwin-download-retry.patch"
 cp "$script_dir/darwin_download_test.go" "$recipe_dir/cmd/downloads/retry_test.go"
 (cd "$recipe_dir" && go test ./cmd/downloads)
-python3 "$script_dir/rewrite_darwin_sdk_paths.py" "$recipe_dir/cross-files" \
-    --macos-sdk "$actual_macos_sdk_path" \
-    --ios-sdk "$actual_ios_sdk_path" \
-    --ios-simulator-sdk "$actual_ios_simulator_sdk_path"
-cp "$script_dir/libpng-macos-fp-header.patch" "$recipe_dir/patches/libpng-macos-fp-header.patch"
-cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$recipe_dir/patches/ffmpeg-sendcmd-precision.patch"
-cp "$script_dir/darwin-ffmpeg-system-trust.patch" "$recipe_dir/patches/darwin-ffmpeg-system-trust.patch"
-cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"
-cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"
-cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"
-cp "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$recipe_dir/patches/mpv-vulkan-metal-layer.patch"
-cp "$script_dir/pkg-config-glib-atomics.patch" "$recipe_dir/patches/pkg-config-glib-atomics.patch"
-bash "$script_dir/check_darwin_config.sh" "$recipe_dir"
-
 (
     cd "$recipe_dir"
     make build/intermediate/downloads
@@ -106,6 +92,19 @@ tar -xzf "$recipe_dir/build/intermediate/downloads/pkg-config-0.29.2.tar.gz" \
 DARWIN_NATIVE_SOURCE_DIR="$pinned_sources" \
 DARWIN_RECIPE_SOURCE_DIR="$recipe_dir" \
     python3 "$script_dir/test_darwin_native.py"
+python3 "$script_dir/rewrite_darwin_sdk_paths.py" "$recipe_dir/cross-files" \
+    --macos-sdk "$actual_macos_sdk_path" \
+    --ios-sdk "$actual_ios_sdk_path" \
+    --ios-simulator-sdk "$actual_ios_simulator_sdk_path"
+cp "$script_dir/libpng-macos-fp-header.patch" "$recipe_dir/patches/libpng-macos-fp-header.patch"
+cp "$script_dir/ffmpeg-sendcmd-precision.patch" "$recipe_dir/patches/ffmpeg-sendcmd-precision.patch"
+cp "$script_dir/darwin-ffmpeg-system-trust.patch" "$recipe_dir/patches/darwin-ffmpeg-system-trust.patch"
+cp "$script_dir/darwin-ffmpeg-ios-hdr.patch" "$recipe_dir/patches/ffmpeg-fix-ios-hdr-texture.patch"
+cp "$script_dir/darwin-libplacebo-charconv.patch" "$recipe_dir/patches/libplacebo-darwin-charconv.patch"
+cp "$script_dir/mpv-audio-controls.patch" "$recipe_dir/patches/mpv-audio-controls.patch"
+cp "$script_dir/darwin-mpv-vulkan-metal-layer.patch" "$recipe_dir/patches/mpv-vulkan-metal-layer.patch"
+cp "$script_dir/pkg-config-glib-atomics.patch" "$recipe_dir/patches/pkg-config-glib-atomics.patch"
+bash "$script_dir/check_darwin_config.sh" "$recipe_dir"
 
 printf 'Darwin recipe: %s @ %s\n' "$DARWIN_RECIPE_REF" "$actual_commit"
 printf 'Xcode: %s (%s), iOS SDK %s, macOS SDK %s\n' \
@@ -118,8 +117,8 @@ grep -A3 '^ffmpeg:' "$recipe_dir/downloads.lock"
 grep -A3 '^mpv:' "$recipe_dir/downloads.lock"
 grep -A3 '^libplacebo:' "$recipe_dir/downloads.lock"
 
-ios_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-universal-video-default.tar.gz"
-macos_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-universal-video-default.tar.gz"
+ios_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-arm64-video-default.tar.gz"
+macos_artifact="build/output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-arm64-video-default.tar.gz"
 (
     cd "$recipe_dir"
     make "VERSION=$DARWIN_OUTPUT_VERSION" "$ios_artifact" "$macos_artifact"
@@ -161,6 +160,9 @@ cp -f "$recipe_dir/$macos_artifact" "$output_dir/"
     printf 'libplacebo_source_commit=%s\n' "$LIBPLACEBO_COMMIT"
     printf 'ios_minimum=%s\n' "$DARWIN_IOS_MIN_VERSION"
     printf 'macos_minimum=%s\n' "$DARWIN_MACOS_MIN_VERSION"
+    printf 'ios_device_architectures=arm64\n'
+    printf 'ios_simulator_architectures=arm64\n'
+    printf 'macos_architectures=arm64\n'
     printf 'filters=%s,overlay,equalizer\n' "$(paste -sd, "$script_dir/filters.txt")"
     printf 'patches=darwin-recipe.patch,darwin-download-retry.patch,libpng-macos-fp-header.patch,ffmpeg-sendcmd-precision.patch,darwin-ffmpeg-system-trust.patch,darwin-ffmpeg-ios-hdr.patch,darwin-libplacebo-charconv.patch,mpv-audio-controls.patch,darwin-mpv-vulkan-metal-layer.patch,pkg-config-glib-atomics.patch\n'
     printf 'built_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

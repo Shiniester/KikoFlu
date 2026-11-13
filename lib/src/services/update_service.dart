@@ -311,16 +311,25 @@ class UpdateService {
     Map<String, dynamic>? result;
     switch (os) {
       case 'android':
-        result = assetList.firstWhere(
-          (a) {
-            final name = (a['name'] as String? ?? '').toLowerCase();
-            return name.endsWith('.apk') && name.contains('arm64-v8a');
-          },
-          orElse: () => assetList.firstWhere(
-            (a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.apk'),
-            orElse: () => <String, dynamic>{},
-          ),
-        );
+        final architecture = targetAbi ?? Abi.current();
+        if (architecture != Abi.androidArm64 &&
+            architecture != Abi.androidArm &&
+            architecture != Abi.androidX64) {
+          return null;
+        }
+        final arm64Asset = architecture == Abi.androidArm64
+            ? assetList.firstWhere((asset) {
+                final name = (asset['name'] as String? ?? '').toLowerCase();
+                return name.endsWith('.apk') && name.contains('arm64-v8a');
+              }, orElse: () => <String, dynamic>{})
+            : <String, dynamic>{};
+        result = arm64Asset.isNotEmpty
+            ? arm64Asset
+            : assetList.firstWhere((asset) {
+                final name = (asset['name'] as String? ?? '').toLowerCase();
+                return name.endsWith('.apk') &&
+                    (name.contains('universe') || name.contains('universal'));
+              }, orElse: () => <String, dynamic>{});
         break;
       case 'windows':
         result = assetList.firstWhere(
@@ -335,6 +344,7 @@ class UpdateService {
         );
         break;
       case 'macos':
+        if ((targetAbi ?? Abi.current()) != Abi.macosArm64) return null;
         result = assetList.firstWhere(
           (a) => (a['name'] as String? ?? '').toLowerCase().endsWith('.dmg'),
           orElse: () => <String, dynamic>{},

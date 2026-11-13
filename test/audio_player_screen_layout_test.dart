@@ -60,6 +60,78 @@ void main() {
     );
   });
 
+  for (final surface in [
+    PlayerInitialSurface.main,
+    PlayerInitialSurface.queue,
+  ]) {
+    testWidgets('player $surface shows the queued translated name', (
+      tester,
+    ) async {
+      const track = AudioTrack(
+        id: 'translated-track',
+        title: 'Original track.wav',
+        translatedTitle: 'Translated track.wav',
+        album: 'Original work',
+        translatedAlbum: 'Translated work',
+        url: 'https://example.invalid/audio.wav',
+      );
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        track: track,
+        initialSurface: surface,
+        disableThemeArtwork: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Translated track.wav'), findsWidgets);
+      expect(find.text('Original track.wav'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('mini player shows the queued translated name', (tester) async {
+    const track = AudioTrack(
+      id: 'translated-mini-track',
+      title: 'Original track.wav',
+      translatedTitle: 'Translated track.wav',
+      artist: 'Artist',
+      url: 'https://example.invalid/audio.wav',
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      track: track,
+      miniPlayerEntry: true,
+      disableThemeArtwork: true,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Translated track.wav'), findsOneWidget);
+    expect(find.text('Original track.wav'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide player shows the queued translated work title', (
+    tester,
+  ) async {
+    const track = AudioTrack(
+      id: 'translated-work',
+      title: 'Original track.wav',
+      album: 'Original work',
+      translatedAlbum: 'Translated work',
+      url: 'https://example.invalid/audio.wav',
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(1280, 720),
+      track: track,
+      disableThemeArtwork: true,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Translated work'), findsOneWidget);
+    expect(find.text('Original work'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(390, 844), const Size(1100, 800)]) {
     testWidgets('work progress updates locally during entry at $size', (
       tester,
@@ -690,6 +762,38 @@ void main() {
     expect(preview.bottom, lessThanOrEqualTo(controlsAfter.bottom));
     expect(controlsAfter.bottom, lessThanOrEqualTo(size.height));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide preview keeps its state when new lyrics arrive', (
+    tester,
+  ) async {
+    late _MutableScreenLyrics lyrics;
+    await _pumpPlayer(
+      tester,
+      const Size(900, 1200),
+      lyricControllerFactory: (ref) => lyrics = _MutableScreenLyrics(ref),
+    );
+    final preview = find.byWidgetPredicate(
+      (widget) => widget is ThreeLineLyricDisplay && widget.key is GlobalKey,
+      skipOffstage: false,
+    );
+    expect(preview, findsOneWidget);
+    final state = tester.state(preview);
+    lyrics.replace(
+      LyricState(
+        trackKey: 'new-track',
+        lyrics: [
+          LyricLine(
+            startTime: const Duration(seconds: 5),
+            endTime: const Duration(seconds: 6),
+            text: 'new lyric',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.state(preview), same(state));
+    expect(find.text('new lyric'), findsOneWidget);
   });
 
   testWidgets('wide preview keeps browsing state across rotation', (
@@ -6985,6 +7089,7 @@ Future<void> _pumpPlayer(
   AudioTrack track = _track,
   PlayerWorkDetailsData? workDetails,
   LyricState? lyricState,
+  LyricController Function(Ref ref)? lyricControllerFactory,
   AudioSliceState? sliceState,
   Locale locale = const Locale('en'),
   TargetPlatform? platform,
@@ -7072,7 +7177,9 @@ Future<void> _pumpPlayer(
             onWorkDetailsLoad?.call();
             return workDetails;
           }),
-        if (lyrics != null || lyricState != null)
+        if (lyricControllerFactory != null)
+          lyricControllerProvider.overrideWith(lyricControllerFactory)
+        else if (lyrics != null || lyricState != null)
           lyricControllerProvider.overrideWith(
             (ref) => LyricController(
               ref,
@@ -7144,6 +7251,12 @@ Widget _tabNavigatorHome(AppNavigationController navigation, Widget detail) =>
       observers: [navigation.tabObserver(0), navigation.tabHeroController(0)],
       onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => detail),
     );
+
+class _MutableScreenLyrics extends LyricController {
+  _MutableScreenLyrics(super.ref);
+
+  void replace(LyricState value) => state = value;
+}
 
 class _RepeatModeAudioController extends AudioPlayerController {
   _RepeatModeAudioController(Ref ref, this.onRepeatModeChanged)

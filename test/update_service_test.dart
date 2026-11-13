@@ -95,9 +95,9 @@ void main() {
           },
       ];
       final cases = <(String, Abi?, String)>[
-        ('android', null, 'Iroru-android-arm64-v8a_4192.apk'),
+        ('android', Abi.androidArm64, 'Iroru-android-arm64-v8a_4192.apk'),
         ('windows', null, 'Iroru-windows-setup_4192.exe'),
-        ('macos', null, 'Iroru-macos_4192.dmg'),
+        ('macos', Abi.macosArm64, 'Iroru-macos_4192.dmg'),
         ('linux', Abi.linuxX64, 'Iroru-linux-x64_4192.tar.gz'),
         ('linux', Abi.linuxArm64, 'Iroru-linux-arm64_4192.tar.gz'),
         ('ios', null, 'Iroru-ios-unsigned_4192.ipa'),
@@ -119,10 +119,54 @@ void main() {
       final matched = service.findPlatformAsset(
         assets,
         targetPlatform: 'android',
+        targetAbi: Abi.androidArm64,
       );
       expect(matched, isNotNull);
       expect(matched!['name'], 'KikoFlu-android-arm64-v8a_4192.apk');
       expect(matched['browser_download_url'], 'https://example.com/arm64.apk');
+    });
+
+    test('uses a legacy universal APK for supported Android ABIs', () {
+      final service = UpdateService();
+      for (final abi in [Abi.androidArm64, Abi.androidArm, Abi.androidX64]) {
+        expect(
+          service.findPlatformAsset(
+            assets
+                .where(
+                  (asset) => !(asset['name']! as String).contains('arm64-v8a'),
+                )
+                .toList(),
+            targetPlatform: 'android',
+            targetAbi: abi,
+          )?['name'],
+          'KikoFlu-android-universe_4192.apk',
+        );
+      }
+    });
+
+    test('does not offer an arm64 APK to other Android architectures', () {
+      final service = UpdateService();
+      final arm64Only = assets
+          .where((asset) => (asset['name']! as String).contains('arm64-v8a'))
+          .toList();
+      for (final abi in [Abi.androidArm, Abi.androidX64, Abi.androidIA32]) {
+        expect(
+          service.findPlatformAsset(
+            arm64Only,
+            targetPlatform: 'android',
+            targetAbi: abi,
+          ),
+          isNull,
+        );
+      }
+      expect(
+        service.findPlatformAsset(
+          assets,
+          targetPlatform: 'android',
+          targetAbi: Abi.androidIA32,
+        ),
+        isNull,
+      );
     });
 
     test('matches Windows setup EXE preferentially', () {
@@ -136,14 +180,26 @@ void main() {
       expect(matched['browser_download_url'], 'https://example.com/setup.exe');
     });
 
-    test('matches macOS DMG', () {
+    test('matches the macOS DMG on Apple Silicon', () {
       final service = UpdateService();
       final matched = service.findPlatformAsset(
         assets,
         targetPlatform: 'macos',
+        targetAbi: Abi.macosArm64,
       );
       expect(matched, isNotNull);
       expect(matched!['name'], 'KikoFlu-macos_4192.dmg');
+    });
+
+    test('does not offer the macOS DMG on Intel', () {
+      expect(
+        UpdateService().findPlatformAsset(
+          assets,
+          targetPlatform: 'macos',
+          targetAbi: Abi.macosX64,
+        ),
+        isNull,
+      );
     });
 
     test('matches Linux x64 even when ARM64 is listed first', () {
@@ -177,6 +233,20 @@ void main() {
         targetAbi: Abi.linuxX64,
       );
       expect(matched, isNull);
+    });
+
+    test('does not offer the Linux x64 package to arm64', () {
+      final service = UpdateService();
+      expect(
+        service.findPlatformAsset(
+          assets
+              .where((asset) => asset['name']!.toString().contains('linux-x64'))
+              .toList(),
+          targetPlatform: 'linux',
+          targetAbi: Abi.linuxArm64,
+        ),
+        isNull,
+      );
     });
 
     test('does not offer a package for unsupported Linux architectures', () {

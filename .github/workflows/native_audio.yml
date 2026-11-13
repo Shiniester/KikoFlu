@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       android_all_abis:
-        description: Build all four Android ABIs instead of the arm64 gate ABI
+        description: Build both supported Android ABIs instead of the arm64 gate ABI
         required: false
         type: boolean
         default: false
@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       android_all_abis:
-        description: Build all four Android ABIs instead of the arm64 gate ABI
+        description: Build both supported Android ABIs instead of the arm64 gate ABI
         required: false
         type: boolean
         default: false
@@ -71,6 +71,19 @@ jobs:
           fi
           echo "Building native audio libraries for ${INPUT_COMMIT_SHA:-$GITHUB_SHA}." >> "$GITHUB_STEP_SUMMARY"
 
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Verify selected Android native interface
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/ci/validate_release_source.py ]]; then
+            echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
+            exit 1
+          fi
+          python3 scripts/ci/validate_release_source.py android
+
   build-windows:
     name: Build Windows libmpv
     needs: validate-inputs
@@ -97,17 +110,124 @@ jobs:
             --requirement scripts/native_audio/requirements.txt
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
+      - name: Fingerprint installed Ubuntu build toolchain
+        id: windows-toolchain
+        run: |
+          set -euo pipefail
+          {
+            dpkg-query -W -f='${binary:Package}=${Version}\n' | LC_ALL=C sort
+            python3 -m pip freeze | LC_ALL=C sort
+            gcc --version | sed -n '1p'
+            g++ --version | sed -n '1p'
+            cmake --version | sed -n '1p'
+            ninja --version
+            meson --version
+            pkgconf --version
+            python3 --version
+          } > "$RUNNER_TEMP/native-audio-windows-toolchain.txt"
+          fingerprint=$(sha256sum "$RUNNER_TEMP/native-audio-windows-toolchain.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Record Ubuntu runner image
+        id: windows-runner-image
+        run: |
+          set -euo pipefail
+          : "${ImageOS:?GitHub runner did not provide ImageOS}"
+          : "${ImageVersion:?GitHub runner did not provide ImageVersion}"
+          echo "image=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+      - name: Fingerprint Windows build inputs
+        id: windows-inputs
+        env:
+          INPUT_FINGERPRINT: ${{ hashFiles('scripts/native_audio/build_windows.sh', 'scripts/native_audio/check_windows_config.sh', 'scripts/native_audio/windows.lock', 'scripts/native_audio/common.lock', 'scripts/native_audio/requirements.txt', 'scripts/native_audio/windows-effects.patch', 'scripts/native_audio/windows-toolchain.patch', 'scripts/native_audio/windows-dependencies.patch', 'scripts/native_audio/windows-zstd.patch', 'scripts/native_audio/windows-opus.patch', 'scripts/native_audio/windows-libdvd.patch', 'scripts/native_audio/windows-optical-media.patch', 'scripts/native_audio/windows-zimg.patch', 'scripts/native_audio/windows-fonts.patch', 'scripts/native_audio/windows-rust.patch', 'scripts/native_audio/mpv-audio-controls.patch', 'scripts/native_audio/apply_mpv_audio_controls.sh', 'scripts/native_audio/ffmpeg-sendcmd-precision.patch', 'scripts/native_audio/apply_ffmpeg_sendcmd_precision.sh', 'scripts/native_audio/windows-ffmpeg-native-trust.patch', 'scripts/native_audio/libarchive-openssl-static.patch', 'scripts/native_audio/vulkan-loader-static.patch', 'scripts/native_audio/windows-mpv-audio-controls.patch', 'scripts/native_audio/windows-git-closure.patch', 'scripts/native_audio/windows-vulkan-smoke.c', 'scripts/native_audio/filters.txt') }}
+        run: |
+          set -euo pipefail
+          : "${INPUT_FINGERPRINT:?Windows build input fingerprint is empty}"
+          echo "fingerprint=$INPUT_FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Fingerprint Windows workflow steps
+        id: windows-workflow
+        run: |
+          set -euo pipefail
+          awk '
+            /^  build-windows:$/ { in_windows_job = 1 }
+            /^  build-android:$/ { in_windows_job = 0 }
+            in_windows_job { print }
+          ' .github/workflows/native_audio.yml > "$RUNNER_TEMP/native-audio-windows-workflow.txt"
+          [[ -s "$RUNNER_TEMP/native-audio-windows-workflow.txt" ]]
+          fingerprint=$(sha256sum "$RUNNER_TEMP/native-audio-windows-workflow.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Windows libmpv output cache
+        id: windows-output-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-windows
+          key: native-audio-windows-output-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-runner-image.outputs.image }}-${{ steps.windows-toolchain.outputs.fingerprint }}-${{ steps.windows-inputs.outputs.fingerprint }}-${{ steps.windows-workflow.outputs.fingerprint }}-${{ inputs.commit_sha != '' && inputs.commit_sha != github.sha && github.sha || 'current-source' }}
+
+      - name: Check restored Windows libmpv output
+        id: windows-output-check
+        env:
+          NATIVE_AUDIO_OUTPUT_DIR: ${{ runner.temp }}/native-audio-windows
+          WINDOWS_OUTPUT_CACHE_HIT: ${{ steps.windows-output-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [[ "$WINDOWS_OUTPUT_CACHE_HIT" != 'true' ]]; then
+            # The cache action can restore prefix matches; only exact hits may be reused.
+            rm -rf -- "$NATIVE_AUDIO_OUTPUT_DIR"
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          source scripts/native_audio/windows.lock
+          provenance="$NATIVE_AUDIO_OUTPUT_DIR/source-provenance.txt"
+          valid=true
+          for file in \
+            mpv-dev/libmpv-2.dll \
+            mpv-dev/include/mpv/client.h \
+            mpv-dev/include/mpv/stream_cb.h \
+            mpv-dev/include/mpv/render.h \
+            mpv-dev/include/mpv/render_gl.h \
+            vulkan-smoke.exe \
+            source-provenance.txt; do
+            if [[ ! -s "$NATIVE_AUDIO_OUTPUT_DIR/$file" ]]; then
+              echo "::warning::Cached Windows libmpv output is missing $file."
+              valid=false
+            fi
+          done
+          if [[ "$valid" == 'true' ]]; then
+            for expected in \
+              "recipe_ref=$RECIPE_COMMIT" \
+              "mpv_commit=$MPV_COMMIT" \
+              "ffmpeg_commit=$FFMPEG_COMMIT" \
+              "compiler_bundle=$LLVM_MINGW_DIR" \
+              "target_arch=$TARGET_ARCH" \
+              "rust_version=$RUST_VERSION" \
+              "rust_target=$RUST_TARGET" \
+              "cargo_c_version=$CARGO_C_VERSION"; do
+              if ! grep -Fqx "$expected" "$provenance"; then
+                echo "::warning::Cached Windows libmpv provenance is missing or stale: $expected."
+                valid=false
+              fi
+            done
+          fi
+          if [[ "$valid" != 'true' ]]; then
+            rm -rf -- "$NATIVE_AUDIO_OUTPUT_DIR"
+          fi
+          echo "valid=$valid" >> "$GITHUB_OUTPUT"
+
       - name: Restore pinned Rust toolchain cache
         id: rust-cache
+        if: ${{ steps.windows-output-cache.outputs.cache-hit != 'true' || steps.windows-output-check.outputs.valid != 'true' }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/rustup
-          key: native-audio-rust-1.99.1-cargo-c-0.10.26-${{ runner.os }}-${{ hashFiles('scripts/native_audio/windows-rust.patch') }}
-          restore-keys: |
-            native-audio-rust-1.99.1-cargo-c-0.10.26-${{ runner.os }}-
+          key: native-audio-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-runner-image.outputs.image }}-${{ steps.windows-toolchain.outputs.fingerprint }}-${{ hashFiles('scripts/native_audio/windows.lock', 'scripts/native_audio/common.lock', 'scripts/native_audio/windows-rust.patch') }}
 
       - name: Build pinned Windows libmpv
         id: native-build
+        if: ${{ steps.windows-output-cache.outputs.cache-hit != 'true' || steps.windows-output-check.outputs.valid != 'true' }}
         env:
           NATIVE_AUDIO_OUTPUT_DIR: ${{ runner.temp }}/native-audio-windows
         run: |
@@ -120,6 +240,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/rustup
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+      - name: Save Windows libmpv output cache
+        if: ${{ success() && steps.windows-output-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-windows
+          key: ${{ steps.windows-output-cache.outputs.cache-primary-key }}
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v6
@@ -137,10 +265,14 @@ jobs:
           if-no-files-found: warn
 
   build-android:
-    name: Build Android libmpv
+    name: Build Android libmpv (${{ matrix.arch }})
     needs: validate-inputs
     if: ${{ !inputs.windows_only }}
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ inputs.android_all_abis && fromJSON('["arm64","x86_64"]') || fromJSON('["arm64"]') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -166,15 +298,219 @@ jobs:
             --requirement scripts/native_audio/requirements.txt
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
-      - name: Build Android libmpv
+      - name: Fingerprint Android build inputs
+        id: android-inputs
+        env:
+          INPUT_FINGERPRINT: ${{ hashFiles('scripts/native_audio/build_android.sh', 'scripts/native_audio/check_android_config.sh', 'scripts/native_audio/android.lock', 'scripts/native_audio/common.lock', 'scripts/native_audio/requirements.txt', 'scripts/native_audio/android-effects.patch', 'scripts/native_audio/android-mpv-java-vm.patch', 'scripts/native_audio/android-mbedtls-aesce.patch', 'scripts/native_audio/mpv-audio-controls.patch', 'scripts/native_audio/ffmpeg-sendcmd-precision.patch', 'scripts/native_audio/apply_mpv_audio_controls.sh', 'scripts/native_audio/apply_ffmpeg_sendcmd_precision.sh', 'scripts/native_audio/filters.txt') }}
+        run: |
+          set -euo pipefail
+          : "${INPUT_FINGERPRINT:?Android build input fingerprint is empty}"
+          echo "fingerprint=$INPUT_FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Fingerprint Android build workflow
+        id: android-workflow
+        run: |
+          set -euo pipefail
+          awk '
+            /^  build-android:$/ { in_android_job = 1 }
+            in_android_job && /^  assemble-android:$/ { in_android_job = 0 }
+            in_android_job { print }
+          ' .github/workflows/native_audio.yml > "$RUNNER_TEMP/native-audio-android-workflow.txt"
+          [[ -s "$RUNNER_TEMP/native-audio-android-workflow.txt" ]]
+          fingerprint=$(sha256sum "$RUNNER_TEMP/native-audio-android-workflow.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Fingerprint installed Android toolchain
+        id: android-toolchain
+        run: |
+          set -euo pipefail
+          {
+            dpkg-query -W -f='${binary:Package}=${Version}\n' \
+              autoconf automake binutils bison build-essential ca-certificates curl \
+              flex gperf git libtool make nasm patch perl pkg-config python3-pip \
+              python3-setuptools unzip wget zip | LC_ALL=C sort
+            python3 -m pip freeze | LC_ALL=C sort
+            gcc --version | sed -n '1p'
+            g++ --version | sed -n '1p'
+            make --version | sed -n '1p'
+            readelf --version | sed -n '1p'
+            pkg-config --version
+            meson --version
+            ninja --version
+            python3 --version
+            java -version 2>&1
+          } > "$RUNNER_TEMP/native-audio-android-toolchain.txt"
+          fingerprint=$(sha256sum "$RUNNER_TEMP/native-audio-android-toolchain.txt" | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Record Android runner image
+        id: android-runner-image
+        run: |
+          set -euo pipefail
+          : "${ImageOS:?GitHub runner did not provide ImageOS}"
+          : "${ImageVersion:?GitHub runner did not provide ImageVersion}"
+          echo "image=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Android libmpv output cache
+        id: android-output-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-android
+          key: native-audio-android-output-v1-${{ matrix.arch }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.android-runner-image.outputs.image }}-${{ steps.android-toolchain.outputs.fingerprint }}-${{ steps.android-inputs.outputs.fingerprint }}-${{ steps.android-workflow.outputs.fingerprint }}-${{ inputs.commit_sha != '' && inputs.commit_sha != github.sha && github.sha || 'current-source' }}
+
+      - name: Check restored Android libmpv output
+        id: android-output-check
         env:
           NATIVE_AUDIO_ANDROID_OUTPUT_DIR: ${{ runner.temp }}/native-audio-android
+          NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT: ${{ steps.android-inputs.outputs.fingerprint }}
+          NATIVE_AUDIO_ANDROID_RUNNER_IMAGE: ${{ steps.android-runner-image.outputs.image }}
+          NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT: ${{ steps.android-toolchain.outputs.fingerprint }}
+          ANDROID_CACHE_HIT: ${{ steps.android-output-cache.outputs.cache-hit }}
+          ANDROID_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          if [[ "$ANDROID_CACHE_HIT" != 'true' ]]; then
+            # Only exact cache hits may be reused.
+            rm -rf -- "$NATIVE_AUDIO_ANDROID_OUTPUT_DIR"
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! bash scripts/native_audio/build_android.sh --validate-output "$ANDROID_ARCH"; then
+            echo "::warning::Cached Android output is incomplete or stale for $ANDROID_ARCH; rebuilding."
+            rm -rf -- "$NATIVE_AUDIO_ANDROID_OUTPUT_DIR"
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'valid=true' >> "$GITHUB_OUTPUT"
+
+      - name: Build Android libmpv
+        id: android-native-build
+        if: ${{ steps.android-output-cache.outputs.cache-hit != 'true' || steps.android-output-check.outputs.valid != 'true' }}
+        env:
+          NATIVE_AUDIO_ANDROID_OUTPUT_DIR: ${{ runner.temp }}/native-audio-android
+          NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT: ${{ steps.android-inputs.outputs.fingerprint }}
+          NATIVE_AUDIO_ANDROID_RUNNER_IMAGE: ${{ steps.android-runner-image.outputs.image }}
+          NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT: ${{ steps.android-toolchain.outputs.fingerprint }}
           TRAVIS: '1'
         run: |
           set -o pipefail
-          android_mode=arm64
-          if [[ "${{ inputs.android_all_abis }}" == 'true' ]]; then android_mode=all; fi
-          bash scripts/native_audio/build_android.sh "$android_mode" 2>&1 | tee "$RUNNER_TEMP/native-audio-android-build.log"
+          bash scripts/native_audio/build_android.sh "${{ matrix.arch }}" 2>&1 | tee "$RUNNER_TEMP/native-audio-android-build-${{ matrix.arch }}.log"
+
+      - name: Validate built Android libmpv output
+        if: ${{ steps.android-output-cache.outputs.cache-hit != 'true' || steps.android-output-check.outputs.valid != 'true' }}
+        env:
+          NATIVE_AUDIO_ANDROID_OUTPUT_DIR: ${{ runner.temp }}/native-audio-android
+          NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT: ${{ steps.android-inputs.outputs.fingerprint }}
+          NATIVE_AUDIO_ANDROID_RUNNER_IMAGE: ${{ steps.android-runner-image.outputs.image }}
+          NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT: ${{ steps.android-toolchain.outputs.fingerprint }}
+          ANDROID_ARCH: ${{ matrix.arch }}
+        run: bash scripts/native_audio/build_android.sh --validate-output "$ANDROID_ARCH"
+
+      - name: Save Android libmpv output cache
+        if: ${{ success() && steps.android-output-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/native-audio-android
+          key: ${{ steps.android-output-cache.outputs.cache-primary-key }}
+
+      - name: Upload Android ABI shard
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-audio-android-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-audio-android/
+          if-no-files-found: error
+
+      - name: Upload Android ABI build log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-audio-android-build-log-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-audio-android-build-${{ matrix.arch }}.log
+          if-no-files-found: warn
+
+  assemble-android:
+    name: Assemble Android native artifact
+    needs: [validate-inputs, build-android]
+    if: ${{ !inputs.windows_only }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Fingerprint Android build inputs
+        id: android-inputs
+        env:
+          INPUT_FINGERPRINT: ${{ hashFiles('scripts/native_audio/build_android.sh', 'scripts/native_audio/check_android_config.sh', 'scripts/native_audio/android.lock', 'scripts/native_audio/common.lock', 'scripts/native_audio/requirements.txt', 'scripts/native_audio/android-effects.patch', 'scripts/native_audio/android-mpv-java-vm.patch', 'scripts/native_audio/android-mbedtls-aesce.patch', 'scripts/native_audio/mpv-audio-controls.patch', 'scripts/native_audio/ffmpeg-sendcmd-precision.patch', 'scripts/native_audio/apply_mpv_audio_controls.sh', 'scripts/native_audio/apply_ffmpeg_sendcmd_precision.sh', 'scripts/native_audio/filters.txt') }}
+        run: |
+          set -euo pipefail
+          : "${INPUT_FINGERPRINT:?Android build input fingerprint is empty}"
+          echo "fingerprint=$INPUT_FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Download arm64 Android native output
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android-arm64
+          path: ${{ runner.temp }}/native-audio-android-shards/arm64
+
+      - name: Download x86_64 Android native output
+        if: ${{ inputs.android_all_abis }}
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android-x86_64
+          path: ${{ runner.temp }}/native-audio-android-shards/x86_64
+
+      - name: Validate and assemble Android native output
+        env:
+          NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT: ${{ steps.android-inputs.outputs.fingerprint }}
+          ANDROID_ALL_ABIS: ${{ inputs.android_all_abis }}
+          SHARDS_DIR: ${{ runner.temp }}/native-audio-android-shards
+          OUTPUT_DIR: ${{ runner.temp }}/native-audio-android
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_DIR"
+          expected_arches=(arm64)
+          if [[ "$ANDROID_ALL_ABIS" == 'true' ]]; then expected_arches+=(x86_64); fi
+
+          for arch in "${expected_arches[@]}"; do
+            case "$arch" in
+              arm64) abi=arm64-v8a ;;
+              x86_64) abi=x86_64 ;;
+            esac
+            shard="$SHARDS_DIR/$arch"
+            provenance="$shard/source-provenance.txt"
+            [[ -s "$provenance" ]] || { echo "::error::Missing $arch provenance."; exit 1; }
+            shard_toolchain=$(sed -n 's/^toolchain_fingerprint=//p' "$provenance")
+            shard_runner=$(sed -n 's/^runner_image=//p' "$provenance")
+            shard_meson=$(sed -n 's/^meson=//p' "$provenance")
+            shard_ninja=$(sed -n 's/^ninja=//p' "$provenance")
+            [[ -n "$shard_toolchain" && -n "$shard_runner" && -n "$shard_meson" && -n "$shard_ninja" ]] || {
+              echo "::error::Missing $arch runner/toolchain provenance."
+              exit 1
+            }
+            NATIVE_AUDIO_ANDROID_OUTPUT_DIR="$shard" \
+              NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT="$NATIVE_AUDIO_ANDROID_INPUT_FINGERPRINT" \
+              NATIVE_AUDIO_ANDROID_RUNNER_IMAGE="$shard_runner" \
+              NATIVE_AUDIO_ANDROID_TOOLCHAIN_FINGERPRINT="$shard_toolchain" \
+              NATIVE_AUDIO_ANDROID_MESON_VERSION="$shard_meson" \
+              NATIVE_AUDIO_ANDROID_NINJA_VERSION="$shard_ninja" \
+              bash scripts/native_audio/build_android.sh --validate-output "$arch"
+            cp -R "$shard/$abi" "$OUTPUT_DIR/$abi"
+            cp "$shard/default-$abi.jar" "$OUTPUT_DIR/default-$abi.jar"
+            cp "$shard/source-provenance-$abi.txt" "$OUTPUT_DIR/source-provenance-$abi.txt"
+          done
+
+          cp "$SHARDS_DIR/arm64/source-provenance.txt" "$OUTPUT_DIR/source-provenance.txt"
+          for arch in "${expected_arches[@]}"; do
+            case "$arch" in
+              arm64) abi=arm64-v8a ;;
+              x86_64) abi=x86_64 ;;
+            esac
+            [[ -s "$OUTPUT_DIR/default-$abi.jar" ]] || { echo "::error::Missing assembled default-$abi.jar."; exit 1; }
+            [[ -s "$OUTPUT_DIR/source-provenance-$abi.txt" ]] || { echo "::error::Missing assembled $abi provenance."; exit 1; }
+          done
 
       - name: Upload Android build
         uses: actions/upload-artifact@v6
@@ -182,14 +518,6 @@ jobs:
           name: native-audio-android
           path: ${{ runner.temp }}/native-audio-android/
           if-no-files-found: error
-
-      - name: Upload Android build log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: native-audio-android-build-log
-          path: ${{ runner.temp }}/native-audio-android-build.log
-          if-no-files-found: warn
 
   probe-windows:
     name: Probe Windows libmpv PCM

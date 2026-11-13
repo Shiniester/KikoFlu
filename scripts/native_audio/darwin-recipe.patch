@@ -152,21 +152,9 @@ diff --git a/cross-files/ios-arm64.ini b/cross-files/ios-arm64.ini
 @@ -15 +15 @@
 -pkgconfig = ['pkg-config']
 +pkg-config = ['pkg-config']
-diff --git a/cross-files/iossimulator-amd64.ini b/cross-files/iossimulator-amd64.ini
---- a/cross-files/iossimulator-amd64.ini
-+++ b/cross-files/iossimulator-amd64.ini
-@@ -15 +15 @@
--pkgconfig = ['pkg-config']
-+pkg-config = ['pkg-config']
 diff --git a/cross-files/iossimulator-arm64.ini b/cross-files/iossimulator-arm64.ini
 --- a/cross-files/iossimulator-arm64.ini
 +++ b/cross-files/iossimulator-arm64.ini
-@@ -15 +15 @@
--pkgconfig = ['pkg-config']
-+pkg-config = ['pkg-config']
-diff --git a/cross-files/macos-amd64.ini b/cross-files/macos-amd64.ini
---- a/cross-files/macos-amd64.ini
-+++ b/cross-files/macos-amd64.ini
 @@ -15 +15 @@
 -pkgconfig = ['pkg-config']
 +pkg-config = ['pkg-config']
@@ -176,6 +164,23 @@ diff --git a/cross-files/macos-arm64.ini b/cross-files/macos-arm64.ini
 @@ -15 +15 @@
 -pkgconfig = ['pkg-config']
 +pkg-config = ['pkg-config']
+@@ -18,8 +18,8 @@
+-c_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++c_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-cpp_args = ['-stdlib=libc++', '-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++cpp_args = ['-stdlib=libc++', '-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-objc_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++objc_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-objcpp_args = ['-stdlib=libc++', '-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++objcpp_args = ['-stdlib=libc++', '-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-c_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++c_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-cpp_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++cpp_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-objc_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++objc_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
+-objcpp_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=10.9']
++objcpp_link_args = ['-arch', 'arm64', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-mmacosx-version-min=11.0']
 diff --git a/scripts/freetype/build.sh b/scripts/freetype/build.sh
 index 175ad59..2cd39f3 100644
 --- a/scripts/freetype/build.sh
@@ -190,7 +195,7 @@ new file mode 100644
 index 0000000..3a256c7
 --- /dev/null
 +++ b/scripts/libplacebo/build.sh
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,75 @@
 +#!/bin/sh
 +
 +set -e # exit immediately if a command exits with a non-zero status
@@ -217,8 +222,8 @@ index 0000000..3a256c7
 +target_cross_file="${SRC_DIR}/darwin-cross-file.ini"
 +case "${OS}" in
 +    macos)
-+        source_minimum='-mmacosx-version-min=10.9'
-+        sed_expression='s/-mmacosx-version-min=10[.]9/-mmacosx-version-min=10.15/g'
++        source_minimum='-mmacosx-version-min=11.0'
++        sed_expression=''
 +        ;;
 +    ios)
 +        source_minimum='-miphoneos-version-min=9.0'
@@ -239,7 +244,11 @@ index 0000000..3a256c7
 +        ;;
 +esac
 +grep -Fq -- "${source_minimum}" "${cross_file}"
-+sed "${sed_expression}" "${cross_file}" > "${target_cross_file}"
++if [ -n "${sed_expression}" ]; then
++    sed "${sed_expression}" "${cross_file}" > "${target_cross_file}"
++else
++    cp "${cross_file}" "${target_cross_file}"
++fi
 +
 +git -C "${PROJECT_DIR}" apply --directory="${SRC_DIR#${PROJECT_DIR}/}" "${PROJECT_DIR}/patches/libplacebo-darwin-charconv.patch"
 +
@@ -296,14 +305,10 @@ index ce9ba20..3e0f76d 100644
 @@ -119,2 +112,0 @@
 -    -Dswift-build=disabled `# macOS Swift build tools`
 -    -Dswift-flags= `# Optional Swift compiler flags`
-@@ -153,0 +146,6 @@
+@@ -153,0 +146,2 @@
 +MACOS_OPTIONS+=(-Dswift-build=enabled)
-+if [ "${ARCH}" == "amd64" ]; then
-+    MACOS_OPTIONS+=("-Dswift-flags=-target x86_64-apple-macosx10.15")
-+else
-+    MACOS_OPTIONS+=("-Dswift-flags=-target arm64-apple-macosx11.0")
-+fi
-@@ -165,0 +164 @@ IOS_OPTIONS=(
++MACOS_OPTIONS+=("-Dswift-flags=-target arm64-apple-macosx11.0")
+@@ -160,0 +159 @@ IOS_OPTIONS=(
 +    -Davfoundation=disabled `# macOS-only AVFoundation audio output`
 @@ -185 +184 @@ if [ "${OS}" == "macos" ]; then
 -elif [ "${OS}" == "ios" ]; then

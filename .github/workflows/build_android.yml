@@ -49,6 +49,15 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
 
+      - name: Verify selected release source configuration
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/ci/validate_release_source.py ]]; then
+            echo '::error::Selected commit predates the required release configuration. Choose a commit that includes the new release configuration.'
+            exit 1
+          fi
+          python3 scripts/ci/validate_release_source.py android
+
       - name: Resolve selected release commit
         id: resolve_commit
         run: |
@@ -96,7 +105,7 @@ jobs:
     with:
       commit_sha: ${{ needs.prepare.outputs.commit_sha }}
       android_only: true
-      android_all_abis: true
+      android_all_abis: false
 
   android:
     name: Android Build
@@ -164,22 +173,36 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
+          pub-cache: true
+
+      - name: Cache Android Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-java-17-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}
 
       - name: Get Dependencies
         run: flutter pub get
+
+      - name: Read Android base version code
+        run: |
+          set -euo pipefail
+          flutter build apk --config-only --no-pub
+          base_code="$(sed -n 's/^flutter\.versionCode=//p' android/local.properties | tail -n 1)"
+          if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
+            echo '::error::Flutter did not write a valid base versionCode to android/local.properties.'
+            exit 1
+          fi
+          echo "ANDROID_BASE_VERSION_CODE=$base_code" >> "$GITHUB_ENV"
 
       - name: Build Android APKs
         run: |
           set -euo pipefail
           mkdir -p dist
-
-          flutter build apk --release
-          mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
-
-          # Preserve the legacy split APK versionCode scheme so existing
-          # arm64 installations can be upgraded in place.
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --target-platform android-arm64 --split-per-abi
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
@@ -194,8 +217,13 @@ jobs:
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           aapt="$build_tools_dir/aapt"
           apksigner="$build_tools_dir/apksigner"
-          universal_apk="dist/Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
           arm64_apk="dist/Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+          test -s "$arm64_apk"
+          abi_entries="$(unzip -Z1 "$arm64_apk" | sed -nE 's#^lib/([^/]+)/.*#\1#p' | sort -u)"
+          if [ "$abi_entries" != 'arm64-v8a' ]; then
+            echo "::error::Expected an arm64-only APK, found ABI entries: $abi_entries"
+            exit 1
+          fi
 
           for tool in "$aapt" "$apksigner"; do
             if [ ! -x "$tool" ]; then
@@ -204,22 +232,18 @@ jobs:
             fi
           done
 
-          universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
           arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
           arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
 
-          for badging in "$universal_badging" "$arm64_badging"; do
-            package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
-            version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$badging")"
-            if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
-              echo "::error::Unexpected Android package metadata: $badging"
-              exit 1
-            fi
-          done
+          package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Unexpected Android package metadata: $arm64_badging"
+            exit 1
+          fi
 
-          if [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
-            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $universal_code."
+          if [ "$arm64_code" -ne $((ANDROID_BASE_VERSION_CODE + 2000)) ]; then
+            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $ANDROID_BASE_VERSION_CODE."
             exit 1
           fi
 
@@ -228,28 +252,26 @@ jobs:
             exit 1
           fi
 
-          for apk in "$universal_apk" "$arm64_apk"; do
-            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
-            actual_cert="$(
-              printf '%s\n' "$cert_output" |
-                sed -nE '/certificate SHA-256 digest:/I {
-                  s/.*certificate SHA-256 digest:[[:space:]]*//I
-                  p
-                  q
-                }' |
-                tr -d '[:space:]:' |
-                tr '[:upper:]' '[:lower:]'
-            )"
-            if [ -z "$actual_cert" ]; then
-              echo "::error::Unable to read the Android signing certificate for $apk."
-              printf '%s\n' "$cert_output" >&2
-              exit 1
-            fi
-            if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-              echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
-              exit 1
-            fi
-          done
+          cert_output="$("$apksigner" verify --print-certs "$arm64_apk" 2>&1)"
+          actual_cert="$(
+            printf '%s\n' "$cert_output" |
+              sed -nE '/certificate SHA-256 digest:/I {
+                s/.*certificate SHA-256 digest:[[:space:]]*//I
+                p
+                q
+              }' |
+              tr -d '[:space:]:' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          if [ -z "$actual_cert" ]; then
+            echo "::error::Unable to read the Android signing certificate for $arm64_apk."
+            printf '%s\n' "$cert_output" >&2
+            exit 1
+          fi
+          if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::Unexpected Android signing certificate for $arm64_apk: $actual_cert"
+            exit 1
+          fi
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
@@ -285,7 +307,6 @@ jobs:
 
           expected=(
             "Iroru-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
-            "Iroru-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
           )
 
           for asset in "${expected[@]}"; do

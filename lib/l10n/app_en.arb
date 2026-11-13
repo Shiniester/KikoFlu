@@ -2088,6 +2088,10 @@
   "@cancelAudioSliceStart": {
     "description": "Audio player slice control: cancelAudioSliceStart"
   },
+  "audioSliceStartCanceled": "Slice start canceled",
+  "@audioSliceStartCanceled": {
+    "description": "Audio player slice control: audioSliceStartCanceled"
+  },
   "audioSlicePendingStart": "Start: {time}",
   "@audioSlicePendingStart": {
     "description": "Audio player slice control: audioSlicePendingStart",

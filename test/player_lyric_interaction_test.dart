@@ -9,15 +9,23 @@ import 'package:flutter/rendering.dart'
 import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart' show PlayerState, ProcessingState;
+import 'package:just_audio/just_audio.dart'
+    show
+        PlaybackEvent,
+        PlayerState,
+        PositionDiscontinuity,
+        PositionDiscontinuityReason,
+        ProcessingState;
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_slice.dart';
+import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_lyric_style_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
 import 'package:kikoeru_flutter/src/utils/string_utils.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
@@ -68,6 +76,10 @@ class _MutableLyricController extends LyricController {
   void replaceLyrics(List<LyricLine> lyrics) {
     state = state.copyWith(lyrics: lyrics);
   }
+
+  void replaceTrack(List<LyricLine> lyrics, String trackKey) {
+    state = state.copyWith(lyrics: lyrics, trackKey: trackKey);
+  }
 }
 
 void main() {
@@ -86,6 +98,344 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  for (final (
+        compact,
+        positionFirst,
+        reducedMotion,
+        oldHasLyrics,
+        oldSeconds,
+        browsingBeforeSwitch,
+        interrupt,
+      )
+      in [
+        (false, true, false, true, 14, false, ''),
+        (false, false, false, true, 14, false, ''),
+        (true, true, false, true, 14, false, ''),
+        (true, false, false, true, 14, false, ''),
+        (false, false, true, true, 14, false, ''),
+        (true, false, true, true, 14, false, ''),
+        (false, false, false, false, 14, false, ''),
+        (true, false, false, false, 14, false, ''),
+        (false, false, false, true, 5, false, ''),
+        (true, false, false, true, 5, false, ''),
+        (false, false, false, true, 14, true, ''),
+        (true, false, false, true, 14, true, ''),
+        (false, false, false, true, 14, false, 'advance'),
+        (true, false, false, true, 14, false, 'advance'),
+        (false, false, false, true, 14, false, 'preview'),
+        (false, false, false, true, 14, false, 'seekBeforeLoad'),
+        (true, false, false, true, 14, false, 'seekBeforeLoad'),
+        (false, false, false, true, 14, false, 'reduce'),
+        (true, false, false, true, 14, false, 'reduce'),
+      ]) {
+    testWidgets('track switch follows new lyrics before the first line '
+        '(compact: $compact, positionFirst: $positionFirst, '
+        'reducedMotion: $reducedMotion, oldHasLyrics: $oldHasLyrics, '
+        'oldSeconds: $oldSeconds, browsing: $browsingBeforeSwitch, '
+        'interrupt: $interrupt)', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final positions = StreamController<Duration>();
+      final discontinuities = StreamController<PositionDiscontinuity>();
+      final tracks = StreamController<AudioTrack?>.broadcast(sync: true);
+      final seekPreview = ValueNotifier<PlayerSeekPreview?>(null);
+      final motionDisabled = ValueNotifier(reducedMotion);
+      addTearDown(positions.close);
+      addTearDown(discontinuities.close);
+      addTearDown(tracks.close);
+      addTearDown(seekPreview.dispose);
+      addTearDown(motionDisabled.dispose);
+      const oldTrack = AudioTrack(id: 'old', title: 'Old', url: 'old');
+      const newTrack = AudioTrack(id: 'new', title: 'New', url: 'new');
+      tracks.add(oldTrack);
+      positions.add(Duration(seconds: oldSeconds));
+      late _MutableLyricController controller;
+      final oldLyrics = List.generate(
+        24,
+        (index) => LyricLine(
+          startTime: Duration(
+            seconds: index + (interrupt == 'seekBeforeLoad' ? 5 : 0),
+          ),
+          endTime: Duration(
+            seconds: index + 1 + (interrupt == 'seekBeforeLoad' ? 5 : 0),
+          ),
+          text: 'old lyric $index',
+        ),
+      );
+      final newLyrics = List.generate(
+        24,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index + 5),
+          endTime: Duration(seconds: index + 6),
+          text: 'new lyric $index',
+        ),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            currentTrackProvider.overrideWith((ref) => tracks.stream),
+            positionDiscontinuityProvider.overrideWith(
+              (ref) => discontinuities.stream,
+            ),
+            playerStateProvider.overrideWith(
+              (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => controller = _MutableLyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: oldHasLyrics ? oldLyrics : const [],
+                  trackKey: oldHasLyrics ? 'old-track' : null,
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: ValueListenableBuilder<bool>(
+              valueListenable: motionDisabled,
+              builder: (context, disabled, _) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(disableAnimations: disabled),
+                child: Scaffold(
+                  body: compact
+                      ? Center(
+                          child: SizedBox(
+                            height: 150,
+                            child: oldHasLyrics
+                                ? ThreeLineLyricDisplay(onSeekRequested: (_) {})
+                                : Consumer(
+                                    builder: (context, ref, _) => Visibility(
+                                      visible: ref
+                                          .watch(lyricControllerProvider)
+                                          .lyrics
+                                          .isNotEmpty,
+                                      maintainState: true,
+                                      child: ThreeLineLyricDisplay(
+                                        onSeekRequested: (_) {},
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        )
+                      : FullLyricDisplay(
+                          isPortrait: true,
+                          seekingPositionListenable: seekPreview,
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp)),
+      ).read(currentTrackProvider);
+      void expectAtAnchor(String text) {
+        final line = find.text(text);
+        expect(line, findsOneWidget);
+        if (compact) {
+          final list = find.byKey(const ValueKey('compact-lyric-scroll-list'));
+          expect(
+            (tester.getCenter(line).dy - tester.getCenter(list).dy).abs(),
+            lessThanOrEqualTo(2.1),
+          );
+        } else {
+          _expectLineAtPlaybackAnchor(tester, line);
+        }
+      }
+
+      if (oldHasLyrics) {
+        final oldIndex = oldSeconds - (interrupt == 'seekBeforeLoad' ? 5 : 0);
+        expectAtAnchor('old lyric $oldIndex');
+      }
+      if (browsingBeforeSwitch) {
+        final list = find.byKey(
+          ValueKey(compact ? 'compact-lyric-scroll-list' : 'full-lyric-list'),
+        );
+        await tester.drag(list, const Offset(0, -80));
+        await tester.pumpAndSettle();
+      }
+
+      if (positionFirst) {
+        positions.add(Duration.zero);
+        await tester.pumpAndSettle();
+      }
+      tracks.add(newTrack);
+      await tester.pump();
+      if (interrupt == 'seekBeforeLoad') {
+        discontinuities.add(
+          PositionDiscontinuity(
+            PositionDiscontinuityReason.seek,
+            PlaybackEvent(updatePosition: Duration(seconds: oldSeconds)),
+            PlaybackEvent(updatePosition: Duration.zero),
+          ),
+        );
+        await tester.pump();
+        positions.add(Duration.zero);
+        await tester.pumpAndSettle();
+      }
+      controller.replaceTrack(newLyrics, audioSliceTrackKey(newTrack));
+      if (interrupt == 'seekBeforeLoad') {
+        await tester.pumpAndSettle();
+        expectAtAnchor('new lyric 0');
+        expect(
+          _visibleLyricAlpha(tester, find.text('new lyric 0')),
+          lessThan(0.4),
+        );
+        return;
+      }
+      if (!positionFirst) {
+        await tester.pumpAndSettle();
+        positions.add(Duration.zero);
+      }
+      final display = compact
+          ? find.byType(ThreeLineLyricDisplay)
+          : find.byType(FullLyricDisplay);
+      final container = ProviderScope.containerOf(tester.element(display));
+      await tester.pump();
+      final viewport = compact
+          ? find.byKey(const ValueKey('compact-lyric-scroll-list'))
+          : display;
+      final viewportRect = tester.getRect(viewport);
+      final anchorY = compact
+          ? viewportRect.center.dy
+          : viewportRect.top + viewportRect.height * 0.4;
+      if (!reducedMotion) {
+        final visibleCenters = <double>[];
+        for (var frame = 0; frame < 80; frame++) {
+          await tester.pump(
+            frame == 0 ? Duration.zero : const Duration(milliseconds: 16),
+          );
+          final first = find.text('new lyric 0', skipOffstage: false);
+          if (first.evaluate().length != 1) continue;
+          final rect = tester.getRect(first);
+          final alpha = _visibleLyricAlpha(tester, first);
+          final hidden = tester
+              .widgetList<Offstage>(
+                find.ancestor(
+                  of: first,
+                  matching: find.byType(Offstage, skipOffstage: false),
+                ),
+              )
+              .any((widget) => widget.offstage);
+          if (rect.overlaps(viewportRect) && alpha > 0.01 && !hidden) {
+            visibleCenters.add(rect.center.dy);
+          }
+          expect(alpha, lessThan(0.4));
+          if (interrupt.isNotEmpty && visibleCenters.isNotEmpty) break;
+        }
+        expect(visibleCenters, isNotEmpty);
+        expect(
+          visibleCenters.first,
+          greaterThan((anchorY + viewportRect.bottom) / 2),
+        );
+        if (interrupt.isEmpty) {
+          expect(
+            visibleCenters.any((y) => y < visibleCenters.first - 2),
+            isTrue,
+          );
+        }
+      }
+      if (interrupt == 'advance') {
+        positions.add(const Duration(seconds: 6));
+        await tester.pumpAndSettle();
+        expectAtAnchor('new lyric 1');
+        expect(
+          _visibleLyricAlpha(tester, find.text('new lyric 1')),
+          closeTo(1, 0.01),
+        );
+        return;
+      }
+      if (interrupt == 'preview') {
+        seekPreview.value = (
+          isSeekingManually: true,
+          seekValue: 0.5,
+          position: const Duration(seconds: 12),
+        );
+        await tester.pumpAndSettle();
+        expectAtAnchor('new lyric 7');
+        return;
+      }
+      if (interrupt == 'reduce') {
+        motionDisabled.value = true;
+        await tester.pumpAndSettle();
+        expectAtAnchor('new lyric 0');
+        expect(
+          _visibleLyricAlpha(tester, find.text('new lyric 0')),
+          lessThan(0.4),
+        );
+        return;
+      }
+      await tester.pumpAndSettle();
+      expect(container.read(currentLyricIndexProvider), -1);
+      expectAtAnchor('new lyric 0');
+      expect(
+        _visibleLyricAlpha(tester, find.text('new lyric 0')),
+        lessThan(0.4),
+      );
+
+      positions.add(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expectAtAnchor('new lyric 0');
+      expect(
+        _visibleLyricAlpha(tester, find.text('new lyric 0')),
+        closeTo(1, 0.01),
+      );
+
+      positions.add(const Duration(seconds: 12));
+      await tester.pumpAndSettle();
+      expectAtAnchor('new lyric 7');
+      expect(
+        _visibleLyricAlpha(tester, find.text('new lyric 7')),
+        closeTo(1, 0.01),
+      );
+
+      discontinuities.add(
+        PositionDiscontinuity(
+          PositionDiscontinuityReason.seek,
+          PlaybackEvent(updatePosition: const Duration(seconds: 12)),
+          PlaybackEvent(updatePosition: Duration.zero),
+        ),
+      );
+      await tester.pump();
+      positions.add(Duration.zero);
+      await tester.pumpAndSettle();
+      expect(container.read(currentLyricIndexProvider), -1);
+      expectAtAnchor('new lyric 7');
+
+      positions.add(const Duration(seconds: 12));
+      await tester.pumpAndSettle();
+      controller.replaceTrack([
+        for (var index = 0; index < newLyrics.length; index++)
+          LyricLine(
+            startTime: newLyrics[index].startTime,
+            endTime: newLyrics[index].endTime,
+            text: 'resumed lyric $index',
+          ),
+      ], 'resumed-track');
+      await tester.pumpAndSettle();
+      expectAtAnchor('resumed lyric 7');
+      discontinuities.add(
+        PositionDiscontinuity(
+          PositionDiscontinuityReason.seek,
+          PlaybackEvent(updatePosition: const Duration(seconds: 12)),
+          PlaybackEvent(updatePosition: Duration.zero),
+        ),
+      );
+      await tester.pump();
+      positions.add(Duration.zero);
+      await tester.pumpAndSettle();
+      expect(container.read(currentLyricIndexProvider), -1);
+      expectAtAnchor('resumed lyric 7');
+    });
+  }
 
   test('preview height budget follows the available rows', () {
     double height(int lines, {double maxHeight = double.infinity}) =>
@@ -290,12 +640,16 @@ void main() {
     final naturalCenter =
         tester.getCenter(viewport).dy +
         (4 - scrollable.position.pixels / itemExtent) * itemExtent;
-    expect(
-      (visibleCenter.dy - naturalCenter).abs(),
-      greaterThan(itemExtent / 2),
-    );
+    final displacement = visibleCenter.dy - naturalCenter;
+    expect(displacement.abs(), greaterThan(1));
 
-    await tester.tapAt(visibleCenter);
+    await tester.tapAt(
+      Offset(
+        visibleCenter.dx,
+        (visibleCenter.dy + naturalCenter) / 2 +
+            displacement.sign * itemExtent / 2,
+      ),
+    );
     await tester.pump();
     expect(requested, const Duration(seconds: 4));
     expect(tester.takeException(), isNull);

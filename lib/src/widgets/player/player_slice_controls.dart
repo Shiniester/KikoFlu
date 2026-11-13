@@ -42,13 +42,26 @@ class PlayerSliceCutButton extends ConsumerWidget {
     final state = ref.watch(audioSliceStateProvider).valueOrNull;
     final duration = ref.watch(durationProvider).valueOrNull;
     final loading = ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
-    final hasStart = state?.pendingStartMs != null;
+    final service = ref.read(audioPlayerServiceProvider);
+    final pendingStartMs = service.sliceState.pendingStartMs;
+    // Playback events rebuild the tooltip while the service provides the current value.
+    if (position == null && pendingStartMs != null) ref.watch(positionProvider);
+    final currentPositionMs =
+        position?.inMilliseconds ?? service.position.inMilliseconds;
+    final canCancelStart =
+        pendingStartMs != null &&
+        (currentPositionMs - pendingStartMs).abs() <=
+            audioSliceStartCancellationWindowMs;
     return IconButton(
       key: const ValueKey('player-slice-cut-button'),
-      tooltip: hasStart
-          ? S.of(context).markAudioSliceEnd
-          : S.of(context).markAudioSliceStart,
-      color: hasStart ? Theme.of(context).colorScheme.primary : null,
+      tooltip: pendingStartMs == null
+          ? S.of(context).markAudioSliceStart
+          : canCancelStart
+          ? S.of(context).cancelAudioSliceStart
+          : S.of(context).markAudioSliceEnd,
+      color: pendingStartMs != null
+          ? Theme.of(context).colorScheme.primary
+          : null,
       onPressed:
           state?.trackKey == null ||
               state!.isLoading ||
@@ -60,10 +73,33 @@ class PlayerSliceCutButton extends ConsumerWidget {
               (position?.isNegative ?? false)
           ? null
           : () async {
-              final saved = await ref
-                  .read(audioPlayerServiceProvider)
-                  .markSlice(position: position, expectedTrackKey: trackKey);
-              if (!saved && context.mounted) {
+              if (service.isTrackLoading || service.sliceState.isLoading) {
+                return;
+              }
+              final expectedTrackKey = trackKey ?? state.trackKey;
+              final pendingStartMs = service.sliceState.pendingStartMs;
+              final actionPosition = position ?? service.position;
+              final actionPositionMs = actionPosition.inMilliseconds;
+              final cancelsStart =
+                  pendingStartMs != null &&
+                  (actionPositionMs - pendingStartMs).abs() <=
+                      audioSliceStartCancellationWindowMs;
+              final succeeded = await service.markSlice(
+                position: actionPosition,
+                expectedTrackKey: expectedTrackKey,
+              );
+              if (!context.mounted ||
+                  service.isTrackLoading ||
+                  service.sliceState.isLoading ||
+                  service.sliceState.trackKey != expectedTrackKey) {
+                return;
+              }
+              if (succeeded && cancelsStart) {
+                SnackBarUtil.showInfo(
+                  context,
+                  S.of(context).audioSliceStartCanceled,
+                );
+              } else if (!succeeded) {
                 SnackBarUtil.showError(
                   context,
                   S.of(context).audioSliceSaveFailed,
@@ -257,7 +293,11 @@ class _PlayerSliceManagerState extends ConsumerState<_PlayerSliceManager> {
                 ],
               ),
               if (track != null)
-                Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(
+                  track.displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               if (duration > Duration.zero && trackKey != null) ...[
                 const SizedBox(height: 8),
                 _AudioSliceTimeline(

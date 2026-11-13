@@ -1,0 +1,143 @@
+name: Cache or build Linux native audio
+description: Restore the exact Linux native prefix or rebuild it when the cache is missing or invalid.
+outputs:
+  prefix:
+    description: Absolute path to the Linux native audio prefix.
+    value: ${{ steps.output.outputs.prefix }}
+  cache-hit:
+    description: Whether a restored prefix passed validation.
+    value: ${{ steps.result.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Install pinned native audio Python dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --user --disable-pip-version-check \
+          --requirement scripts/native_audio/requirements.txt
+        echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+
+    - name: Fingerprint Linux native build environment
+      id: cache-key
+      shell: bash
+      run: |
+        set -euo pipefail
+        : "${ImageOS:?GitHub runner did not provide ImageOS}"
+        : "${ImageVersion:?GitHub runner did not provide ImageVersion}"
+        if [ "$(uname -m)" != x86_64 ]; then
+          echo '::error::Linux native audio cache supports x86_64 runners only.'
+          exit 1
+        fi
+        {
+          dpkg-query -W -f='${binary:Package}=${Version}\n' | LC_ALL=C sort
+          python3 -m pip freeze | LC_ALL=C sort
+          cc --version | sed -n '1p'
+          c++ --version | sed -n '1p'
+          cmake --version | sed -n '1p'
+          ninja --version
+          meson --version
+          pkg-config --version
+          python3 --version
+        } > "$RUNNER_TEMP/linux-native-audio-toolchain.txt"
+        fingerprint="$(sha256sum "$RUNNER_TEMP/linux-native-audio-toolchain.txt" | cut -d ' ' -f 1)"
+        printf 'image=%s-%s\n' "$ImageOS" "$ImageVersion" >> "$GITHUB_OUTPUT"
+        printf 'toolchain=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+        printf 'workspace=%s\n' "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Linux native audio prefix
+      id: cache
+      uses: actions/cache/restore@v4
+      continue-on-error: true
+      with:
+        path: build/native-audio/linux-output
+        key: linux-native-audio-prefix-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-key.outputs.image }}-${{ steps.cache-key.outputs.toolchain }}-${{ steps.cache-key.outputs.workspace }}-${{ hashFiles('.github/actions/linux-native-audio-cache/action.yml', 'scripts/native_audio/build_linux.sh', 'scripts/native_audio/common.lock', 'scripts/native_audio/linux.lock', 'scripts/native_audio/requirements.txt', 'scripts/native_audio/apply_ffmpeg_sendcmd_precision.sh', 'scripts/native_audio/ffmpeg-sendcmd-precision.patch', 'scripts/native_audio/apply_mpv_audio_controls.sh', 'scripts/native_audio/mpv-audio-controls.patch') }}
+
+    - name: Validate restored Linux native audio prefix
+      id: validate-cache
+      if: ${{ steps.cache.outputs.cache-hit == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        prefix="$GITHUB_WORKSPACE/build/native-audio/linux-output"
+        source scripts/native_audio/common.lock
+        source scripts/native_audio/linux.lock
+        valid=true
+
+        for library in libmpv.so libavcodec.so libavformat.so libavutil.so libswresample.so libswscale.so libplacebo.so libdav1d.so; do
+          if [ ! -s "$prefix/lib/$library" ]; then
+            echo "Cached prefix is missing $library."
+            valid=false
+          fi
+        done
+        for expected in \
+          "mpv_version=$MPV_VERSION" \
+          "mpv_commit=$MPV_COMMIT" \
+          "ffmpeg_version=$FFMPEG_VERSION" \
+          "ffmpeg_commit=$FFMPEG_COMMIT" \
+          "libplacebo_commit=$LIBPLACEBO_COMMIT" \
+          "dav1d_commit=$DAV1D_COMMIT" \
+          'mpv_audio_controls_patch=mpv-audio-controls.patch' \
+          'ffmpeg_sendcmd_argument_format=%.17g'; do
+          if ! grep -Fxq "$expected" "$prefix/source-provenance.txt" 2>/dev/null; then
+            echo "Cached prefix provenance is missing: $expected"
+            valid=false
+          fi
+        done
+
+        if [ "$valid" = true ] && ! ldd "$prefix/lib/libmpv.so" > "$RUNNER_TEMP/linux-native-audio-ldd.txt"; then
+          echo 'Cached libmpv could not be loaded for dependency validation.'
+          valid=false
+        fi
+        if [ "$valid" = true ] && ! readelf -h "$prefix/lib/libmpv.so" | grep -Eq 'Machine:.*(Advanced Micro Devices X86-64|x86-64)'; then
+          echo 'Cached libmpv is not an x86_64 shared library.'
+          valid=false
+        fi
+        if [ "$valid" = true ] && grep -q 'not found' "$RUNNER_TEMP/linux-native-audio-ldd.txt"; then
+          echo 'Cached libmpv has an unresolved shared-library dependency.'
+          valid=false
+        fi
+        if [ "$valid" = true ] && ! grep -Fq "Library runpath: [$prefix/lib]" <(readelf -d "$prefix/lib/libmpv.so"); then
+          echo 'Cached libmpv has an unexpected RPATH for this workspace.'
+          valid=false
+        fi
+        printf 'valid=%s\n' "$valid" >> "$GITHUB_OUTPUT"
+
+    - name: Rebuild missing or invalid Linux native audio prefix
+      if: ${{ steps.cache.outputs.cache-hit != 'true' || steps.validate-cache.outputs.valid != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        rm -rf "$GITHUB_WORKSPACE/build/native-audio/linux-output" "$RUNNER_TEMP/native-audio-linux"
+        bash scripts/native_audio/build_linux.sh
+
+    - name: Save Linux native audio prefix
+      if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: build/native-audio/linux-output
+        key: linux-native-audio-prefix-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-key.outputs.image }}-${{ steps.cache-key.outputs.toolchain }}-${{ steps.cache-key.outputs.workspace }}-${{ hashFiles('.github/actions/linux-native-audio-cache/action.yml', 'scripts/native_audio/build_linux.sh', 'scripts/native_audio/common.lock', 'scripts/native_audio/linux.lock', 'scripts/native_audio/requirements.txt', 'scripts/native_audio/apply_ffmpeg_sendcmd_precision.sh', 'scripts/native_audio/ffmpeg-sendcmd-precision.patch', 'scripts/native_audio/apply_mpv_audio_controls.sh', 'scripts/native_audio/mpv-audio-controls.patch') }}
+
+    - name: Set Linux native audio paths
+      id: output
+      shell: bash
+      run: |
+        set -euo pipefail
+        prefix="$GITHUB_WORKSPACE/build/native-audio/linux-output"
+        echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$prefix/lib" >> "$GITHUB_ENV"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+    - name: Report Linux native audio cache result
+      id: result
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        PREFIX_VALID: ${{ steps.validate-cache.outputs.valid }}
+      run: |
+        if [ "$CACHE_HIT" = true ] && [ "$PREFIX_VALID" = true ]; then
+          echo 'cache-hit=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'cache-hit=false' >> "$GITHUB_OUTPUT"
+        fi

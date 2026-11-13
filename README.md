@@ -87,7 +87,7 @@
 
 前往 [Releases](https://github.com/pa-jesusf/KikoFlu/releases/latest) 下载最新版本。
 
-支持平台：Android（universal / arm64-v8a）、iOS（未签名 IPA）、Windows（安装包 / 便携版）、macOS（DMG）、Linux（x64 / arm64）
+支持平台：Android（arm64-v8a）、iOS（未签名 IPA）、Windows（安装包 / 便携版）、macOS（Apple Silicon，DMG）、Linux（x64）
 
 **macOS 升级：** Iroru.app 和旧版 KikoFlu.app 的名称不同。复制 Iroru.app 后，KikoFlu.app 仍会保留。确认 Iroru 能读取原有数据后，可移除 KikoFlu.app。
 
@@ -124,7 +124,7 @@ flutter pub get
 各平台需要 `build/native-audio/` 中的锁定原生库。
 该目录未纳入 Git，构建应用前须先准备：
 
-- Android：在 Linux 环境运行 `bash scripts/native_audio/build_android.sh all`。
+- Android：在 Linux 环境运行 `bash scripts/native_audio/build_android.sh arm64`。使用 x86_64 模拟器时改用 `all`。
 - Windows：在 Linux 环境运行 `bash scripts/native_audio/build_windows.sh`，再从包含该目录的检出目录构建应用。
 - iOS、macOS：在使用 Xcode 16.4 的 macOS 环境运行 `bash scripts/native_audio/build_darwin.sh`。
 - Linux：按 [Linux 原生播放库构建](docs/development/linux-native-audio.md) 准备。
@@ -135,7 +135,7 @@ flutter pub get
 
 | 平台 | 命令 |
 |------|------|
-| Android | `flutter build apk --release --split-per-abi` |
+| Android | `flutter build apk --release --target-platform android-arm64 --split-per-abi` |
 | Windows | `flutter build windows --release` |
 | macOS | `flutter build macos --release` |
 | Linux | [构建原生库](docs/development/linux-native-audio.md)，再运行 `flutter build linux --release` |

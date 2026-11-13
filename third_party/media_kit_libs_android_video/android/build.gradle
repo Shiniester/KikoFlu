@@ -47,7 +47,19 @@ android {
 }
 
 def nativeAudioOutputDir = new File(rootProject.projectDir.parentFile, "build/native-audio/android-output")
-def nativeAudioAbis = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
+def supportedNativeAudioAbis = ["arm64-v8a", "x86_64"]
+def nativeAudioPlatformAbis = ["android-arm64": "arm64-v8a", "android-x64": "x86_64"]
+def targetPlatforms = project.findProperty("target-platform")
+def nativeAudioAbis = supportedNativeAudioAbis
+if (targetPlatforms != null) {
+    nativeAudioAbis = targetPlatforms.toString().split(",").collect { platform ->
+        def abi = nativeAudioPlatformAbis[platform]
+        if (abi == null) {
+            throw new GradleException("Custom libmpv does not support Flutter target platform '${platform}'. Supported target platforms: android-arm64, android-x64.")
+        }
+        abi
+    }.unique()
+}
 def outputDir = file("$buildDir/output")
 
 task stageNativeAudioJars {
@@ -55,7 +67,7 @@ task stageNativeAudioJars {
         def nativeJars = nativeAudioAbis.collect { abi ->
             def nativeJar = new File(nativeAudioOutputDir, "default-${abi}.jar")
             if (!nativeJar.isFile() || nativeJar.length() == 0) {
-                throw new GradleException("Missing custom libmpv JAR for Android ${abi}: ${nativeJar}. Build or download all four artifacts into build/native-audio/android-output.")
+                throw new GradleException("Missing custom libmpv JAR for Android ${abi}: ${nativeJar}. Build or download the required ABI artifact into build/native-audio/android-output.")
             }
 
             new ZipFile(nativeJar).withCloseable { archive ->

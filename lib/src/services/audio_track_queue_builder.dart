@@ -29,6 +29,8 @@ class AudioTrackQueueBuilder {
     String? artist,
     String? artworkUrl,
     String? subtitleWorkDirPath,
+    Map<String, String>? translatedTitles,
+    String? translatedAlbumTitle,
     bool requireHash = false,
   }) async {
     final tracks = <AudioTrack>[];
@@ -49,8 +51,10 @@ class AudioTrackQueueBuilder {
         id: hash ?? title,
         url: url,
         title: title,
+        translatedTitle: translatedTitles?[title],
         artist: artist,
         album: albumTitle,
+        translatedAlbum: translatedAlbumTitle,
         artworkUrl: artworkUrl,
         duration: _parseDuration(FileTreeUtils.property(file, 'duration')),
         workId: workId,

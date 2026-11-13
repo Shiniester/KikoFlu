@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+const audioSliceStartCancellationWindowMs = 500;
+
 class AudioSlice extends Equatable {
   const AudioSlice({required this.startMs, required this.endMs});
 

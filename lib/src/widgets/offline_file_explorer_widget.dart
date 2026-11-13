@@ -57,6 +57,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
   final String? localCoverRelativePath;
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
+  final String? Function()? translatedWorkTitle;
 
   const OfflineFileExplorerWidget({
     super.key,
@@ -66,6 +67,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
     this.localCoverRelativePath,
     this.initialLoadReady,
     this.translate = false,
+    this.translatedWorkTitle,
   });
 
   @override
@@ -400,11 +402,21 @@ class _OfflineFileExplorerWidgetState
     List<dynamic>? audioFiles,
   }) async {
     if (!mounted) return;
+    final work = widget.work;
+    final useTranslations = widget.translate;
+    final translatedTitles = useTranslations
+        ? Map<String, String>.unmodifiable(
+            _translationController.translations,
+          )
+        : null;
+    final translatedAlbumTitle = useTranslations
+        ? widget.translatedWorkTitle?.call()
+        : null;
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
     try {
       _log.captureOutput(
-        '[OfflineFileExplorer] 点击播放: workId=${widget.work.id}, '
+        '[OfflineFileExplorer] 点击播放: workId=${work.id}, '
         'title="$title", parentPath="$parentPath", '
         'localRelativePath=${FileTreeUtils.property(audioFile, 'localRelativePath')}, '
         'relativePath=${FileTreeUtils.property(audioFile, 'relativePath')}, '
@@ -414,7 +426,7 @@ class _OfflineFileExplorerWidgetState
 
       final targetResult = await _audioUrlResolver.resolveOfflinePlaybackTarget(
         file: audioFile,
-        workId: widget.work.id,
+        workId: work.id,
         parentPath: parentPath,
         unknownTitle: l10n.unknown,
         workDirPath: _workDirPath,
@@ -458,12 +470,14 @@ class _OfflineFileExplorerWidgetState
           workDir: target.workDir,
           parentPath: parentPath,
         ),
-        work: widget.work,
+        work: work,
         unknownTitle: l10n.unknown,
         artworkUrl: target.artworkUrl,
         subtitleWorkDirPath: target.workDir,
         playlistMode: playlistMode,
         audioFiles: audioFiles,
+        translatedTitles: translatedTitles,
+        translatedAlbumTitle: translatedAlbumTitle,
       );
 
       if (!mounted) return;
@@ -496,7 +510,7 @@ class _OfflineFileExplorerWidgetState
               .playTracks(
                 queue.tracks,
                 startIndex: queue.startIndex,
-                work: widget.work,
+                work: work,
                 playlistMode: playlistMode,
               );
       }

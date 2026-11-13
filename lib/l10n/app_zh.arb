@@ -1625,6 +1625,7 @@
   "markAudioSliceEnd": "标记终点",
   "manageAudioSlices": "管理切片",
   "cancelAudioSliceStart": "取消起点",
+  "audioSliceStartCanceled": "已取消起点",
   "audioSlicePendingStart": "起点：{time}",
   "audioSliceRange": "{start} – {end}",
   "onlyPlayAudioSlices": "仅播放切片",

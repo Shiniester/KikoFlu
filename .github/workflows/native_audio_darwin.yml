@@ -36,24 +36,44 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha || github.sha }}
 
+      - name: Validate selected Darwin builder supports arm64 archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -Fq '_ios-arm64-video-default.tar.gz' scripts/native_audio/build_darwin.sh || \
+            ! grep -Fq '_macos-arm64-video-default.tar.gz' scripts/native_audio/build_darwin.sh; then
+            echo '::error::Selected commit does not support the arm64-only Darwin artifact contract.'
+            exit 1
+          fi
+          source scripts/native_audio/darwin.lock
+          if [[ "$DARWIN_OUTPUT_VERSION" != 'v0.6.0' ]]; then
+            echo '::error::Darwin provider consumers require output version v0.6.0.'
+            exit 1
+          fi
+
+      - name: Read runner image version
+        id: runner-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}" && test -n "${ImageVersion:-}"
+          printf 'image-os=%s\n' "$ImageOS" >> "$GITHUB_OUTPUT"
+          printf 'image-version=%s\n' "$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Darwin native audio artifacts
+        id: darwin-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: build/native-audio/darwin-output
+          key: native-audio-darwin-arm64-${{ steps.runner-image.outputs.image-os }}-${{ steps.runner-image.outputs.image-version }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/native_audio_darwin.yml', 'scripts/native_audio/**') }}-${{ inputs.commit_sha != '' && inputs.commit_sha != github.sha && github.sha || 'same-ref' }}
+
       - name: Select pinned Xcode
         run: sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
 
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11.5'
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.21.0'
-
-      - name: Install pinned build tools
-        run: |
-          set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/darwin-audio-tools"
-          "$RUNNER_TEMP/darwin-audio-tools/bin/python" -m pip install \
-            --requirement scripts/native_audio/darwin-requirements.txt
-          echo "$RUNNER_TEMP/darwin-audio-tools/bin" >> "$GITHUB_PATH"
 
       - name: Verify source patches
         working-directory: scripts/native_audio
@@ -64,15 +84,75 @@ jobs:
           test_darwin_native.DarwinSdkPathTests
           test_darwin_native.DarwinRecipePatchTests.test_fixed_sources_keep_upstream_fixes_and_accept_darwin_audio_patches
 
+      - name: Validate cached Darwin native audio artifacts
+        id: cache-validation
+        if: steps.darwin-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source scripts/native_audio/darwin.lock
+          provenance=build/native-audio/darwin-output/source-provenance.txt
+          if [[ -s "$provenance" ]] && \
+            grep -Fxq "ios_minimum=$DARWIN_IOS_MIN_VERSION" "$provenance" && \
+            grep -Fxq "macos_minimum=$DARWIN_MACOS_MIN_VERSION" "$provenance" && \
+            grep -Fxq 'ios_device_architectures=arm64' "$provenance" && \
+            grep -Fxq 'ios_simulator_architectures=arm64' "$provenance" && \
+            grep -Fxq 'macos_architectures=arm64' "$provenance" && \
+            python3 scripts/native_audio/check_darwin_artifacts.py \
+              --ios-archive "build/native-audio/darwin-output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_ios-arm64-video-default.tar.gz" \
+              --macos-archive "build/native-audio/darwin-output/libmpv-xcframeworks_${DARWIN_OUTPUT_VERSION}_macos-arm64-video-default.tar.gz" \
+              --ios-min "$DARWIN_IOS_MIN_VERSION" \
+              --macos-min "$DARWIN_MACOS_MIN_VERSION"; then
+            echo 'cache-valid=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'cache-valid=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v6
+        if: steps.cache-validation.outputs.cache-valid != 'true'
+        with:
+          go-version: '1.21.0'
+
+      - name: Install pinned build tools
+        if: steps.cache-validation.outputs.cache-valid != 'true'
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/darwin-audio-tools"
+          "$RUNNER_TEMP/darwin-audio-tools/bin/python" -m pip install \
+            --requirement scripts/native_audio/darwin-requirements.txt
+          echo "$RUNNER_TEMP/darwin-audio-tools/bin" >> "$GITHUB_PATH"
+
       - name: Build and validate custom frameworks
-        run: bash scripts/native_audio/build_darwin.sh
+        if: steps.cache-validation.outputs.cache-valid != 'true'
+        shell: bash
+        run: |
+          rm -rf build/native-audio/darwin-output
+          bash scripts/native_audio/build_darwin.sh
+
+      - name: Verify Darwin output files
+        shell: bash
+        run: |
+          set -euo pipefail
+          source scripts/native_audio/darwin.lock
+          [[ "$DARWIN_OUTPUT_VERSION" == 'v0.6.0' ]]
+          test -s build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_ios-arm64-video-default.tar.gz
+          test -s build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz
+          test -s build/native-audio/darwin-output/source-provenance.txt
+
+      - name: Save Darwin native audio artifacts
+        if: steps.darwin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: build/native-audio/darwin-output
+          key: ${{ steps.darwin-cache.outputs.cache-primary-key }}
 
       - name: Upload iOS libmpv archive
         uses: actions/upload-artifact@v6
         with:
           name: native-audio-darwin-ios
           path: |
-            build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_ios-universal-video-default.tar.gz
+            build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_ios-arm64-video-default.tar.gz
             build/native-audio/darwin-output/source-provenance.txt
           if-no-files-found: error
 
@@ -81,6 +161,6 @@ jobs:
         with:
           name: native-audio-darwin-macos
           path: |
-            build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-universal-video-default.tar.gz
+            build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz
             build/native-audio/darwin-output/source-provenance.txt
           if-no-files-found: error

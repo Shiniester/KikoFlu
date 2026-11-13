@@ -396,6 +396,7 @@ void main() {
           expect(actual[n], (frames[n].$2 / 32768, frames[n].$2 / 32768));
         }
         expect(service.audioEffectsStatus, AudioEffectsStatus.ready);
+        await Future<void>.delayed(const Duration(seconds: 6));
         await service.updateAudioEffects(
           settings.copyWith(
             channelMode: AudioChannelMode.cloneLeft,

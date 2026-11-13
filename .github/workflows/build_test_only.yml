@@ -30,9 +30,40 @@ permissions:
   contents: read
 
 jobs:
+  build-scope:
+    name: Check build scope
+    runs-on: ubuntu-latest
+    outputs:
+      build_required: ${{ steps.classify.outputs.build_required || steps.dispatch.outputs.build_required }}
+    steps:
+      - uses: actions/checkout@v6
+        if: ${{ github.event_name == 'push' }}
+        with:
+          fetch-depth: 0
+
+      - name: Classify pushed changes
+        id: classify
+        if: ${{ github.event_name == 'push' }}
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          args=("$PUSH_BEFORE" "$PUSH_SHA")
+          if [[ "$GITHUB_REF_TYPE" == branch && "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            args+=("refs/remotes/origin/$DEFAULT_BRANCH")
+          fi
+          python3 scripts/ci/build_test_scope.py "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Keep manual builds enabled
+        id: dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: echo 'build_required=true' >> "$GITHUB_OUTPUT"
+
   native-audio:
     name: Native Audio Libraries
-    if: ${{ !inputs.native_audio_darwin_only && (inputs.native_audio_only || !inputs.native_audio_android_only) }}
+    needs: build-scope
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_darwin_only && (inputs.native_audio_only || !inputs.native_audio_android_only) }}
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -42,7 +73,8 @@ jobs:
 
   native-audio-android:
     name: Android Native Audio Libraries
-    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    needs: build-scope
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     uses: ./.github/workflows/native_audio.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -51,7 +83,8 @@ jobs:
 
   native-audio-darwin:
     name: Darwin Native Audio Libraries
-    if: ${{ !inputs.native_audio_android_only && (!inputs.native_audio_only || inputs.native_audio_darwin_only) }}
+    needs: build-scope
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_android_only && (!inputs.native_audio_only || inputs.native_audio_darwin_only) }}
     uses: ./.github/workflows/native_audio_darwin.yml
     with:
       commit_sha: ${{ github.sha }}
@@ -76,6 +109,7 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
       - name: Get dependencies
         run: flutter pub get --enforce-lockfile
       - name: Verify native Player integration
@@ -94,8 +128,8 @@ jobs:
             ${{ runner.temp }}\audio-backend-contract.log
           if-no-files-found: warn
 
-  quality:
-    name: Analyze and Test
+  quality-analysis:
+    name: Analyze and Test (analysis)
     if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     runs-on: ubuntu-latest
     steps:
@@ -110,8 +144,17 @@ jobs:
       - name: Test Android signing certificate consistency
         run: python3 scripts/test_android_signing.py
 
+      - name: Test workflow CI helpers
+        run: python3 scripts/ci/test_workflow_ci_helpers.py
+
       - name: Test release metadata
         run: python3 scripts/test_release_metadata.py
+
+      - name: Test push release planning
+        run: python3 scripts/test_plan_push_release.py
+
+      - name: Test release workflow contracts
+        run: python3 scripts/test_release_workflow_contracts.py
 
       - name: Test audio effects probe
         run: python3 scripts/test_audio_effects_probe.py
@@ -124,6 +167,7 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
@@ -134,19 +178,54 @@ jobs:
       - name: Test streaming ZIP extraction
         run: dart --enable-asserts run scripts/test_streaming_zip_extractor.dart
 
-      - name: Test
-        run: flutter test --exclude-tags external
+  flutter-tests:
+    name: Flutter Tests (${{ matrix.shard }}/2)
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Test shard
+        run: python3 scripts/ci/run_flutter_test_shard.py '${{ matrix.shard }}' 2
 
       - name: Upload Golden Failure Images
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: golden-failures
+          name: golden-failures-shard-${{ matrix.shard }}
           path: test/**/failures/**
           if-no-files-found: ignore
 
-  android:
-    name: Android Build
+  quality:
+    name: Analyze and Test
+    needs: [quality-analysis, flutter-tests]
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require analysis and test shards to pass
+        env:
+          ANALYSIS_RESULT: ${{ needs.quality-analysis.result }}
+          FLUTTER_TESTS_RESULT: ${{ needs.flutter-tests.result }}
+        run: |
+          test "$ANALYSIS_RESULT" = success
+          test "$FLUTTER_TESTS_RESULT" = success
+
+  android-build:
+    name: Android APK Build
     if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
     needs: native-audio-android
     runs-on: ubuntu-latest
@@ -187,23 +266,23 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+          cache: gradle
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Build Android APKs
+      - name: Build Android arm64 APK
         run: |
           set -euo pipefail
           mkdir -p dist
-          flutter build apk --release
-          mv build/app/outputs/flutter-apk/app-release.apk dist/Iroru-android-universe-test.apk
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --split-per-abi --target-platform android-arm64
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Iroru-android-arm64-v8a-test.apk
 
       - name: Verify Android Package Compatibility
@@ -216,7 +295,6 @@ jobs:
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           aapt="$build_tools_dir/aapt"
           apksigner="$build_tools_dir/apksigner"
-          universal_apk="dist/Iroru-android-universe-test.apk"
           arm64_apk="dist/Iroru-android-arm64-v8a-test.apk"
 
           check_native_libraries() {
@@ -235,7 +313,6 @@ jobs:
             done
           }
 
-          check_native_libraries "$universal_apk" armeabi-v7a arm64-v8a x86_64
           check_native_libraries "$arm64_apk" arm64-v8a
 
           for tool in "$aapt" "$apksigner"; do
@@ -245,67 +322,48 @@ jobs:
             fi
           done
 
-          universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
           arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
           arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          base_code="$(sed -n 's/^flutter.versionCode=//p' android/local.properties | tail -n 1)"
+          base_code="${base_code:-1}"
+          if [[ ! "$base_code" =~ ^[0-9]+$ || ! "$arm64_code" =~ ^[0-9]+$ ]]; then
+            echo "::error::Unable to determine the Android versionCode base or arm64 value."
+            exit 1
+          fi
 
-          for badging in "$universal_badging" "$arm64_badging"; do
-            package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
-            if [ "$package_name" != "com.meteor.kikoeruflutter" ]; then
-              echo "::error::Unexpected Android package metadata: $badging"
-              exit 1
-            fi
-          done
+          package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          if [ "$package_name" != "com.meteor.kikoeruflutter" ]; then
+            echo "::error::Unexpected Android package metadata: $arm64_badging"
+            exit 1
+          fi
 
-          if [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
-            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $universal_code."
+          if [ "$arm64_code" -ne $((base_code + 2000)) ]; then
+            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from base versionCode $base_code."
             exit 1
           fi
 
           if [ "$SIGNING_CONFIGURED" = "true" ]; then
-            for apk in "$universal_apk" "$arm64_apk"; do
-              cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
-              actual_cert="$(
-                printf '%s\n' "$cert_output" |
-                  sed -nE '/certificate SHA-256 digest:/I {
-                    s/.*certificate SHA-256 digest:[[:space:]]*//I
-                    p
-                    q
-                  }' |
-                  tr -d '[:space:]:' |
-                  tr '[:upper:]' '[:lower:]'
-              )"
-              if [ -z "$actual_cert" ]; then
-                echo "::error::Unable to read the Android signing certificate for $apk."
-                printf '%s\n' "$cert_output" >&2
-                exit 1
-              fi
-              if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-                echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
-                exit 1
-              fi
-            done
+            cert_output="$("$apksigner" verify --print-certs "$arm64_apk" 2>&1)"
+            actual_cert="$(
+              printf '%s\n' "$cert_output" |
+                sed -nE '/certificate SHA-256 digest:/I {
+                  s/.*certificate SHA-256 digest:[[:space:]]*//I
+                  p
+                  q
+                }' |
+                tr -d '[:space:]:' |
+                tr '[:upper:]' '[:lower:]'
+            )"
+            if [ -z "$actual_cert" ]; then
+              echo "::error::Unable to read the Android signing certificate for $arm64_apk."
+              printf '%s\n' "$cert_output" >&2
+              exit 1
+            fi
+            if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::Unexpected Android signing certificate for $arm64_apk: $actual_cert"
+              exit 1
+            fi
           fi
-
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Verify packaged Android audio effects
-        timeout-minutes: 15
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          script: >-
-            flutter test --no-pub -d emulator-5554
-            --dart-define=KIKOFLU_PERFORMANCE=true
-            integration_test/android_audio_verification.dart
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6
@@ -314,8 +372,88 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  ios:
-    name: iOS Build (Unsigned)
+  android-emulator-verify:
+    name: Android x86_64 Emulator Verification
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    needs: native-audio-android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download Android native audio libraries
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-android
+          path: build/native-audio/android-output
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify packaged Android audio effects
+        id: android-emulator
+        timeout-minutes: 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: >-
+            bash scripts/ci/run_android_emulator_test.sh
+            "$RUNNER_TEMP/android-emulator-diagnostics" --
+            bash -e -c 'flutter test --no-pub -d emulator-5554
+            --dart-define=KIKOFLU_PERFORMANCE=true
+            integration_test/android_audio_verification.dart'
+
+      - name: Upload Android emulator diagnostics
+        if: ${{ always() && steps.android-emulator.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-emulator-diagnostics
+          path: ${{ runner.temp }}/android-emulator-diagnostics/
+          if-no-files-found: warn
+
+  android:
+    name: Android Build
+    needs: [build-scope, android-build, android-emulator-verify]
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark Android build unnecessary for documentation changes
+        if: ${{ github.event_name == 'push' && needs.build-scope.result == 'success' && needs.build-scope.outputs.build_required == 'false' }}
+        run: echo 'Android build skipped because the push contains documentation changes only.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check Android build and emulator results
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false' }}
+        env:
+          ANDROID_BUILD_RESULT: ${{ needs.android-build.result }}
+          ANDROID_EMULATOR_RESULT: ${{ needs.android-emulator-verify.result }}
+        run: |
+          test "$ANDROID_BUILD_RESULT" = success
+          test "$ANDROID_EMULATOR_RESULT" = success
+
+  ios-verify:
+    name: iOS Simulator Verification
     if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     needs: native-audio-darwin
     runs-on: macos-latest
@@ -333,11 +471,13 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
 
       - name: Verify iOS native audio playback
+        timeout-minutes: 35
         run: |
           set -euo pipefail
           simulator=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, items in devices.items() if ".iOS-" in runtime for device in items if device.get("isAvailable") and device["name"].startswith("iPhone")))')
@@ -350,10 +490,47 @@ jobs:
             else
               status=$?
             fi
-            grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log" || exit "$status"
-            printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
-            flutter --verbose test --no-pub -d "$simulator" "$test_file"
+            if grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log"; then
+              printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
+              flutter --verbose test --no-pub -d "$simulator" "$test_file"
+            elif [[ "$test_file" == integration_test/audio_effects_production_test.dart ]] &&
+              grep -Fq 'verified HTTPS video output remains independent from the audio graph (failed)' "$log" &&
+              grep -Fq 'native HTTPS rejects an untrusted certificate (failed)' "$log" &&
+              grep -Fq 'TimeoutException after 0:00:30.000000' "$log" &&
+              grep -Fq 'TimeoutException after 0:00:10.000000' "$log" &&
+              grep -Eq '[0-9]+ tests passed, 2 failed\.' "$log"; then
+              printf 'Restarting the simulator and retrying %s after both HTTPS tests timed out.\n' "$test_file"
+              xcrun simctl shutdown "$simulator"
+              xcrun simctl bootstatus "$simulator" -b
+              flutter test --no-pub -d "$simulator" "$test_file"
+            else
+              exit "$status"
+            fi
           done
+
+  ios-build:
+    name: iOS IPA Build
+    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: native-audio-darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download custom iOS libmpv archive
+        uses: actions/download-artifact@v6
+        with:
+          name: native-audio-darwin-ios
+          path: build/native-audio/darwin-output
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
 
       - name: Build iOS App (Unsigned)
         run: flutter build ios --release --no-codesign
@@ -372,6 +549,25 @@ jobs:
           name: test-assets-ios
           path: dist/*
           if-no-files-found: error
+
+  ios:
+    name: iOS Build (Unsigned)
+    if: ${{ always() && !cancelled() && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: [build-scope, ios-verify, ios-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark iOS build unnecessary for documentation changes
+        if: ${{ github.event_name == 'push' && needs.build-scope.result == 'success' && needs.build-scope.outputs.build_required == 'false' }}
+        run: echo 'iOS build skipped because the push contains documentation changes only.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check iOS verification and build results
+        if: ${{ github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false' }}
+        env:
+          IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
+          IOS_VERIFY_RESULT: ${{ needs.ios-verify.result }}
+        run: |
+          test "$IOS_VERIFY_RESULT" = success
+          test "$IOS_BUILD_RESULT" = success
 
   macos:
     name: macOS Build
@@ -392,6 +588,7 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
@@ -411,6 +608,16 @@ jobs:
 
       - name: Build macOS Release
         run: flutter build macos --release
+
+      - name: Verify macOS Release Architecture
+        run: |
+          set -euo pipefail
+          executable=build/macos/Build/Products/Release/Iroru.app/Contents/MacOS/Iroru
+          architectures="$(lipo -archs "$executable")"
+          if [[ "$architectures" != arm64 ]]; then
+            echo "::error::Expected Iroru.app to contain only arm64, found: $architectures"
+            exit 1
+          fi
 
       - name: Create DMG
         run: |
@@ -448,6 +655,7 @@ jobs:
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
@@ -504,7 +712,8 @@ jobs:
 
   linux:
     name: Linux x64 Build
-    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
+    needs: build-scope
+    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-scope.result != 'success' || needs.build-scope.outputs.build_required != 'false') && !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -527,20 +736,15 @@ jobs:
       - name: Test Linux bundle dependency checks
         run: bash linux/test_bundle_check.sh
 
-      - name: Build shared Linux native audio
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
-          export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/native_audio/build_linux.sh
-          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
+      - name: Build or restore Linux x64 native audio
+        uses: ./.github/actions/linux-native-audio-cache
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.7'
           channel: 'stable'
+          cache: true
 
       - name: Get Dependencies
         run: flutter pub get
@@ -590,97 +794,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: test-assets-linux-x64
-          path: dist/*
-          if-no-files-found: error
-
-  linux-arm64:
-    name: Linux ARM64 Build
-    if: ${{ !inputs.native_audio_only && !inputs.native_audio_darwin_only && !inputs.native_audio_android_only }}
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Linux Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            curl git unzip xz-utils \
-            clang cmake ninja-build pkg-config \
-            libgtk-3-dev libsecret-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
-            pax-utils patchelf binutils libsqlite3-dev libssl-dev libass-dev libepoxy-dev libpulse-dev libasound2-dev \
-            libegl1-mesa-dev libgles2-mesa-dev libxrandr-dev libxinerama-dev libxss-dev \
-            libxpresent-dev libxv-dev libwayland-dev wayland-protocols nasm python3-pip xvfb
-
-      - name: Test Linux bundle dependency checks
-        run: bash linux/test_bundle_check.sh
-
-      - name: Build shared Linux native audio
-        run: |
-          set -euo pipefail
-          python3 -m pip install --user --requirement scripts/native_audio/requirements.txt
-          export PATH="$HOME/.local/bin:$PATH"
-          bash scripts/native_audio/build_linux.sh
-          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/native-audio/linux-output/lib" >> "$GITHUB_ENV"
-
-      - name: Setup Flutter
-        run: |
-          git clone https://github.com/flutter/flutter.git -b 3.44.7 "$RUNNER_TEMP/flutter" --depth 1
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" --version
-
-      - name: Get Dependencies
-        run: flutter pub get
-
-      - name: Build Linux ARM64 Release
-        env:
-          CC: clang
-          CXX: clang++
-          CMAKE_BUILD_PARALLEL_LEVEL: '1'
-          MAKEFLAGS: '-j1'
-        run: flutter build linux --release --verbose
-
-      - name: Verify Linux ARM64 Release Bundle
-        run: bash linux/check_linux_bundle.sh build/linux/arm64/release/bundle
-
-      - name: Verify packaged Linux PCM contracts
-        run: |
-          set -euo pipefail
-          bundle="$GITHUB_WORKSPACE/build/linux/arm64/release/bundle"
-          flutter test --no-pub test/audio_effects_graph_test.dart
-          export LD_LIBRARY_PATH="$bundle/lib"
-          python3 tool/audio_effects/production_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/production-pcm.json
-          python3 tool/audio_effects/binaural_contracts.py --libmpv "$bundle/lib/libmpv.so" --graphs build/audio-effects-contract/graphs.json --variant customLibrary --output build/native-audio/linux-output/binaural-pcm.json
-          python3 tool/audio_effects/control_cache_contracts.py --libmpv "$bundle/lib/libmpv.so" --output build/native-audio/linux-output/control-cache.json
-
-      - name: Verify packaged Linux audio effects
-        env:
-          LIBGL_ALWAYS_SOFTWARE: '1'
-        run: |
-          set -euo pipefail
-          unset LD_LIBRARY_PATH
-          debug_bundle="$GITHUB_WORKSPACE/build/linux/arm64/debug/bundle"
-          timeout 5m xvfb-run -a flutter test --no-pub -d linux integration_test/audio_effects_production_test.dart --dart-define="KIKOFLU_AUDIO_LIBMPV=$debug_bundle/lib/libmpv.so"
-
-      - name: Upload Linux native audio evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: native-audio-linux-arm64-evidence
-          path: |
-            build/native-audio/linux-output/*.json
-            build/native-audio/linux-output/source-provenance.txt
-          if-no-files-found: warn
-
-      - name: Create Archive
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          (cd build/linux/arm64/release/bundle && tar -czf "$GITHUB_WORKSPACE/dist/Iroru-linux-arm64-test.tar.gz" .)
-
-      - name: Upload Linux ARM64 Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-assets-linux-arm64
           path: dist/*
           if-no-files-found: error

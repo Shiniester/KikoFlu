@@ -520,7 +520,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              track.title,
+              track.displayTitle,
               textAlign: TextAlign.start,
               style: _miniPlayerTitleStyle(context),
               maxLines: 1,
@@ -578,8 +578,8 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
     return Semantics(
       button: true,
       label: semanticsTrack.artist == null
-          ? semanticsTrack.title
-          : '${semanticsTrack.title}, ${semanticsTrack.artist}',
+          ? semanticsTrack.displayTitle
+          : '${semanticsTrack.displayTitle}, ${semanticsTrack.artist}',
       onTap: widget.onTap,
       customSemanticsActions: {
         previousAction: () => unawaited(_requestSwitch(next: false)),
@@ -947,7 +947,7 @@ double _measureMiniPlayerTextHeight(
 double _miniPlayerTrackInfoHeight(BuildContext context, AudioTrack track) {
   final titleHeight = _measureMiniPlayerTextHeight(
     context,
-    track.title,
+    track.displayTitle,
     _miniPlayerTitleStyle(context),
   );
   // Keep space for an outgoing artist while tracks cross-fade.
@@ -955,7 +955,7 @@ double _miniPlayerTrackInfoHeight(BuildContext context, AudioTrack track) {
       2 +
       _measureMiniPlayerTextHeight(
         context,
-        track.artist ?? track.title,
+        track.artist ?? track.displayTitle,
         _miniPlayerArtistStyle(context),
       );
 }

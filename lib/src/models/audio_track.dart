@@ -7,9 +7,11 @@ part 'audio_track.g.dart';
 class AudioTrack extends Equatable {
   final String id;
   final String title;
+  final String? translatedTitle;
   final String url;
   final String? artist;
   final String? album;
+  final String? translatedAlbum;
   final String? artworkUrl;
   final Duration? duration;
   final String? lyricUrl;
@@ -24,8 +26,10 @@ class AudioTrack extends Equatable {
     required this.id,
     required this.title,
     required this.url,
+    this.translatedTitle,
     this.artist,
     this.album,
+    this.translatedAlbum,
     this.artworkUrl,
     this.duration,
     this.lyricUrl,
@@ -42,9 +46,13 @@ class AudioTrack extends Equatable {
 
   Map<String, dynamic> toJson() => _$AudioTrackToJson(this);
 
+  String get displayTitle => translatedTitle ?? title;
+  String? get displayAlbum => translatedAlbum ?? album;
+
   AudioTrack copyWith({
     String? id,
     String? title,
+    ({String? title, String? album})? translations,
     String? url,
     String? artist,
     String? album,
@@ -62,8 +70,14 @@ class AudioTrack extends Equatable {
       id: id ?? this.id,
       title: title ?? this.title,
       url: url ?? this.url,
+      translatedTitle: translations == null
+          ? translatedTitle
+          : translations.title,
       artist: artist ?? this.artist,
       album: album ?? this.album,
+      translatedAlbum: translations == null
+          ? translatedAlbum
+          : translations.album,
       artworkUrl: artworkUrl ?? this.artworkUrl,
       duration: duration ?? this.duration,
       lyricUrl: lyricUrl ?? this.lyricUrl,
@@ -81,9 +95,11 @@ class AudioTrack extends Equatable {
   List<Object?> get props => [
         id,
         title,
+        translatedTitle,
         url,
         artist,
         album,
+        translatedAlbum,
         artworkUrl,
         duration,
         lyricUrl,

@@ -59,6 +59,8 @@ class AudioPlaybackPlanBuilder {
     List<dynamic>? audioFiles,
     String? artworkUrl,
     String? subtitleWorkDirPath,
+    Map<String, String>? translatedTitles,
+    String? translatedAlbumTitle,
     bool requireHash = false,
     AudioTapPlaylistMode playlistMode = AudioTapPlaylistMode.replaceQueue,
   }) async {
@@ -88,6 +90,8 @@ class AudioPlaybackPlanBuilder {
       artist: _artistInfo(work),
       artworkUrl: artworkUrl,
       subtitleWorkDirPath: subtitleWorkDirPath,
+      translatedTitles: translatedTitles,
+      translatedAlbumTitle: translatedAlbumTitle,
       requireHash: requireHash,
     );
 

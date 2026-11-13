@@ -340,6 +340,9 @@ their own priority.
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
 It remains active within that details page until the user switches back to the original.
+When audio is added to a playback queue, the queue retains the work title and
+audio name available on the details page at that time, even if translation is
+later toggled.
 Automatic and manual translation resolve the source language separately for the
 title and each resource name. Hiragana, Katakana, and half-width Katakana select
 Japanese; text without Kana uses the work's recognized language. Matching source
@@ -463,13 +466,16 @@ _Avoid_: Subtitle screen
 
 **Current Playback Subtitle (当前播放字幕)**:
 The subtitle corresponding to the audio's actual playback position. It can
-differ from the subtitle at the Playback Line while browsing or searching.
+differ from the subtitle at the Playback Line while browsing, searching, or
+waiting for a Playback Position Jump.
+There is no Current Playback Subtitle before the first subtitle starts.
 
 **Subtitle Spring Motion (字幕弹簧动画)**:
 The elastic movement of subtitle lines as the Player Cover Page and Player
 Lyrics Page follow playback or move to a selected subtitle. Shared subtitle
 actions use the same motion on both pages. It is distinct from word-by-word
-highlighting.
+highlighting. After a Track Switch, a first subtitle that has not started enters
+from below the visible area and moves to its playback position.
 _Avoid_: Karaoke animation, word highlighting
 
 **Subtitle Emphasis (字幕强调)**:
@@ -487,6 +493,8 @@ providers used when the selected provider fails.
 **Playback Line (播放行)**:
 The vertical anchor in the Player Lyrics Page where the current lyric or
 selected search result is positioned while the player follows it.
+After a Track Switch, it can indicate the first subtitle before that subtitle
+becomes the Current Playback Subtitle.
 _Avoid_: Center line, current line
 
 **Playback Line Time (播放行时间)**:
@@ -509,8 +517,8 @@ canceling a load does not make a complete cache entry corrupt.
 _Avoid_: Cover transition, title animation
 
 **Playback Position Jump (播放进度跳转)**:
-Moving to a selected time within the current track from the player's progress
-control or lyrics. The current track and its queue position remain the same.
+Moving to another time within the current track while keeping its queue
+position. The listener or Only Slices Mode can initiate the jump.
 _Avoid_: Track Switch, 曲目切换
 
 **Audio Slice (音频切片)**:
@@ -518,6 +526,10 @@ A saved start and end range within one playable audio track, shared by online,
 cached, and downloaded playback of that same track. Each Work Audio Chapter has
 independent slices on its own timeline starting at zero.
 _Avoid_: Point marker, exported audio clip, Work Audio Chapter
+
+**Pending Slice Start (未完成的切片起点)**:
+A marked position on the current track awaiting an end position to form an
+Audio Slice. It is not itself an Audio Slice.
 
 **Current Audio Slice (当前切片)**:
 The saved Audio Slice containing the current playback position, including while
@@ -558,7 +570,8 @@ _Avoid_: Track Switch, audio crossfade
 
 **Player Cover Scale (播放器封面缩放)**:
 The Player Cover Page artwork size that reflects playback and loading states. It
-is separate from user-controlled zoom in Cover Preview.
+is separate from user-controlled zoom in Cover Preview. A Playback Position Jump
+does not trigger this scaling, even when the current track is reloaded from cache.
 _Avoid_: Cover Preview zoom, Track Presentation Transition
 
 **Cover Preview (封面预览)**:

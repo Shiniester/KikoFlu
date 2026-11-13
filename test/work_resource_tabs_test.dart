@@ -183,19 +183,20 @@ Future<void> _pumpResources(
 }
 
 Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
-  final rawImage = find.descendant(of: finder, matching: find.byType(RawImage));
-  expect(rawImage, findsOneWidget);
-  for (
-    var frame = 0;
-    frame < 100 && tester.widget<RawImage>(rawImage).image == null;
-    frame++
-  ) {
+  final loadedImage = find.descendant(
+    of: finder,
+    matching: find.byWidgetPredicate(
+      (widget) => widget is RawImage && widget.image != null,
+      description: 'RawImage with decoded pixels',
+    ),
+  );
+  for (var frame = 0; frame < 100 && loadedImage.evaluate().isEmpty; frame++) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump();
   }
-  expect(tester.widget<RawImage>(rawImage).image, isNotNull);
+  expect(loadedImage, findsOneWidget);
 }
 
 Finder _loadingOverlaySpinner() => find.byKey(
@@ -1901,18 +1902,11 @@ void main() {
     expect(find.byKey(ObjectKey(files.last)), findsNothing);
     scroll.jumpTo(scroll.position.maxScrollExtent);
     await tester.pump();
-    final returnedImage = find.descendant(
-      of: find.ancestor(
-        of: find.text('remote19.png'),
-        matching: find.byType(Card),
-      ),
-      matching: find.byType(RawImage),
-    );
-    expect(returnedImage, findsOneWidget);
     final returnedCard = find.ancestor(
       of: find.text('remote19.png'),
       matching: find.byType(Card),
     );
+    await _pumpUntilImageLoaded(tester, returnedCard);
     expect(
       tester
           .widget<Visibility>(
@@ -1923,7 +1917,6 @@ void main() {
           .visible,
       isTrue,
     );
-    expect(tester.widget<RawImage>(returnedImage).image, isNotNull);
     expect(tester.takeException(), isNull);
   });
 

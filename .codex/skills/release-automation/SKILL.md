@@ -32,6 +32,9 @@ workflow's `workflow_dispatch` with the resolved branch, version, release notes
 and exact `commit_sha` against an already-synced commit. When repository sync is
 also requested, resolve the automatic default channel/version versus the explicit
 manual override before pushing. Use one release entry point for the same change.
+The selected commit must contain the current release configuration and Android
+native/Gradle interface. Release workflows reject incompatible commits before
+starting native builds.
 
 Do not commit or push merely because a release workflow is being discussed;
 those repository mutations require the user's explicit request. Keep the release
@@ -47,7 +50,7 @@ When reporting an accepted push-triggered run or dispatch, state that the workfl
 - Other branches default to Android Beta releases using **Build Android Beta and Pre-release** (`build_android_beta.yml`). An explicitly requested channel or platform overrides these defaults; explicit Beta requests also use this workflow.
 - Before choosing a Beta version, query the repository's latest published stable GitHub release, excluding drafts and pre-releases. Keep its MAJOR and MINOR components and increment PATCH by one: stable `4.5.2` produces the Beta base `4.5.3`. Derive this base from the current stable release each time; example versions are not fixed defaults.
 - Use `MAJOR.MINOR.PATCH-beta.N`, where N starts at 1 and increases beyond the highest existing Beta number for that base across tags and releases, including drafts. For example, stable `4.5.2` with an existing `4.5.3-beta.2` produces `4.5.3-beta.3`; after stable `4.5.3` is published, the next base becomes `4.5.4`. Verify an explicitly supplied version against this rule and report any mismatch before dispatching.
-- Beta releases publish the Android universal and arm64 APKs as a GitHub **Pre-release**, with `latest=false`. They use the separate `com.meteor.kikoeruflutter.beta` application ID and **KikoFlu Beta** name so they can coexist with the stable app.
+- Beta releases publish the Android arm64-v8a APK as a GitHub **Pre-release**, with `latest=false`. They use the separate `com.meteor.kikoeruflutter.beta` application ID and **KikoFlu Beta** name so they can coexist with the stable app.
 - Use **Build Android and Release** (`build_android.yml`) for an Android-only stable patch release only when the user explicitly requests that stable release.
 
 ## Stable version selection from main

@@ -20,6 +20,8 @@ grep -Fqx "v_sdk_build_tools=$ANDROID_BUILD_TOOLS" "$depinfo" || fail "Android b
 grep -Fqx 'v_ffmpeg=$FFMPEG_VERSION' "$depinfo" || fail "FFmpeg version ref changed"
 grep -Fqx 'v_mpv=$MPV_COMMIT' "$depinfo" || fail "mpv source commit changed"
 grep -Fqx 'v_libplacebo=$LIBPLACEBO_COMMIT' "$depinfo" || fail "libplacebo source commit changed"
+grep -Fqx 'archs=(arm64 x86_64)' "$source_dir/buildscripts/build.sh" ||
+    fail "Android native build must keep only arm64 and x86_64 architectures"
 grep -Eq "^[[:space:]]*local apilvl=$ANDROID_API$" "$source_dir/buildscripts/build.sh" ||
     fail "Android native API level changed"
 if [[ -e "$source_dir/buildscripts/patches/ffmpeg" ]]; then

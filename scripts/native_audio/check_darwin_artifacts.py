@@ -75,9 +75,9 @@ def _find_minimum_os(output: str, binary: Path, architecture: str) -> str:
 
 def _required_slices(platform: str) -> dict[str | None, set[str]]:
     if platform == "ios":
-        return {None: {"arm64"}, "simulator": {"arm64", "x86_64"}}
+        return {None: {"arm64"}, "simulator": {"arm64"}}
     if platform == "macos":
-        return {None: {"arm64", "x86_64"}}
+        return {None: {"arm64"}}
     raise ArtifactError(f"unsupported artifact platform: {platform}")
 
 
@@ -101,6 +101,20 @@ def _check_slices(info: dict, framework_name: str, platform: str) -> list[tuple[
         else:
             binary = library_path
         binaries.extend((variant, architecture, binary) for architecture in architectures)
+
+    for variant, architectures in actual.items():
+        variant_name = variant or "device"
+        if variant not in required:
+            raise ArtifactError(
+                f"{framework_name}.xcframework has unexpected {platform} "
+                f"variant: {variant_name}"
+            )
+        unexpected = sorted(architectures - required[variant])
+        if unexpected:
+            raise ArtifactError(
+                f"{framework_name}.xcframework has unexpected {platform} "
+                f"{variant_name} architectures: {', '.join(unexpected)}"
+            )
 
     for variant, architectures in required.items():
         if not architectures.issubset(actual.get(variant, set())):

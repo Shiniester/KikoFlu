@@ -1582,6 +1582,7 @@
   "markAudioSliceEnd": "終了位置を記録",
   "manageAudioSlices": "スライスを管理",
   "cancelAudioSliceStart": "開始位置を取り消す",
+  "audioSliceStartCanceled": "開始位置を取り消しました",
   "audioSlicePendingStart": "開始：{time}",
   "audioSliceRange": "{start} – {end}",
   "onlyPlayAudioSlices": "スライスのみ再生",

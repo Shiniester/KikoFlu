@@ -3,21 +3,30 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:just_audio_media_kit/mediakit_player.dart';
 import 'package:media_kit/media_kit.dart' show NativePlayer;
+import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/playback_diagnostic_event.dart';
 import 'package:kikoeru_flutter/src/performance/performance_build_guard.dart';
+import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
+import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_backend_native_fixture.dart';
@@ -114,8 +123,9 @@ void main() {
       await source.writeAsBytes(bytes);
       final player = await _configuredPlayer();
       final errors = <Object>[];
+      final reportedPositions = <Duration>[];
       final subscription = player.playbackEventStream.listen(
-        (_) {},
+        (event) => reportedPositions.add(event.updatePosition),
         onError: errors.add,
       );
       try {
@@ -132,12 +142,42 @@ void main() {
         final metrics = <Map<String, Object>>[];
         for (final percent in [25, 80, 10]) {
           final target = duration! * (percent / 100);
-          await player.seek(target).timeout(const Duration(seconds: 10));
+          final previousReceipt = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final seek = player.seek(target);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previousReceipt);
+          });
+          final receipt = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          await seek.timeout(const Duration(seconds: 10));
+          final confirmed = await receipt.timeout(const Duration(seconds: 10));
+          expect(confirmed, isNotNull);
+          expect(
+            (confirmed! - target).inMilliseconds.abs(),
+            lessThanOrEqualTo(100),
+          );
+          reportedPositions.clear();
           await _until(
             () =>
                 player.processingState == ProcessingState.ready &&
                 player.playbackEvent.updatePosition >=
                     target + const Duration(milliseconds: 500),
+          );
+          expect(reportedPositions, isNotEmpty);
+          expect(
+            reportedPositions,
+            everyElement(
+              allOf(
+                greaterThanOrEqualTo(target),
+                lessThan(target + const Duration(seconds: 3)),
+              ),
+            ),
           );
           expect(player.playing, isTrue);
           expect(
@@ -158,6 +198,599 @@ void main() {
       } finally {
         await player.dispose();
         await subscription.cancel();
+        await directory.delete(recursive: true);
+      }
+    });
+  }, skip: !supported);
+
+  for (final clipped in [false, true]) {
+    for (final initialPosition in [false, true]) {
+      testWidgets('paused ${clipped ? 'chapter' : 'track'} '
+          '${initialPosition ? 'initial position' : 'seek'} keeps its target '
+          'and resumes', (tester) async {
+        await _nativeContract(() async {
+          final directory = await Directory.systemTemp.createTemp(
+            'kiko-backend-seek-',
+          );
+          final source = File('${directory.path}/source.wav');
+          await source.writeAsBytes(
+            gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+          );
+          final player = _player();
+          late NativePlayer native;
+          late StreamSubscription<Duration> nativeSubscription;
+          final nativePositions = <Duration>[];
+          await _configureNativePlayer(player.platformId, (value) async {
+            native = value;
+            nativeSubscription = native.stream.position.listen(
+              nativePositions.add,
+            );
+          });
+          const target = Duration(milliseconds: 2002);
+          const chapterStart = Duration(seconds: 4);
+          final child = AudioSource.uri(source.uri);
+          final playable = clipped
+              ? ClippingAudioSource(
+                  child: child,
+                  start: chapterStart,
+                  end: const Duration(seconds: 20),
+                )
+              : child;
+          try {
+            await player.setAudioSource(
+              playable,
+              initialPosition: initialPosition ? target : null,
+            );
+            if (!initialPosition) await player.seek(target);
+            final rawPosition = await _settledNativePosition(
+              native,
+              target + (clipped ? chapterStart : Duration.zero),
+            );
+            final rawMicros = (double.parse(rawPosition) * 1000000).round();
+            await _until(
+              () => nativePositions.any(
+                (position) => (position.inMicroseconds - rawMicros).abs() <= 1,
+              ),
+            );
+            await Future<void>.delayed(Duration.zero);
+            expect(player.playing, isFalse);
+            expect(
+              player.position,
+              target,
+              reason: 'libmpv time-pos=$rawPosition',
+            );
+            unawaited(player.play());
+            await _until(
+              () =>
+                  player.playbackEvent.updatePosition >=
+                  target + const Duration(milliseconds: 100),
+            );
+            expect(player.playing, isTrue);
+          } finally {
+            await nativeSubscription.cancel();
+            await player.dispose();
+            JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+            await directory.delete(recursive: true);
+          }
+        });
+      }, skip: !supported);
+    }
+  }
+
+  testWidgets(
+    'native position receipt confirms paused, no-op, and EOF seeks',
+    (tester) async {
+      await _nativeContract(() async {
+        final directory = await Directory.systemTemp.createTemp(
+          'kiko-backend-position-receipt-',
+        );
+        final source = File('${directory.path}/source.wav');
+        await source.writeAsBytes(
+          gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+        );
+        final player = await _configuredPlayer();
+        const target = Duration(milliseconds: 2002);
+        const chapterStart = Duration(seconds: 4);
+        final playable = ClippingAudioSource(
+          child: AudioSource.uri(source.uri),
+          start: chapterStart,
+          end: const Duration(seconds: 20),
+        );
+
+        Future<Duration?> loadAndConfirmInitialPosition() async {
+          final previous = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final load = player.setAudioSource(playable, initialPosition: target);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previous);
+          });
+          final confirmation = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          expect(
+            await load.timeout(const Duration(seconds: 10)),
+            const Duration(seconds: 16),
+          );
+          return confirmation.timeout(const Duration(seconds: 10));
+        }
+
+        Future<Duration?> seekAndConfirm(Duration position) async {
+          final previous = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          final seek = player.seek(position);
+          await _until(() {
+            final latest = JustAudioMediaKit.positionConfirmation(
+              player.platformId,
+            );
+            return latest != null && !identical(latest, previous);
+          });
+          final confirmation = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          )!;
+          await seek.timeout(const Duration(seconds: 10));
+          return confirmation.timeout(const Duration(seconds: 10));
+        }
+
+        try {
+          expect(
+            JustAudioMediaKit.positionConfirmation(player.platformId),
+            isNull,
+          );
+          final initialPosition = await loadAndConfirmInitialPosition();
+          expect(initialPosition, isNotNull);
+          expect(
+            (initialPosition! - target).inMicroseconds.abs(),
+            lessThanOrEqualTo(500),
+          );
+          expect(player.playing, isFalse);
+
+          final noOpPosition = await seekAndConfirm(initialPosition);
+          expect(noOpPosition, initialPosition);
+          expect(player.playing, isFalse);
+
+          final eofPosition = await seekAndConfirm(const Duration(seconds: 16));
+          expect(eofPosition, const Duration(seconds: 16));
+
+          final resumedFromEof = await seekAndConfirm(target);
+          expect(resumedFromEof, isNotNull);
+          expect(
+            (resumedFromEof! - target).inMicroseconds.abs(),
+            lessThanOrEqualTo(500),
+          );
+        } finally {
+          await player.dispose();
+          JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+          await directory.delete(recursive: true);
+        }
+      });
+    },
+    skip: !supported,
+  );
+
+  testWidgets('playing seek does not reactivate the preceding subtitle', (
+    tester,
+  ) async {
+    await _nativeContract(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kiko-backend-playing-seek-',
+      );
+      final source = File('${directory.path}/source.wav');
+      await source.writeAsBytes(
+        gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+      );
+      final player = _player();
+      late NativePlayer native;
+      await _configureNativePlayer(player.platformId, (value) async {
+        native = value;
+      });
+      const target = Duration(milliseconds: 2002);
+      final reachedTarget = Completer<void>();
+      final positions = <Duration>[];
+      final subscription = player.positionStream.listen((position) {
+        if (!reachedTarget.isCompleted && position >= target) {
+          reachedTarget.complete();
+        }
+        if (reachedTarget.isCompleted) positions.add(position);
+      });
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      try {
+        await player.setFilePath(source.path);
+        unawaited(player.play());
+        await _until(
+          () => native.state.position >= const Duration(milliseconds: 100),
+        );
+        // Let the old playback clock advance while the native seek is queued.
+        final lock = NativePlayer.lock.synchronized(() async {
+          locked.complete();
+          await release.future;
+        });
+        await locked.future;
+        final before = native.state.position;
+        final seek = player.seek(target);
+        try {
+          await reachedTarget.future.timeout(const Duration(seconds: 3));
+          await _until(
+            () =>
+                native.state.position >=
+                before + const Duration(milliseconds: 100),
+          );
+          expect(native.state.position, lessThan(target));
+          expect(positions, everyElement(target));
+        } finally {
+          release.complete();
+          await lock;
+          await seek;
+        }
+        await _until(
+          () =>
+              player.playbackEvent.updatePosition >=
+              target + const Duration(milliseconds: 100),
+        );
+        expect(player.playing, isTrue);
+        expect(positions, everyElement(greaterThanOrEqualTo(target)));
+      } finally {
+        await subscription.cancel();
+        await player.dispose();
+        JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
+        await directory.delete(recursive: true);
+      }
+    });
+  }, skip: !supported);
+
+  for (final (delayedRead, earlyPosition) in [
+    (true, false),
+    (false, true),
+    (false, false),
+  ]) {
+    testWidgets(
+      delayedRead
+          ? 'a nearby playing seek confirms after playback passes its target'
+          : earlyPosition
+          ? 'a playing seek waits for the position to reach its target'
+          : 'a delayed native sample cannot undo a confirmed seek',
+      (tester) async {
+        await _nativeContract(() async {
+          final directory = await Directory.systemTemp.createTemp(
+            'kiko-backend-subtitle-seek-',
+          );
+          final source = await File(
+            '${directory.path}/source.wav',
+          ).writeAsBytes(gzip.decode(base64Decode(audioBackendWavGzipBase64)));
+          late NativePlayer native;
+          Duration? delayReadUntil;
+          String? delayedSeekingState;
+          final settlingReads = <String>[];
+          final player = MediaKitPlayer(
+            'subtitle-seek',
+            nativePlayerConfiguration: (value) async {
+              native = value;
+              await _configureWindowsNullAudioOutput(value);
+            },
+            nativePropertyReader: (native, name) async {
+              if (settlingReads.isNotEmpty &&
+                  (name == 'seeking' || name == 'time-pos')) {
+                return settlingReads.removeAt(0);
+              }
+              final until = delayReadUntil;
+              if (name == 'seeking' && until != null) {
+                delayReadUntil = null;
+                await _until(() => native.state.position >= until);
+                return delayedSeekingState = await native.getProperty(name);
+              }
+              return native.getProperty(name);
+            },
+          );
+          final reports = <Duration>[];
+          final subscription = player.playbackEventMessageStream.listen(
+            (event) => reports.add(event.updatePosition),
+          );
+          try {
+            await player.ready();
+            await player.load(
+              LoadRequest(
+                audioSourceMessage: ProgressiveAudioSourceMessage(
+                  id: 'subtitle-source',
+                  uri: source.uri.toString(),
+                ),
+              ),
+            );
+            await player.play(PlayRequest());
+            await _until(
+              () => native.state.position >= const Duration(milliseconds: 100),
+            );
+            final before = native.state.position;
+            final target = delayedRead
+                ? Duration(milliseconds: before.inMilliseconds + 7)
+                : const Duration(milliseconds: 2002);
+            if (delayedRead) {
+              delayReadUntil = target + const Duration(milliseconds: 25);
+            }
+            final precedingPosition = target - const Duration(milliseconds: 2);
+            if (earlyPosition) {
+              settlingReads.addAll([
+                'yes',
+                'no',
+                (precedingPosition.inMicroseconds / 1000000).toStringAsFixed(6),
+                'no',
+              ]);
+            }
+            await player.seek(SeekRequest(position: target));
+            final confirmed = await player.positionConfirmation!;
+            if (delayedRead) expect(delayedSeekingState, 'no');
+            expect(confirmed, isNotNull);
+            expect(confirmed!, greaterThanOrEqualTo(target));
+            reports.clear();
+
+            if (!delayedRead && !earlyPosition) {
+              // Replay old positions both before and after the stream advances.
+              final delivered = native.stream.position.firstWhere(
+                (position) => position == precedingPosition,
+              );
+              // ignore: invalid_use_of_protected_member
+              native.positionController
+                ..add(confirmed)
+                ..add(before)
+                ..add(confirmed + const Duration(milliseconds: 2))
+                ..add(precedingPosition);
+              await delivered.timeout(const Duration(seconds: 3));
+            }
+            await _until(
+              () => reports.any(
+                (position) =>
+                    position > confirmed + const Duration(milliseconds: 100),
+              ),
+            );
+            expect(reports, everyElement(greaterThanOrEqualTo(target)));
+          } finally {
+            await subscription.cancel();
+            await player.release();
+            await directory.delete(recursive: true);
+          }
+        });
+      },
+      skip: !supported,
+    );
+  }
+
+  for (final (description, initialLine, targetLine, stalled) in [
+    ('backward subtitle tap stays selected while seeking', 5, 2, false),
+    ('forward subtitle tap stays selected while seeking', 2, 5, false),
+    ('a stalled seek releases its pending subtitle preview', 5, 2, true),
+  ]) {
+    testWidgets(description, (tester) async {
+      await _nativeContract(() async {
+        await tester.binding.setSurfaceSize(const Size(390, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        SharedPreferences.setMockInitialValues({});
+        await StorageService.initCritical(
+          preferences: await SharedPreferences.getInstance(),
+        );
+        final directory = await Directory.systemTemp.createTemp(
+          'kiko-subtitle-jump-',
+        );
+        final source = await File(
+          '${directory.path}/source.wav',
+        ).writeAsBytes(gzip.decode(base64Decode(audioBackendWavGzipBase64)));
+        const lineDuration = Duration(seconds: 3);
+        final target = lineDuration * targetLine;
+        final selectedText = 'subtitle $targetLine';
+        var replayingSeek = false;
+        var samplesRemaining = 35;
+        final player = _player();
+        final service = AudioPlayerService.forTesting(
+          player,
+          nativePlayerId: player.platformId,
+          nativePlayerInitializer: _configureWindowsNullAudioOutput,
+          androidSeekRecovery: true,
+        );
+        await JustAudioMediaKit.configurePlayer(
+          player.platformId,
+          _configureWindowsNullAudioOutput,
+          nativePropertyReader: (native, name) async {
+            if (replayingSeek && samplesRemaining > 0) {
+              if (name == 'seeking') return 'no';
+              if (name == 'time-pos') {
+                // Replay an early clock after seeking ends for over 250 ms.
+                final earlyMilliseconds = stalled ? 35 : samplesRemaining;
+                samplesRemaining--;
+                return (target.inSeconds - earlyMilliseconds / 1000)
+                    .toStringAsFixed(6);
+              }
+            }
+            return native.getProperty(name);
+          },
+        );
+        final container = ProviderContainer(
+          overrides: [
+            audioPlayerServiceProvider.overrideWithValue(service),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: [
+                    for (var index = 0; index < 8; index++)
+                      LyricLine(
+                        startTime: lineDuration * index,
+                        endTime: lineDuration * (index + 1),
+                        text: 'subtitle $index',
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+        Future<bool>? seeking;
+        final visibleSubtitles = <String?>[];
+        final subtitleSubscription = container.listen(
+          currentLyricTextProvider,
+          (_, next) {
+            if (replayingSeek) visibleSubtitles.add(next);
+          },
+        );
+        try {
+          await service.updateHapticsSettings(enabled: false, intensity: .85);
+          await service.updateQueue([
+            AudioTrack(id: 'local', title: 'Local audio', url: source.path),
+          ], autoplay: true);
+          expect(
+            await service.seek(
+              lineDuration * initialLine + const Duration(milliseconds: 100),
+            ),
+            isTrue,
+          );
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                localizationsDelegates: S.localizationsDelegates,
+                supportedLocales: S.supportedLocales,
+                home: Scaffold(
+                  body: FullLyricDisplay(
+                    isPortrait: true,
+                    showPlaybackLineControls: true,
+                    snapToCurrentOnFirstLayout: true,
+                    onLineDoubleTap: () {},
+                    onSeekRequested: (position) {
+                      expect(position, target);
+                      replayingSeek = true;
+                      seeking = service.seek(position);
+                    },
+                  ),
+                ),
+              ),
+            ),
+          );
+          final selected = find.text(selectedText);
+          await tester.pump();
+          expect(
+            container.read(currentLyricTextProvider),
+            'subtitle $initialLine',
+          );
+          await tester.tap(selected);
+          await tester.pump(kDoubleTapTimeout);
+          expect(container.read(currentLyricTextProvider), selectedText);
+          final success = await seeking!.timeout(const Duration(seconds: 3));
+          if (stalled) {
+            expect(success, isFalse);
+            expect(samplesRemaining, greaterThan(0));
+            expect(service.playbackPosition.value.pendingJump, isNull);
+            expect(service.playbackPosition.value.previewPosition, isNull);
+            return;
+          }
+          await tester.pump();
+          expect(visibleSubtitles, [selectedText]);
+          expect(success, isTrue);
+          expect(samplesRemaining, 0);
+          await service.pause();
+          for (var frame = 0; frame < 36; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          final playbackLine = find.byKey(
+            const ValueKey('playback-line-indicator'),
+          );
+          expect(
+            tester.getCenter(selected).dy,
+            closeTo(tester.getCenter(playbackLine).dy, 2.1),
+          );
+        } finally {
+          replayingSeek = false;
+          await tester.pumpWidget(const SizedBox.shrink());
+          subtitleSubscription.close();
+          container.dispose();
+          await service.dispose();
+          await directory.delete(recursive: true);
+        }
+      });
+    }, skip: !supported);
+  }
+
+  testWidgets('a later seek wins while an indexed seek is pending', (
+    tester,
+  ) async {
+    await _nativeContract(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kiko-backend-overlapping-seek-',
+      );
+      final source = File('${directory.path}/source.wav');
+      await source.writeAsBytes(
+        gzip.decode(base64Decode(audioBackendWavGzipBase64)),
+      );
+      final player = await _configuredPlayer();
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      try {
+        await player.setAudioSource(
+          ConcatenatingAudioSource(
+            children: [
+              AudioSource.uri(source.uri),
+              AudioSource.uri(source.uri),
+            ],
+          ),
+        );
+        unawaited(player.play());
+        await _until(
+          () =>
+              player.playing &&
+              player.playbackEvent.updatePosition >=
+                  const Duration(milliseconds: 100),
+        );
+        final lock = NativePlayer.lock.synchronized(() async {
+          locked.complete();
+          await release.future;
+        });
+        await locked.future;
+        final previousReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        );
+        final earlier = player.seek(const Duration(seconds: 3), index: 0);
+        await _until(() {
+          final latest = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          return latest != null && !identical(latest, previousReceipt);
+        });
+        final earlierReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        )!;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        final later = player.seek(const Duration(seconds: 1));
+        await _until(() {
+          final latest = JustAudioMediaKit.positionConfirmation(
+            player.platformId,
+          );
+          return latest != null && !identical(latest, earlierReceipt);
+        });
+        final laterReceipt = JustAudioMediaKit.positionConfirmation(
+          player.platformId,
+        )!;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        release.complete();
+        await lock;
+        await Future.wait([earlier, later]);
+        expect(await earlierReceipt, isNull);
+        final confirmed = await laterReceipt.timeout(
+          const Duration(seconds: 10),
+        );
+        expect(confirmed, isNotNull);
+        expect(
+          (confirmed! - const Duration(seconds: 1)).inMilliseconds.abs(),
+          lessThanOrEqualTo(20),
+        );
+        await player.pause();
+        expect(player.currentIndex, 0);
+        expect(player.position, greaterThan(const Duration(milliseconds: 900)));
+        expect(player.position, lessThan(const Duration(seconds: 2)));
+      } finally {
+        if (!release.isCompleted) release.complete();
+        await player.dispose();
+        JustAudioMediaKit.forgetPlayerConfiguration(player.platformId);
         await directory.delete(recursive: true);
       }
     });
@@ -1112,6 +1745,31 @@ Future<void> _until(bool Function() condition) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));
   }
+}
+
+Future<String> _settledNativePosition(
+  NativePlayer native,
+  Duration expected,
+) async {
+  final watch = Stopwatch()..start();
+  String? previous;
+  var stable = 0;
+  while (watch.elapsed < const Duration(seconds: 10)) {
+    final seeking = await native.getProperty('seeking');
+    final position = await native.getProperty('time-pos');
+    final seconds = double.tryParse(position);
+    if (seeking == 'no' &&
+        seconds != null &&
+        (seconds * 1000000 - expected.inMicroseconds).abs() < 100000 &&
+        position == previous) {
+      if (++stable == 3) return position;
+    } else {
+      stable = 0;
+    }
+    previous = position;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw TimeoutException('Native seek did not settle near $expected');
 }
 
 Future<void> _nativeContract(

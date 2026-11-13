@@ -94,6 +94,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final FileExplorerController? controller;
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
+  final String? Function()? translatedWorkTitle;
 
   const FileExplorerWidget({
     super.key,
@@ -106,6 +107,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     this.controller,
     this.initialLoadReady,
     this.translate = false,
+    this.translatedWorkTitle,
   });
 
   @override
@@ -491,25 +493,35 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     List<dynamic>? audioFiles,
   }) async {
     if (!mounted) return;
+    final work = _work;
+    final useTranslations = widget.translate;
+    final translatedTitles = useTranslations
+        ? Map<String, String>.unmodifiable(
+            _translationController.translations,
+          )
+        : null;
+    final translatedAlbumTitle = useTranslations
+        ? widget.translatedWorkTitle?.call()
+        : null;
     final l10n = S.of(context);
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
     final coverUrl = host.isEmpty
         ? null
-        : _work.getCoverImageUrl(host, token: token);
+        : work.getCoverImageUrl(host, token: token);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
 
     // 获取当前作品的完整文件树（用于字幕查找）
     try {
       final apiService = ref.read(kikoeruApiServiceProvider);
-      apiService.registerJapaneseAsmrWork(_work);
-      final allFiles = await apiService.getWorkTracks(_work.id);
+      apiService.registerJapaneseAsmrWork(work);
+      final allFiles = await apiService.getWorkTracks(work.id);
 
       // 只在播放音频时更新全局文件列表，这样字幕才能正确关联
       ref
           .read(fileListControllerProvider.notifier)
-          .updateFiles(allFiles, workId: _work.id);
+          .updateFiles(allFiles, workId: work.id);
     } catch (e) {
       _log.captureOutput('获取完整文件树失败 $e');
       // 即使获取失败也继续播放，只是可能没有字幕
@@ -527,17 +539,19 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       selectedFile: audioFile,
       resolveUrl: (file) => _audioUrlResolver.resolveOnline(
         file: file,
-        workId: _work.id,
+        workId: work.id,
         host: host,
         token: token,
         downloadedFiles: _downloadedFiles,
         fileRelativePaths: _fileRelativePaths,
       ),
-      work: _work,
+      work: work,
       unknownTitle: l10n.unknown,
       artworkUrl: coverUrl,
       playlistMode: playlistMode,
       audioFiles: audioFiles,
+      translatedTitles: translatedTitles,
+      translatedAlbumTitle: translatedAlbumTitle,
     );
 
     if (!mounted) return;
@@ -568,7 +582,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               .playTracks(
                 queue.tracks,
                 startIndex: queue.startIndex,
-                work: _work,
+                work: work,
                 playlistMode: playlistMode,
               );
           if (mounted && playlistMode != AudioTapPlaylistMode.replaceQueue) {

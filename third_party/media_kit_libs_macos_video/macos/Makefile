@@ -1,20 +1,20 @@
 all: Frameworks/*.xcframework Frameworks/.symlinks
 
-DARWIN_ARCHIVE=../../../build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-universal-video-default.tar.gz
+DARWIN_ARCHIVE=../../../build/native-audio/darwin-output/libmpv-xcframeworks_v0.6.0_macos-arm64-video-default.tar.gz
 
-.cache/xcframeworks/libmpv-xcframeworks-v0.6.0-macos-universal.tar.gz: FORCE
+.cache/xcframeworks/libmpv-xcframeworks-v0.6.0-macos-arm64.tar.gz: FORCE
 	@test -s "$(DARWIN_ARCHIVE)" || { echo "Required custom macOS libmpv archive is missing: $(DARWIN_ARCHIVE). Run scripts/native_audio/build_darwin.sh." >&2; exit 1; }
 	mkdir -p .cache/xcframeworks
 	cp -f "$(DARWIN_ARCHIVE)" $@
 
-.cache/xcframeworks/libmpv-xcframeworks-macos-universal.tar.gz: .cache/xcframeworks/libmpv-xcframeworks-v0.6.0-macos-universal.tar.gz
+.cache/xcframeworks/libmpv-xcframeworks-macos-arm64.tar.gz: .cache/xcframeworks/libmpv-xcframeworks-v0.6.0-macos-arm64.tar.gz
 	rm -f $@
-	ln -s libmpv-xcframeworks-v0.6.0-macos-universal.tar.gz $@
+	ln -s libmpv-xcframeworks-v0.6.0-macos-arm64.tar.gz $@
 
-Frameworks/*.xcframework: .cache/xcframeworks/libmpv-xcframeworks-macos-universal.tar.gz
+Frameworks/*.xcframework: .cache/xcframeworks/libmpv-xcframeworks-macos-arm64.tar.gz
 	mkdir -p Frameworks
 	rm -rf Frameworks/*.xcframework
-	tar -xvf .cache/xcframeworks/libmpv-xcframeworks-macos-universal.tar.gz --strip-components 1 -C Frameworks
+	tar -xvf .cache/xcframeworks/libmpv-xcframeworks-macos-arm64.tar.gz --strip-components 1 -C Frameworks
 	touch Frameworks/*.xcframework
 
 Frameworks/.symlinks: Frameworks/*.xcframework
