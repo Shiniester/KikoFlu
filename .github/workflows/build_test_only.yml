@@ -490,9 +490,22 @@ jobs:
             else
               status=$?
             fi
-            grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log" || exit "$status"
-            printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
-            flutter --verbose test --no-pub -d "$simulator" "$test_file"
+            if grep -Fq 'Xcode build is missing expected TARGET_BUILD_DIR build setting.' "$log"; then
+              printf 'Retrying %s after Flutter could not read TARGET_BUILD_DIR.\n' "$test_file"
+              flutter --verbose test --no-pub -d "$simulator" "$test_file"
+            elif [[ "$test_file" == integration_test/audio_effects_production_test.dart ]] &&
+              grep -Fq 'verified HTTPS video output remains independent from the audio graph (failed)' "$log" &&
+              grep -Fq 'native HTTPS rejects an untrusted certificate (failed)' "$log" &&
+              grep -Fq 'TimeoutException after 0:00:30.000000' "$log" &&
+              grep -Fq 'TimeoutException after 0:00:10.000000' "$log" &&
+              grep -Eq '[0-9]+ tests passed, 2 failed\.' "$log"; then
+              printf 'Restarting the simulator and retrying %s after both HTTPS tests timed out.\n' "$test_file"
+              xcrun simctl shutdown "$simulator"
+              xcrun simctl bootstatus "$simulator" -b
+              flutter test --no-pub -d "$simulator" "$test_file"
+            else
+              exit "$status"
+            fi
           done
 
   ios-build:
