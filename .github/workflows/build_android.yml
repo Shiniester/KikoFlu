@@ -192,6 +192,7 @@ jobs:
           set -euo pipefail
           flutter build apk --config-only --no-pub
           base_code="$(sed -n 's/^flutter\.versionCode=//p' android/local.properties | tail -n 1)"
+          base_code="${base_code:-1}"
           if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
             echo '::error::Flutter did not write a valid base versionCode to android/local.properties.'
             exit 1

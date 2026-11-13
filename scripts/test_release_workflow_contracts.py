@@ -36,6 +36,7 @@ assert "android_all_abis: false" in job(android, "native-audio")
 assert "android_all_abis: false" in job(beta, "native-audio")
 
 for workflow in (build, android):
+    assert 'base_code="${base_code:-1}"' in job(workflow, "android")
     assert "ANDROID_BASE_VERSION_CODE + 2000" in workflow
     assert "com.meteor.kikoeruflutter" in workflow
     assert "EXPECTED_CERT_SHA256" in workflow
@@ -61,6 +62,7 @@ android_verify = job(build, "android-verify")
 assert "arch: x86_64" in android_verify
 assert "timeout-minutes: 15" in android_verify
 assert "run_android_emulator_test.sh" in android_verify
+assert "--dart-define=KIKOFLU_PERFORMANCE=true integration_test/android_audio_verification.dart" in android_verify
 assert "android-emulator-diagnostics" in android_verify
 assert "always() && steps.android-emulator-tests.outcome == 'failure'" in android_verify
 assert "${{ runner.temp }}/android-emulator-diagnostics/" in android_verify

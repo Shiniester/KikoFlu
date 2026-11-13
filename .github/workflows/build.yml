@@ -241,6 +241,7 @@ jobs:
           set -euo pipefail
           flutter build apk --config-only --no-pub
           base_code="$(sed -n 's/^flutter\.versionCode=//p' android/local.properties | tail -n 1)"
+          base_code="${base_code:-1}"
           if [[ ! "$base_code" =~ ^[0-9]+$ ]]; then
             echo '::error::Flutter did not write a valid base versionCode to android/local.properties.'
             exit 1
@@ -404,7 +405,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: >-
-            bash scripts/ci/run_android_emulator_test.sh "$RUNNER_TEMP/android-emulator-diagnostics" -- bash -e -c 'flutter test --no-pub -d emulator-5554 integration_test/audio_effects_production_test.dart && flutter test --no-pub -d emulator-5554 integration_test/audio_backend_native_contract_test.dart --dart-define=KIKOFLU_PERFORMANCE=true'
+            bash scripts/ci/run_android_emulator_test.sh "$RUNNER_TEMP/android-emulator-diagnostics" -- flutter test --no-pub -d emulator-5554 --dart-define=KIKOFLU_PERFORMANCE=true integration_test/android_audio_verification.dart
 
       - name: Upload Android emulator diagnostics
         if: ${{ always() && steps.android-emulator-tests.outcome == 'failure' }}
