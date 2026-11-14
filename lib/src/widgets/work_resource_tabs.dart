@@ -776,6 +776,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
             return ListTile(
               key: ValueKey('work-audio-${variant.fullPath}'),
               contentPadding: EdgeInsets.zero,
+              minTileHeight: UiControlSize.compact,
               leading: Icon(
                 widget.downloadedFiles[hash] == true
                     ? Icons.download_done
@@ -799,24 +800,31 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       variant.parentPath,
                       _audioFolderFiles[variant.parentPath]!,
                     ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (actions != null) actions,
-                  if (metadata != null) metadata,
-                  if (subtitle != null ||
-                      widget.audioWithLibrarySubtitles.contains(variant.title))
-                    IconButton(
-                      key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
-                      tooltip: S.of(context).preview,
-                      icon: const Icon(Icons.visibility),
-                      color: Colors.blue,
-                      iconSize: 20,
-                      onPressed: () =>
-                          unawaited(_previewAudioSubtitle(variant, subtitle)),
-                    ),
-                  if (duration != null) duration,
-                ],
+              trailing: SizedBox(
+                height: UiControlSize.compact,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (actions != null) actions,
+                    if (metadata != null) metadata,
+                    if (subtitle != null ||
+                        widget.audioWithLibrarySubtitles.contains(
+                          variant.title,
+                        ))
+                      IconButton(
+                        key: ValueKey(
+                          'work-audio-subtitle-${variant.fullPath}',
+                        ),
+                        tooltip: S.of(context).preview,
+                        icon: const Icon(Icons.visibility),
+                        color: Colors.blue,
+                        iconSize: 20,
+                        onPressed: () =>
+                            unawaited(_previewAudioSubtitle(variant, subtitle)),
+                      ),
+                    if (duration != null) duration,
+                  ],
+                ),
               ),
             );
           },

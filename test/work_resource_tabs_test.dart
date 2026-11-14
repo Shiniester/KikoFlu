@@ -2416,6 +2416,7 @@ void main() {
       final tile = tester.widget<ListTile>(audio);
       expect((tile.leading! as Icon).color, Colors.green);
       expect((tile.title! as Text).style!.fontSize, 14);
+      expect(tester.getSize(audio).height, 40);
       expect(tester.getRect(audio).width, width - 32);
       expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 16);
       final resourceTab = tester.getRect(
@@ -2434,6 +2435,10 @@ void main() {
         of: audio,
         matching: find.byIcon(Icons.visibility),
       );
+      final audioRect = tester.getRect(audio);
+      final eyeRect = tester.getRect(eye);
+      expect(eyeRect.top, greaterThanOrEqualTo(audioRect.top));
+      expect(eyeRect.bottom, lessThanOrEqualTo(audioRect.bottom));
       expect(
         tester
             .widget<IconButton>(
@@ -2446,6 +2451,41 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tree.dispose();
     }
+  });
+
+  testWidgets('audio rows share the resource file row spacing', (tester) async {
+    final files = _files();
+    final tree = ValueNotifier<List<dynamic>>(files);
+    addTearDown(tree.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: const {'A'},
+      resourceSliver: FileTreeView(
+        items: files,
+        expandedFolders: const {'A'},
+        onToggleFolder: (_) {},
+        onFileTap: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final audio = find.byKey(const ValueKey('work-audio-A/track01.wav'));
+    final audioHeight = tester.getSize(audio).height;
+    expect(audioHeight, 40);
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    final resourceRow = find
+        .ancestor(
+          of: find.descendant(
+            of: find.byType(FileTreeView),
+            matching: find.text('track01.wav'),
+          ),
+          matching: find.byType(InkWell),
+        )
+        .first;
+    expect(tester.getSize(resourceRow).height, audioHeight);
   });
 
   testWidgets('audio duration follows subtitle preview and stays optional', (
@@ -2490,7 +2530,8 @@ void main() {
       find.byKey(const ValueKey('work-audio-subtitle-voice.wav')),
       findsOneWidget,
     );
-    final trailing = tester.widget<ListTile>(tile).trailing! as Row;
+    final trailing =
+        (tester.widget<ListTile>(tile).trailing! as SizedBox).child! as Row;
     expect(trailing.children.map((child) => child.runtimeType), [
       Text,
       IconButton,
@@ -2508,11 +2549,13 @@ void main() {
     ];
     await tester.pumpAndSettle();
     final missingDuration =
-        tester
-                .widget<ListTile>(
-                  find.byKey(const ValueKey('work-audio-unknown.wav')),
-                )
-                .trailing!
+        (tester
+                        .widget<ListTile>(
+                          find.byKey(const ValueKey('work-audio-unknown.wav')),
+                        )
+                        .trailing!
+                    as SizedBox)
+                .child!
             as Row;
     expect(missingDuration.children.map((child) => child.runtimeType), [Text]);
     expect(
