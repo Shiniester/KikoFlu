@@ -834,6 +834,12 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   }
 
   Widget _buildAudioFolderHeader({required String folder}) {
+    final label = folder.isEmpty ? S.of(context).rootDirectory : folder;
+    final style = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: Colors.grey[700],
+    );
     return Padding(
       key: ValueKey('work-audio-folder-$folder'),
       padding: const EdgeInsets.only(top: 12, bottom: 4),
@@ -842,14 +848,17 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           Icon(Icons.folder_outlined, size: 16, color: Colors.grey[600]),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              folder.isEmpty ? S.of(context).rootDirectory : folder,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+            child: LayoutBuilder(
+              builder: (context, constraints) => Text(
+                _leadingEllipsisText(
+                  context,
+                  label,
+                  style,
+                  constraints.maxWidth,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: style,
               ),
             ),
           ),
@@ -1474,6 +1483,81 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     });
     _scheduleImageInspection();
   }
+}
+
+String _leadingEllipsisText(
+  BuildContext context,
+  String text,
+  TextStyle style,
+  double maxWidth,
+) {
+  if (text.isEmpty || maxWidth <= 0) return '';
+  if (!maxWidth.isFinite) return text;
+
+  final defaultStyle = DefaultTextStyle.of(context);
+  final effectiveStyle = defaultStyle.style.merge(style);
+  final textScaler = MediaQuery.textScalerOf(context);
+  final textDirection = Directionality.of(context);
+  final locale = Localizations.maybeLocaleOf(context);
+
+  double widthOf(String value) {
+    final painter = TextPainter(
+      text: TextSpan(text: value, style: effectiveStyle),
+      textDirection: textDirection,
+      textScaler: textScaler,
+      locale: locale,
+      textHeightBehavior: defaultStyle.textHeightBehavior,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  if (widthOf(text) <= maxWidth) return text;
+
+  const ellipsis = '…';
+  if (widthOf(ellipsis) > maxWidth) return '';
+
+  final separator = text.lastIndexOf('/');
+  final head = separator < 0 ? '' : text.substring(0, separator + 1);
+  final tail = separator < 0 ? text : text.substring(separator + 1);
+  var result = ellipsis;
+
+  if (widthOf('$ellipsis$tail') <= maxWidth) {
+    result = '$ellipsis$tail';
+    final headCharacters = head.characters.toList(growable: false);
+    var low = 0;
+    var high = headCharacters.length;
+    while (low <= high) {
+      final middle = (low + high) ~/ 2;
+      final candidate =
+          '$ellipsis${headCharacters.skip(headCharacters.length - middle).join()}$tail';
+      if (widthOf(candidate) <= maxWidth) {
+        result = candidate;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return result;
+  }
+
+  final tailCharacters = tail.characters.toList(growable: false);
+  var low = 0;
+  var high = tailCharacters.length;
+  while (low <= high) {
+    final middle = (low + high) ~/ 2;
+    final candidate =
+        '$ellipsis${tailCharacters.skip(tailCharacters.length - middle).join()}';
+    if (widthOf(candidate) <= maxWidth) {
+      result = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return result;
 }
 
 class _ResourceTabsHeaderDelegate extends SliverPersistentHeaderDelegate {

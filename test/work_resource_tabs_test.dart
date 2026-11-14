@@ -2293,6 +2293,55 @@ void main() {
     expect(queue!.map((file) => file['hash']), ['a1', 'a2']);
   });
 
+  testWidgets('long audio folder paths keep the final segment visible', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(300, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const folder =
+        'AAAAAAAAAAAAAAAAAAAA/BBBBBBBBBBBBBBBBBBBB/'
+        'CCCCCCCCCCCCCCCCCCCC/FinalFolder';
+    final tree = ValueNotifier<List<dynamic>>([
+      {
+        'type': 'folder',
+        'title': 'AAAAAAAAAAAAAAAAAAAA',
+        'children': [
+          {
+            'type': 'folder',
+            'title': 'BBBBBBBBBBBBBBBBBBBB',
+            'children': [
+              {
+                'type': 'folder',
+                'title': 'CCCCCCCCCCCCCCCCCCCC',
+                'children': [
+                  {
+                    'type': 'folder',
+                    'title': 'FinalFolder',
+                    'children': [
+                      {'type': 'audio', 'title': 'a.wav', 'hash': 'a'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    addTearDown(tree.dispose);
+    await _pumpResources(tester, tree);
+    await tester.pumpAndSettle();
+
+    final header = find.byKey(const ValueKey('work-audio-folder-$folder'));
+    expect(header, findsOneWidget);
+    final text = tester.widget<Text>(
+      find.descendant(of: header, matching: find.byType(Text)),
+    );
+    expect(text.data, startsWith('…'));
+    expect(text.data, endsWith('FinalFolder'));
+    expect(text.data, isNot(folder));
+  });
+
   testWidgets(
     'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {
