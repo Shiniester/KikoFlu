@@ -3924,6 +3924,9 @@ class SJa extends S {
   String get comicReaderSettings => 'リーダー設定';
 
   @override
+  String get comicReadingAndInterface => '閲覧とインターフェース';
+
+  @override
   String get comicSearchTargets => '検索対象';
 
   @override
@@ -4249,6 +4252,24 @@ class SJa extends S {
 
   @override
   String get videoSettings => '動画設定';
+
+  @override
+  String get playback => '再生';
+
+  @override
+  String get videoInterface => 'インターフェース';
+
+  @override
+  String get videoAccountAndSources => 'アカウントとソース';
+
+  @override
+  String get videoAccountSignedIn => 'ログイン済み';
+
+  @override
+  String get videoAccountSignedOut => '未ログイン';
+
+  @override
+  String get downloadsAndStorage => 'ダウンロードとストレージ';
 
   @override
   String get videoCardMakers => 'メーカー';
@@ -4640,6 +4661,9 @@ class SJa extends S {
 
   @override
   String get videoPlayerAlwaysOnTop => '最前面に固定';
+
+  @override
+  String get videoPlayerAlwaysOnTopNextSession => '次回プレイヤーを開いたときに適用';
 
   @override
   String get videoPlayerCancelAlwaysOnTop => '最前面の固定を解除';

@@ -230,6 +230,63 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets(
+      'player entry defers offscreen pages while warming work details at $size',
+      (tester) async {
+        var detailsLoads = 0;
+        await _pumpPlayer(
+          tester,
+          size,
+          pushedRoute: true,
+          settleEntry: false,
+          workDetails: _longPlayerWorkDetails(),
+          onWorkDetailsLoad: () => detailsLoads++,
+        );
+        final wide = size.width >= playerWideLayoutBreakpoint;
+        final detailsPane = find.byKey(
+          ValueKey(
+            wide ? 'wide-audio-details-pane' : 'compact-audio-details-pane',
+          ),
+          skipOffstage: false,
+        );
+        final lyricsPane = find.byKey(
+          ValueKey(wide ? 'lyrics-pane-wide' : 'lyrics-pane-compact'),
+          skipOffstage: false,
+        );
+        expect(detailsPane, findsNothing);
+        expect(lyricsPane, findsNothing);
+        expect(detailsLoads, 1);
+
+        if (!wide) {
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final routeTop = tester
+              .getTopLeft(
+                find.byKey(
+                  const ValueKey('player-route-vertical-translation'),
+                  skipOffstage: false,
+                ),
+              )
+              .dy;
+          final gesture = await tester.startGesture(
+            Offset(195, routeTop + 100),
+          );
+          await tester.pump();
+          expect(detailsPane, findsOneWidget);
+          expect(lyricsPane, findsOneWidget);
+          await gesture.cancel();
+        }
+
+        await tester.pumpAndSettle();
+        expect(detailsPane, findsOneWidget);
+        expect(lyricsPane, findsOneWidget);
+        expect(detailsLoads, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final (size, textScale, hasLyrics, inset) in const [
     (Size(360, 700), 1.3, true, 0.0),
     (Size(360, 700), 2.0, true, 0.0),

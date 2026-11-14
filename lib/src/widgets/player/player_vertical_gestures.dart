@@ -59,6 +59,12 @@ abstract interface class PlayerInteractiveDismissRoute {
   void cancelVerticalDismissGesture();
 }
 
+/// Implemented by the player route so the screen can observe entrance
+/// readiness without importing the route.
+abstract interface class PlayerEntranceRoute {
+  bool get isEntranceSettled;
+}
+
 class PlayerVerticalDragCallbacks {
   const PlayerVerticalDragCallbacks({
     required this.onStart,

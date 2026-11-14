@@ -1694,6 +1694,7 @@
   "@comicReaderSettings": {
     "description": "Title and entry label for the shared comic reader settings page."
   },
+  "comicReadingAndInterface": "Reading and interface",
   "comicSearchTargets": "Search targets",
   "comicSearchSingle": "Single source",
   "comicSearchGrouped": "Grouped results",
@@ -1821,6 +1822,12 @@
   "installFailed": "Failed to launch installer",
   "navVideos": "Videos",
   "videoSettings": "Video settings",
+  "playback": "Playback",
+  "videoInterface": "Interface",
+  "videoAccountAndSources": "Account and sources",
+  "videoAccountSignedIn": "Signed in",
+  "videoAccountSignedOut": "Not signed in",
+  "downloadsAndStorage": "Downloads and storage",
   "videoCardMakers": "Studio",
   "videoCardLabels": "Label",
   "videoCardDirectors": "Directors",
@@ -2043,6 +2050,7 @@
   "@videoPlayerShowFullscreenBattery": {"description":"Video player control or preference: Show battery level in fullscreen"},
   "videoPlayerAlwaysOnTop": "Always on top",
   "@videoPlayerAlwaysOnTop": {"description":"Keep the video player window above other desktop windows."},
+  "videoPlayerAlwaysOnTopNextSession": "Applies the next time the player opens",
   "videoPlayerCancelAlwaysOnTop": "Stop keeping on top",
   "@videoPlayerCancelAlwaysOnTop": {"description":"Stop keeping the video player window above other desktop windows."},
   "videoPlayerRestoreScreen": "Reset view",

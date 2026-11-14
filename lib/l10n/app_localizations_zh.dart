@@ -3905,6 +3905,9 @@ class SZh extends S {
   String get comicReaderSettings => '阅读器设置';
 
   @override
+  String get comicReadingAndInterface => '阅读与界面';
+
+  @override
   String get comicSearchTargets => '搜索目标';
 
   @override
@@ -4227,6 +4230,24 @@ class SZh extends S {
 
   @override
   String get videoSettings => '视频设置';
+
+  @override
+  String get playback => '播放';
+
+  @override
+  String get videoInterface => '界面';
+
+  @override
+  String get videoAccountAndSources => '账号与来源';
+
+  @override
+  String get videoAccountSignedIn => '已登录';
+
+  @override
+  String get videoAccountSignedOut => '未登录';
+
+  @override
+  String get downloadsAndStorage => '下载与存储';
 
   @override
   String get videoCardMakers => '发行商';
@@ -4617,6 +4638,9 @@ class SZh extends S {
   String get videoPlayerAlwaysOnTop => '置顶';
 
   @override
+  String get videoPlayerAlwaysOnTopNextSession => '下次打开播放器时生效';
+
+  @override
   String get videoPlayerCancelAlwaysOnTop => '取消置顶';
 
   @override
@@ -4846,10 +4870,10 @@ class SZh extends S {
   String get audioEffectsBass => '低音增强';
 
   @override
-  String get audioEffectsCrisp => '拍打清脆';
+  String get audioEffectsCrisp => '清脆拍打';
 
   @override
-  String get audioEffectsDull => '拍打沉闷';
+  String get audioEffectsDull => '沉闷拍打';
 
   @override
   String get audioEffectsVocal => '人声增强';
@@ -8821,6 +8845,9 @@ class SZhHant extends SZh {
   String get comicReaderSettings => '閱讀器設定';
 
   @override
+  String get comicReadingAndInterface => '閱讀與介面';
+
+  @override
   String get comicSearchTargets => '搜尋範圍';
 
   @override
@@ -9143,6 +9170,24 @@ class SZhHant extends SZh {
 
   @override
   String get videoSettings => '影片設定';
+
+  @override
+  String get playback => '播放';
+
+  @override
+  String get videoInterface => '介面';
+
+  @override
+  String get videoAccountAndSources => '帳號與來源';
+
+  @override
+  String get videoAccountSignedIn => '已登入';
+
+  @override
+  String get videoAccountSignedOut => '未登入';
+
+  @override
+  String get downloadsAndStorage => '下載與儲存';
 
   @override
   String get videoCardMakers => '發行商';
@@ -9533,6 +9578,9 @@ class SZhHant extends SZh {
   String get videoPlayerAlwaysOnTop => '置頂';
 
   @override
+  String get videoPlayerAlwaysOnTopNextSession => '下次開啟播放器時生效';
+
+  @override
   String get videoPlayerCancelAlwaysOnTop => '取消置頂';
 
   @override
@@ -9762,10 +9810,10 @@ class SZhHant extends SZh {
   String get audioEffectsBass => '低音增強';
 
   @override
-  String get audioEffectsCrisp => '拍打清脆';
+  String get audioEffectsCrisp => '清脆拍打';
 
   @override
-  String get audioEffectsDull => '拍打沉悶';
+  String get audioEffectsDull => '沉悶拍打';
 
   @override
   String get audioEffectsVocal => '人聲增強';

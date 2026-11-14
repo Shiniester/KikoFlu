@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../utils/snackbar_util.dart';
 import '../../widgets/responsive_dialog.dart';
+import '../../widgets/settings_section.dart';
 import '../video_playback_settings.dart';
 import '../video_player_platform.dart';
 
@@ -73,6 +74,11 @@ class _VideoPlaybackSettingsRouteState
         supportsGravityRotation:
             defaultTargetPlatform == TargetPlatform.android,
         supportsFullscreenOrientation: _isMobile,
+        supportsAlwaysOnTop:
+            !kIsWeb &&
+            (defaultTargetPlatform == TargetPlatform.windows ||
+                defaultTargetPlatform == TargetPlatform.macOS ||
+                defaultTargetPlatform == TargetPlatform.linux),
         supportsSystemBrightness: _platform.supportsSystemBrightness,
         onSystemBrightnessChanged: _setSystemBrightnessMode,
       );
@@ -95,6 +101,7 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
     this.supportsBatteryStatus = false,
     this.supportsGravityRotation = false,
     this.supportsFullscreenOrientation = true,
+    this.supportsAlwaysOnTop = false,
     this.supportsSystemBrightness = false,
     this.onSystemBrightnessChanged,
     this.hasRelatedVideos = false,
@@ -105,6 +112,7 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
   final bool supportsBatteryStatus;
   final bool supportsGravityRotation;
   final bool supportsFullscreenOrientation;
+  final bool supportsAlwaysOnTop;
   final bool supportsSystemBrightness;
   final Future<bool> Function(bool value)? onSystemBrightnessChanged;
   final bool hasRelatedVideos;
@@ -113,7 +121,16 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(s.videoPlayerSettings)),
+      appBar: AppBar(
+        title: Text(s.videoPlayerSettings),
+        actions: [
+          IconButton(
+            onPressed: () => _restoreDefaults(context),
+            icon: const Icon(Icons.restart_alt),
+            tooltip: s.restoreDefaultSettings,
+          ),
+        ],
+      ),
       body: AnimatedBuilder(
         animation: settings,
         builder: (context, _) => ListView(
@@ -379,6 +396,13 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
                 await settings.setBackgroundPlayback(value);
               },
             ),
+            if (supportsAlwaysOnTop)
+              SwitchListTile(
+                title: Text(s.videoPlayerAlwaysOnTop),
+                subtitle: Text(s.videoPlayerAlwaysOnTopNextSession),
+                value: settings.desktopAlwaysOnTop,
+                onChanged: settings.setDesktopAlwaysOnTop,
+              ),
             SwitchListTile(
               title: Text(s.videoPlayerExtendedControlTime),
               value: settings.extendedControlTime,
@@ -438,6 +462,19 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _restoreDefaults(BuildContext context) async {
+    final systemBrightnessWasEnabled = settings.systemBrightness;
+    await confirmAndRestoreSettingsDefaults(
+      context: context,
+      restore: () async {
+        await settings.resetToDefaults();
+        if (systemBrightnessWasEnabled) {
+          await onSystemBrightnessChanged?.call(false);
+        }
+      },
     );
   }
 

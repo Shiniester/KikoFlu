@@ -1,19 +1,20 @@
-"""Test-only lavfi prototypes and independent Eara recurrence oracle."""
+"""Test-only lavfi prototypes and independent scene recurrence oracle."""
 import math
 
-# Fixed Eara profile values; independently assembled filtergraphs below.
+# KikoFlu ASMR tuning from ADR 0011; independently assembled filtergraphs below.
+# The through_wall key is retained as the native name for the muffled scene.
 SCENES = {
-    "bathroom": dict(dry=.58, direct=.30, reflection=.72, feedback=.52,
-                     mono=.20, width=.88, hp=180, hp_stages=1, lp=6400,
-                     lp_stages=1, gain=.90, drive=0,
-                     taps=((16,.32),(27,.28),(41,.23),(63,.18),(96,.12))),
-    "through_wall": dict(dry=.03, direct=1.02, reflection=.16, feedback=.20,
-                         mono=.68, width=.18, hp=120, hp_stages=1, lp=1200,
-                         lp_stages=3, gain=1, drive=0,
-                         taps=((14,.10),(24,.07),(39,.05))),
-    "telephone": dict(dry=0, direct=1.08, reflection=0, feedback=0,
-                       mono=1, width=0, hp=430, hp_stages=3, lp=2850,
-                       lp_stages=3, gain=1.06, drive=.34, taps=()),
+    "bathroom": dict(dry=.60, direct=.28, reflection=.62, feedback=.42,
+                     mono=.15, width=.92, hp=160, hp_stages=1, lp=6000,
+                     lp_stages=1, gain=.93, drive=0,
+                     taps=((12,.26),(21,.21),(34,.16),(55,.11),(80,.07))),
+    "through_wall": dict(dry=.20, direct=.90, reflection=.06, feedback=.06,
+                         mono=.35, width=.60, hp=90, hp_stages=1, lp=3000,
+                         lp_stages=2, gain=.98, drive=0,
+                         taps=((8,.05),(16,.03))),
+    "telephone": dict(dry=.12, direct=1.0, reflection=0, feedback=0,
+                       mono=.90, width=.10, hp=320, hp_stages=2, lp=3200,
+                       lp_stages=2, gain=1.04, drive=.18, taps=()),
 }
 
 

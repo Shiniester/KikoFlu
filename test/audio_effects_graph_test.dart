@@ -178,7 +178,7 @@ void main() {
               ),
             ),
           );
-          expect(graph, contains('t=o:w=1:g=9.0'));
+          expect(graph, contains('t=o:w=1:g=6.5'));
           expect(graph, contains('volume@scene_amount=2.75'));
           final controls = AudioEffectsGraph.controls(settings);
           expect(

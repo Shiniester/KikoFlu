@@ -13,6 +13,7 @@ import '../comic_models.dart';
 import '../comic_providers.dart';
 import '../comic_images.dart';
 import '../comic_source.dart';
+import 'comic_download_screen.dart';
 
 String comicModeLabel(S s, ComicReadingMode mode) => [
   s.comicModeLtr,
@@ -38,6 +39,7 @@ class ComicSettingsScreen extends ConsumerWidget {
     final s = S.of(context);
     final layout = ref.watch(comicLayoutProvider);
     final pageSize = ref.watch(comicPageSizeProvider);
+    final downloads = ref.watch(comicDownloadsProvider);
 
     return SettingsSubpageScaffold(
       title: s.comicSettings,
@@ -80,6 +82,11 @@ class ComicSettingsScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
+          Text(
+            s.comicReadingAndInterface,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
           SettingsSectionList(
             children: [
               SettingsSwitchTile(
@@ -166,16 +173,36 @@ class ComicSettingsScreen extends ConsumerWidget {
                   }
                 },
               ),
-                SettingsNavigationTile(
-                  icon: Icons.reorder,
-                  title: s.libraryPageOrder,
-                  trailingIconSize: 16,
-                  onTap: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const _ComicCollectionPageOrderScreen(),
-                    ),
+              SettingsNavigationTile(
+                icon: Icons.reorder,
+                title: s.libraryPageOrder,
+                trailingIconSize: 16,
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _ComicCollectionPageOrderScreen(),
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            s.downloadsAndStorage,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          SettingsSectionList(
+            children: [
+              SettingsNavigationTile(
+                icon: Icons.download_outlined,
+                title: s.downloadTasks,
+                subtitle: s.downloadN(downloads.tasks.length),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ComicDownloadScreen(),
+                  ),
+                ),
+              ),
               SettingsNavigationTile(
                 icon: Icons.folder_outlined,
                 title: s.downloadPath,
@@ -263,6 +290,29 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
 
     return SettingsSubpageScaffold(
       title: s.comicReaderSettings,
+      onRestoreDefaults: () => confirmAndRestoreSettingsDefaults(
+        context: context,
+        restore: () async {
+          await StorageService.setString(
+            'comic_reading_mode',
+            ComicReadingMode.rightToLeft.name,
+          );
+          await StorageService.setString(
+            'comic_screen_orientation',
+            ComicScreenOrientation.system.name,
+          );
+          await StorageService.setBool('comic_tap_to_turn', true);
+          await StorageService.setBool('comic_double_tap_zoom', true);
+          await StorageService.setBool('comic_keep_awake', true);
+          await StorageService.setInt('comic_auto_page_interval', 5);
+          await StorageService.setInt('comic_preload', 3);
+          ref.read(comicReadingModeProvider.notifier).state =
+              ComicReadingMode.rightToLeft;
+          ref.read(comicScreenOrientationProvider.notifier).state =
+              ComicScreenOrientation.system;
+          ref.read(comicSettingsRevisionProvider.notifier).state++;
+        },
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,6 +36,7 @@ void main() {
     expect(settings.fit, VideoPlayerFit.contain);
     expect(settings.loopSingle, isFalse);
     expect(settings.backgroundPlayback, isFalse);
+    expect(settings.desktopAlwaysOnTop, isFalse);
     expect(settings.extendedControlTime, isFalse);
     expect(settings.showFullscreenBattery, isTrue);
     expect(settings.subtitlesEnabled, isTrue);
@@ -101,6 +103,46 @@ void main() {
     expect(restored.subtitleBackground, isFalse);
     expect(restored.subtitleOffsetSeconds, 1.2);
     expect(restored.subtitlesEnabled, isFalse);
+    restored.dispose();
+  });
+
+  test('desktop always-on-top persists and playback defaults reset', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final settings = VideoPlaybackSettings(preferences: preferences);
+    await settings.initialize();
+
+    await settings.setDesktopAlwaysOnTop(true);
+    await settings.setDoubleTapSeekSeconds(15);
+    await settings.setAutoPlay(true);
+    await settings.addSpeed(4);
+    await settings.setPlaybackRate(4);
+
+    expect(settings.desktopAlwaysOnTop, isTrue);
+    expect(
+      preferences.getBool('video_player_v1_desktop_always_on_top'),
+      isTrue,
+    );
+
+    await settings.resetToDefaults();
+
+    expect(settings.desktopAlwaysOnTop, isFalse);
+    expect(settings.doubleTapSeekSeconds, 10);
+    expect(settings.autoPlay, isFalse);
+    expect(settings.playbackRate, 1);
+    expect(settings.speedList, VideoPlaybackSettings.defaultSpeedList);
+    expect(
+      preferences.getBool('video_player_v1_desktop_always_on_top'),
+      isFalse,
+    );
+
+    final restored = VideoPlaybackSettings(preferences: preferences);
+    await restored.initialize();
+    expect(restored.desktopAlwaysOnTop, isFalse);
+    expect(restored.doubleTapSeekSeconds, 10);
+    expect(restored.autoPlay, isFalse);
+    expect(restored.speedList, VideoPlaybackSettings.defaultSpeedList);
+    settings.dispose();
     restored.dispose();
   });
 
@@ -280,11 +322,13 @@ void main() {
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(
-      const MaterialApp(
-        locale: Locale('en'),
-        supportedLocales: S.supportedLocales,
-        localizationsDelegates: S.localizationsDelegates,
-        home: VideoSettingsScreen(),
+      const ProviderScope(
+        child: MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: S.supportedLocales,
+          localizationsDelegates: S.localizationsDelegates,
+          home: VideoSettingsScreen(),
+        ),
       ),
     );
     final l10n = await S.delegate.load(const Locale('en'));
@@ -344,6 +388,45 @@ void main() {
       findsOneWidget,
     );
     await tester.pumpWidget(const SizedBox.shrink());
+    settings.dispose();
+  });
+
+  testWidgets('playback settings restore defaults from the app bar', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'video_player_v1_desktop_always_on_top': true,
+      'video_player_v1_auto_play': true,
+      'video_player_v1_double_tap_seek': 15,
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final settings = VideoPlaybackSettings(preferences: preferences);
+    await settings.initialize();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: S.supportedLocales,
+        localizationsDelegates: S.localizationsDelegates,
+        home: VideoPlaybackSettingsScreen(
+          settings: settings,
+          supportsAlwaysOnTop: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(settings.autoPlay, isTrue);
+    expect(settings.desktopAlwaysOnTop, isTrue);
+
+    await tester.tap(find.byTooltip('Restore Default Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(settings.autoPlay, isFalse);
+    expect(settings.desktopAlwaysOnTop, isFalse);
+    expect(settings.doubleTapSeekSeconds, 10);
+    expect(tester.takeException(), isNull);
     settings.dispose();
   });
 }

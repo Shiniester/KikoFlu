@@ -157,6 +157,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   bool _routePaletteFrozen = false;
   late final bool _directQueueEntry;
   late bool _playerPagesActivated;
+  ModalRoute<dynamic>? _entryRoute;
+  Animation<double>? _entryRouteAnimation;
+  final ValueNotifier<bool> _deferredPlayerPagesReady = ValueNotifier(true);
+  bool _entryReadinessInitialized = false;
   int _semanticTransitionGeneration = 0;
   Size? _lastPlayerStageSize;
   bool _queueTransitionActive = false;
@@ -191,6 +195,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _bindEntryRouteAnimation();
     final route = ModalRoute.of(context);
     if (_routePaletteFrozen) {
       _detachPaletteRouteListeners();
@@ -213,6 +218,59 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       _queueTransitionActive = false;
     }
     _reduceMotion = reduceMotion;
+  }
+
+  void _bindEntryRouteAnimation() {
+    final route = ModalRoute.of(context);
+    final animation = route?.animation;
+    if (!identical(animation, _entryRouteAnimation)) {
+      _entryRouteAnimation?.removeStatusListener(_onEntryRouteStatus);
+      _entryRouteAnimation = animation;
+      animation?.addStatusListener(_onEntryRouteStatus);
+    }
+    _entryRoute = route;
+    if (!_entryReadinessInitialized) {
+      _deferredPlayerPagesReady.value = _entryPagesSettled;
+      _entryReadinessInitialized = true;
+    }
+    _settleEntryPagesIfReady();
+  }
+
+  void _onEntryRouteStatus(AnimationStatus _) {
+    _settleEntryPagesIfReady();
+  }
+
+  bool get _entryPagesSettled {
+    final route = _entryRoute;
+    if (route == null || MediaQuery.disableAnimationsOf(context)) return true;
+    if (route is PlayerEntranceRoute) {
+      return (route as PlayerEntranceRoute).isEntranceSettled;
+    }
+    final animation = route.animation;
+    return animation == null || animation.value >= 1;
+  }
+
+  void _settleEntryPagesIfReady() {
+    if (!mounted || _deferredPlayerPagesReady.value) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _deferredPlayerPagesReady.value || !_entryPagesSettled) {
+        return;
+      }
+      _deferredPlayerPagesReady.value = true;
+    });
+  }
+
+  void _activateDeferredPlayerPages() {
+    if (!mounted || _deferredPlayerPagesReady.value) return;
+    _deferredPlayerPagesReady.value = true;
+  }
+
+  Widget _deferredPlayerPage({
+    required bool ready,
+    required Key placeholderKey,
+    required Widget Function() builder,
+  }) {
+    return ready ? builder() : SizedBox.shrink(key: placeholderKey);
   }
 
   void _onPaletteRouteStatus(AnimationStatus status) {
@@ -296,6 +354,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _wideControlsScrollController.dispose();
     _keyboardFocusNode.dispose();
     _detachPaletteRouteListeners();
+    _entryRoute = null;
+    _entryRouteAnimation?.removeStatusListener(_onEntryRouteStatus);
+    _deferredPlayerPagesReady.dispose();
     _unlockButtonTimer?.cancel();
     _semanticPageRevision.dispose();
     _coverPreviewHeroTrackId.dispose();
@@ -571,67 +632,77 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   },
                   child: child!,
                 ),
-                child: PlayerBackdropGroup(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: RepaintBoundary(
-                          key: const ValueKey('player-palette-background'),
-                          child: PlayerPaletteBackground(
-                            duration: motionDuration,
-                            gradient: palette.backgroundGradient,
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: (_) => _activateDeferredPlayerPages(),
+                  child: PlayerBackdropGroup(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: RepaintBoundary(
+                            key: const ValueKey('player-palette-background'),
+                            child: PlayerPaletteBackground(
+                              duration: motionDuration,
+                              gradient: palette.backgroundGradient,
+                            ),
                           ),
                         ),
-                      ),
-                      Positioned.fill(
-                        child: Offstage(
-                          key: const ValueKey('player-stage-under-fullscreen'),
-                          offstage: _isLyricLocked,
-                          child: IgnorePointer(
-                            ignoring: _isLyricLocked,
-                            child: TickerMode(
-                              enabled: !_isLyricLocked,
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isWide = usesWidePlayerLayout(
-                                    constraints.maxWidth,
-                                    height: constraints.maxHeight,
-                                  );
-                                  _syncResponsivePageController(
-                                    isWide,
-                                    constraints.biggest,
-                                  );
-                                  return isWide
-                                      ? _buildWidePlayer(
-                                          context,
-                                          track: track,
-                                          coverUrl: coverUrl,
-                                          previewPalette: palette,
-                                          availableWidth: constraints.maxWidth,
-                                          availableHeight:
-                                              constraints.maxHeight,
-                                        )
-                                      : _buildCompactPlayer(
-                                          context,
-                                          track: track,
-                                          coverUrl: coverUrl,
-                                          previewPalette: palette,
-                                        );
-                                },
+                        Positioned.fill(
+                          child: Offstage(
+                            key: const ValueKey(
+                              'player-stage-under-fullscreen',
+                            ),
+                            offstage: _isLyricLocked,
+                            child: IgnorePointer(
+                              ignoring: _isLyricLocked,
+                              child: TickerMode(
+                                enabled: !_isLyricLocked,
+                                child: ValueListenableBuilder<bool>(
+                                  valueListenable: _deferredPlayerPagesReady,
+                                  builder: (context, _, __) => LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final isWide = usesWidePlayerLayout(
+                                        constraints.maxWidth,
+                                        height: constraints.maxHeight,
+                                      );
+                                      _syncResponsivePageController(
+                                        isWide,
+                                        constraints.biggest,
+                                      );
+                                      return isWide
+                                          ? _buildWidePlayer(
+                                              context,
+                                              track: track,
+                                              coverUrl: coverUrl,
+                                              previewPalette: palette,
+                                              availableWidth:
+                                                  constraints.maxWidth,
+                                              availableHeight:
+                                                  constraints.maxHeight,
+                                            )
+                                          : _buildCompactPlayer(
+                                              context,
+                                              track: track,
+                                              coverUrl: coverUrl,
+                                              previewPalette: palette,
+                                            );
+                                    },
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      if (_isLyricLocked)
-                        Positioned.fill(child: _buildPortraitLyricView()),
-                      if (isTrackLoading)
-                        ValueListenableBuilder<int>(
-                          valueListenable: _semanticPageRevision,
-                          builder: (context, _, __) =>
-                              _buildTrackLoadingOverlay(context),
-                        ),
-                    ],
+                        if (_isLyricLocked)
+                          Positioned.fill(child: _buildPortraitLyricView()),
+                        if (isTrackLoading)
+                          ValueListenableBuilder<int>(
+                            valueListenable: _semanticPageRevision,
+                            builder: (context, _, __) =>
+                                _buildTrackLoadingOverlay(context),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -946,6 +1017,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final rightPaneWidth = narrowWide
         ? math.max(290.0, (rowWidth - gap) * 0.55)
         : (rowWidth - gap) / 2;
+    final deferredPagesReady = _deferredPlayerPagesReady.value;
     final wideRightPageChildren = <Widget>[
       _withOriginalPlayerGestureSettings(
         context,
@@ -953,27 +1025,34 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           key: const ValueKey('wide-details-page-boundary'),
           pageController: _wideRightPageController,
           pageIndex: 0,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final detailsWidth = math.min(704.0, constraints.maxWidth * 0.90);
-              return Center(
-                child: SizedBox(
-                  width: detailsWidth,
-                  height: double.infinity,
-                  child: ValueListenableBuilder<int>(
-                    valueListenable: _semanticPageRevision,
-                    builder: (context, _, __) => PlayerAudioDetailsPanel(
-                      key: const ValueKey('wide-audio-details-pane'),
-                      onOpenWork: _openKnownWork,
-                      scrollController: _wideDetailsScrollController,
-                      isActive:
-                          !_isLyricLocked &&
-                          _rightPane == PlayerRightPane.details,
+          child: _deferredPlayerPage(
+            ready: deferredPagesReady,
+            placeholderKey: const ValueKey('wide-details-page-placeholder'),
+            builder: () => LayoutBuilder(
+              builder: (context, constraints) {
+                final detailsWidth = math.min(
+                  704.0,
+                  constraints.maxWidth * 0.90,
+                );
+                return Center(
+                  child: SizedBox(
+                    width: detailsWidth,
+                    height: double.infinity,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _semanticPageRevision,
+                      builder: (context, _, __) => PlayerAudioDetailsPanel(
+                        key: const ValueKey('wide-audio-details-pane'),
+                        onOpenWork: _openKnownWork,
+                        scrollController: _wideDetailsScrollController,
+                        isActive:
+                            !_isLyricLocked &&
+                            _rightPane == PlayerRightPane.details,
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -999,7 +1078,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           key: const ValueKey('wide-lyrics-page-boundary'),
           pageController: _wideRightPageController,
           pageIndex: 2,
-          child: _buildLyricsPane(context, isWide: true),
+          child: _deferredPlayerPage(
+            ready: deferredPagesReady,
+            placeholderKey: const ValueKey('wide-lyrics-page-placeholder'),
+            builder: () => _buildLyricsPane(context, isWide: true),
+          ),
         ),
       ),
     ];
@@ -1184,6 +1267,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             context,
             mainBodyOnly: true,
           );
+          final deferredPagesReady = _deferredPlayerPagesReady.value;
           final compactPageChildren = _playerPagesActivated
               ? SliverChildListDelegate([
                   _withOriginalPlayerGestureSettings(
@@ -1192,26 +1276,32 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       key: const ValueKey('compact-details-page-boundary'),
                       pageController: _compactPageController,
                       pageIndex: 0,
-                      child: Center(
-                        child: SizedBox(
-                          width: sharedWidth,
-                          height: double.infinity,
-                          child: ValueListenableBuilder<int>(
-                            valueListenable: _semanticPageRevision,
-                            builder: (context, _, __) =>
-                                PlayerAudioDetailsPanel(
-                                  key: const ValueKey(
-                                    'compact-audio-details-pane',
+                      child: _deferredPlayerPage(
+                        ready: deferredPagesReady,
+                        placeholderKey: const ValueKey(
+                          'compact-details-page-placeholder',
+                        ),
+                        builder: () => Center(
+                          child: SizedBox(
+                            width: sharedWidth,
+                            height: double.infinity,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _semanticPageRevision,
+                              builder: (context, _, __) =>
+                                  PlayerAudioDetailsPanel(
+                                    key: const ValueKey(
+                                      'compact-audio-details-pane',
+                                    ),
+                                    onOpenWork: _openKnownWork,
+                                    scrollController:
+                                        _compactDetailsScrollController,
+                                    isActive:
+                                        !_isLyricLocked &&
+                                        !_queueTransitionActive &&
+                                        _compactPage == 0 &&
+                                        _rightPane != PlayerRightPane.queue,
                                   ),
-                                  onOpenWork: _openKnownWork,
-                                  scrollController:
-                                      _compactDetailsScrollController,
-                                  isActive:
-                                      !_isLyricLocked &&
-                                      !_queueTransitionActive &&
-                                      _compactPage == 0 &&
-                                      _rightPane != PlayerRightPane.queue,
-                                ),
+                            ),
                           ),
                         ),
                       ),
@@ -1241,10 +1331,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       key: const ValueKey('compact-lyrics-page-boundary'),
                       pageController: _compactPageController,
                       pageIndex: 2,
-                      child: _buildLyricsPane(
-                        context,
-                        isWide: false,
-                        actionWidth: actionWidth,
+                      child: _deferredPlayerPage(
+                        ready: deferredPagesReady,
+                        placeholderKey: const ValueKey(
+                          'compact-lyrics-page-placeholder',
+                        ),
+                        builder: () => _buildLyricsPane(
+                          context,
+                          isWide: false,
+                          actionWidth: actionWidth,
+                        ),
                       ),
                     ),
                   ),

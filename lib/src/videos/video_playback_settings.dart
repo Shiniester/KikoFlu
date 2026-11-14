@@ -70,6 +70,7 @@ class VideoPlaybackSettings extends ChangeNotifier {
   VideoBottomProgressMode bottomProgressMode = VideoBottomProgressMode.always;
   VideoPlayerRepeatMode repeatMode = VideoPlayerRepeatMode.once;
   bool backgroundPlayback = false;
+  bool desktopAlwaysOnTop = false;
   bool extendedControlTime = false;
   bool showFullscreenBattery = true;
   bool subtitlesEnabled = true;
@@ -173,6 +174,8 @@ class VideoPlaybackSettings extends ChangeNotifier {
             .toInt()];
     backgroundPlayback =
         preferences.getBool('${_prefix}background_playback') ?? false;
+    desktopAlwaysOnTop =
+        preferences.getBool('${_prefix}desktop_always_on_top') ?? false;
     extendedControlTime =
         preferences.getBool('${_prefix}extended_controls') ?? false;
     showFullscreenBattery =
@@ -348,6 +351,12 @@ class VideoPlaybackSettings extends ChangeNotifier {
     () => backgroundPlayback = value,
   );
 
+  Future<void> setDesktopAlwaysOnTop(bool value) => _set(
+    '${_prefix}desktop_always_on_top',
+    value,
+    () => desktopAlwaysOnTop = value,
+  );
+
   Future<void> setExtendedControlTime(bool value) => _set(
     '${_prefix}extended_controls',
     value,
@@ -389,6 +398,153 @@ class VideoPlaybackSettings extends ChangeNotifier {
     value,
     () => subtitleOffsetSeconds = value,
   );
+
+  Future<void> resetToDefaults() async {
+    await initialize();
+    doubleTapSeekSeconds = 10;
+    longPressRate = 3;
+    dynamicLongPressRate = false;
+    playbackRate = 1;
+    speedList = List<double>.of(defaultSpeedList);
+    autoPlay = false;
+    autoFullscreen = false;
+    autoExitFullscreen = true;
+    autoPictureInPicture = false;
+    enableDoubleTapSeek = true;
+    enableSideSwipeAdjust = true;
+    systemBrightness = false;
+    enableFullscreenGesture = true;
+    relativeSwipeSeek = false;
+    swipeSeekDuration = 90;
+    expandVerticalVideo = false;
+    showFullscreenLockButton = true;
+    showFullscreenScreenshotButton = true;
+    keyboardControl = true;
+    reverseFullscreenGesture = false;
+    fit = VideoPlayerFit.contain;
+    fullscreenOrientation = VideoFullscreenOrientation.auto;
+    bottomProgressMode = VideoBottomProgressMode.always;
+    repeatMode = VideoPlayerRepeatMode.once;
+    backgroundPlayback = false;
+    desktopAlwaysOnTop = false;
+    extendedControlTime = false;
+    showFullscreenBattery = true;
+    subtitlesEnabled = true;
+    flipHorizontal = false;
+    flipVertical = false;
+    superResolution = VideoSuperResolution.off;
+    subtitleFontSize = 32;
+    subtitleBackground = true;
+    subtitleOffsetSeconds = 0;
+
+    final preferences = _preferences!;
+    final write = _writeTail.then((_) async {
+      await preferences.setInt(
+        '${_prefix}double_tap_seek',
+        doubleTapSeekSeconds,
+      );
+      await preferences.setDouble('${_prefix}long_press_rate', longPressRate);
+      await preferences.setBool(
+        '${_prefix}dynamic_long_press',
+        dynamicLongPressRate,
+      );
+      await preferences.setDouble('${_prefix}playback_rate', playbackRate);
+      await preferences.setStringList(
+        '${_prefix}speed_list',
+        speedList.map((speed) => speed.toString()).toList(),
+      );
+      await preferences.setBool('${_prefix}auto_play', autoPlay);
+      await preferences.setBool('${_prefix}auto_fullscreen', autoFullscreen);
+      await preferences.setBool(
+        '${_prefix}auto_exit_fullscreen',
+        autoExitFullscreen,
+      );
+      await preferences.setBool('${_prefix}auto_pip', autoPictureInPicture);
+      await preferences.setBool(
+        '${_prefix}double_tap_enabled',
+        enableDoubleTapSeek,
+      );
+      await preferences.setBool(
+        '${_prefix}side_swipe_enabled',
+        enableSideSwipeAdjust,
+      );
+      await preferences.setBool(
+        '${_prefix}system_brightness',
+        systemBrightness,
+      );
+      await preferences.setBool(
+        '${_prefix}fullscreen_gesture_enabled',
+        enableFullscreenGesture,
+      );
+      await preferences.setBool(
+        '${_prefix}relative_swipe_seek',
+        relativeSwipeSeek,
+      );
+      await preferences.setInt(
+        '${_prefix}swipe_seek_duration',
+        swipeSeekDuration,
+      );
+      await preferences.setBool(
+        '${_prefix}vertical_expand',
+        expandVerticalVideo,
+      );
+      await preferences.setBool(
+        '${_prefix}fullscreen_lock_button',
+        showFullscreenLockButton,
+      );
+      await preferences.setBool(
+        '${_prefix}fullscreen_screenshot_button',
+        showFullscreenScreenshotButton,
+      );
+      await preferences.setBool('${_prefix}keyboard_control', keyboardControl);
+      await preferences.setBool(
+        '${_prefix}reverse_fullscreen_gesture',
+        reverseFullscreenGesture,
+      );
+      await preferences.setInt('${_prefix}fit', fit.index);
+      await preferences.setInt(
+        '${_prefix}fullscreen_orientation',
+        fullscreenOrientation.index,
+      );
+      await preferences.setInt(
+        '${_prefix}bottom_progress_mode',
+        bottomProgressMode.index,
+      );
+      await preferences.setInt('${_prefix}repeat_mode', repeatMode.index);
+      await preferences.setBool(
+        '${_prefix}background_playback',
+        backgroundPlayback,
+      );
+      await preferences.setBool(
+        '${_prefix}desktop_always_on_top',
+        desktopAlwaysOnTop,
+      );
+      await preferences.setBool(
+        '${_prefix}extended_controls',
+        extendedControlTime,
+      );
+      await preferences.setBool(
+        '${_prefix}show_fullscreen_battery',
+        showFullscreenBattery,
+      );
+      await preferences.setBool(
+        '${_prefix}subtitles_enabled',
+        subtitlesEnabled,
+      );
+      await preferences.setDouble('${_prefix}subtitle_size', subtitleFontSize);
+      await preferences.setBool(
+        '${_prefix}subtitle_background',
+        subtitleBackground,
+      );
+      await preferences.setDouble(
+        '${_prefix}subtitle_offset',
+        subtitleOffsetSeconds,
+      );
+    });
+    _writeTail = write.catchError((_) {});
+    await write;
+    _notify();
+  }
 
   Future<void> _set(String key, Object value, VoidCallback update) async {
     await initialize();

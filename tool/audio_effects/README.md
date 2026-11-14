@@ -48,11 +48,13 @@ PCM 和输入 WAV 位于输出目录下的临时目录，结束后删除。
 低幅检查要求首尾和脉冲位置逐样本恒等。
 热信号的采样峰值上限为 0.97，加 `1e-7` 浮点量化预算。
 电平控制位于 EQ、单声道扩宽之后、场景之前。
-场景自己的有意削波仍按 Eara 行为保留。
+场景自己的有意削波仍按当前场景参数保留。
 该判据不等于过采样真峰值或听感验收。
 JSON 的进程 CPU 和 wall 时间包含播放器设置、销毁与日志排空。
 
-场景数值来自规格固定的 [Eara 场景参数](https://github.com/eValDoll/EaraAsmrPlayer/blob/3918b196390011b0fccbab59e3489f72e96c92e9/app/src/main/java/com/asmr/player/data/settings/SceneEffectPresets.kt)。
+场景数值来自 [ADR 0011](../../docs/adr/0011-asmr-audio-preset-tuning.md) 的 KikoFlu ASMR 调音。
+[Eara 场景参数](https://github.com/eValDoll/EaraAsmrPlayer/blob/3918b196390011b0fccbab59e3489f72e96c92e9/app/src/main/java/com/asmr/player/data/settings/SceneEffectPresets.kt)保留为历史和结构参考。
+均衡器的 `fixtures/eq-octave-reference.json` 记录 ADR 0011 之前的 Eara 曲线；当前曲线以 `adaptive_eq.py` 为准。
 参考递推用于检验输出，不替代原生 DSP。
 全通、瞬态和包络的参数仍是原型起点。
 

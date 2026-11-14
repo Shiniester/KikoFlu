@@ -761,7 +761,17 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         }
       }
       _brightness = await _platform.getBrightness();
-      if (_isDesktop) _alwaysOnTop = await _platform.isAlwaysOnTop();
+      if (_isDesktop) {
+        _alwaysOnTop = await _platform.isAlwaysOnTop();
+        if (_settings.desktopAlwaysOnTop && !_alwaysOnTop) {
+          try {
+            await _platform.setAlwaysOnTop(true);
+            _alwaysOnTop = true;
+          } catch (_) {
+            // Keep the session unpinned when the platform rejects the default.
+          }
+        }
+      }
       await _platform.setBackgroundPlayback(
         _settings.backgroundPlayback && _session.snapshot.value.playing,
       );

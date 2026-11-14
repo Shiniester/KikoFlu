@@ -7180,6 +7180,12 @@ abstract class S {
   /// **'Reader settings'**
   String get comicReaderSettings;
 
+  /// No description provided for @comicReadingAndInterface.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading and interface'**
+  String get comicReadingAndInterface;
+
   /// No description provided for @comicSearchTargets.
   ///
   /// In en, this message translates to:
@@ -7797,6 +7803,42 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Video settings'**
   String get videoSettings;
+
+  /// No description provided for @playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback'**
+  String get playback;
+
+  /// No description provided for @videoInterface.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface'**
+  String get videoInterface;
+
+  /// No description provided for @videoAccountAndSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Account and sources'**
+  String get videoAccountAndSources;
+
+  /// No description provided for @videoAccountSignedIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in'**
+  String get videoAccountSignedIn;
+
+  /// No description provided for @videoAccountSignedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Not signed in'**
+  String get videoAccountSignedOut;
+
+  /// No description provided for @downloadsAndStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads and storage'**
+  String get downloadsAndStorage;
 
   /// No description provided for @videoCardMakers.
   ///
@@ -8571,6 +8613,12 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Always on top'**
   String get videoPlayerAlwaysOnTop;
+
+  /// No description provided for @videoPlayerAlwaysOnTopNextSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies the next time the player opens'**
+  String get videoPlayerAlwaysOnTopNextSession;
 
   /// Stop keeping the video player window above other desktop windows.
   ///

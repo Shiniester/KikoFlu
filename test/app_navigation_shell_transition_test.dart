@@ -2256,6 +2256,7 @@ void main() {
 
     _openPlayer(navigation, child: const ColoredBox(color: Color(0xff13579b)));
     await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getRect(rail), initialRect);
     expect(tester.getRect(home), initialHomeRect);
@@ -2815,6 +2816,7 @@ void main() {
       });
     }
 
+    await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getTopLeft(mini).dy, greaterThan(initialMiniRect.top));

@@ -120,7 +120,7 @@ def main():
 
         def assess_bathroom(actual, _):
             metrics = compare(actual, expected)
-            require(metrics["max_error"] < 1e-6, "bathroom differs from Eara recurrence")
+            require(metrics["max_error"] < 1e-6, "bathroom differs from profile recurrence")
             return {**metrics, "oracle_feedback_write_clips": clamps}
 
         for chunk in (128, 1024, 4096):
@@ -133,7 +133,7 @@ def main():
                 def assess_scene(actual, _, expected=expected_scene, amount=amount, clipped=clipped):
                     metrics = compare(actual, expected)
                     require(metrics["max_error"] == 0 if amount == 0 else metrics["max_error"] < 1e-6,
-                            "scene output differs from fixed Eara behavior")
+                            "scene output differs from fixed profile behavior")
                     return {**metrics, "oracle_feedback_write_clips": clipped}
 
                 case(f"scene_{scene}_{amount}", scene_graph(scene, amount), frames, 48000, assess_scene)

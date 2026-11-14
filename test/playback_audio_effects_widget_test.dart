@@ -290,7 +290,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(labels.audioEffectsVocal).last);
       await tester.pumpAndSettle();
-      expect(container.read(audioEffectsSettingsProvider).gains[6], 9);
+      expect(container.read(audioEffectsSettingsProvider).gains[6], 6.5);
 
       final band = find.byKey(const ValueKey('audio-effects-band-0'));
       await tester.ensureVisible(band);
@@ -381,7 +381,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         container.read(audioEffectsSettingsProvider).sceneAmount,
-        greaterThan(50),
+        greaterThan(35),
       );
 
       await tester.ensureVisible(channelTitle);
@@ -437,6 +437,6 @@ void main() {
         .read(audioEffectsSettingsProvider.notifier)
         .setPreset(EqualizerPreset.vocal);
     await tester.pumpAndSettle();
-    expect(container.read(audioEffectsSettingsProvider).gains[6], 9);
+    expect(container.read(audioEffectsSettingsProvider).gains[6], 6.5);
   });
 }

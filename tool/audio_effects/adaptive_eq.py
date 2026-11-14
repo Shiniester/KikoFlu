@@ -1,19 +1,20 @@
-"""One-octave Eara EQ template with native actual-Fs frequency selection.
+"""One-octave EQ template with native actual-Fs frequency selection.
 
-Band levels below are dB facts from fixed Eara source 3918b196390011b0fccbab59e3489f72e96c92e9;
-the filtergraph and validation oracle are independent. This does not replace the
-accepted Q=1 baseline. No production player is registered by this module.
+Band levels follow the KikoFlu ASMR tuning in ADR 0011, derived from the fixed
+Eara source 3918b196390011b0fccbab59e3489f72e96c92e9. The filtergraph and
+validation oracle are independent. This does not replace the accepted Q=1
+baseline. No production player is registered by this module.
 """
 from basic import EQ_FREQUENCIES
 
 EQ_TARGETS = tuple(f'equalizer@eq_band{band}' for band in range(10))
 EQ_PRESETS = {
     'flat': (0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    'bright': (-4, -3, -2, -1, 0, 2, 4, 7, 9, 8),
-    'bassBoost': (3, 2.5, 2, 1.5, 1, 0, -1, -2.5, -4, -5),
-    'tappingCrisp': (-3, -2, -1, 0, 1.5, 3, 6.5, 9, 10, 8),
-    'tappingDull': (4, 5, 6, 4, 1.5, -2, -5, -8, -11, -12),
-    'vocal': (-3, -2, -1, 1, 3, 7, 9, 6.5, 2, -1.5),
+    'bright': (-3.5, -2.5, -2, -1, -1, 0, 1, 2.5, 4.5, 3.5),
+    'bassBoost': (4.5, 4.5, 3, 2.5, 1.5, 0, 0, -2.5, -3.5, -5.5),
+    'tappingCrisp': (-4.5, -2.5, -2.5, -2, -1, 1, 2.5, 5.5, 4.5, 1),
+    'tappingDull': (2.5, 3.5, 4.5, 3.5, 2, -2, -2.5, -4.5, -6.5, -10),
+    'vocal': (-3.5, -2, -2, 0, 1, 4.5, 6.5, 2.5, 0, -4.5),
 }
 
 

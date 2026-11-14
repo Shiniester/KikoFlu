@@ -206,6 +206,16 @@ class UnifiedSearchHistoryNotifier
         await _persist();
       });
 
+  Future<void> clearContentType(String contentType) => _serialize(() async {
+    await load();
+    state = UnifiedSearchHistoryState(
+      entries: state.entries
+          .where((entry) => entry.context.contentType != contentType)
+          .toList(),
+    );
+    await _persist();
+  });
+
   Future<void> _load() async {
     var entries = <UnifiedSearchHistoryEntry>[];
     try {

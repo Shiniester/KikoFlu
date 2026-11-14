@@ -228,6 +228,7 @@ void main() {
     );
     unawaited(navigatorKey.currentState!.push<void>(route));
     await tester.pump();
+    await tester.pump();
     final translationFinder = find.byKey(
       const ValueKey('player-route-vertical-translation'),
     );
@@ -275,6 +276,35 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('curve-player'), findsNothing);
+  });
+
+  testWidgets('player cover entry waits for its first frame before motion', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('cover-host')),
+      ),
+    );
+    final route = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('cover-player')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
+    expect(route.debugTransitionValue, 0);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(route.debugTransitionValue, 0);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(route.debugTransitionValue, closeTo(16 / 380, 0.001));
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('interactive player route exposes one-to-one visual progress', (

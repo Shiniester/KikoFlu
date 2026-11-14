@@ -54,6 +54,7 @@ import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.da
 import 'package:kikoeru_flutter/src/comics/eh_tag_translations.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_download_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_page_preview.dart';
@@ -4105,6 +4106,68 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
+  });
+
+  testWidgets('comic settings groups library, downloads and storage', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(tester, const ComicSettingsScreen(), _Library(), _Source());
+
+    final s = S.of(tester.element(find.byType(ComicSettingsScreen)));
+    expect(find.text(s.comicReadingAndInterface), findsOneWidget);
+    expect(find.text(s.downloadsAndStorage), findsOneWidget);
+    expect(find.text(s.downloadTasks), findsOneWidget);
+
+    await tester.tap(find.text(s.downloadTasks));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicDownloadScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic reader settings restore defaults from the app bar', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'continuous');
+    await StorageService.setString('comic_screen_orientation', 'landscape');
+    await StorageService.setBool('comic_tap_to_turn', false);
+    await StorageService.setBool('comic_double_tap_zoom', false);
+    await StorageService.setBool('comic_keep_awake', false);
+    await StorageService.setInt('comic_auto_page_interval', 12);
+    await StorageService.setInt('comic_preload', 10);
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final container = await pump(
+      tester,
+      const ComicReaderSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.byTooltip('Restore Default Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(StorageService.getString('comic_reading_mode'), 'rightToLeft');
+    expect(StorageService.getString('comic_screen_orientation'), 'system');
+    expect(StorageService.getBool('comic_tap_to_turn'), isTrue);
+    expect(StorageService.getBool('comic_double_tap_zoom'), isTrue);
+    expect(StorageService.getBool('comic_keep_awake'), isTrue);
+    expect(StorageService.getInt('comic_auto_page_interval'), 5);
+    expect(StorageService.getInt('comic_preload'), 3);
+    expect(
+      container.read(comicReadingModeProvider),
+      ComicReadingMode.rightToLeft,
+    );
+    expect(
+      container.read(comicScreenOrientationProvider),
+      ComicScreenOrientation.system,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('comic settings opens and persists reader settings', (
@@ -9117,7 +9180,12 @@ void main() {
     await tester.tap(title);
     await tester.pumpAndSettle();
     expect(StorageService.getBool('comic_chapter_thumbnails'), isFalse);
-    await pump(tester, const ComicDetailScreen(comic: _comic), library, source);
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+    );
     await tester.scrollUntilVisible(
       find.text('Chapter 1'),
       250,

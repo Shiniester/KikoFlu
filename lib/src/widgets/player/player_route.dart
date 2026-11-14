@@ -83,20 +83,21 @@ Future<T?> openAudioPlayer<T>(
 /// motion for compact entry and the full-page motion for dismissal.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
-    implements PlayerInteractiveDismissRoute {
+    implements PlayerInteractiveDismissRoute, PlayerEntranceRoute {
   AudioPlayerPageRoute({
     required this.builder,
     this.skipInitialTransition = false,
     PlayerDismissVisualMode initialDismissVisualMode =
         PlayerDismissVisualMode.main,
   }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode),
-       _prepareInitialFrame =
-           !skipInitialTransition &&
+       _startsOnQueueSurface =
            initialDismissVisualMode == PlayerDismissVisualMode.secondary,
+       _prepareInitialFrame = !skipInitialTransition,
        super(settings: appAudioPlayerRouteSettings);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
+  final bool _startsOnQueueSurface;
   final bool _prepareInitialFrame;
   bool _initialFrameScheduled = false;
   bool _initialFrameReady = false;
@@ -115,9 +116,19 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   @override
   Animation<double> get visualAnimation => _visualAnimation;
 
+  @override
+  bool get isEntranceSettled {
+    final routeAnimation = animation;
+    return !offstage && (routeAnimation == null || routeAnimation.value >= 1);
+  }
+
   bool get _compactQueueEntry {
     final routeNavigator = navigator;
-    if (!_prepareInitialFrame || routeNavigator == null) return false;
+    if (!_startsOnQueueSurface ||
+        skipInitialTransition ||
+        routeNavigator == null) {
+      return false;
+    }
     final size = MediaQuery.sizeOf(routeNavigator.context);
     return !usesWidePlayerLayout(size.width, height: size.height);
   }
@@ -138,7 +149,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (!forward || !_prepareInitialFrame) {
       return super.createSimulation(forward: forward);
     }
-    return _QueueEntrySimulation(
+    return _InitialFrameSimulation(
       isReady: () => _initialFrameReady,
       duration: transitionDuration,
     );
@@ -490,10 +501,10 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   }
 }
 
-/// Keeps first-frame page construction outside the entrance animation's clock.
+/// Keeps first-frame page construction outside every entrance animation's clock.
 /// The route still owns one controller and its normal completion/cancellation.
-class _QueueEntrySimulation extends Simulation {
-  _QueueEntrySimulation({required this.isReady, required Duration duration})
+class _InitialFrameSimulation extends Simulation {
+  _InitialFrameSimulation({required this.isReady, required Duration duration})
     : _duration = duration.inMicroseconds / Duration.microsecondsPerSecond;
 
   final bool Function() isReady;

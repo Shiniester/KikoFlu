@@ -53,6 +53,7 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
     state.copyWith(
       gains: AudioEffectsSettings.curves[value],
       equalizerCustom: false,
+      equalizerEnabled: value == EqualizerPreset.flat ? null : true,
     ),
   );
   Future<void> setBand(int index, double value) {
@@ -79,7 +80,7 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
     state.copyWith(
       sceneEnabled: false,
       scene: AudioScene.bathroom,
-      sceneAmount: 50,
+      sceneAmount: 35,
     ),
   );
   Future<void> resetAll() => _set(AudioEffectsSettings());

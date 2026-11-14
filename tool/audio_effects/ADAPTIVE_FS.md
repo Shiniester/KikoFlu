@@ -19,6 +19,7 @@ python tool/audio_effects/adaptive_fs_stream.py --libmpv <libmpv-2.dll> --ffmpeg
 两个命令复用既有 C API 绑定和子进程超时。
 PCM、夹具和完整日志写入 `--output` 所在目录。
 精简参考结果见 [adaptive-fs-reference.json](fixtures/adaptive-fs-reference.json)。
+该夹具和 Android 捕获记录 ADR 0011 之前的 Eara 场景基线；当前场景参数以 `graphs.py` 为准。
 FFmpeg 只用于生成 HLS 夹具，不参与被测 PCM 处理。
 
 ## 原生图

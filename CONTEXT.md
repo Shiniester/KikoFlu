@@ -21,6 +21,12 @@ _Avoid_: Player navigation, bottom menu
 The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
 
+**Video Settings (视频设置)**:
+The settings hub for Video Playback Settings, video card display and Video
+Collection Layout, Video Source Accounts, Video Downloads, and video search
+history. It is distinct from Video Playback Settings and the Video Screen.
+_Avoid_: Video Playback Settings
+
 **Video Collection Layout (视频集合布局)**:
 The presentation of video cards and Video Playlist cards as a big grid, small
 grid, or list.
@@ -453,6 +459,10 @@ that component while retaining the voice audio.
 播放音效与音源版本中已有的效果音分开设置。
 _Avoid_: Sound Effects, 效果音
 
+**Equalizer Preset (均衡器预设)**:
+播放音效中的固定频段曲线，取值为默认、清亮、低音增强、清脆拍打、沉闷拍打或人声增强。
+_Avoid_: EQ 模式, 音效预设
+
 **Channel Mode (声道模式)**:
 播放时保留、交换或克隆左右声道的规则。
 “反转”表示交换左右声道。
@@ -460,6 +470,7 @@ _Avoid_: 波形反相
 
 **Scene Effects (场景效果)**:
 模拟浴室回声、闷声或电话音等听感的播放音效。
+“闷声”指被手或织物遮挡的近讲声，不是隔墙声。
 
 **Ejaculation Audio (射精音)**:
 The ejaculation or climax audio component of an audio variant, classified
@@ -616,6 +627,12 @@ with the same header and sidebar behavior as the Audio Screen. Its selected
 Favorites entry shows the Local Favorite and Source Favorite choices, while
 Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
+
+**Comic Settings (漫画设置)**:
+The settings hub for Comic Source accounts, Reader Settings, comic collection
+display, and comic downloads and image storage. It is distinct from Reader
+Settings and the Comic Screen.
+_Avoid_: Reader Settings
 
 **Comic Details Screen (漫画详情页)**:
 The page describing one comic's synopsis, tags, chapters, available source comments,
