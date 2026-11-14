@@ -160,6 +160,17 @@ class _Works extends WorksNotifier {
     );
   }
 
+  void fail() {
+    state = state.copyWith(
+      modeStates: {
+        ...state.modeStates,
+        state.displayMode: state.modeStates[state.displayMode]!.copyWith(
+          error: 'network failed',
+        ),
+      },
+    );
+  }
+
   void useDistinctModeTitles() {
     final modeStates = Map<DisplayMode, WorksModeSnapshot>.from(
       state.modeStates,
@@ -579,12 +590,17 @@ void main() {
         await tester.pumpAndSettle();
         final notice = find.ancestor(
           of: find.text(s.offlineModeMessage),
-          matching: find.byType(Card),
+          matching: find.byType(TopNoticeCard),
         );
+        expect(notice, findsOneWidget);
         expect(tester.getTopLeft(header).dy, initialTop);
+        final noticeRect = tester.getRect(notice);
+        final headerRect = tester.getRect(header);
+        expect(noticeRect.top, lessThan(headerRect.bottom));
+        expect(noticeRect.bottom, greaterThan(headerRect.top));
         expect(
-          tester.getRect(find.byType(FloatingActionButton)).bottom,
-          lessThan(tester.getRect(notice).top),
+          tester.getRect(find.byType(FloatingActionButton)).top,
+          greaterThan(noticeRect.bottom),
         );
         await tester.tap(find.byType(FloatingActionButton));
         expect(navigation.tabNavigator(appAudioTabIndex)!.canPop(), isTrue);
@@ -626,6 +642,73 @@ void main() {
       },
     );
   }
+
+  testWidgets('offline notice follows the ASMR.ONE source only', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.jpAsmr.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final context = tester.element(find.byType(AudioScreen));
+    final auth =
+        ProviderScope.containerOf(context).read(authProvider.notifier)
+            as _AuthenticatedAudio;
+    final message = S.of(context).offlineModeMessage;
+
+    auth.setOffline(true);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+
+    _requestAudioSource(tester, audio_source.AudioSource.asmrOne);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsOneWidget);
+
+    _requestAudioSource(tester, audio_source.AudioSource.jpAsmr);
+    await tester.pumpAndSettle();
+    expect(find.text(message), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('source load failures use the top notice for every source', (
+    tester,
+  ) async {
+    for (final source in audio_source.AudioSource.values) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AudioSourceNotifier.preferenceKey, source.name);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final context = tester.element(find.byType(AudioScreen));
+      final container = ProviderScope.containerOf(context);
+      final s = S.of(context);
+
+      (container.read(worksProvider.notifier) as _Works).fail();
+      await tester.pumpAndSettle();
+
+      final notice = find.ancestor(
+        of: find.text(s.loadFailed),
+        matching: find.byType(TopNoticeCard),
+      );
+      expect(notice, findsOneWidget);
+      expect(container.read(audioSourceProvider), source);
+      expect(
+        tester.getRect(notice).top,
+        lessThan(
+          tester
+              .getRect(find.byKey(const ValueKey('library-page-header')))
+              .bottom,
+        ),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('offline audio keeps page geometry through player and popups', (
     tester,
@@ -729,13 +812,14 @@ void main() {
     SnackBarUtil.showInfo(context, 'Global offline notification');
     await tester.pumpAndSettle();
     expect(find.text('Global offline notification'), findsOneWidget);
+    expect(find.text(message).hitTestable(), findsNothing);
+    SnackBarUtil.clearAll();
+    await tester.pumpAndSettle();
+    expect(find.text('Global offline notification'), findsNothing);
     expect(find.text(message).hitTestable(), findsOneWidget);
     auth.setOffline(false);
     await tester.pumpAndSettle();
     expect(find.text(message), findsNothing);
-    expect(find.text('Global offline notification'), findsOneWidget);
-    SnackBarUtil.clearAll();
-    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 

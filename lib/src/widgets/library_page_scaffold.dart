@@ -17,6 +17,7 @@ class LibraryPageScaffold extends StatefulWidget {
     this.deferDrawerActions = false,
     this.drawerFooter,
     this.floatingActionButton,
+    this.topNotice,
     this.bottomNavigationBar,
   });
 
@@ -28,6 +29,7 @@ class LibraryPageScaffold extends StatefulWidget {
   final bool deferDrawerActions;
   final Widget? drawerFooter;
   final Widget? floatingActionButton;
+  final Widget? topNotice;
   final Widget? bottomNavigationBar;
 
   @override
@@ -92,116 +94,123 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
         ),
         floatingActionButton: widget.floatingActionButton,
         bottomNavigationBar: widget.bottomNavigationBar,
-        body: Column(
+        body: Stack(
           children: [
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                key: const ValueKey('library-page-header'),
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Row(
-                  children: [
-                    Builder(
-                      builder: (context) => Tooltip(
-                        message: MaterialLocalizations.of(
-                          context,
-                        ).openAppDrawerTooltip,
-                        child: FilledButton.icon(
-                          key: const ValueKey('library-menu-button'),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                            padding: const EdgeInsets.all(12),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            textStyle: theme.textTheme.titleSmall,
-                            foregroundColor: theme.colorScheme.onSurface,
-                            backgroundColor:
-                                theme.colorScheme.surfaceContainerHighest,
-                            side: BorderSide.none,
-                            shape: RoundedRectangleBorder(
+            Column(
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    key: const ValueKey('library-page-header'),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Row(
+                      children: [
+                        Builder(
+                          builder: (context) => Tooltip(
+                            message: MaterialLocalizations.of(
+                              context,
+                            ).openAppDrawerTooltip,
+                            child: FilledButton.icon(
+                              key: const ValueKey('library-menu-button'),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(0, 48),
+                                padding: const EdgeInsets.all(12),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                textStyle: theme.textTheme.titleSmall,
+                                foregroundColor: theme.colorScheme.onSurface,
+                                backgroundColor:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                side: BorderSide.none,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(28),
+                                ),
+                              ),
+                              icon: const Icon(Icons.menu, size: 20),
+                              label: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: math.min(110, width * .25),
+                                ),
+                                child: Text(
+                                  widget.title,
+                                  key: const ValueKey('library-page-title'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              onPressed: () =>
+                                  Scaffold.of(context).openDrawer(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            child: Material(
+                              color: theme.colorScheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(28),
-                            ),
-                          ),
-                          icon: const Icon(Icons.menu, size: 20),
-                          label: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: math.min(110, width * .25),
-                            ),
-                            child: Text(
-                              widget.title,
-                              key: const ValueKey('library-page-title'),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          onPressed: () => Scaffold.of(context).openDrawer(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Semantics(
-                        button: true,
-                        child: Material(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(28),
-                          child: InkWell(
-                            key: const ValueKey('library-page-search'),
-                            onTap: widget.onSearch,
-                            borderRadius: BorderRadius.circular(28),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 14,
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.search, size: 20),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      widget.searchHint,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
-                                    ),
+                              child: InkWell(
+                                key: const ValueKey('library-page-search'),
+                                onTap: widget.onSearch,
+                                borderRadius: BorderRadius.circular(28),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 14,
                                   ),
-                                ],
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.search, size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          widget.searchHint,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              child: Builder(
-                builder: (context) => GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  dragStartBehavior: DragStartBehavior.down,
-                  onHorizontalDragStart: (_) => _drawerDragDistance = 0,
-                  onHorizontalDragUpdate: (details) =>
-                      _drawerDragDistance += details.primaryDelta ?? 0,
-                  onHorizontalDragEnd: (_) {
-                    if (_drawerDragDistance > kTouchSlop) {
-                      Scaffold.of(context).openDrawer();
-                    }
-                  },
-                  child: MediaQuery.removePadding(
-                    context: context,
-                    removeTop: true,
-                    child: widget.body,
                   ),
                 ),
-              ),
+                Expanded(
+                  child: Builder(
+                    builder: (context) => GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      dragStartBehavior: DragStartBehavior.down,
+                      onHorizontalDragStart: (_) => _drawerDragDistance = 0,
+                      onHorizontalDragUpdate: (details) =>
+                          _drawerDragDistance += details.primaryDelta ?? 0,
+                      onHorizontalDragEnd: (_) {
+                        if (_drawerDragDistance > kTouchSlop) {
+                          Scaffold.of(context).openDrawer();
+                        }
+                      },
+                      child: MediaQuery.removePadding(
+                        context: context,
+                        removeTop: true,
+                        child: widget.body,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
+            if (widget.topNotice != null)
+              Positioned(top: 0, left: 0, right: 0, child: widget.topNotice!),
           ],
         ),
       ),

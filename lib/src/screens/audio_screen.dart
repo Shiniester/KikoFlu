@@ -24,6 +24,7 @@ import '../providers/works_provider.dart'
 import '../utils/l10n_extensions.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/server_utils.dart';
+import '../utils/snackbar_util.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/app_bottom_dock_transition.dart';
@@ -1002,6 +1003,11 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final displayMode = ref.watch(
       worksProvider.select((state) => state.displayMode),
     );
+    final worksFailure = ref.watch(
+      worksProvider.select(
+        (state) => (error: state.error, isLoading: state.isLoading),
+      ),
+    );
     final marksState = ref.watch(myReviewsProvider);
     final activeDownloadCount =
         ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
@@ -1030,7 +1036,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       _ => S.of(context).librarySearchHint(title),
     };
     return LibraryPageScaffold(
-      bottomNavigationBar: _buildOfflineNotice(authState),
+      topNotice: _buildSourceNotice(
+        authState,
+        source: source,
+        worksError: worksFailure.error,
+        worksLoading: worksFailure.isLoading,
+      ),
       title: title,
       searchHint: searchHint,
       onSearch: _openAdvancedSearch,
@@ -1081,10 +1092,28 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  Widget? _buildOfflineNotice(AuthState auth) {
+  Widget? _buildSourceNotice(
+    AuthState auth, {
+    required AudioSource source,
+    required String? worksError,
+    required bool worksLoading,
+  }) {
     final offline =
-        auth.currentUser != null && !auth.isLoggedIn && auth.error != null;
-    if (!offline && !(_retryingConnection && auth.currentUser != null)) {
+        source == AudioSource.asmrOne &&
+        auth.currentUser != null &&
+        !auth.isLoggedIn &&
+        auth.error != null;
+    final retryingOffline =
+        _retryingConnection &&
+        source == AudioSource.asmrOne &&
+        auth.currentUser != null;
+    final sourceFailed =
+        !offline &&
+        !retryingOffline &&
+        !worksLoading &&
+        worksError != null &&
+        !worksError.startsWith('[');
+    if (!offline && !retryingOffline && !sourceFailed) {
       return null;
     }
     final navigation = AppNavigationScope.maybeOf(context);
@@ -1095,52 +1124,57 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             navigation.popupRoute == null);
     final s = S.of(context);
     final colors = Theme.of(context).colorScheme;
+    final isOffline = offline || retryingOffline;
+    final background = isOffline ? colors.secondaryContainer : colors.error;
+    final foreground = isOffline ? colors.onSecondaryContainer : colors.onError;
     return Visibility(
       visible: visible,
       maintainState: true,
-      maintainAnimation: true,
-      maintainSize: true,
       child: SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        bottom: false,
+        minimum: const EdgeInsets.fromLTRB(16, 16, 16, 0),
         child: Center(
           heightFactor: 1,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
-            child: Card(
-              margin: EdgeInsets.zero,
-              elevation: 6,
-              color: colors.tertiaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        s.offlineModeMessage,
-                        style: TextStyle(color: colors.onTertiaryContainer),
-                      ),
+            child: TopNoticeCard(
+              backgroundColor: background,
+              content: Row(
+                children: [
+                  Icon(
+                    isOffline ? Icons.info_outline : Icons.error_outline,
+                    color: foreground,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      isOffline ? s.offlineModeMessage : s.loadFailed,
+                      style: TextStyle(color: foreground),
                     ),
-                    TextButton(
-                      onPressed: _retryingConnection
-                          ? null
-                          : () async {
-                              setState(() => _retryingConnection = true);
-                              try {
-                                await ref
-                                    .read(authProvider.notifier)
-                                    .retryConnection();
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _retryingConnection = false);
-                                }
-                              }
-                            },
-                      child: Text(s.retry),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+              action: SnackBarAction(
+                label: s.retry,
+                textColor: foreground,
+                onPressed: isOffline
+                    ? () async {
+                        setState(() => _retryingConnection = true);
+                        try {
+                          await ref
+                              .read(authProvider.notifier)
+                              .retryConnection();
+                        } finally {
+                          if (mounted) {
+                            setState(() => _retryingConnection = false);
+                          }
+                        }
+                      }
+                    : () =>
+                          unawaited(ref.read(worksProvider.notifier).refresh()),
+              ),
+              actionEnabled: !isOffline || !_retryingConnection,
             ),
           ),
         ),

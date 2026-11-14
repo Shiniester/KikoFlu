@@ -22,6 +22,89 @@ class AppNoticeController {
   }
 }
 
+/// 统一顶部通知的卡片样式。
+class TopNoticeCard extends StatelessWidget {
+  const TopNoticeCard({
+    super.key,
+    required this.content,
+    this.backgroundColor,
+    this.action,
+    this.actionEnabled = true,
+    this.onAction,
+    this.showCloseIcon = false,
+    this.onClose,
+  });
+
+  final Widget content;
+  final Color? backgroundColor;
+  final SnackBarAction? action;
+  final bool actionEnabled;
+  final VoidCallback? onAction;
+  final bool showCloseIcon;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final bg = backgroundColor ?? colorScheme.secondaryContainer;
+
+    return Material(
+      elevation: 6,
+      color: bg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: DefaultTextStyle(
+                style:
+                    theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSecondaryContainer,
+                    ) ??
+                    const TextStyle(),
+                child: content,
+              ),
+            ),
+            if (action != null) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: actionEnabled
+                    ? () {
+                        action!.onPressed();
+                        onAction?.call();
+                      }
+                    : null,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: action!.textColor,
+                ),
+                child: Text(action!.label),
+              ),
+            ],
+            if (showCloseIcon && onClose != null) ...[
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: onClose,
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.all(4.0),
+                  child: Icon(Icons.close, size: 18),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 统一的顶部悬浮提示组件
 class TopFloatingNoticeWidget extends StatefulWidget {
   final Widget content;
@@ -168,10 +251,6 @@ class TopFloatingNoticeWidgetState extends State<TopFloatingNoticeWidget>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final bg = widget.backgroundColor ?? colorScheme.secondaryContainer;
-
     // 针对移动端状态栏避让，桌面端 safeTop 为 0 时保持 topOffset 间距
     final mediaQuery = MediaQuery.maybeOf(context);
     final view = View.maybeOf(context);
@@ -203,63 +282,13 @@ class TopFloatingNoticeWidgetState extends State<TopFloatingNoticeWidget>
                       onPanUpdate: _handlePanUpdate,
                       onPanEnd: _handlePanEnd,
                       onTap: () {}, // 点击主体不触发关闭，防止误触
-                      child: Material(
-                        elevation: 6,
-                        color: bg,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16.0,
-                            vertical: 12.0,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Expanded(
-                                child: DefaultTextStyle(
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: colorScheme.onSecondaryContainer,
-                                      ) ??
-                                      const TextStyle(),
-                                  child: widget.content,
-                                ),
-                              ),
-                              if (widget.action != null) ...[
-                                const SizedBox(width: 8),
-                                TextButton(
-                                  onPressed: () {
-                                    widget.action!.onPressed();
-                                    dismiss();
-                                  },
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                    minimumSize: const Size(0, 32),
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    foregroundColor: widget.action!.textColor,
-                                  ),
-                                  child: Text(widget.action!.label),
-                                ),
-                              ],
-                              if (widget.showCloseIcon) ...[
-                                const SizedBox(width: 4),
-                                InkWell(
-                                  onTap: () => dismiss(),
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(4.0),
-                                    child: Icon(Icons.close, size: 18),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
+                      child: TopNoticeCard(
+                        content: widget.content,
+                        backgroundColor: widget.backgroundColor,
+                        action: widget.action,
+                        onAction: dismiss,
+                        showCloseIcon: widget.showCloseIcon,
+                        onClose: dismiss,
                       ),
                     ),
                   ),
