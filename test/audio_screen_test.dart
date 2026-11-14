@@ -596,8 +596,7 @@ void main() {
         expect(tester.getTopLeft(header).dy, initialTop);
         final noticeRect = tester.getRect(notice);
         final headerRect = tester.getRect(header);
-        expect(noticeRect.top, lessThan(headerRect.bottom));
-        expect(noticeRect.bottom, greaterThan(headerRect.top));
+        expect(noticeRect.top, greaterThanOrEqualTo(headerRect.bottom));
         expect(
           tester.getRect(find.byType(FloatingActionButton)).top,
           greaterThan(noticeRect.bottom),
@@ -698,7 +697,7 @@ void main() {
       expect(container.read(audioSourceProvider), source);
       expect(
         tester.getRect(notice).top,
-        lessThan(
+        greaterThanOrEqualTo(
           tester
               .getRect(find.byKey(const ValueKey('library-page-header')))
               .bottom,
@@ -812,7 +811,7 @@ void main() {
     SnackBarUtil.showInfo(context, 'Global offline notification');
     await tester.pumpAndSettle();
     expect(find.text('Global offline notification'), findsOneWidget);
-    expect(find.text(message).hitTestable(), findsNothing);
+    expect(find.text(message).hitTestable(), findsOneWidget);
     SnackBarUtil.clearAll();
     await tester.pumpAndSettle();
     expect(find.text('Global offline notification'), findsNothing);

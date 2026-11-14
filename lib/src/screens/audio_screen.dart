@@ -1108,11 +1108,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         source == AudioSource.asmrOne &&
         auth.currentUser != null;
     final sourceFailed =
-        !offline &&
-        !retryingOffline &&
-        !worksLoading &&
-        worksError != null &&
-        !worksError.startsWith('[');
+        !offline && !retryingOffline && !worksLoading && worksError != null;
     if (!offline && !retryingOffline && !sourceFailed) {
       return null;
     }
@@ -1130,9 +1126,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     return Visibility(
       visible: visible,
       maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
       child: SafeArea(
+        top: false,
         bottom: false,
-        minimum: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Center(
           heightFactor: 1,
           child: ConstrainedBox(
